@@ -45,6 +45,149 @@ impl Ui for WinUi {
 ///
 /// The struct that implements this is the page's state. Nothing above it ever
 /// names its `Message`, so adding a page costs no edit anywhere else.
+///
+/// Each part has one job:
+///
+/// - [`install`](Page::install) sets up what the page needs while it is
+///   mounted - the features listed in [`Installs`](Page::Installs). They live
+///   in the page's scope and go when the page is left.
+/// - [`init`](Page::init) builds the node, when `Default` is not the start.
+/// - [`update`](Page::update) is the only place the page's own state changes,
+///   one [`Message`](Page::Message) at a time.
+/// - [`view`](Page::view) draws that state. It reads what features publish
+///   with [`use_reducer`](PageCx::use_reducer), turns a widget's event into a
+///   message with [`on`](PageCx::on), and asks a feature for something with
+///   `emit` on the dispatch it was handed.
+///
+/// `#[page]` writes what a page leaves out: `Params = ()` for a page that
+/// captures nothing, `Installs = ()` with its empty `install`, and a
+/// `Message` nobody can send with its empty `update`. The smallest page is a
+/// view:
+///
+/// ```
+/// use guinea_winui::{Page, PageCx, page};
+/// use windows_reactor::{TextBlock, View};
+///
+/// #[derive(Default)]
+/// struct About;
+///
+/// #[page]
+/// impl Page for About {
+///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+///         TextBlock::new().text("guinea").into()
+///     }
+/// }
+/// ```
+///
+/// A whole one. The feature keeps a count and adds to it when asked; the page
+/// shows the count, keeps a step of its own, and asks for the step to be
+/// added:
+///
+/// ```
+/// # use guinea_app::feature::Segment;
+/// # use guinea_core::scope::Reducer;
+/// # use guinea_macros::{feature, installs};
+/// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+/// use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+///
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Count(pub u32);
+///
+/// impl Reducer for Count {
+///     type Update = u32;
+///
+///     fn reduce(&mut self, by: u32) {
+///         self.0 += by;
+///     }
+/// }
+///
+/// /// What the page asks the feature for.
+/// pub struct Add(pub u32);
+///
+/// feature! {
+///     pub Counter {
+///         exports { Count }
+///     }
+/// }
+///
+/// #[installs]
+/// fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+///     let count = cx.state::<Count>().plain();
+///
+///     let adding = count.clone();
+///     cx.answers(move |Add(by): Add| adding.push(by));
+///
+///     Ok(Counter(count))
+/// }
+///
+/// pub struct CounterPage {
+///     step: u32,
+/// }
+///
+/// impl Default for CounterPage {
+///     fn default() -> Self {
+///         Self { step: 1 }
+///     }
+/// }
+///
+/// pub enum Msg {
+///     Bigger,
+/// }
+///
+/// #[page]
+/// impl Page for CounterPage {
+///     type Installs = Counter;
+///     type Message = Msg;
+///
+///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Counter> {
+///         ctx.install(&())
+///     }
+///
+///     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
+///         match message {
+///             Msg::Bigger => self.step += 1,
+///         }
+///     }
+///
+///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///         let (count, dispatch) = cx.use_reducer::<Count, _>();
+///         let step = self.step;
+///
+///         StackPanel::new()
+///             .children((
+///                 TextBlock::new().text(format!("{} by {step}", count.0)),
+///                 Button::new()
+///                     .on_click(move || dispatch.emit(Add(step)))
+///                     .content(TextBlock::new().text("Add")),
+///                 Button::new()
+///                     .on_click(cx.on(|()| Msg::Bigger))
+///                     .content(TextBlock::new().text("Bigger")),
+///             ))
+///             .into()
+///     }
+/// }
+///
+/// // `routes!` writes where each segment sits; this page stands alone.
+/// impl Segment for CounterPage {
+///     type Installs = Counter;
+///     type Above = ();
+/// }
+///
+/// // Under test it mounts with no window, in a harness that runs what it
+/// // sets off in a seeded order - `harness::Mounted`, behind the `harness`
+/// // feature. `#[guinea::test]` is this `check` as an attribute.
+/// #[cfg(feature = "harness")]
+/// guinea_app::app::check(4, |h| {
+///     let mut page = guinea_winui::harness::Mounted::<CounterPage>::mount(&h.segment(), ())
+///         .unwrap();
+///
+///     page.click_text("Bigger").settle();
+///     page.click_text("Add").settle();
+///     page.settle();
+///
+///     assert!(page.find_text("2 by 2").is_some(), "{:#?}", page.tree());
+/// });
+/// ```
 pub trait Page: Default + Sized + 'static {
     /// When `true`, the router keeps this page's reducer states in memory
     /// while the page is not mounted. The page's scope (and therefore its
@@ -108,6 +251,194 @@ pub trait Page: Default + Sized + 'static {
 }
 
 /// A branch: an Elm node that also decides where its child goes.
+///
+/// Everything a [`Page`] is, plus two things only a branch has:
+///
+/// - [`outlet`](LayoutCx::outlet) is the segment below, for the view to place
+///   wherever it wants - beside a sidebar, under a tab strip.
+/// - What it installs outlives the pages under it. A feature a layout
+///   installs is there for every page below and stays while they come and go,
+///   and whatever it lists in `Exports` those pages may read.
+///
+/// `Params` is not the layout's to choose: `routes!` hands it what every page
+/// below was reached with. `#[layout]` writes the rest a layout leaves out,
+/// the same as `#[page]`.
+///
+/// A shell with a sidebar it can close, and a tab it marks while its page is
+/// the one showing:
+///
+/// ```
+/// # use guinea_app::feature::Segment;
+/// # use guinea_core::feature::Bound;
+/// # use guinea_core::scope::Reducer;
+/// # use guinea_macros::{feature, installs};
+/// use guinea_winui::{
+///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
+/// };
+/// use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+///
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Sidebar {
+///     pub open: bool,
+/// }
+///
+/// impl Reducer for Sidebar {
+///     type Update = bool;
+///
+///     fn reduce(&mut self, open: bool) {
+///         self.open = open;
+///     }
+/// }
+///
+/// pub struct SetOpen(pub bool);
+///
+/// feature! {
+///     pub Chrome {
+///         exports { Sidebar }
+///     }
+/// }
+///
+/// #[installs]
+/// fn chrome(cx: &FeatureInitContext) -> anyhow::Result<Chrome> {
+///     let sidebar = cx.state::<Sidebar>().seed(Sidebar { open: true }).plain();
+///
+///     let setting = sidebar.clone();
+///     cx.answers(move |SetOpen(open): SetOpen| setting.push(open));
+///
+///     Ok(Chrome(sidebar))
+/// }
+///
+/// /// State the shell keeps itself, with no feature around it.
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Title(pub String);
+///
+/// impl Reducer for Title {
+///     type Update = String;
+///
+///     fn reduce(&mut self, title: String) {
+///         self.0 = title;
+///     }
+/// }
+///
+/// #[derive(Default)]
+/// pub struct Home;
+///
+/// #[page]
+/// impl Page for Home {
+///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///         // Installed by the shell above, and readable here because `Chrome`
+///         // exports it. A page outside the shell asking for it does not
+///         // compile.
+///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+///         let width = if sidebar.open { "narrow" } else { "wide" };
+///
+///         TextBlock::new().text(format!("home, {width}")).into()
+///     }
+/// }
+///
+/// #[derive(Default)]
+/// pub struct Shell;
+///
+/// pub enum ShellMsg {
+///     Toggle,
+/// }
+///
+/// #[layout]
+/// impl Layout for Shell {
+///     type Params = ();
+///     /// A flat list: a feature, and a reducer claimed directly. Pages below
+///     /// may read `Sidebar`, which `Chrome` exports, and `Title`.
+///     type Installs = (Chrome, Bound<Title>);
+///     type Message = ShellMsg;
+///
+///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self::Installs> {
+///         let title = ctx.state::<Title>().seed(Title("guinea".into())).plain();
+///         Ok((ctx.install(&())?, title))
+///     }
+///
+///     fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
+///         match message {
+///             ShellMsg::Toggle => {
+///                 let (sidebar, dispatch) = cx.state::<Sidebar, _>();
+///                 dispatch.emit(SetOpen(!sidebar.open));
+///             }
+///         }
+///     }
+///
+///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+///         let (title, _) = cx.use_reducer::<Title, _>();
+///
+///         let tab = if cx.child_is::<Home>() { "> Home" } else { "Home" };
+///         let side: View = if sidebar.open {
+///             TextBlock::new().text(tab).into()
+///         } else {
+///             View::empty()
+///         };
+///
+///         StackPanel::new()
+///             .children((
+///                 TextBlock::new().text(title.0.clone()),
+///                 Button::new()
+///                     .on_click(cx.on(|()| ShellMsg::Toggle))
+///                     .content(TextBlock::new().text("Menu")),
+///                 side,
+///                 cx.outlet(),
+///             ))
+///             .into()
+///     }
+/// }
+///
+/// // Where each segment sits, which is what `routes!` writes.
+/// impl Segment for Shell {
+///     type Installs = <Shell as Layout>::Installs;
+///     type Above = ();
+/// }
+///
+/// impl Segment for Home {
+///     type Installs = ();
+///     type Above = (Shell, ());
+/// }
+/// ```
+///
+/// Nothing reaches up past what is above it. A page that no layout above
+/// installed `Sidebar` for does not compile at the read:
+///
+/// ```compile_fail,E0277
+/// # use guinea_app::feature::Segment;
+/// # use guinea_core::scope::Reducer;
+/// use guinea_winui::{Page, PageCx, page};
+/// use windows_reactor::{TextBlock, View};
+///
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Sidebar {
+///     pub open: bool,
+/// }
+///
+/// impl Reducer for Sidebar {
+///     type Update = bool;
+///
+///     fn reduce(&mut self, open: bool) {
+///         self.open = open;
+///     }
+/// }
+///
+/// #[derive(Default)]
+/// pub struct Settings;
+///
+/// #[page]
+/// impl Page for Settings {
+///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+///         TextBlock::new().text(format!("{}", sidebar.open)).into()
+///     }
+/// }
+///
+/// impl Segment for Settings {
+///     type Installs = ();
+///     type Above = ();
+/// }
+/// ```
 pub trait Layout: Default + Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;

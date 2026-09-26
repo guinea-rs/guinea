@@ -182,40 +182,32 @@ impl Exported for () {
     }
 }
 
-impl<A: Reducer> Exported for (A,) {
-    fn mark(scope: &Scope) {
-        scope.note_export::<A>();
-    }
+macro_rules! exported {
+    ($($reducer:ident),+) => {
+        impl<$($reducer: Reducer),+> Exported for ($($reducer,)+) {
+            fn mark(scope: &Scope) {
+                $(scope.note_export::<$reducer>();)+
+            }
 
-    fn unclaimed(scope: &Scope) -> Option<&'static str> {
-        missing::<A>(scope)
-    }
+            fn unclaimed(scope: &Scope) -> Option<&'static str> {
+                None$(.or_else(|| missing::<$reducer>(scope)))+
+            }
+        }
+    };
 }
 
-impl<A: Reducer, B: Reducer> Exported for (A, B) {
-    fn mark(scope: &Scope) {
-        scope.note_export::<A>();
-        scope.note_export::<B>();
-    }
-
-    fn unclaimed(scope: &Scope) -> Option<&'static str> {
-        missing::<A>(scope).or_else(|| missing::<B>(scope))
-    }
-}
-
-impl<A: Reducer, B: Reducer, C: Reducer> Exported for (A, B, C) {
-    fn mark(scope: &Scope) {
-        scope.note_export::<A>();
-        scope.note_export::<B>();
-        scope.note_export::<C>();
-    }
-
-    fn unclaimed(scope: &Scope) -> Option<&'static str> {
-        missing::<A>(scope)
-            .or_else(|| missing::<B>(scope))
-            .or_else(|| missing::<C>(scope))
-    }
-}
+exported!(A);
+exported!(A, B);
+exported!(A, B, C);
+exported!(A, B, C, D);
+exported!(A, B, C, D, E);
+exported!(A, B, C, D, E, F);
+exported!(A, B, C, D, E, F, G);
+exported!(A, B, C, D, E, F, G, H);
+exported!(A, B, C, D, E, F, G, H, I);
+exported!(A, B, C, D, E, F, G, H, I, J);
+exported!(A, B, C, D, E, F, G, H, I, J, K);
+exported!(A, B, C, D, E, F, G, H, I, J, K, L);
 
 /// A domain that answers actions through an actor.
 ///

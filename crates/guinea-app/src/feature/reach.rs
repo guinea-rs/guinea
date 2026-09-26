@@ -39,17 +39,11 @@ pub trait Segment: 'static {
 pub struct Here;
 pub struct There<I>(PhantomData<I>);
 
+/// The element of a tuple that matched, at the position `I` counts to.
+pub struct At<I>(PhantomData<I>);
+
 /// Membership in a feature's `Exports`.
 pub trait Lists<R, I> {}
-
-impl<A> Lists<A, Here> for (A,) {}
-
-impl<A, B> Lists<A, Here> for (A, B) {}
-impl<A, B> Lists<B, There<Here>> for (A, B) {}
-
-impl<A, B, C> Lists<A, Here> for (A, B, C) {}
-impl<A, B, C> Lists<B, There<Here>> for (A, B, C) {}
-impl<A, B, C> Lists<C, There<There<Here>>> for (A, B, C) {}
 
 /// What a segment's `Installs` publishes: one feature, a reducer it claimed
 /// directly, or a tuple of either.
@@ -60,16 +54,63 @@ pub trait Provides<R, I> {}
 
 impl<F: Feature, R, I> Provides<R, (Here, I)> for F where F::Exports: Lists<R, I> {}
 
-impl<A, B, R, I> Provides<R, (There<Here>, I)> for (A, B) where A: Provides<R, I> {}
-impl<A, B, R, I> Provides<R, (There<There<Here>>, I)> for (A, B) where B: Provides<R, I> {}
-
 /// A reducer the segment claimed itself, without a feature between.
 ///
 /// `cx.state::<R>()` already hands back a [`Bound<R>`], so declaring it costs
 /// a segment nothing it was not already holding - and a claim that goes
 /// undeclared is exactly a claim nothing below can see, which is what the
 /// declaration is for.
-impl<R: Reducer> Provides<R, (There<There<There<Here>>>, Here)> for Bound<R> {}
+impl<R: Reducer> Provides<R, (There<Here>, Here)> for Bound<R> {}
+
+type P0 = Here;
+type P1 = There<P0>;
+type P2 = There<P1>;
+type P3 = There<P2>;
+type P4 = There<P3>;
+type P5 = There<P4>;
+type P6 = There<P5>;
+type P7 = There<P6>;
+type P8 = There<P7>;
+type P9 = There<P8>;
+type P10 = There<P9>;
+type P11 = There<P10>;
+
+macro_rules! tuple {
+    ($all:tt; $($element:ident $position:ty),+) => {
+        $(tuple!(@element $all; $element $position);)+
+    };
+    (@element ($($all:ident),+); $element:ident $position:ty) => {
+        impl<$($all,)+> Lists<$element, $position> for ($($all,)+) {}
+
+        impl<$($all,)+ R, I> Provides<R, (At<$position>, I)> for ($($all,)+)
+        where
+            $element: Provides<R, I>
+        {
+        }
+    };
+}
+
+tuple!((A); A P0);
+tuple!((A, B); A P0, B P1);
+tuple!((A, B, C); A P0, B P1, C P2);
+tuple!((A, B, C, D); A P0, B P1, C P2, D P3);
+tuple!((A, B, C, D, E); A P0, B P1, C P2, D P3, E P4);
+tuple!((A, B, C, D, E, F); A P0, B P1, C P2, D P3, E P4, F P5);
+tuple!((A, B, C, D, E, F, G); A P0, B P1, C P2, D P3, E P4, F P5, G P6);
+tuple!((A, B, C, D, E, F, G, H); A P0, B P1, C P2, D P3, E P4, F P5, G P6, H P7);
+tuple!((A, B, C, D, E, F, G, H, J); A P0, B P1, C P2, D P3, E P4, F P5, G P6, H P7, J P8);
+tuple!(
+    (A, B, C, D, E, F, G, H, J, K);
+    A P0, B P1, C P2, D P3, E P4, F P5, G P6, H P7, J P8, K P9
+);
+tuple!(
+    (A, B, C, D, E, F, G, H, J, K, L);
+    A P0, B P1, C P2, D P3, E P4, F P5, G P6, H P7, J P8, K P9, L P10
+);
+tuple!(
+    (A, B, C, D, E, F, G, H, J, K, L, M);
+    A P0, B P1, C P2, D P3, E P4, F P5, G P6, H P7, J P8, K P9, L P10, M P11
+);
 
 /// Proof that a segment may read `R`: it installed the feature that exports
 /// it, or a segment above it did.

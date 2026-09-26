@@ -232,6 +232,99 @@ fn a_page_cannot_read_what_its_layout_kept_to_itself() {
     // checked - a test that does not compile is not a test.
 }
 
+#[derive(Default, Clone, Debug)]
+struct Slot<const N: usize>(u32);
+
+impl<const N: usize> Reducer for Slot<N> {
+    type Update = u32;
+
+    fn reduce(&mut self, to: u32) {
+        self.0 = to;
+    }
+}
+
+struct Only<const N: usize>;
+
+impl<const N: usize> Feature for Only<N> {
+    type Params = ();
+    type Exports = (Slot<N>,);
+
+    fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        cx.state::<Slot<N>>().seed(Slot(N as u32)).plain();
+        Ok(Self)
+    }
+}
+
+struct Wide;
+
+impl Feature for Wide {
+    type Params = ();
+    type Exports = (Slot<10>, Slot<11>, Slot<12>, Slot<13>);
+
+    fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        cx.state::<Slot<10>>().seed(Slot(10)).plain();
+        cx.state::<Slot<11>>().seed(Slot(11)).plain();
+        cx.state::<Slot<12>>().seed(Slot(12)).plain();
+        cx.state::<Slot<13>>().seed(Slot(13)).plain();
+        Ok(Self)
+    }
+}
+
+struct Crowded;
+
+impl Layout for Crowded {
+    type Params = ();
+    type Installs = (Only<1>, Only<2>, Wide, Only<3>);
+
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self::Installs> {
+        Ok((
+            ctx.install(&())?,
+            ctx.install(&())?,
+            ctx.install(&())?,
+            ctx.install(&())?,
+        ))
+    }
+
+    fn view(cx: &mut HeadlessCx<Self>) {
+        cx.outlet();
+    }
+}
+
+struct Beneath;
+
+impl Page for Beneath {
+    type Params = ();
+    type Installs = ();
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn view(cx: &mut HeadlessCx<Self>) {
+        assert_eq!(cx.state::<Slot<1>, _>().0.0, 1);
+        assert_eq!(cx.state::<Slot<13>, _>().0.0, 13);
+        assert_eq!(cx.state::<Slot<3>, _>().0.0, 3);
+    }
+}
+
+impl Segment for Crowded {
+    type Installs = <Crowded as Layout>::Installs;
+    type Above = ();
+}
+
+impl Segment for Beneath {
+    type Installs = <Beneath as Page>::Installs;
+    type Above = (Crowded, ());
+}
+
+const CROWDED: [SegmentEntry<Headless>; 2] =
+    [layout_entry::<Crowded>(), segment_entry::<Beneath>()];
+
+#[test]
+fn installs_and_exports_are_flat_lists_of_any_length() {
+    mounted(&CROWDED).render(&());
+}
+
 #[test]
 fn a_segment_still_reads_whatever_it_claimed_itself() {
     // Unpublished does not mean unreadable - it means unreadable *from below*.

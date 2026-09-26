@@ -191,6 +191,14 @@ impl FeatureInitContext {
         self.services.get::<T>()
     }
 
+    /// What the application provided, or `T::default()` when it provided
+    /// nothing: for settings with a sensible default that an application may
+    /// override.
+    pub fn require_or_default<T: Clone + Default + Send + Sync + 'static>(&self) -> T {
+        self.try_require::<T>()
+            .map_or_else(T::default, |provided| T::clone(&provided))
+    }
+
     /// Reacts to what happens to `R`, wherever `R` lives.
     ///
     /// The coherence rule between two pieces of state that reference each

@@ -448,6 +448,24 @@ mod reports {
         assert_eq!(prefix.0, "proc-");
         Ok(Prefixed)
     }
+
+    /// A setting a feature has a default for and an application may override.
+    #[derive(Clone, Copy, Default, Debug, PartialEq)]
+    pub struct Limit(pub u32);
+
+    thread_local! {
+        pub static LIMITED_TO: std::cell::Cell<Option<Limit>> = const { std::cell::Cell::new(None) };
+    }
+
+    feature! {
+        pub Limited {}
+    }
+
+    #[installs]
+    fn limited(cx: &FeatureInitContext) -> anyhow::Result<Limited> {
+        LIMITED_TO.set(Some(cx.require_or_default::<Limit>()));
+        Ok(Limited)
+    }
 }
 
 #[guinea::test(iterations = 20)]
@@ -756,6 +774,19 @@ fn a_plugin_installed_into_the_harness_serves_its_features(h: &mut Harness) {
 fn a_service_provided_to_the_harness_serves_its_features(h: &mut Harness) {
     h.provide(reports::Prefix("proc-"));
     h.child().install::<reports::Prefixed>(&()).unwrap();
+}
+
+#[guinea::test(iterations = 2)]
+fn a_setting_nobody_provided_is_its_default(h: &mut Harness) {
+    h.child().install::<reports::Limited>(&()).unwrap();
+    assert_eq!(reports::LIMITED_TO.get(), Some(reports::Limit(0)));
+}
+
+#[guinea::test(iterations = 2)]
+fn a_setting_the_application_provided_is_what_it_provided(h: &mut Harness) {
+    h.provide(reports::Limit(7));
+    h.child().install::<reports::Limited>(&()).unwrap();
+    assert_eq!(reports::LIMITED_TO.get(), Some(reports::Limit(7)));
 }
 
 /// How many tests are inside the one thing a process has one of.

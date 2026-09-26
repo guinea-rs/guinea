@@ -193,18 +193,44 @@ pub trait Page: Default + Sized + 'static {
     /// while the page is not mounted. The page's scope (and therefore its
     /// actors) is still torn down, but when the user returns the UI will see
     /// the last cached state immediately instead of starting from defaults.
+    ///
+    /// Only when it comes back with the same [`Params`](Self::Params): a
+    /// different capture is a different page's state.
+    ///
+    /// ```
+    /// use guinea_winui::{Page, PageCx, page};
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(Default)]
+    /// struct Processes;
+    ///
+    /// #[page]
+    /// impl Page for Processes {
+    ///     // Back from another tab, the list is there at once rather than
+    ///     // empty until the next refresh arrives.
+    ///     const CACHE_STATE_IN_MEMORY: bool = true;
+    ///
+    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///         TextBlock::new().text("processes").into()
+    ///     }
+    /// }
+    /// ```
     const CACHE_STATE_IN_MEMORY: bool = false;
 
-    /// Where `impl Page` was written. `#[segment]` fills it in; an impl
-    /// without it loses only the source link.
+    /// Where `impl Page` was written, for devtools to link to. `#[page]`
+    /// fills it in; an impl without it loses only the source link.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
     /// What this page captured from the route, named by `routes!`. `()` for a
-    /// page that captures nothing.
+    /// page that captures nothing, which `#[page]` writes when it is left out.
     ///
     /// `PartialEq` because the router's one question about a capture is
     /// whether it is still the same one - which decides what reinstalls and
     /// which cached state may come back.
+    ///
+    /// A page sees its capture twice: in [`install`](Self::install), for what
+    /// the features need, and in [`init`](Self::init), for what the node
+    /// keeps. See `init` for an example.
     type Params: PartialEq + 'static;
 
     /// What this segment installs, and `()` when it installs nothing.
@@ -215,11 +241,116 @@ pub trait Page: Default + Sized + 'static {
     ///
     /// What is returned is owned by the segment's scope, which is what gives a
     /// feature its own lifetime.
+    ///
+    /// One feature, a reducer claimed directly as `Bound<R>`, or a flat tuple
+    /// of up to twelve of either. It is also what the page may read: what it
+    /// installed itself, and what a segment above listed in `Exports`. See
+    /// [`install`](Self::install) for an example.
     type Installs: 'static;
 
     /// This page's own events. An enum, and nobody else's business.
+    ///
+    /// Made from a widget's event by [`PageCx::on`], and handled in
+    /// [`update`](Self::update). A page with nothing to handle leaves it out,
+    /// and `#[page]` writes one that cannot be sent along with the empty
+    /// `update`.
     type Message: 'static;
 
+    /// Installs what the page needs while it is mounted, and returns it as
+    /// [`Installs`](Self::Installs).
+    ///
+    /// Runs on every mount, before [`init`](Self::init), in the page's own
+    /// scope: what it installs goes when the page is left. Everything an
+    /// effect needs exactly once per mount belongs here - a first `Refresh`
+    /// emitted to a feature, say.
+    ///
+    /// ```
+    /// # use guinea_app::feature::Segment;
+    /// # use guinea_core::feature::Bound;
+    /// # use guinea_core::scope::Reducer;
+    /// # use guinea_macros::{feature, installs};
+    /// use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(Default, Clone, PartialEq, Debug)]
+    /// pub struct Listing(pub String);
+    ///
+    /// impl Reducer for Listing {
+    ///     type Update = String;
+    ///
+    ///     fn reduce(&mut self, to: String) {
+    ///         self.0 = to;
+    ///     }
+    /// }
+    ///
+    /// /// Which row is selected: the page's own, with no feature around it.
+    /// #[derive(Default, Clone, PartialEq, Debug)]
+    /// pub struct Selection(pub Option<u32>);
+    ///
+    /// impl Reducer for Selection {
+    ///     type Update = Option<u32>;
+    ///
+    ///     fn reduce(&mut self, to: Option<u32>) {
+    ///         self.0 = to;
+    ///     }
+    /// }
+    ///
+    /// feature! {
+    ///     pub Processes {
+    ///         exports { Listing }
+    ///     }
+    /// }
+    ///
+    /// /// A feature with parameters: which machine to list.
+    /// #[installs]
+    /// fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Processes> {
+    ///     let listing = cx.state::<Listing>().plain();
+    ///     listing.push(format!("processes on {context}"));
+    ///     Ok(Processes(listing))
+    /// }
+    ///
+    /// #[derive(PartialEq)]
+    /// pub struct ProcessesParams {
+    ///     pub context: String,
+    /// }
+    ///
+    /// #[derive(Default)]
+    /// pub struct ProcessesPage;
+    ///
+    /// #[page]
+    /// impl Page for ProcessesPage {
+    ///     type Params = ProcessesParams;
+    ///     type Installs = (Processes, Bound<Selection>);
+    ///
+    ///     fn install(
+    ///         ctx: &FeatureInitContext,
+    ///         params: &ProcessesParams,
+    ///     ) -> anyhow::Result<Self::Installs> {
+    ///         let processes = ctx.install::<Processes>(&params.context)?;
+    ///         let selection = ctx.state::<Selection>().plain();
+    ///         Ok((processes, selection))
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///         let (listing, _) = cx.use_reducer::<Listing, _>();
+    ///         TextBlock::new().text(listing.0.clone()).into()
+    ///     }
+    /// }
+    /// #
+    /// # impl Segment for ProcessesPage {
+    /// #     type Installs = <ProcessesPage as Page>::Installs;
+    /// #     type Above = ();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "harness")]
+    /// # guinea_app::app::check(2, |h| {
+    /// #     let params = ProcessesParams { context: "ubuntu".into() };
+    /// #     let mut page = guinea_winui::harness::Mounted::<ProcessesPage>::mount(&h.segment(), params)
+    /// #         .unwrap();
+    /// #     page.settle();
+    /// #     assert!(page.find_text("processes on ubuntu").is_some(), "{:#?}", page.tree());
+    /// # });
+    /// ```
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
     /// The node it starts as, when `Default` is not it.
@@ -227,6 +358,53 @@ pub trait Page: Default + Sized + 'static {
     /// A constructor, not an effect: it runs on every install, and anything
     /// that must happen exactly once per mount belongs in
     /// [`install`](Self::install).
+    ///
+    /// Where a page keeps what it was reached with, since `view` is not
+    /// handed the capture:
+    ///
+    /// ```
+    /// # use guinea_app::feature::Segment;
+    /// use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(PartialEq)]
+    /// pub struct ProcessParams {
+    ///     pub pid: u32,
+    /// }
+    ///
+    /// #[derive(Default)]
+    /// pub struct ProcessPage {
+    ///     pid: u32,
+    /// }
+    ///
+    /// #[page]
+    /// impl Page for ProcessPage {
+    ///     type Params = ProcessParams;
+    ///
+    ///     fn init(_ctx: &FeatureInitContext, params: &ProcessParams) -> Self {
+    ///         Self { pid: params.pid }
+    ///     }
+    ///
+    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///         TextBlock::new().text(format!("process {}", self.pid)).into()
+    ///     }
+    /// }
+    /// #
+    /// # impl Segment for ProcessPage {
+    /// #     type Installs = ();
+    /// #     type Above = ();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "harness")]
+    /// # guinea_app::app::check(2, |h| {
+    /// #     let page = guinea_winui::harness::Mounted::<ProcessPage>::mount(
+    /// #         &h.segment(),
+    /// #         ProcessParams { pid: 42 },
+    /// #     )
+    /// #     .unwrap();
+    /// #     assert!(page.find_text("process 42").is_some(), "{:#?}", page.tree());
+    /// # });
+    /// ```
     fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
         Self::default()
     }
@@ -236,17 +414,203 @@ pub trait Page: Default + Sized + 'static {
     /// The asymmetry with entering is the whole reason it is a method here: on
     /// the way out the node exists, so it can say whether it minds - which is
     /// what "unsaved changes" is. On the way in there is nothing to ask.
+    ///
+    /// [`Verdict::Allow`] lets the navigation through, [`Verdict::Block`]
+    /// stays, and [`Verdict::ask`] puts a question to the user and waits for
+    /// the answer:
+    ///
+    /// ```
+    /// use guinea_winui::{Ask, Page, PageCx, Verdict, page};
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(Default)]
+    /// pub struct Editor {
+    ///     text: String,
+    ///     saved: String,
+    /// }
+    ///
+    /// #[page]
+    /// impl Page for Editor {
+    ///     fn leaving(&self) -> Verdict {
+    ///         if self.text == self.saved {
+    ///             Verdict::Allow
+    ///         } else {
+    ///             Verdict::ask(Ask::new("Discard the changes?", "Discard", "Stay"))
+    ///         }
+    ///     }
+    ///
+    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///         TextBlock::new().text(self.text.clone()).into()
+    ///     }
+    /// }
+    ///
+    /// let mut editor = Editor::default();
+    /// assert!(matches!(editor.leaving(), Verdict::Allow));
+    ///
+    /// editor.text = "draft".into();
+    /// assert!(matches!(editor.leaving(), Verdict::Ask(..)));
+    /// ```
     fn leaving(&self) -> Verdict {
         Verdict::Allow
     }
 
     /// The only place the node changes.
     ///
-    /// Effects are actions emitted to features - `cx.state::<R>().1.emit(..)` -
+    /// Effects are actions emitted to features - `cx.state::<R, _>().1.emit(..)` -
     /// rather than values returned from here: an effect that crosses a segment
     /// boundary is a domain's job, and one that does not is a state change.
+    ///
+    /// [`UpdateCx::state`] reads what the page may read, as the view does, but
+    /// without subscribing: `update` is a moment, and the view that follows
+    /// reads again.
+    ///
+    /// ```
+    /// # use guinea_app::feature::Segment;
+    /// # use guinea_core::scope::Reducer;
+    /// # use guinea_macros::{feature, installs};
+    /// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(Default, Clone, PartialEq, Debug)]
+    /// pub struct Results(pub String);
+    ///
+    /// impl Reducer for Results {
+    ///     type Update = String;
+    ///
+    ///     fn reduce(&mut self, to: String) {
+    ///         self.0 = to;
+    ///     }
+    /// }
+    ///
+    /// pub struct Search(pub String);
+    ///
+    /// feature! {
+    ///     pub Searching {
+    ///         exports { Results }
+    ///     }
+    /// }
+    ///
+    /// #[installs]
+    /// fn searching(cx: &FeatureInitContext) -> anyhow::Result<Searching> {
+    ///     let results = cx.state::<Results>().plain();
+    ///
+    ///     let answering = results.clone();
+    ///     cx.answers(move |Search(query): Search| answering.push(format!("found {query}")));
+    ///
+    ///     Ok(Searching(results))
+    /// }
+    ///
+    /// #[derive(Default)]
+    /// pub struct SearchPage {
+    ///     query: String,
+    /// }
+    ///
+    /// pub enum Msg {
+    ///     Typed(String),
+    ///     Submitted,
+    /// }
+    ///
+    /// #[page]
+    /// impl Page for SearchPage {
+    ///     type Installs = Searching;
+    ///     type Message = Msg;
+    ///
+    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Searching> {
+    ///         ctx.install(&())
+    ///     }
+    ///
+    ///     fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) {
+    ///         match message {
+    ///             Msg::Typed(text) => self.query = text,
+    ///             Msg::Submitted => {
+    ///                 let (_, search) = cx.state::<Results, _>();
+    ///                 search.emit(Search(self.query.clone()));
+    ///             }
+    ///         }
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///         let (results, _) = cx.use_reducer::<Results, _>();
+    ///         TextBlock::new().text(results.0.clone()).into()
+    ///     }
+    /// }
+    /// #
+    /// # impl Segment for SearchPage {
+    /// #     type Installs = Searching;
+    /// #     type Above = ();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "harness")]
+    /// # guinea_app::app::check(2, |h| {
+    /// #     let mut page = guinea_winui::harness::Mounted::<SearchPage>::mount(&h.segment(), ())
+    /// #         .unwrap();
+    /// #     page.send(Msg::Typed("gu".into()));
+    /// #     page.send(Msg::Submitted);
+    /// #     page.settle();
+    /// #     assert!(page.find_text("found gu").is_some(), "{:#?}", page.tree());
+    /// # });
+    /// ```
     fn update(&mut self, message: Self::Message, cx: &mut UpdateCx<'_, Self>);
 
+    /// Draws the page from its own state and from what it may read.
+    ///
+    /// Called again whenever the node changes and whenever a reducer it read
+    /// with [`use_reducer`](PageCx::use_reducer) does, so it holds nothing: a
+    /// value it needs later is either the node's or a reducer's.
+    ///
+    /// Three ways out of a view, and each is a callback handed to a widget:
+    /// [`on`](PageCx::on) makes the widget's event one of the page's own
+    /// messages, `dispatch.emit(..)` asks a feature for something, and
+    /// [`navigate`](PageCx::navigate) goes elsewhere.
+    ///
+    /// ```
+    /// # use guinea_app::feature::Segment;
+    /// use guinea_winui::{Page, PageCx, UpdateCx, page};
+    /// use windows_reactor::{ChildrenControl, StackPanel, TextBlock, TextBox, View};
+    ///
+    /// #[derive(Default)]
+    /// pub struct Greeting {
+    ///     name: String,
+    /// }
+    ///
+    /// pub enum Msg {
+    ///     Named(String),
+    /// }
+    ///
+    /// #[page]
+    /// impl Page for Greeting {
+    ///     type Message = Msg;
+    ///
+    ///     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
+    ///         match message {
+    ///             Msg::Named(name) => self.name = name,
+    ///         }
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///         StackPanel::new()
+    ///             .children((
+    ///                 TextBox::new().text(self.name.clone()).on_text_changed(cx.on(Msg::Named)),
+    ///                 TextBlock::new().text(format!("hello, {}", self.name)),
+    ///             ))
+    ///             .into()
+    ///     }
+    /// }
+    /// #
+    /// # impl Segment for Greeting {
+    /// #     type Installs = ();
+    /// #     type Above = ();
+    /// # }
+    /// #
+    /// # #[cfg(feature = "harness")]
+    /// # guinea_app::app::check(2, |h| {
+    /// #     let mut page = guinea_winui::harness::Mounted::<Greeting>::mount(&h.segment(), ())
+    /// #         .unwrap();
+    /// #     page.send(Msg::Named("guinea".into()));
+    /// #     page.settle();
+    /// #     assert!(page.find_text("hello, guinea").is_some(), "{:#?}", page.tree());
+    /// # });
+    /// ```
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View;
 }
 
@@ -446,26 +810,285 @@ pub trait Layout: Default + Sized + 'static {
     /// What every page under this layout carries, derived by `routes!` as the
     /// intersection of their parameters. A layout declares nothing; it is
     /// handed what all of its children were reached with.
+    ///
+    /// So it is named, not written: `type Params = crate::routes::ShellParams;`
+    /// for whatever `routes!` called it, and `()` when the pages below share
+    /// nothing. Unlike a page's, `#[layout]` does not default it - a layout
+    /// that forgot to name it would silently stop receiving what its pages
+    /// share.
+    ///
+    /// Moving between two pages that carry the same value keeps the layout,
+    /// and everything it installed, where it is; a different value installs
+    /// it again. That is what makes a feature per `context` right to install
+    /// here:
+    ///
+    /// ```
+    /// # use guinea_core::scope::Reducer;
+    /// # use guinea_macros::{feature, installs};
+    /// use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    /// use windows_reactor::View;
+    ///
+    /// # #[derive(Default, Clone, PartialEq, Debug)]
+    /// # pub struct Machine(pub String);
+    /// #
+    /// # impl Reducer for Machine {
+    /// #     type Update = String;
+    /// #
+    /// #     fn reduce(&mut self, to: String) {
+    /// #         self.0 = to;
+    /// #     }
+    /// # }
+    /// #
+    /// # feature! {
+    /// #     pub Connection {
+    /// #         exports { Machine }
+    /// #     }
+    /// # }
+    /// #
+    /// # #[installs]
+    /// # fn connection(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Connection> {
+    /// #     let machine = cx.state::<Machine>().plain();
+    /// #     machine.push(context.to_string());
+    /// #     Ok(Connection(machine))
+    /// # }
+    /// #
+    /// /// What `routes!` writes when every page below captures `context`.
+    /// #[derive(PartialEq)]
+    /// pub struct MachineParams {
+    ///     pub context: String,
+    /// }
+    ///
+    /// #[derive(Default)]
+    /// pub struct MachineLayout;
+    ///
+    /// #[layout]
+    /// impl Layout for MachineLayout {
+    ///     type Params = MachineParams;
+    ///     type Installs = Connection;
+    ///
+    ///     fn install(ctx: &FeatureInitContext, params: &MachineParams) -> anyhow::Result<Connection> {
+    ///         ctx.install::<Connection>(&params.context)
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///         cx.outlet()
+    ///     }
+    /// }
+    /// ```
     type Params: PartialEq + 'static;
 
     /// What this segment installs. See [`Page::Installs`].
+    ///
+    /// For a layout it is also what the pages below share: they come and go,
+    /// and what is installed here stays. Whatever its features list in
+    /// `Exports`, and every reducer claimed directly as `Bound<R>`, those
+    /// pages may read.
     type Installs: 'static;
 
+    /// This layout's own events. See [`Page::Message`].
     type Message: 'static;
 
+    /// Installs what the layout, and every page under it, needs while it is
+    /// mounted. See [`Page::install`].
+    ///
+    /// ```
+    /// # use guinea_core::feature::Bound;
+    /// # use guinea_core::scope::Reducer;
+    /// # use guinea_macros::{feature, installs};
+    /// use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    /// use windows_reactor::View;
+    ///
+    /// # #[derive(Default, Clone, PartialEq, Debug)]
+    /// # pub struct Sidebar(pub bool);
+    /// #
+    /// # impl Reducer for Sidebar {
+    /// #     type Update = bool;
+    /// #
+    /// #     fn reduce(&mut self, open: bool) {
+    /// #         self.0 = open;
+    /// #     }
+    /// # }
+    /// #
+    /// # #[derive(Default, Clone, PartialEq, Debug)]
+    /// # pub struct Metrics(pub u32);
+    /// #
+    /// # impl Reducer for Metrics {
+    /// #     type Update = u32;
+    /// #
+    /// #     fn reduce(&mut self, to: u32) {
+    /// #         self.0 = to;
+    /// #     }
+    /// # }
+    /// #
+    /// # #[derive(Default, Clone, PartialEq, Debug)]
+    /// # pub struct Title(pub String);
+    /// #
+    /// # impl Reducer for Title {
+    /// #     type Update = String;
+    /// #
+    /// #     fn reduce(&mut self, to: String) {
+    /// #         self.0 = to;
+    /// #     }
+    /// # }
+    /// #
+    /// # feature! { pub SidebarFeature { exports { Sidebar } } }
+    /// # feature! { pub MetricsFeature { exports { Metrics } } }
+    /// #
+    /// # #[installs]
+    /// # fn sidebar(cx: &FeatureInitContext) -> anyhow::Result<SidebarFeature> {
+    /// #     Ok(SidebarFeature(cx.state::<Sidebar>().plain()))
+    /// # }
+    /// #
+    /// # #[installs]
+    /// # fn metrics(cx: &FeatureInitContext) -> anyhow::Result<MetricsFeature> {
+    /// #     Ok(MetricsFeature(cx.state::<Metrics>().plain()))
+    /// # }
+    /// #
+    /// /// How often metrics refresh, when the application does not say.
+    /// #[derive(Clone, Default)]
+    /// pub struct Refresh {
+    ///     pub every_ms: u64,
+    /// }
+    ///
+    /// #[derive(Default)]
+    /// pub struct Shell;
+    ///
+    /// #[layout]
+    /// impl Layout for Shell {
+    ///     type Params = ();
+    ///     type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
+    ///
+    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self::Installs> {
+    ///         // A setting the application may `provide`, and a default when
+    ///         // it does not.
+    ///         let refresh = ctx.require_or_default::<Refresh>();
+    ///         let title = ctx.state::<Title>().seed(Title(format!("every {} ms", refresh.every_ms)));
+    ///
+    ///         Ok((ctx.install(&())?, ctx.install(&())?, title.plain()))
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///         cx.outlet()
+    ///     }
+    /// }
+    /// ```
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
+    /// The node it starts as, when `Default` is not it. See [`Page::init`].
+    ///
+    /// Runs when the layout is installed, which is not every navigation: a
+    /// move between two of its pages keeps the node, and what the layout
+    /// holds survives it.
     fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
         Self::default()
     }
 
     /// Asked before this layout is left. See [`Page::leaving`].
+    ///
+    /// Only when the layout itself goes - left, or installed again because
+    /// what its pages share changed. Moving between two of its pages that
+    /// share the same value asks the page, not the layout; when both would go,
+    /// the page speaks first. A wizard that minds being abandoned halfway,
+    /// whichever step it is on:
+    ///
+    /// ```
+    /// use guinea_winui::{Ask, Layout, LayoutCx, Verdict, layout};
+    /// use windows_reactor::View;
+    ///
+    /// #[derive(Default)]
+    /// pub struct Wizard {
+    ///     step: u32,
+    ///     finished: bool,
+    /// }
+    ///
+    /// #[layout]
+    /// impl Layout for Wizard {
+    ///     type Params = ();
+    ///
+    ///     fn leaving(&self) -> Verdict {
+    ///         if self.step == 0 || self.finished {
+    ///             Verdict::Allow
+    ///         } else {
+    ///             Verdict::ask(Ask::new("Abandon the setup?", "Abandon", "Continue"))
+    ///         }
+    ///     }
+    ///
+    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///         cx.outlet()
+    ///     }
+    /// }
+    ///
+    /// let mut wizard = Wizard::default();
+    /// assert!(matches!(wizard.leaving(), Verdict::Allow));
+    ///
+    /// wizard.step = 2;
+    /// assert!(matches!(wizard.leaving(), Verdict::Ask(..)));
+    /// ```
     fn leaving(&self) -> Verdict {
         Verdict::Allow
     }
 
+    /// The only place the node changes. See [`Page::update`].
+    ///
+    /// A layout reads what it installed itself, and what a layout above it
+    /// exports - not what the page below it installed.
     fn update(&mut self, message: Self::Message, cx: &mut UpdateCx<'_, Self>);
 
+    /// Draws the layout around [`outlet`](LayoutCx::outlet), the segment
+    /// below. See [`Page::view`].
+    ///
+    /// The outlet is a value like any other view: placed once, beside or
+    /// under whatever the layout draws itself, and left out for a layout that
+    /// hides its content. [`child_is`](LayoutCx::child_is) says which page it
+    /// is, for a tab strip that marks the current tab without keeping a copy
+    /// of the route:
+    ///
+    /// ```
+    /// use guinea_winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+    /// use windows_reactor::{ChildrenControl, StackPanel, TextBlock, View};
+    ///
+    /// # #[derive(Default)]
+    /// # pub struct Processes;
+    /// #
+    /// # #[page]
+    /// # impl Page for Processes {
+    /// #     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    /// #         TextBlock::new().text("processes").into()
+    /// #     }
+    /// # }
+    /// #
+    /// # #[derive(Default)]
+    /// # pub struct Services;
+    /// #
+    /// # #[page]
+    /// # impl Page for Services {
+    /// #     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    /// #         TextBlock::new().text("services").into()
+    /// #     }
+    /// # }
+    /// #
+    /// #[derive(Default)]
+    /// pub struct Tabs;
+    ///
+    /// #[layout]
+    /// impl Layout for Tabs {
+    ///     type Params = ();
+    ///
+    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///         let tab = |name: &str, current: bool| {
+    ///             TextBlock::new().text(if current { format!("[{name}]") } else { name.to_string() })
+    ///         };
+    ///
+    ///         StackPanel::new()
+    ///             .children((
+    ///                 tab("Processes", cx.child_is::<Processes>()),
+    ///                 tab("Services", cx.child_is::<Services>()),
+    ///                 cx.outlet(),
+    ///             ))
+    ///             .into()
+    ///     }
+    /// }
+    /// ```
     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View;
 }
 

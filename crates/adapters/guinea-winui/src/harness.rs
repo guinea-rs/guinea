@@ -19,7 +19,9 @@ use guinea_app::app::{Act, Harness, Segment};
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::mark::Mark;
 use guinea_core::scope::Scope;
-use guinea_router::router::{Mount, SegmentEntry, SegmentProps};
+use guinea_router::router::{
+    Mount, NavigateHandle, RouteChain, RouteSink, SegmentEntry, SegmentProps,
+};
 use windows_reactor::test::{
     Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
 };
@@ -30,7 +32,7 @@ pub use windows_reactor::test::{NodeId, PropertyId, PropertyValue};
 use crate::mark::MarkExt;
 use crate::winui::{
     Layout, LayoutNode, Page, PageNode, Signal, WinUi, install_layout, install_page,
-    layout_entry, segment_entry,
+    layout_entry, nav_context, route_context, segment_entry,
 };
 
 /// How many component turns one pass may run before it looks again.
@@ -248,6 +250,9 @@ pub struct Mounted<'h, S> {
     realized: HashMap<(NodeId, usize), NodeId>,
     /// How many items each list holds, as it last said.
     counts: HashMap<NodeId, usize>,
+    /// Where it asked to go, when mounted [at a route](Self::mount_at): an
+    /// `Rc<RefCell<Vec<R>>>` for that route type.
+    navigated: Option<Box<dyn Any>>,
     segment: PhantomData<S>,
 }
 
@@ -304,11 +309,58 @@ impl<'h, S: 'static> Mounted<'h, S> {
             pump,
             realized: HashMap::new(),
             counts: HashMap::new(),
+            navigated: None,
             segment: PhantomData,
         };
         mounted.settle();
 
         Ok(mounted)
+    }
+
+    /// [`mount`](Self::mount), with `route` as where the application is: what
+    /// `use_route::<R>()` returns. `use_navigate::<R>()` moves nothing - where
+    /// it was asked to go is kept for [`navigated`](Self::navigated), and the
+    /// route `use_route` returns stays `route`.
+    pub fn mount_at<K, R>(
+        segment: &Segment<'h>,
+        params: <S as Mountable<K>>::Params,
+        route: R,
+    ) -> anyhow::Result<Self>
+    where
+        S: Mountable<K>,
+        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+    {
+        let navigated: Rc<RefCell<Vec<R>>> = Rc::default();
+
+        let asked = navigated.clone();
+        let nav = NavigateHandle::recording(RouteSink::new(move |to: R| {
+            asked.borrow_mut().push(to);
+        }));
+
+        let mut mounted = Self::mount_with(segment, params, |view| {
+            let view = View::provide(route_context::<R>(), Some(route), view);
+            View::provide(nav_context::<R>(), Some(nav), view)
+        })?;
+        mounted.navigated = Some(Box::new(navigated));
+
+        Ok(mounted)
+    }
+
+    /// Every route `use_navigate::<R>()` was asked to go to, oldest first.
+    /// Panics unless it was mounted [at a route](Self::mount_at) of type `R`.
+    pub fn navigated<R: Clone + 'static>(&self) -> Vec<R> {
+        self.navigated
+            .as_ref()
+            .and_then(|navigated| navigated.downcast_ref::<Rc<RefCell<Vec<R>>>>())
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} was not mounted at a {} - use `Mounted::mount_at`",
+                    std::any::type_name::<S>(),
+                    std::any::type_name::<R>()
+                )
+            })
+            .borrow()
+            .clone()
     }
 
     /// Hands the page or layout one of its own messages, as a widget's

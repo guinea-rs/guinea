@@ -496,3 +496,83 @@ fn a_page_redraws_when_the_segment_above_it_changes(h: &mut Harness) {
 
     assert!(page.find_text("samples: 3").is_some(), "{:#?}", page.tree());
 }
+
+mod routed {
+    use super::*;
+    use guinea::winui::harness::Outlet;
+    use guinea::winui::{Layout, LayoutCx, UseRoute, layout};
+
+    #[derive(Default)]
+    pub struct One;
+
+    #[page]
+    impl Page for One {
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text("one").into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Two;
+
+    #[page]
+    impl Page for Two {
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text("two").into()
+        }
+    }
+
+    /// Shows where the application is, and asks to go elsewhere.
+    #[derive(Default)]
+    pub struct Tabs;
+
+    #[layout]
+    impl Layout for Tabs {
+        type Params = ();
+        type Installs = ();
+
+        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+            let here = match cx.use_route::<TabRoute>() {
+                TabRoute::One {} => "at one",
+                TabRoute::Two {} => "at two",
+            };
+            let nav = cx.navigate::<TabRoute>();
+
+            StackPanel::new()
+                .children((
+                    TextBlock::new().text(here),
+                    Button::new()
+                        .on_click(nav.to_handler(TabRoute::Two {}))
+                        .content(TextBlock::new().text("Two")),
+                    cx.outlet(),
+                ))
+                .into()
+        }
+    }
+
+    routes! {
+        TabRoute {
+            layout(Tabs) {
+                page(One) { }
+                page(Two) { }
+            }
+        }
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn a_layout_mounted_at_a_route_reads_it_and_records_where_it_asks_to_go(h: &mut Harness) {
+        let mut tabs = Mounted::<Tabs>::mount_at(&h.segment(), (), TabRoute::One {}).unwrap();
+        assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
+        assert!(tabs.find(Outlet).is_some(), "{:#?}", tabs.tree());
+
+        tabs.click_text("Two").settle();
+        tabs.settle();
+
+        assert_eq!(tabs.navigated::<TabRoute>(), [TabRoute::Two {}]);
+        assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
+    }
+}

@@ -1344,12 +1344,12 @@ where
     })
 }
 
-fn nav_context<R: 'static>() -> &'static windows_reactor::Context<Option<NavigateHandle<WinUi, R>>>
-{
+pub(crate) fn nav_context<R: 'static>()
+-> &'static windows_reactor::Context<Option<NavigateHandle<WinUi, R>>> {
     context_for::<Option<NavigateHandle<WinUi, R>>>(|| None)
 }
 
-fn route_context<R: 'static>() -> &'static windows_reactor::Context<Option<R>> {
+pub(crate) fn route_context<R: 'static>() -> &'static windows_reactor::Context<Option<R>> {
     context_for::<Option<R>>(|| None)
 }
 

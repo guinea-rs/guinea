@@ -385,7 +385,9 @@ enum Step {
 }
 
 pub struct NavigateHandle<U: Ui, R> {
-    router: Rc<Router<U>>,
+    /// `None` for a [`recording`](NavigateHandle::recording) handle, which
+    /// has no router to move.
+    router: Option<Rc<Router<U>>>,
     sink: RouteSink<R>,
 }
 
@@ -400,7 +402,11 @@ impl<U: Ui, R> Clone for NavigateHandle<U, R> {
 
 impl<U: Ui, R> PartialEq for NavigateHandle<U, R> {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.router, &other.router)
+        match (&self.router, &other.router) {
+            (Some(mine), Some(theirs)) => Rc::ptr_eq(mine, theirs),
+            (None, None) => Rc::ptr_eq(&self.sink.publish, &other.sink.publish),
+            _ => false,
+        }
     }
 }
 
@@ -409,7 +415,18 @@ where
     R: RouteChain<U> + Clone + PartialEq + 'static,
 {
     pub fn new(router: Rc<Router<U>>, sink: RouteSink<R>) -> Self {
-        Self { router, sink }
+        Self {
+            router: Some(router),
+            sink,
+        }
+    }
+
+    /// A handle that moves no router: every [`to`](Self::to) goes straight to
+    /// `sink`, and there is no history to step through. For a harness, which
+    /// mounts a segment with no route tree and wants to know where it asked
+    /// to go.
+    pub fn recording(sink: RouteSink<R>) -> Self {
+        Self { router: None, sink }
     }
 
     /// Go to `route`, recording where we were.
@@ -418,14 +435,19 @@ where
     /// refuses must not leave the place we never left sitting in the back
     /// stack.
     pub fn to(&self, route: R) {
-        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
-        let router = Rc::downgrade(&self.router);
+        let Some(router) = &self.router else {
+            self.sink.publish(route);
+            return;
+        };
 
-        self.go(route, move |arrived| {
+        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
+        let weak = Rc::downgrade(router);
+
+        self.go(router, route, move |arrived| {
             if !arrived {
                 return;
             }
-            if let (Some(router), Some(leaving)) = (router.upgrade(), leaving) {
+            if let (Some(router), Some(leaving)) = (weak.upgrade(), leaving) {
                 router.remember(leaving);
             }
         });
@@ -438,36 +460,46 @@ where
     /// A guard can defer this, in which case it reports `false` now and moves
     /// later - the answer is not available to report on.
     pub fn back(&self) -> bool {
-        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
-        let Some(entry) = self.router.take_back(leaving) else {
+        let Some(router) = &self.router else {
             return false;
         };
-        self.arrive(entry, Step::Back)
+
+        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
+        let Some(entry) = router.take_back(leaving) else {
+            return false;
+        };
+        self.arrive(router, entry, Step::Back)
     }
 
     /// Forward one step, undoing a [`back`](Self::back).
     pub fn forward(&self) -> bool {
-        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
-        let Some(entry) = self.router.take_forward(leaving) else {
+        let Some(router) = &self.router else {
             return false;
         };
-        self.arrive(entry, Step::Forward)
+
+        let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
+        let Some(entry) = router.take_forward(leaving) else {
+            return false;
+        };
+        self.arrive(router, entry, Step::Forward)
     }
 
     pub fn can_go_back(&self) -> bool {
-        self.router.can_go_back()
+        self.router.as_ref().is_some_and(|router| router.can_go_back())
     }
 
     pub fn can_go_forward(&self) -> bool {
-        self.router.can_go_forward()
+        self.router
+            .as_ref()
+            .is_some_and(|router| router.can_go_forward())
     }
 
     /// Where the router is now, as this handle's route type.
     fn current(&self) -> Option<R> {
-        self.router.current_route::<R>()
+        self.router.as_ref()?.current_route::<R>()
     }
 
-    fn arrive(&self, entry: Visited, step: Step) -> bool {
+    fn arrive(&self, router: &Rc<Router<U>>, entry: Visited, step: Step) -> bool {
         let Some(route) = entry.route::<R>() else {
             // Two route types on one router. Nothing in guinea builds that,
             // and silently doing nothing beats navigating somewhere wrong.
@@ -478,13 +510,13 @@ where
         // The entry is already out of the stack, so a refusal has to put it
         // back - otherwise a guarded page would eat a step of history every
         // time it said no.
-        let router = Rc::downgrade(&self.router);
+        let weak = Rc::downgrade(router);
         let undo = route.clone();
-        self.go(route, move |arrived| {
+        self.go(router, route, move |arrived| {
             if arrived {
                 return;
             }
-            if let Some(router) = router.upgrade() {
+            if let Some(router) = weak.upgrade() {
                 let entry = Box::new(undo) as Box<dyn Any>;
                 match step {
                     Step::Back => router.restore_back(entry),
@@ -496,17 +528,21 @@ where
 
     /// Reports whether it arrived *now*. A deferred navigation reports
     /// `false`: there is no answer yet to report.
-    fn go(&self, route: R, settled: impl FnOnce(bool) + 'static) -> bool {
+    fn go(
+        &self,
+        router: &Rc<Router<U>>,
+        route: R,
+        settled: impl FnOnce(bool) + 'static,
+    ) -> bool {
         let name = route.name();
-        let router = Rc::downgrade(&self.router);
+        let weak = Rc::downgrade(router);
         let sink = self.sink.clone();
         let published = route.clone();
 
-        let outcome = self
-            .router
+        let outcome = router
             .navigate_then(route, move |arrived| {
                 if arrived {
-                    if let Some(router) = router.upgrade() {
+                    if let Some(router) = weak.upgrade() {
                         router.route_changed(name);
                     }
                     sink.publish(published);

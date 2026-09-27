@@ -22,6 +22,7 @@ enum Marks {
     Open,
     Chevron,
     Remove,
+    Grip,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -331,6 +332,123 @@ impl Page for RowsPage {
 impl Segment for RowsPage {
     type Installs = ();
     type Above = ();
+}
+
+/// A row with a grip that drags it: the grip captures the pointer, follows it
+/// by the window's `y`, drops on a release and gives up when the capture is
+/// lost first. The row itself hears the release as it bubbles.
+#[derive(Default)]
+pub struct GripPage {
+    start: Option<f64>,
+    offset: f64,
+    local: f64,
+    dropped: Option<f64>,
+    cancelled: bool,
+    row_released: u32,
+}
+
+pub enum Gripping {
+    Down(PointerEventInfo),
+    Moved(PointerEventInfo),
+    Up(PointerEventInfo),
+    Lost,
+    RowUp(PointerEventInfo),
+}
+
+#[page]
+impl Page for GripPage {
+    type Params = ();
+    type Installs = ();
+    type Message = Gripping;
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn update(&mut self, message: Gripping, _cx: &mut UpdateCx<'_, Self>) {
+        match message {
+            Gripping::Down(info) => {
+                if info.is_left_button_pressed && info.capture_succeeded {
+                    self.start = Some(info.window_y);
+                }
+            }
+            Gripping::Moved(info) => {
+                if let Some(start) = self.start
+                    && info.is_left_button_pressed
+                {
+                    self.offset = info.window_y - start;
+                    self.local = info.y;
+                }
+            }
+            Gripping::Up(_) => {
+                if self.start.take().is_some() {
+                    self.dropped = Some(self.offset);
+                }
+            }
+            Gripping::Lost => {
+                if self.start.take().is_some() {
+                    self.cancelled = true;
+                }
+            }
+            Gripping::RowUp(_) => self.row_released += 1,
+        }
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        let lost = cx.on(|()| Gripping::Lost);
+
+        Border::new()
+            .on_pointer_released(cx.on(Gripping::RowUp))
+            .content(StackPanel::new().children((
+                Border::new()
+                    .mark(Marks::Grip)
+                    .capture_pointer_on_press(true)
+                    .on_pointer_pressed(cx.on(Gripping::Down))
+                    .on_pointer_moved(cx.on(Gripping::Moved))
+                    .on_pointer_released(cx.on(Gripping::Up))
+                    .on_pointer_capture_lost(move || {
+                        let _ = lost.call(());
+                    })
+                    .content(TextBlock::new().text("=")),
+                TextBlock::new().text(format!(
+                    "offset {} local {} dropped {:?} cancelled {} row {}",
+                    self.offset, self.local, self.dropped, self.cancelled, self.row_released
+                )),
+            )))
+            .into()
+    }
+}
+
+impl Segment for GripPage {
+    type Installs = ();
+    type Above = ();
+}
+
+#[guinea::test(iterations = 2)]
+fn a_drag_follows_the_window_and_drops_on_release(h: &mut Harness) {
+    use guinea::winui::harness::Drag;
+
+    let mut page = Mounted::<GripPage>::mount(&h.segment(), ()).unwrap();
+
+    page.drag(Marks::Grip, Drag::by(0.0, 30.0).from(2.0, 5.0).window_from(10.0, 100.0))
+        .settle();
+    page.settle();
+
+    let seen = "offset 30 local 35 dropped Some(30.0) cancelled false row 1";
+    assert!(page.find_text(seen).is_some(), "{:#?}", page.tree());
+}
+
+#[guinea::test(iterations = 2)]
+fn a_drag_whose_capture_is_lost_is_cancelled(h: &mut Harness) {
+    use guinea::winui::harness::Drag;
+
+    let mut page = Mounted::<GripPage>::mount(&h.segment(), ()).unwrap();
+
+    page.drag(Marks::Grip, Drag::by(0.0, 30.0).steps(2).lost()).settle();
+    page.settle();
+
+    let seen = "offset 30 local 31 dropped None cancelled true row 0";
+    assert!(page.find_text(seen).is_some(), "{:#?}", page.tree());
 }
 
 #[guinea::test(iterations = 2)]

@@ -26,7 +26,7 @@ use windows_reactor::test::{
     Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
     SelectionChange, SlotId,
 };
-use windows_reactor::{Border, View};
+use windows_reactor::{Border, PointerEventInfo, View};
 
 pub use windows_reactor::test::{NodeId, PropertyId, PropertyValue};
 
@@ -188,6 +188,97 @@ impl Mount<WinUi> for MountOutlet {
 
 const OUTLET: SegmentEntry<WinUi> =
     SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, &MountOutlet, false);
+
+/// A drag with the left button, for [`Mounted::drag`]: down on an element,
+/// moved by `dx`, `dy` in even steps, and up.
+///
+/// There is no layout under the harness, so the coordinates are what the
+/// drag says: `x`, `y` start where [`from`](Self::from) puts them inside the
+/// element and `window_x`, `window_y` where [`window_from`](Self::window_from)
+/// puts them in the window, and both move by the same steps.
+#[derive(Clone, Copy, Debug)]
+pub struct Drag {
+    dx: f64,
+    dy: f64,
+    steps: usize,
+    from: (f64, f64),
+    window: (f64, f64),
+    lost: bool,
+}
+
+impl Drag {
+    /// By `dx`, `dy`, in four moves, from a point one unit inside the
+    /// element's corner - and the same point of the window.
+    pub fn by(dx: f64, dy: f64) -> Self {
+        Self {
+            dx,
+            dy,
+            steps: 4,
+            from: (1.0, 1.0),
+            window: (1.0, 1.0),
+            lost: false,
+        }
+    }
+
+    /// In `steps` moves rather than four.
+    pub fn steps(self, steps: usize) -> Self {
+        Self {
+            steps: steps.max(1),
+            ..self
+        }
+    }
+
+    /// Where inside the element the button goes down: `x`, `y`.
+    pub fn from(self, x: f64, y: f64) -> Self {
+        Self {
+            from: (x, y),
+            ..self
+        }
+    }
+
+    /// Where in the window the button goes down: `window_x`, `window_y`.
+    pub fn window_from(self, x: f64, y: f64) -> Self {
+        Self {
+            window: (x, y),
+            ..self
+        }
+    }
+
+    /// Ends with the capture lost and no release - the system taking the
+    /// pointer away mid-drag.
+    pub fn lost(self) -> Self {
+        Self { lost: true, ..self }
+    }
+
+    fn at(&self, step: usize, held: bool) -> PointerEventInfo {
+        let part = step as f64 / self.steps as f64;
+        let (dx, dy) = (self.dx * part, self.dy * part);
+
+        PointerEventInfo {
+            x: self.from.0 + dx,
+            y: self.from.1 + dy,
+            window_x: self.window.0 + dx,
+            window_y: self.window.1 + dy,
+            is_left_button_pressed: held,
+            ..Default::default()
+        }
+    }
+
+    fn pressed(&self, captures: bool) -> PointerEventInfo {
+        PointerEventInfo {
+            capture_succeeded: captures,
+            ..self.at(0, true)
+        }
+    }
+
+    fn moved(&self, step: usize) -> PointerEventInfo {
+        self.at(step, true)
+    }
+
+    fn released(&self) -> PointerEventInfo {
+        self.at(self.steps, false)
+    }
+}
 
 /// A page or a layout - what [`Mounted`] mounts. `K` only tells the two apart,
 /// and is always inferred.
@@ -440,6 +531,20 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let root = self.page_root();
         let found = self.showing(root, text);
         self.click_at(found, text, "click")
+    }
+
+    /// Drags what carries `mark` the way a pointer would, and hands back what
+    /// the drag set off, as an action named after the mark.
+    ///
+    /// The button goes down on the element and on everything above it that
+    /// listens. The first of those that captures the pointer on press takes
+    /// the moves and the release from then on, bubbling up from it, and loses
+    /// the capture at the end; with no capture, all of them hear everything.
+    /// See [`Drag`] for the coordinates.
+    pub fn drag(&mut self, mark: impl Mark, drag: Drag) -> Act<'h> {
+        let root = self.page_root();
+        let found = self.marked(root, &mark);
+        self.drag_at(found, drag, mark.name(), mark.name())
     }
 
     /// The first element, depth first, that carries `mark`.
@@ -706,18 +811,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// all.
     fn click_at(&mut self, found: NodeId, label: &str, name: &'static str) -> Act<'h> {
         let parents = self.parents();
-
-        let mut above = Some(found);
-        while let Some(node) = above {
-            if self.disabled(node) {
-                panic!(
-                    "{label:?} cannot be clicked: it is inside a disabled {}\n{:#?}",
-                    self.node(node).kind,
-                    self.node(node)
-                );
-            }
-            above = parents.get(&node).copied();
-        }
+        self.refuse_disabled(found, &parents, label, "clicked");
 
         let mut bubbled = Vec::new();
         let mut button = None;
@@ -748,11 +842,15 @@ impl<'h, S: 'static> Mounted<'h, S> {
             "{label:?} is on the page, but nothing at or above it listens for a click"
         );
 
+        let pressed = PointerEventInfo {
+            is_left_button_pressed: true,
+            ..Default::default()
+        };
         for node in &bubbled {
-            self.pointer(*node, EventId::BorderPointerPressed);
+            self.pointer(*node, EventId::BorderPointerPressed, pressed);
         }
         for node in &bubbled {
-            self.pointer(*node, EventId::BorderPointerReleased);
+            self.pointer(*node, EventId::BorderPointerReleased, PointerEventInfo::default());
         }
         if let Some(item) = item {
             self.select(item, &parents);
@@ -774,6 +872,93 @@ impl<'h, S: 'static> Mounted<'h, S> {
         })
     }
 
+    /// A drag as WinUI routes one. The pointer goes down with the left button
+    /// on `found` and everything above it listening; the first of those that
+    /// captures the pointer on press takes the moves and the release from
+    /// then on, bubbling up from it, and loses the capture at the end.
+    /// Without a capture every one of them hears all of it. The view draws
+    /// again after each step, as it would between frames.
+    fn drag_at(&mut self, found: NodeId, drag: Drag, label: &str, name: &'static str) -> Act<'h> {
+        let parents = self.parents();
+        self.refuse_disabled(found, &parents, label, "dragged");
+
+        let mut path = vec![found];
+        while let Some(parent) = parents.get(path.last().expect("starts with `found`")) {
+            path.push(*parent);
+        }
+
+        assert!(
+            path.iter()
+                .any(|node| self.pump.event_revision(*node, EventId::BorderPointerPressed).is_some()),
+            "{label:?} is on the page, but nothing at or above it listens for the pointer going down"
+        );
+
+        let captured = path.iter().position(|node| {
+            matches!(
+                self.property(*node, PropertyId::BorderCapturePointerOnPress),
+                Some(PropertyValue::Bool(true))
+            )
+        });
+        let held = path[captured.unwrap_or(0)..].to_vec();
+        let capture = captured.map(|at| path[at]);
+
+        let harness = self.harness;
+        harness.record(name, || {
+            for node in &path {
+                let pressed = drag.pressed(Some(*node) == capture);
+                self.pointer(*node, EventId::BorderPointerPressed, pressed);
+            }
+            self.turn();
+
+            for step in 1..=drag.steps {
+                for node in &held {
+                    self.pointer(*node, EventId::BorderPointerMoved, drag.moved(step));
+                }
+                self.turn();
+            }
+
+            if !drag.lost {
+                for node in &held {
+                    self.pointer(*node, EventId::BorderPointerReleased, drag.released());
+                }
+            }
+            if let Some(capture) = capture
+                && let Some(revision) = self
+                    .pump
+                    .event_revision(capture, EventId::BorderPointerCaptureLost)
+            {
+                self.pump.queue_event(QueuedEvent::new(
+                    capture,
+                    EventId::BorderPointerCaptureLost,
+                    revision,
+                    EventPayload::Unit,
+                ));
+            }
+            self.turn();
+        })
+    }
+
+    /// Panics if `found` is inside a disabled control, which takes no input.
+    fn refuse_disabled(
+        &self,
+        found: NodeId,
+        parents: &HashMap<NodeId, NodeId>,
+        label: &str,
+        done: &str,
+    ) {
+        let mut above = Some(found);
+        while let Some(node) = above {
+            if self.disabled(node) {
+                panic!(
+                    "{label:?} cannot be {done}: it is inside a disabled {}\n{:#?}",
+                    self.node(node).kind,
+                    self.node(node)
+                );
+            }
+            above = parents.get(&node).copied();
+        }
+    }
+
     /// Whether `node` is a control set to disabled - which takes no input, and
     /// neither does anything inside it.
     fn disabled(&self, node: NodeId) -> bool {
@@ -782,13 +967,13 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .any(|id| matches!(self.property(node, *id), Some(PropertyValue::Bool(false))))
     }
 
-    fn pointer(&mut self, node: NodeId, event: EventId) {
+    fn pointer(&mut self, node: NodeId, event: EventId, info: PointerEventInfo) {
         if let Some(revision) = self.pump.event_revision(node, event) {
             self.pump.queue_event(QueuedEvent::new(
                 node,
                 event,
                 revision,
-                EventPayload::PointerEventInfo(Default::default()),
+                EventPayload::PointerEventInfo(info),
             ));
         }
     }
@@ -958,6 +1143,17 @@ impl<'h, S: 'static> Within<'_, 'h, S> {
     /// Clicks this part itself: a row, to select it.
     pub fn click_here(self) -> Act<'h> {
         self.mounted.click_at(self.root, "this part", "click")
+    }
+
+    /// Drags what carries `mark` in this part - see [`Mounted::drag`].
+    pub fn drag(self, mark: impl Mark, drag: Drag) -> Act<'h> {
+        let found = self.mounted.marked(self.root, &mark);
+        self.mounted.drag_at(found, drag, mark.name(), mark.name())
+    }
+
+    /// Drags this part itself.
+    pub fn drag_here(self, drag: Drag) -> Act<'h> {
+        self.mounted.drag_at(self.root, drag, "this part", "drag")
     }
 
     /// What this part drew, from its outermost element down.

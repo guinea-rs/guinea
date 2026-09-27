@@ -334,17 +334,18 @@ impl Segment for RowsPage {
     type Above = ();
 }
 
-/// A row with a grip that drags it: the grip captures the pointer, follows it
-/// by the window's `y`, drops on a release and gives up when the capture is
-/// lost first. The row itself hears the release as it bubbles.
+/// A row with a grip that drags it: the grip captures the pointer and follows
+/// it by the window's `y`. The capture is lost just before the release, so a
+/// lost capture only puts the drag aside: a release after it still drops, and
+/// with none it stays cancelled. The row hears the release as it bubbles.
 #[derive(Default)]
 pub struct GripPage {
     start: Option<f64>,
+    lost: bool,
     offset: f64,
     local: f64,
     dropped: Option<f64>,
-    cancelled: bool,
-    row_released: u32,
+    heard: Vec<&'static str>,
 }
 
 pub enum Gripping {
@@ -381,16 +382,18 @@ impl Page for GripPage {
                 }
             }
             Gripping::Up(_) => {
-                if self.start.take().is_some() {
+                self.heard.push("grip");
+                if self.start.take().is_some() || std::mem::take(&mut self.lost) {
                     self.dropped = Some(self.offset);
                 }
             }
             Gripping::Lost => {
+                self.heard.push("lost");
                 if self.start.take().is_some() {
-                    self.cancelled = true;
+                    self.lost = true;
                 }
             }
-            Gripping::RowUp(_) => self.row_released += 1,
+            Gripping::RowUp(_) => self.heard.push("row"),
         }
     }
 
@@ -411,8 +414,12 @@ impl Page for GripPage {
                     })
                     .content(TextBlock::new().text("=")),
                 TextBlock::new().text(format!(
-                    "offset {} local {} dropped {:?} cancelled {} row {}",
-                    self.offset, self.local, self.dropped, self.cancelled, self.row_released
+                    "offset {} local {} dropped {:?} cancelled {} heard {}",
+                    self.offset,
+                    self.local,
+                    self.dropped,
+                    self.lost,
+                    self.heard.join(",")
                 )),
             )))
             .into()
@@ -434,7 +441,7 @@ fn a_drag_follows_the_window_and_drops_on_release(h: &mut Harness) {
         .settle();
     page.settle();
 
-    let seen = "offset 30 local 35 dropped Some(30.0) cancelled false row 1";
+    let seen = "offset 30 local 35 dropped Some(30.0) cancelled false heard lost,grip,row";
     assert!(page.find_text(seen).is_some(), "{:#?}", page.tree());
 }
 
@@ -447,7 +454,7 @@ fn a_drag_whose_capture_is_lost_is_cancelled(h: &mut Harness) {
     page.drag(Marks::Grip, Drag::by(0.0, 30.0).steps(2).lost()).settle();
     page.settle();
 
-    let seen = "offset 30 local 31 dropped None cancelled true row 0";
+    let seen = "offset 30 local 31 dropped None cancelled true heard lost";
     assert!(page.find_text(seen).is_some(), "{:#?}", page.tree());
 }
 

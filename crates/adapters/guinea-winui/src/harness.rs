@@ -538,9 +538,10 @@ impl<'h, S: 'static> Mounted<'h, S> {
     ///
     /// The button goes down on the element and on everything above it that
     /// listens. The first of those that captures the pointer on press takes
-    /// the moves and the release from then on, bubbling up from it, and loses
-    /// the capture at the end; with no capture, all of them hear everything.
-    /// See [`Drag`] for the coordinates.
+    /// the moves and the release from then on, bubbling up from it; with no
+    /// capture, all of them hear everything. As in a window, the capture is
+    /// lost just *before* the release arrives, so a drag that cancels itself
+    /// on a lost capture never drops. See [`Drag`] for the coordinates.
     pub fn drag(&mut self, mark: impl Mark, drag: Drag) -> Act<'h> {
         let root = self.page_root();
         let found = self.marked(root, &mark);
@@ -875,9 +876,13 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// A drag as WinUI routes one. The pointer goes down with the left button
     /// on `found` and everything above it listening; the first of those that
     /// captures the pointer on press takes the moves and the release from
-    /// then on, bubbling up from it, and loses the capture at the end.
-    /// Without a capture every one of them hears all of it. The view draws
-    /// again after each step, as it would between frames.
+    /// then on, bubbling up from it. Without a capture every one of them
+    /// hears all of it. The view draws again after each step, as it would
+    /// between frames.
+    ///
+    /// The capture is lost *before* the release is heard: the reactor
+    /// releases the capture on the way into its release handler, and WinUI
+    /// raises the loss right there.
     fn drag_at(&mut self, found: NodeId, drag: Drag, label: &str, name: &'static str) -> Act<'h> {
         let parents = self.parents();
         self.refuse_disabled(found, &parents, label, "dragged");
@@ -917,11 +922,6 @@ impl<'h, S: 'static> Mounted<'h, S> {
                 self.turn();
             }
 
-            if !drag.lost {
-                for node in &held {
-                    self.pointer(*node, EventId::BorderPointerReleased, drag.released());
-                }
-            }
             if let Some(capture) = capture
                 && let Some(revision) = self
                     .pump
@@ -933,6 +933,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
                     revision,
                     EventPayload::Unit,
                 ));
+            }
+            if !drag.lost {
+                for node in &held {
+                    self.pointer(*node, EventId::BorderPointerReleased, drag.released());
+                }
             }
             self.turn();
         })

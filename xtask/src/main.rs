@@ -1,6 +1,10 @@
 //! `cargo xtask docs` copies the examples marked in tests into the pages that
 //! show them: the README and the doc comments under `crates/*/src`.
 //! `--check` writes nothing and fails when a page is behind its tests.
+//!
+//! `cargo xtask facade-without-winui` is for the publish job; see `facade`.
+
+mod facade;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -12,28 +16,34 @@ const KINDS: &[&str] = &["shown"];
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    match args.first().map(String::as_str) {
-        Some("docs") => match docs(args[1..].iter().any(|arg| arg == "--check")) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(problems) => {
-                for problem in problems {
-                    eprintln!("{problem}");
-                }
-                ExitCode::FAILURE
+    let result = match args.first().map(String::as_str) {
+        Some("docs") => docs(args[1..].iter().any(|arg| arg == "--check")),
+        Some("facade-without-winui") => facade::without_winui(&root()).map_err(|error| vec![error]),
+        _ => Err(vec![
+            "usage: cargo xtask docs [--check] | facade-without-winui".to_string(),
+        ]),
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(problems) => {
+            for problem in problems {
+                eprintln!("{problem}");
             }
-        },
-        _ => {
-            eprintln!("usage: cargo xtask docs [--check]");
             ExitCode::FAILURE
         }
     }
 }
 
-fn docs(check: bool) -> Result<(), Vec<String>> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask sits in the workspace root")
-        .to_path_buf();
+        .to_path_buf()
+}
+
+fn docs(check: bool) -> Result<(), Vec<String>> {
+    let root = root();
 
     let mut files = Vec::new();
     walk(&root.join("crates"), &mut files).map_err(|error| vec![error])?;

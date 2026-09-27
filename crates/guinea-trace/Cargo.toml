@@ -3,6 +3,8 @@ name = "guinea-trace"
 description = "What caused what inside a guinea application"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde_json.workspace = true

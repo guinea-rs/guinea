@@ -3,6 +3,8 @@ name = "guinea-iced"
 description = "guinea on iced: the router and the application runtime, with Elm inside each node"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 guinea-core.workspace = true

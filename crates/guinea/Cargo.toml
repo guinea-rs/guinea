@@ -1,7 +1,13 @@
 [package]
 name = "guinea"
+description = "Desktop applications in Rust, built from features that know what they own"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["gui", "desktop", "framework", "router", "actor"]
+categories = ["gui"]
 
 [dependencies]
 guinea-core.workspace = true
@@ -9,7 +15,7 @@ guinea-app.workspace = true
 guinea-router.workspace = true
 guinea-codegen.workspace = true
 guinea-macros.workspace = true
-guinea-meta = { git = "https://github.com/uniproc-dev/guinea-meta", tag = "v0.1.0" }
+guinea-meta.workspace = true
 
 # Nothing else: this crate is re-exports. Anything it appears to need is a
 # sign that something which belongs in a real crate ended up here.

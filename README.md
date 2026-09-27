@@ -39,7 +39,8 @@ makes the opinion cheap to follow.
 > [!WARNING]
 > **guinea is young, and its API still moves between minor versions.**
 > WinUI is the backend a real application ([uniproc](https://github.com/uniproc-dev/uniproc)) runs on every day; the other four
-> run the same example application and are tested, but nobody depends on them yet. It is not on crates.io: depend on a tag.
+> run the same example application and are tested, but nobody depends on them yet.
+> On crates.io guinea comes without WinUI until `windows-reactor` releases what it uses; for WinUI, depend on a git tag.
 
 <!-- shown: counter -->
 ```rust

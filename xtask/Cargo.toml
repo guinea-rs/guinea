@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 shown = { git = "https://github.com/uniproc-dev/shown", tag = "v0.2.0" }
+toml_edit = "0.23"

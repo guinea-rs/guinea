@@ -3,6 +3,8 @@ name = "guinea-slint"
 description = "guinea on Slint: the router and the application runtime, drawn by a Slint component tree"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 guinea-core.workspace = true

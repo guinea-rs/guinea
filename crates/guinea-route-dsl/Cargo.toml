@@ -3,6 +3,8 @@ name = "guinea-route-dsl"
 description = "The route tree `routes!` declares, parsed - shared by the macro that expands it and by build scripts that generate from it"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 proc-macro2 = "1.0"

@@ -3,6 +3,8 @@ name = "guinea-ratatui"
 description = "guinea on ratatui: the router and the application runtime, drawn in a terminal"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 guinea-core.workspace = true

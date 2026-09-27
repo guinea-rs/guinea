@@ -1,7 +1,10 @@
 [package]
 name = "guinea-macros"
+description = "guinea's macros: actor!, feature!, #[handler], routes! and the backends' #[page]"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 proc-macro = true

@@ -1,7 +1,13 @@
 [package]
 name = "guinea-winui"
+description = "guinea on WinUI through windows-reactor: the router and the application runtime, with Elm inside each node"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# windows-reactor is a git dependency until windows-rs releases the API this
+# uses (0.100.0 has no `AppProxy`); crates.io takes no git dependencies.
+publish = false
 
 [dependencies]
 guinea-core.workspace = true

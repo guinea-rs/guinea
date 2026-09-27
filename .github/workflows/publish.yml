@@ -1,0 +1,85 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag matches the workspace version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match [workspace.package].version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+  publish:
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@1.95.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Facade without WinUI
+        run: cargo xtask facade-without-winui
+
+      - name: Publish in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          set -e
+          CRATES=(
+            guinea-mark
+            guinea-meta
+            guinea-meta-build
+            guinea-route-dsl
+            guinea-trace
+            guinea-codegen
+            guinea-slint-build
+            guinea-macros
+            guinea-core
+            guinea-app
+            guinea-router
+            guinea-eframe
+            guinea-iced
+            guinea-ratatui
+            guinea-slint
+            guinea
+          )
+          for crate in "${CRATES[@]}"; do
+            echo "::group::cargo publish -p $crate"
+            for attempt in 1 2 3; do
+              if out=$(cargo publish -p "$crate" --allow-dirty 2>&1); then
+                echo "$out"
+                break
+              fi
+              echo "$out"
+              if echo "$out" | grep -q "already exists"; then
+                echo "$crate is already on crates.io"
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::Failed to publish $crate after 3 attempts"
+                exit 1
+              fi
+              sleep 20
+            done
+            echo "::endgroup::"
+          done

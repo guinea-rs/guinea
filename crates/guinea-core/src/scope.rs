@@ -73,6 +73,9 @@ impl<T> From<Rc<RefCell<T>>> for StateHandle<T> {
 /// }
 /// ```
 ///
+/// Usually it is written as a function instead - `#[reducer] fn processes(this:
+/// &mut Processes, update: Refreshed)` - and the attribute writes this impl.
+///
 /// There is no actor here, and there must not be. A reducer knows its own
 /// state and how it changes; naming the actor that happens to drive it would
 /// put the domain's plumbing into the one declaration that is supposed to be

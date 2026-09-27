@@ -25,8 +25,7 @@ mod whole {
     //@show a whole page
     //@hide
     use guinea_app::feature::Segment;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
     use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
@@ -34,12 +33,9 @@ mod whole {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Count(pub u32);
 
-    impl Reducer for Count {
-        type Update = u32;
-
-        fn reduce(&mut self, by: u32) {
-            self.0 += by;
-        }
+    #[reducer]
+    fn count(this: &mut Count, by: u32) {
+        this.0 += by;
     }
 
     /// What the page asks the feature for.
@@ -162,8 +158,7 @@ mod installing {
     //@hide
     use guinea_app::feature::Segment;
     use guinea_core::feature::Bound;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
@@ -171,24 +166,18 @@ mod installing {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Listing(pub String);
 
-    impl Reducer for Listing {
-        type Update = String;
-
-        fn reduce(&mut self, to: String) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn listing(this: &mut Listing, to: String) {
+        this.0 = to;
     }
 
     /// Which row is selected: the page's own, with no feature around it.
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Selection(pub Option<u32>);
 
-    impl Reducer for Selection {
-        type Update = Option<u32>;
-
-        fn reduce(&mut self, to: Option<u32>) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn selection(this: &mut Selection, to: Option<u32>) {
+        this.0 = to;
     }
 
     feature! {
@@ -357,8 +346,7 @@ mod asking_a_feature {
     //@show a page that asks a feature
     //@hide
     use guinea_app::feature::Segment;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
     use windows_reactor::{TextBlock, View};
@@ -366,12 +354,9 @@ mod asking_a_feature {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Results(pub String);
 
-    impl Reducer for Results {
-        type Update = String;
-
-        fn reduce(&mut self, to: String) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn results(this: &mut Results, to: String) {
+        this.0 = to;
     }
 
     pub struct Search(pub String);
@@ -518,8 +503,7 @@ mod shell {
     //@hide
     use guinea_app::feature::Segment;
     use guinea_core::feature::Bound;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
         FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
@@ -531,12 +515,9 @@ mod shell {
         pub open: bool,
     }
 
-    impl Reducer for Sidebar {
-        type Update = bool;
-
-        fn reduce(&mut self, open: bool) {
-            self.open = open;
-        }
+    #[reducer]
+    fn sidebar(this: &mut Sidebar, open: bool) {
+        this.open = open;
     }
 
     pub struct SetOpen(pub bool);
@@ -561,12 +542,9 @@ mod shell {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Title(pub String);
 
-    impl Reducer for Title {
-        type Update = String;
-
-        fn reduce(&mut self, title: String) {
-            self.0 = title;
-        }
+    #[reducer]
+    fn title(this: &mut Title, title: String) {
+        this.0 = title;
     }
 
     #[derive(Default)]

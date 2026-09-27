@@ -8,6 +8,7 @@ mod handler;
 mod harness_test;
 mod installs;
 mod mark;
+mod reducer;
 mod remote;
 mod routes_dsl;
 mod segment;
@@ -45,6 +46,58 @@ pub fn feature(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn installs(_attr: TokenStream, item: TokenStream) -> TokenStream {
     installs::installs_impl(item)
+}
+
+/// Makes a function a reducer: `impl Reducer` written from its signature. The
+/// state is what the first argument borrows mutably, the update is the second
+/// argument's type:
+///
+/// <!-- shown: a reducer -->
+/// ```rust,ignore
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Count(pub u32);
+///
+/// #[reducer]
+/// fn count(this: &mut Count, by: u32) {
+///     this.0 += by;
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// An update with more than one shape is an enum, and the function matches on
+/// it - destructured right in the argument when there is one shape only:
+///
+/// <!-- shown: a reducer of an enum -->
+/// ```rust,ignore
+/// #[derive(Default, Clone, PartialEq, Debug)]
+/// pub struct Table {
+///     pub rows: Vec<String>,
+///     pub descending: bool,
+/// }
+///
+/// #[derive(Clone, Debug)]
+/// pub enum Changed {
+///     Rows(Vec<String>),
+///     Sorted { descending: bool },
+/// }
+///
+/// #[reducer]
+/// fn table(this: &mut Table, changed: Changed) {
+///     match changed {
+///         Changed::Rows(rows) => this.rows = rows,
+///         Changed::Sorted { descending } => this.descending = descending,
+///     }
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// Two arguments, no more. A reducer knows its state and what changed it, not
+/// who asked, so there is no context to take; it is not `async`, and returns
+/// nothing. `impl Reducer` written by hand is the same thing.
+#[proc_macro_attribute]
+pub fn reducer(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    reducer::reducer_impl(input).into()
 }
 
 /// A test run once per seed, each time on a fresh `Harness`, with the order of

@@ -7,12 +7,9 @@ use guinea::prelude::*;
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Count(pub u32);
 
-impl Reducer for Count {
-    type Update = u32;
-
-    fn reduce(&mut self, by: u32) {
-        self.0 += by;
-    }
+#[reducer]
+fn count(this: &mut Count, by: u32) {
+    this.0 += by;
 }
 
 mod message_only {

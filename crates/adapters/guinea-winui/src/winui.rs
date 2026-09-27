@@ -93,12 +93,9 @@ impl Ui for WinUi {
 /// #[derive(Default, Clone, PartialEq, Debug)]
 /// pub struct Count(pub u32);
 ///
-/// impl Reducer for Count {
-///     type Update = u32;
-///
-///     fn reduce(&mut self, by: u32) {
-///         self.0 += by;
-///     }
+/// #[reducer]
+/// fn count(this: &mut Count, by: u32) {
+///     this.0 += by;
 /// }
 ///
 /// /// What the page asks the feature for.
@@ -277,24 +274,18 @@ pub trait Page: Default + Sized + 'static {
     /// #[derive(Default, Clone, PartialEq, Debug)]
     /// pub struct Listing(pub String);
     ///
-    /// impl Reducer for Listing {
-    ///     type Update = String;
-    ///
-    ///     fn reduce(&mut self, to: String) {
-    ///         self.0 = to;
-    ///     }
+    /// #[reducer]
+    /// fn listing(this: &mut Listing, to: String) {
+    ///     this.0 = to;
     /// }
     ///
     /// /// Which row is selected: the page's own, with no feature around it.
     /// #[derive(Default, Clone, PartialEq, Debug)]
     /// pub struct Selection(pub Option<u32>);
     ///
-    /// impl Reducer for Selection {
-    ///     type Update = Option<u32>;
-    ///
-    ///     fn reduce(&mut self, to: Option<u32>) {
-    ///         self.0 = to;
-    ///     }
+    /// #[reducer]
+    /// fn selection(this: &mut Selection, to: Option<u32>) {
+    ///     this.0 = to;
     /// }
     ///
     /// feature! {
@@ -454,12 +445,9 @@ pub trait Page: Default + Sized + 'static {
     /// #[derive(Default, Clone, PartialEq, Debug)]
     /// pub struct Results(pub String);
     ///
-    /// impl Reducer for Results {
-    ///     type Update = String;
-    ///
-    ///     fn reduce(&mut self, to: String) {
-    ///         self.0 = to;
-    ///     }
+    /// #[reducer]
+    /// fn results(this: &mut Results, to: String) {
+    ///     this.0 = to;
     /// }
     ///
     /// pub struct Search(pub String);
@@ -598,12 +586,9 @@ pub trait Page: Default + Sized + 'static {
 ///     pub open: bool,
 /// }
 ///
-/// impl Reducer for Sidebar {
-///     type Update = bool;
-///
-///     fn reduce(&mut self, open: bool) {
-///         self.open = open;
-///     }
+/// #[reducer]
+/// fn sidebar(this: &mut Sidebar, open: bool) {
+///     this.open = open;
 /// }
 ///
 /// pub struct SetOpen(pub bool);
@@ -628,12 +613,9 @@ pub trait Page: Default + Sized + 'static {
 /// #[derive(Default, Clone, PartialEq, Debug)]
 /// pub struct Title(pub String);
 ///
-/// impl Reducer for Title {
-///     type Update = String;
-///
-///     fn reduce(&mut self, title: String) {
-///         self.0 = title;
-///     }
+/// #[reducer]
+/// fn title(this: &mut Title, title: String) {
+///     this.0 = title;
 /// }
 ///
 /// #[derive(Default)]

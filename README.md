@@ -49,16 +49,14 @@ use guinea::prelude::*;
 use guinea::winui::{Page, PageCx, Window, page, run};
 use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
 
-/// The state, which is the reducer.
+/// The state.
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Count(pub u32);
 
-impl Reducer for Count {
-    type Update = u32;
-
-    fn reduce(&mut self, by: u32) {
-        self.0 += by;
-    }
+/// How it changes.
+#[reducer]
+fn count(this: &mut Count, by: u32) {
+    this.0 += by;
 }
 
 /// What the UI asks for.

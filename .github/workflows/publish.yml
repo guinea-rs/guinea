@@ -65,7 +65,8 @@ jobs:
           )
           for crate in "${CRATES[@]}"; do
             echo "::group::cargo publish -p $crate"
-            for attempt in 1 2 3; do
+            failures=0
+            while true; do
               if out=$(cargo publish -p "$crate" --allow-dirty 2>&1); then
                 echo "$out"
                 break
@@ -75,7 +76,13 @@ jobs:
                 echo "$crate is already on crates.io"
                 break
               fi
-              if [ "$attempt" -eq 3 ]; then
+              if echo "$out" | grep -q "429 Too Many Requests"; then
+                echo "crates.io takes one new crate per 10 minutes; waiting"
+                sleep 600
+                continue
+              fi
+              failures=$((failures + 1))
+              if [ "$failures" -eq 3 ]; then
                 echo "::error::Failed to publish $crate after 3 attempts"
                 exit 1
               fi

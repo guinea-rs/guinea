@@ -22,7 +22,7 @@ survives the move to the next.
 An opinion about how a desktop application is built, and the machinery that
 makes the opinion cheap to follow.
 
-- **An architecture** - state is a reducer, the domain is actors that change it, and a feature owns both. A page is an Elm node: it reads what it may, and asks a feature for the rest
+- **An architecture** - state is a reducer, the domain is actors that change it, and a feature owns both. A page is written the way its toolkit works; whatever it is, it reads what it may, and asks a feature for the rest
 - **Routing after Next.js** - nested layouts and pages, declared once in `routes!`. A layout stays mounted while the pages under it change, and what it installs lives exactly as long as it does
 - **Plugins** - a feature is the unit of reuse: installed by any page or layout, in any application, and gone with it. [guinea-plugins](https://github.com/uniproc-dev/guinea-plugins) is what a desktop needs, written once
 
@@ -31,7 +31,7 @@ makes the opinion cheap to follow.
 - **Typed routes** - the route tree is an enum `routes!` writes; navigation takes a value, not a path. Paths exist only where a deep link or a restored session needs one, and the compiler checks every field survives the round trip
 - **Features with a lifetime** - a feature is installed by a page or a layout and lives in its scope: its actors, timers and subscriptions end when the user leaves
 - **Reads checked at build time** - a page reads what it installed itself and what a layout above it exports; anything else is a compile error at the read, not a panic at the first render
-- **Elm on the page, actors in the domain** - a page is a struct with messages and one `update`; the domain answers actions through actors, and pushes state back through reducers
+- **The toolkit's own model on the page, actors in the domain** - on WinUI and iced a page is an Elm node with messages and one `update`, on egui and ratatui it draws itself every frame, on Slint the view is the `.slint` file and Rust wires it; the domain behind any of them answers actions through actors, and pushes state back through reducers
 - **Deterministic tests** - `#[guinea::test]` runs a test once per seed, with background work interleaved the way the seed says. WinUI pages mount without a window, and are clicked and read back as a tree
 - **What caused what** - every action, message, publication and state change is traced with its cause, to `tracing` as structured events and to devtools as a live graph
 - **Five backends** - WinUI (through `windows-reactor`), ratatui, Slint, egui and iced, behind one domain

@@ -2,14 +2,6 @@
 
 ## Devtools (guinea-plugins)
 
-### The schema id does not cover the JSON
-
-The schema id guards the capnp wrapper only. What actually crosses is JSON
-inside `Peer.send` - `Report` and `Command` in `devtools-protocol` - and a
-plugin and devtools that disagree there still connect and then fail to decode.
-Hashing the protocol's Rust types into the id too would catch that, at the cost
-of refusing each other over an edit that changes nothing on the wire.
-
 ### The MCP server answers in JSON meant for a window
 
 `tools/devtools/mcp` offers every route of the API as a tool, generated from

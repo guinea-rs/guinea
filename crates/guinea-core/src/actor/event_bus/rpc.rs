@@ -1,4 +1,4 @@
-use crate::actor::Context;
+use crate::actor::Cx;
 use crate::actor::event_bus::GlobalEventBus;
 use crate::actor::event_bus::Event;
 use crate::actor::traits::Handler;
@@ -77,7 +77,7 @@ pub trait RpcHandler<Req: RpcCall>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<crate::actor::shape::Declared> = None;
 
-    fn handle_rpc(&mut self, ctx: Context<Self, Req>) -> Req::Response
+    fn handle_rpc(&mut self, req: Req, cx: Cx<Self, Req>) -> Req::Response
     where
         Self: Sized;
 }
@@ -89,11 +89,9 @@ where
 {
     const DECLARED: Option<crate::actor::shape::Declared> = <A as RpcHandler<Req>>::DECLARED;
 
-    fn handle(&mut self, ctx: Context<Self, RpcRequest<Req>>) {
-        let addr = ctx.addr();
-        let correlation_id = ctx.msg.correlation_id;
-        let response = self.handle_rpc(Context::new(addr, ctx.msg.payload));
-        AsyncBus::reply(correlation_id, response);
+    fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
+        let response = self.handle_rpc(msg.payload, cx.handling());
+        AsyncBus::reply(msg.correlation_id, response);
     }
 }
 
@@ -196,13 +194,13 @@ impl AsyncBus {
     /// hand-written `Handler<RpcRequest<Req>>` both need to call it the same
     /// way, and a trait can't express "produces a value after an await" any
     /// more precisely than `Future<Output = Req::Response>` already does.
-    /// Unlike [`Context::spawn_bg`], this is not cut short when the actor
+    /// Unlike [`Cx::spawn_bg`], this is not cut short when the actor
     /// that answers is disposed: somebody is waiting for a value, and the
     /// only thing a dropped future would leave them is the request's
     /// timeout. A handler that would rather stop early has the token through
     /// its `AsyncContext` - but it still owes an answer.
     ///
-    /// [`Context::spawn_bg`]: crate::actor::Context::spawn_bg
+    /// [`Cx::spawn_bg`]: crate::actor::Cx::spawn_bg
     pub fn spawn_reply<Res, Fut>(correlation_id: Uuid, chain: Vec<TypeId>, fut: Fut)
     where
         Res: Clone + Send + 'static,
@@ -279,8 +277,8 @@ mod tests {
 
         struct EchoActor;
         impl RpcHandler<Echo> for EchoActor {
-            fn handle_rpc(&mut self, ctx: Context<Self, Echo>) -> Echoed {
-                Echoed(ctx.msg.0 * 2)
+            fn handle_rpc(&mut self, Echo(n): Echo, _cx: Cx<Self, Echo>) -> Echoed {
+                Echoed(n * 2)
             }
         }
 
@@ -394,9 +392,9 @@ mod tests {
 
         // Sync branch: a plain return type, no `.reply()` anywhere in sight.
         #[handler]
-        fn double(this: &mut MathActor, ctx: Context<MathActor, Double>) -> Doubled {
+        fn double(this: &mut MathActor, Double(n): Double) -> Doubled {
             let _ = this;
-            Doubled(ctx.msg.0 * 2)
+            Doubled(n * 2)
         }
 
         // Async branch: `.await`s before producing the value the macro
@@ -574,8 +572,8 @@ mod tests {
 
         struct AddActor;
         impl RpcHandler<Add> for AddActor {
-            fn handle_rpc(&mut self, ctx: Context<Self, Add>) -> Sum {
-                Sum(ctx.msg.0 + ctx.msg.1)
+            fn handle_rpc(&mut self, Add(a, b): Add, _cx: Cx<Self, Add>) -> Sum {
+                Sum(a + b)
             }
         }
 

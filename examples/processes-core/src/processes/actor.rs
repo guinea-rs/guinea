@@ -44,23 +44,23 @@ actor! {
 }
 
 #[handler]
-fn kill(this: &mut ProcessActor, ctx: Context<ProcessActor, Kill>) {
-    let needle = format!("(pid {})", ctx.msg.0);
+fn kill(this: &mut ProcessActor, Kill(pid): Kill, cx: Cx) {
+    let needle = format!("(pid {pid})");
     let killed = this.items.iter().find(|row| row.ends_with(&needle)).cloned();
     this.items.retain(|row| !row.ends_with(&needle));
     this.publish();
 
     if let Some(name) = killed {
         // Window-local: only this window's `TabsLayout` hears it.
-        ctx.publish_local(&this.event_bus, ProcessKilled { name: name.clone() });
+        cx.publish_local(&this.event_bus, ProcessKilled { name: name.clone() });
         // Process-wide: every window's `TabsLayout` hears it, including
         // ones opened after this event fires.
-        ctx.publish(ProcessKilled { name });
+        cx.publish(ProcessKilled { name });
     }
 }
 
 #[handler]
-fn refresh(this: &mut ProcessActor, _ctx: Context<ProcessActor, Refresh>) {
+fn refresh(this: &mut ProcessActor, _: Refresh) {
     this.items = vec![
         "systemd (pid 1)".to_string(),
         "sshd (pid 42)".to_string(),

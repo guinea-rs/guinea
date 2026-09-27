@@ -65,14 +65,13 @@ mod naive {
     }
 
     #[handler]
-    fn query(_this: &mut Searcher, ctx: Context<Searcher, Query>) {
-        let text = ctx.msg.0.clone();
-        ctx.spawn_bg::<Found, _>(search(text));
+    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+        cx.spawn_bg::<Found, _>(search(text));
     }
 
     #[handler]
-    fn found(this: &mut Searcher, ctx: Context<Searcher, Found>) {
-        this.push.send(ctx.msg.clone());
+    fn found(this: &mut Searcher, found: Found) {
+        this.push.send(found);
     }
 
     feature! {
@@ -111,12 +110,11 @@ mod latest {
     }
 
     #[handler]
-    fn query(this: &mut Searcher, ctx: Context<Searcher, Query>) {
+    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
         this.asked += 1;
 
         let asked = this.asked;
-        let text = ctx.msg.0.clone();
-        ctx.spawn_bg::<Answered, _>(async move {
+        cx.spawn_bg::<Answered, _>(async move {
             Answered {
                 asked,
                 found: search(text).await,
@@ -125,9 +123,9 @@ mod latest {
     }
 
     #[handler]
-    fn answered(this: &mut Searcher, ctx: Context<Searcher, Answered>) {
-        if ctx.msg.asked == this.asked {
-            this.push.send(ctx.msg.found.clone());
+    fn answered(this: &mut Searcher, answered: Answered) {
+        if answered.asked == this.asked {
+            this.push.send(answered.found);
         }
     }
 
@@ -187,17 +185,16 @@ mod sleepy {
     }
 
     #[handler]
-    fn query(_this: &mut Searcher, ctx: Context<Searcher, Query>) {
-        let text = ctx.msg.0.clone();
-        ctx.spawn_bg::<Found, _>(async move {
+    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+        cx.spawn_bg::<Found, _>(async move {
             guinea::core::__private::tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             Found { query: text, found: Vec::new() }
         });
     }
 
     #[handler]
-    fn found(this: &mut Searcher, ctx: Context<Searcher, Found>) {
-        this.push.send(ctx.msg.clone());
+    fn found(this: &mut Searcher, found: Found) {
+        this.push.send(found);
     }
 
     feature! {
@@ -269,7 +266,7 @@ mod polling {
     }
 
     #[handler]
-    fn sample(this: &mut Sampler, _ctx: Context<Sampler, Sample>) {
+    fn sample(this: &mut Sampler, _: Sample) {
         this.push.send(Taken);
     }
 
@@ -377,13 +374,13 @@ mod reports {
     }
 
     #[handler]
-    fn report(this: &mut Reader, ctx: Context<Reader, Report>) {
-        this.push.send(ctx.msg.clone());
+    fn report(this: &mut Reader, report: Report) {
+        this.push.send(report);
     }
 
     #[handler]
-    fn announce(_this: &mut Reader, ctx: Context<Reader, Announce>) {
-        GlobalEventBus::publish(Report(ctx.msg.0.clone()));
+    fn announce(_this: &mut Reader, Announce(text): Announce) {
+        GlobalEventBus::publish(Report(text));
     }
 
     feature! {
@@ -518,13 +515,13 @@ mod named {
     }
 
     #[handler]
-    fn rename(_this: &mut Namer, ctx: Context<Namer, Rename>) {
-        GlobalEventBus::publish(Renamed(ctx.msg.0.clone()));
+    fn rename(_this: &mut Namer, Rename(name): Rename) {
+        GlobalEventBus::publish(Renamed(name));
     }
 
     #[handler]
-    fn renamed(this: &mut Namer, ctx: Context<Namer, Renamed>) {
-        this.push.send(ctx.msg.clone());
+    fn renamed(this: &mut Namer, renamed: Renamed) {
+        this.push.send(renamed);
     }
 
     feature! {
@@ -573,8 +570,8 @@ mod titled {
     }
 
     #[handler]
-    fn rename(this: &mut Titler, ctx: Context<Titler, Rename>) {
-        this.push.send(ctx.msg.clone());
+    fn rename(this: &mut Titler, rename: Rename) {
+        this.push.send(rename);
     }
 
     feature! {
@@ -692,7 +689,7 @@ mod listening {
     }
 
     #[handler]
-    fn report(this: &mut Listener, _ctx: Context<Listener, reports::Report>) {
+    fn report(this: &mut Listener, _: reports::Report) {
         this.push.send(Once);
     }
 

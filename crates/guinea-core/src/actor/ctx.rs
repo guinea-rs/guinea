@@ -9,9 +9,22 @@ use std::marker::PhantomData;
 use std::time::Instant;
 use tokio::sync::oneshot;
 
-pub struct Context<A: 'static, M = ()> {
+/// What a handler may do besides change its actor: send on, publish, start
+/// background work.
+///
+/// Typed by the message being handled, not holding it: the message is the
+/// handler's own argument, and `M` is what `actor!`'s flow checks - a handler
+/// of `Query` declared `Query => { bg Found }` may spawn work that answers
+/// `Found`, and nothing else.
+pub struct Cx<A: 'static, M = ()> {
     pub(super) addr: Addr<A>,
-    pub msg: M,
+    handling: PhantomData<fn() -> M>,
+}
+
+impl<A: 'static, M> Clone for Cx<A, M> {
+    fn clone(&self) -> Self {
+        Self::new(self.addr.clone())
+    }
 }
 
 /// One background task as the trace sees it: whose it is, what it owes them,
@@ -77,21 +90,26 @@ impl Task {
     }
 }
 
-impl<A: 'static, M> Context<A, M> {
-    pub(crate) fn new(addr: Addr<A>, msg: M) -> Self {
-        Self { addr, msg }
+impl<A: 'static, M> Cx<A, M> {
+    pub(crate) fn new(addr: Addr<A>) -> Self {
+        Self {
+            addr,
+            handling: PhantomData,
+        }
+    }
+
+    /// The same actor, as the handler of another message.
+    pub(crate) fn handling<N>(self) -> Cx<A, N> {
+        Cx::new(self.addr)
     }
 
     pub fn addr(&self) -> Addr<A> {
         self.addr.clone()
     }
 
-    /// The same context without its message.
-    pub fn detach(&self) -> Context<A, ()> {
-        Context {
-            addr: self.addr.clone(),
-            msg: (),
-        }
+    /// The same actor, handling nothing in particular.
+    pub fn detach(&self) -> Cx<A, ()> {
+        Cx::new(self.addr.clone())
     }
 
     /// Sends to this actor's own queue; drained by the same `process_queue`.
@@ -125,7 +143,7 @@ impl<A: 'static, M> Context<A, M> {
     /// The actor's cancellation token, for work that has to end itself rather
     /// than be dropped at an await - closing a file, telling the other end.
     ///
-    /// [`Context::spawn_bg`] already guards what it spawns with it.
+    /// [`Cx::spawn_bg`] already guards what it spawns with it.
     pub fn cancellation(&self) -> Cancel {
         self.addr.cancellation()
     }
@@ -145,7 +163,7 @@ impl<A: 'static, M> Context<A, M> {
         self.bg(fut, false);
     }
 
-    /// [`Context::spawn_bg`], with `listens` for work that was handed the
+    /// [`Cx::spawn_bg`], with `listens` for work that was handed the
     /// token and winds itself down: it is left to finish instead of being
     /// dropped at its next await. Either way nothing is sent to an actor
     /// that is gone.
@@ -195,12 +213,12 @@ impl<A: 'static, M> Context<A, M> {
         });
     }
 
-    /// [`Context::spawn_bg`] for work that wants to hear the cancellation
+    /// [`Cx::spawn_bg`] for work that wants to hear the cancellation
     /// rather than be dropped by it: a loop that checks between rounds, a
     /// connection that says goodbye, a `select!` arm.
     ///
     /// ```ignore
-    /// ctx.spawn_bg_with::<Tick, _, _>(|gone| async move {
+    /// cx.spawn_bg_with::<Tick, _, _>(|gone| async move {
     ///     while !gone.is_cancelled() {
     ///         poll().await;
     ///     }
@@ -218,7 +236,7 @@ impl<A: 'static, M> Context<A, M> {
         self.bg(work(self.addr.cancellation()), true);
     }
 
-    /// [`Context::spawn_bg`] for work that answers no one; cancelled with the
+    /// [`Cx::spawn_bg`] for work that answers no one; cancelled with the
     /// actor just the same.
     pub fn spawn_bg_detached<Fut>(&self, fut: Fut)
     where
@@ -227,7 +245,7 @@ impl<A: 'static, M> Context<A, M> {
         self.bg_detached(fut, false);
     }
 
-    /// [`Context::spawn_bg_with`] for work that answers no one.
+    /// [`Cx::spawn_bg_with`] for work that answers no one.
     pub fn spawn_bg_detached_with<Fut, F>(&self, work: F)
     where
         Fut: Future<Output = ()> + 'static + Send,
@@ -345,7 +363,7 @@ impl<A: 'static> AsyncContext<A> {
     /// a thread nobody is watching.
     pub async fn apply<R, F>(&self, f: F) -> Option<R>
     where
-        F: FnOnce(&mut A, &Context<A>) -> R + Send + 'static,
+        F: FnOnce(&mut A, &Cx<A>) -> R + Send + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
@@ -392,7 +410,7 @@ impl<A: 'static> AsyncContext<A> {
     }
 }
 
-impl<A: 'static, M> Context<A, M> {
+impl<A: 'static, M> Cx<A, M> {
     pub fn async_ctx(&self) -> AsyncContext<A> {
         AsyncContext::new(self.addr.id, self.addr.cancellation())
     }
@@ -424,14 +442,14 @@ mod tests {
     }
 
     impl Handler<First> for Chain {
-        fn handle(&mut self, ctx: Context<Self, First>) {
+        fn handle(&mut self, _: First, cx: Cx<Self, First>) {
             self.log.borrow_mut().push("first");
-            ctx.send(Second);
+            cx.send(Second);
         }
     }
 
     impl Handler<Second> for Chain {
-        fn handle(&mut self, _ctx: Context<Self, Second>) {
+        fn handle(&mut self, _: Second, _cx: Cx<Self, Second>) {
             self.log.borrow_mut().push("second");
         }
     }
@@ -503,8 +521,8 @@ mod tests {
             UiThreadToken::dangerously_create_token_unchecked(),
         );
 
-        let ctx = Context::new(addr.clone(), First);
-        let cancel = ctx.cancellation();
+        let cx = Cx::<_, First>::new(addr.clone());
+        let cancel = cx.cancellation();
         assert!(!cancel.is_cancelled());
 
         addr.dispose();
@@ -528,8 +546,8 @@ mod tests {
             UiThreadToken::dangerously_create_token_unchecked(),
         );
 
-        let ctx = Context::new(addr.clone(), First);
-        ctx.spawn_bg::<Second, _>(async {
+        let cx = Cx::<_, First>::new(addr.clone());
+        cx.spawn_bg::<Second, _>(async {
             std::future::pending::<()>().await;
             Second
         });
@@ -557,8 +575,8 @@ mod tests {
         let wound_down = Arc::new(AtomicBool::new(false));
         let noted = wound_down.clone();
 
-        let ctx = Context::new(addr.clone(), First);
-        ctx.spawn_bg_with::<Second, _, _>(|gone| async move {
+        let cx = Cx::<_, First>::new(addr.clone());
+        cx.spawn_bg_with::<Second, _, _>(|gone| async move {
             gone.cancelled().await;
             tokio::task::yield_now().await;
             noted.store(true, Ordering::SeqCst);
@@ -577,15 +595,15 @@ mod tests {
     }
 
     #[test]
-    fn detach_keeps_the_address_and_drops_the_message() {
+    fn detach_keeps_the_address() {
         let log = Rc::new(RefCell::new(Vec::new()));
         let addr = Addr::new_scoped(
             Chain { log },
             UiThreadToken::dangerously_create_token_unchecked(),
         );
 
-        let ctx = Context::new(addr.clone(), First);
-        let bare = ctx.detach();
+        let cx = Cx::<_, First>::new(addr.clone());
+        let bare = cx.detach();
 
         assert_eq!(bare.addr().id(), addr.id());
     }

@@ -32,25 +32,39 @@ pub(crate) fn guinea_core_crate_path() -> proc_macro2::TokenStream {
     }
 }
 
-fn expand_handler(item: ItemFn) -> Result<TokenStream> {
+fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     let gc = guinea_core_crate_path();
-    let fn_name = &item.sig.ident;
     let is_async = item.sig.asyncness.is_some();
-    let inputs = &item.sig.inputs;
 
     let (actor_ty, actor_name) = if is_async {
-        extract_actor_from_async_ctx(inputs.get(0))?
+        extract_actor_from_async_ctx(item.sig.inputs.get(0))?
     } else {
-        extract_actor_from_ref(inputs.get(0))?
+        extract_actor_from_ref(item.sig.inputs.get(0))?
     };
+    let actor_ty = actor_ty.clone();
+    let actor_ty = &actor_ty;
 
     let msg_ty = if is_async {
-        let (ty, _) = extract_msg_info(inputs.get(1))?;
+        let (ty, _) = extract_msg_info(item.sig.inputs.get(1))?;
         ty.clone()
     } else {
-        extract_sync_msg(inputs.get(1))?
+        extract_sync_msg(item.sig.inputs.get(1))?
     };
     let msg_ty = &msg_ty;
+
+    let takes_cx = !is_async && item.sig.inputs.len() == 3;
+    if takes_cx {
+        spell_out_cx(&mut item, actor_ty, msg_ty);
+    }
+
+    let fn_name = &item.sig.ident;
+    let inputs = &item.sig.inputs;
+    let cx = if takes_cx {
+        quote!(cx)
+    } else {
+        quote!(_cx)
+    };
+    let passed_cx = takes_cx.then(|| quote!(, cx));
 
     // A return type is the signal that this handler answers an
     // `AsyncBus::request` rather than reacting to a fire-and-forget event.
@@ -79,15 +93,13 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
     };
 
     let trait_impl = match (is_async, ret_ty) {
-        // Fire-and-forget sync handler - unchanged from before the RPC
-        // heuristic existed.
+        // Fire-and-forget sync handler.
         (false, None) => {
-            if inputs.len() != 2 {
+            if !(2..=3).contains(&inputs.len()) {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "Sync handler for actor '{}' must have exactly 2 arguments: (actor: &mut {}, ctx: Context<{}, Msg>)",
-                        actor_name, actor_name, actor_name
+                        "a handler for '{actor_name}' takes the actor, the message, and - when it sends, publishes or spawns - its `Cx`: (this: &mut {actor_name}, msg: Msg) or (this: &mut {actor_name}, msg: Msg, cx: Cx<{actor_name}, Msg>)"
                     ),
                 ));
             }
@@ -95,8 +107,8 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, ctx: #gc::actor::Context<Self, #msg_ty>) {
-                        #fn_name(self, ctx);
+                    fn handle(&mut self, msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) {
+                        #fn_name(self, msg #passed_cx);
                     }
                 }
             }
@@ -107,12 +119,11 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
         // returns, so the value just needs to flow back out as an
         // expression.
         (false, Some(ret_ty)) => {
-            if inputs.len() != 2 {
+            if !(2..=3).contains(&inputs.len()) {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "Sync RPC handler for actor '{}' must have exactly 2 arguments: (actor: &mut {}, ctx: Context<{}, Req>)",
-                        actor_name, actor_name, actor_name
+                        "an RPC handler for '{actor_name}' takes the actor, the request, and optionally its `Cx`: (this: &mut {actor_name}, req: Req) or (this: &mut {actor_name}, req: Req, cx: Cx<{actor_name}, Req>)"
                     ),
                 ));
             }
@@ -120,8 +131,8 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::event_bus::rpc::RpcHandler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle_rpc(&mut self, ctx: #gc::actor::Context<Self, #msg_ty>) -> #ret_ty {
-                        #fn_name(self, ctx)
+                    fn handle_rpc(&mut self, msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) -> #ret_ty {
+                        #fn_name(self, msg #passed_cx)
                     }
                 }
             }
@@ -143,15 +154,13 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, ctx: #gc::actor::Context<Self, #msg_ty>) {
-                        let actx = ctx.async_ctx();
-                        let bare = ctx.detach();
-                        let msg = ctx.msg;
+                    fn handle(&mut self, msg: #msg_ty, cx: #gc::actor::Cx<Self, #msg_ty>) {
+                        let actx = cx.async_ctx();
                         // `_with`, so the body is left to finish once it has
                         // been told: it holds the same token through its
                         // `AsyncContext`, and that promise is only true if
                         // nothing drops it at the next await.
-                        bare.spawn_bg_detached_with(move |_gone| async move {
+                        cx.spawn_bg_detached_with(move |_gone| async move {
                             #fn_name(actx, msg).await;
                         });
                     }
@@ -184,15 +193,17 @@ fn expand_handler(item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#gc::actor::event_bus::RpcRequest<#msg_ty>> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, ctx: #gc::actor::Context<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>) {
-                        let actx = ctx.async_ctx();
-                        let correlation_id = ctx.msg.correlation_id;
-                        let chain = ctx.msg.chain;
-                        let msg = ctx.msg.payload;
+                    fn handle(
+                        &mut self,
+                        msg: #gc::actor::event_bus::RpcRequest<#msg_ty>,
+                        cx: #gc::actor::Cx<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>,
+                    ) {
+                        let actx = cx.async_ctx();
+                        let payload = msg.payload;
                         #gc::actor::event_bus::AsyncBus::spawn_reply::<#ret_ty, _>(
-                            correlation_id,
-                            chain,
-                            async move { #fn_name(actx, msg).await },
+                            msg.correlation_id,
+                            msg.chain,
+                            async move { #fn_name(actx, payload).await },
                         );
                     }
                 }
@@ -211,44 +222,42 @@ fn type_to_string(ty: &Type) -> String {
     quote!(#ty).to_string().replace(' ', "")
 }
 
-/// The message type is read off the second argument, which must be
-/// `Context<Actor, Msg>`.
+/// A bare `Cx` in a handler's signature, written out: the actor and the
+/// message are the two arguments before it, and saying them again is noise.
+/// `Cx<A, M>` spelled in full is left as it is.
+fn spell_out_cx(item: &mut ItemFn, actor: &Type, msg: &Type) {
+    let Some(FnArg::Typed(arg)) = item.sig.inputs.get_mut(2) else {
+        return;
+    };
+    let Type::Path(path) = arg.ty.as_mut() else {
+        return;
+    };
+    let Some(last) = path.path.segments.last_mut() else {
+        return;
+    };
+
+    if last.ident == "Cx" && last.arguments.is_empty() {
+        last.arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#actor, #msg>));
+    }
+}
+
+/// The message type is the second argument's: the handler takes the message
+/// itself, destructured or not.
 fn extract_sync_msg(arg: Option<&FnArg>) -> Result<Type> {
     let (ty, _) = extract_msg_info(arg)?;
 
-    let malformed = || {
-        Error::new(
+    let is_context = matches!(
+        ty,
+        Type::Path(path) if path.path.segments.last().is_some_and(|last| last.ident == "Context")
+    );
+    if is_context {
+        return Err(Error::new(
             ty.span(),
-            "a handler's second argument must be `Context<Actor, Msg>`",
-        )
-    };
-
-    let Type::Path(path) = ty else {
-        return Err(malformed());
-    };
-    let Some(last) = path.path.segments.last() else {
-        return Err(malformed());
-    };
-    if last.ident != "Context" {
-        return Err(malformed());
+            "a handler takes the message itself now, and `Cx` only when it needs one: `fn h(this: &mut Actor, msg: Msg)` or `fn h(this: &mut Actor, msg: Msg, cx: Cx<Actor, Msg>)`",
+        ));
     }
-    let syn::PathArguments::AngleBracketed(args) = &last.arguments else {
-        return Err(malformed());
-    };
 
-    let types: Vec<Type> = args
-        .args
-        .iter()
-        .filter_map(|arg| match arg {
-            syn::GenericArgument::Type(ty) => Some(ty.clone()),
-            _ => None,
-        })
-        .collect();
-
-    match types.len() {
-        0 | 1 => Err(malformed()),
-        _ => Ok(types[1].clone()),
-    }
+    Ok(ty.clone())
 }
 
 fn extract_msg_info(arg: Option<&FnArg>) -> Result<(&Type, String)> {

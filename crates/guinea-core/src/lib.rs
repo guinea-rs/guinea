@@ -22,7 +22,7 @@ pub use load::Load;
 pub use shared_state::SharedState;
 pub use scope::{Reducer, Scope, StateHandle, Subscription};
 pub use actor::{
-    Addr, Context, Handler, ManagedActor, UiDispatcher, UiTask, UiThreadToken,
+    Addr, Cx, Handler, ManagedActor, UiDispatcher, UiTask, UiThreadToken,
     invoke_on_ui, set_ui_dispatcher,
 };
 pub use actor::event_bus::subscribe::BusSubscription;

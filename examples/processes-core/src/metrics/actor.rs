@@ -33,7 +33,7 @@ actor! {
 }
 
 #[handler]
-fn tick(this: &mut MetricsActor, ctx: Context<MetricsActor, Tick>) {
+fn tick(this: &mut MetricsActor, _: Tick, cx: Cx) {
     this.tick += 1;
     let t = this.tick as f32;
 
@@ -46,7 +46,7 @@ fn tick(this: &mut MetricsActor, ctx: Context<MetricsActor, Tick>) {
 
     this.push.send(Sampled::At { at, cpu, memory });
 
-    ctx.spawn_bg::<Tick, _>(async {
+    cx.spawn_bg::<Tick, _>(async {
         tokio::time::sleep(Duration::from_millis(800)).await;
         Tick
     });

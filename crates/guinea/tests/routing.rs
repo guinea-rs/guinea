@@ -719,7 +719,6 @@ mod routing {
 
     #[test]
     fn navigating_away_from_page_disposes_actor_subscribed_to_global_bus() {
-        use guinea_core::actor::Context;
         use guinea_core::actor::event_bus::GlobalEventBus;
         use guinea_macros::{Event, actor, handler};
         use std::cell::RefCell;
@@ -756,8 +755,8 @@ mod routing {
         }
 
         #[handler]
-        fn on_probe(this: &mut ProbeActor, ctx: Context<ProbeActor, ProbeEvent>) {
-            this.seen.borrow_mut().push(ctx.msg.0);
+        fn on_probe(this: &mut ProbeActor, ProbeEvent(n): ProbeEvent) {
+            this.seen.borrow_mut().push(n);
         }
 
         thread_local! {

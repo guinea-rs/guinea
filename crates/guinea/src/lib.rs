@@ -230,7 +230,7 @@ pub mod prelude {
     pub use guinea_app::feature::{ContextActorExt, ContextTimersExt, Feature, FeatureInitContext};
     pub use guinea_app::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, GlobalEventBus};
-    pub use guinea_core::actor::{Addr, AsyncContext, Context, Handler};
+    pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     pub use guinea_core::feature::{Bound, Dispatch, Push};
     pub use guinea_core::trace::Bus;
     pub use guinea_core::__private::anyhow;

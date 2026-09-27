@@ -25,7 +25,7 @@ actor! {
 }
 
 #[handler]
-fn sweep(this: &mut Housekeeping, _ctx: Context<Housekeeping, Sweep>) {
+fn sweep(this: &mut Housekeeping, _: Sweep) {
     this.sweeps += 1;
     tracing::debug!(sweeps = this.sweeps, "housekeeping sweep");
 }

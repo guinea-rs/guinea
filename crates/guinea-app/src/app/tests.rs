@@ -304,7 +304,6 @@ fn meta_declared_after_a_plugin_is_still_there_for_it() {
 }
 
 mod owners {
-    use guinea_core::actor::Context;
     use guinea_macros::{actor, handler};
 
     use super::super::actors::{app_actors, forget_all};
@@ -323,7 +322,7 @@ mod owners {
     }
 
     #[handler]
-    fn sweep(_this: &mut Sweeper, _ctx: Context<Sweeper, Sweep>) {}
+    fn sweep(_this: &mut Sweeper, _: Sweep) {}
 
     #[derive(Debug, Default)]
     pub struct Loose;
@@ -335,7 +334,7 @@ mod owners {
     }
 
     #[handler]
-    fn loose(_this: &mut Loose, _ctx: Context<Loose, Sweep>) {}
+    fn loose(_this: &mut Loose, _: Sweep) {}
 
     struct Housekeeping;
 

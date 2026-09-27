@@ -1,6 +1,6 @@
 use crate::actor::addr::Addr;
 use crate::actor::traits::Handler;
-use crate::actor::{Context, short_type_name};
+use crate::actor::{Cx, short_type_name};
 use crate::trace::{self, Cause, Point};
 use std::marker::PhantomData;
 
@@ -24,14 +24,14 @@ where
                 actor: short_type_name::<A>(),
                 message: short_type_name::<M>(),
             });
-            actor.handle(Context::new(addr.clone(), message));
+            actor.handle(message, Cx::new(addr.clone()));
         }
     }
 }
 
 pub struct FnEnvelope<A, F>
 where
-    F: FnOnce(&mut A, &Context<A>) + Send + 'static,
+    F: FnOnce(&mut A, &Cx<A>) + Send + 'static,
 {
     pub(super) func: Option<F>,
     pub(super) cause: Option<Cause>,
@@ -40,12 +40,12 @@ where
 
 impl<A, F> Envelope<A> for FnEnvelope<A, F>
 where
-    F: FnOnce(&mut A, &Context<A>) + Send + 'static,
+    F: FnOnce(&mut A, &Cx<A>) + Send + 'static,
 {
     fn handle(&mut self, actor: &mut A, addr: &Addr<A>) {
         if let Some(f) = self.func.take() {
             let _resumed = trace::resume(self.cause);
-            f(actor, &Context::new(addr.clone(), ()));
+            f(actor, &Cx::new(addr.clone()));
         }
     }
 }

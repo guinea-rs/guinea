@@ -60,9 +60,8 @@ actor! {
 }
 
 #[handler]
-fn query(_this: &mut Searcher, ctx: Context<Searcher, Query>) {
-    let text = ctx.msg.0.clone();
-    ctx.spawn_bg::<Found, _>(async move {
+fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+    cx.spawn_bg::<Found, _>(async move {
         guinea::core::executor::random_delay().await;
         let found = CATALOGUE.iter().copied().filter(|name| name.contains(text.as_str())).collect();
         Found { query: text, found }
@@ -70,8 +69,8 @@ fn query(_this: &mut Searcher, ctx: Context<Searcher, Query>) {
 }
 
 #[handler]
-fn found(this: &mut Searcher, ctx: Context<Searcher, Found>) {
-    this.push.send(ctx.msg.clone());
+fn found(this: &mut Searcher, found: Found) {
+    this.push.send(found);
 }
 
 feature! {
@@ -431,7 +430,7 @@ mod polling {
     }
 
     #[handler]
-    fn sample(this: &mut Sampler, _ctx: Context<Sampler, Sample>) {
+    fn sample(this: &mut Sampler, _: Sample) {
         this.push.send(Taken);
     }
 

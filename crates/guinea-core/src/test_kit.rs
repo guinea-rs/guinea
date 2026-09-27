@@ -67,7 +67,7 @@ impl<M: 'static> PortSpy<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::{Addr, Context, Handler, UiThreadToken};
+    use crate::actor::{Addr, Cx, Handler, UiThreadToken};
 
     struct Refresh;
 
@@ -81,7 +81,7 @@ mod tests {
     }
 
     impl<P: Fn(Ui) + 'static> Handler<Refresh> for Service<P> {
-        fn handle(&mut self, _ctx: Context<Self, Refresh>) {
+        fn handle(&mut self, _: Refresh, _cx: Cx<Self, Refresh>) {
             (self.port)(Ui::Items(vec!["sshd", "cron"]));
         }
     }

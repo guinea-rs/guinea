@@ -75,8 +75,8 @@ actor! {
 }
 
 #[handler]
-fn add(this: &mut Counting, ctx: Context<Counting, Add>) {
-    this.push.send(ctx.msg.0);
+fn add(this: &mut Counting, Add(by): Add) {
+    this.push.send(by);
 }
 
 // What the feature publishes to the pages that install it, or sit below.

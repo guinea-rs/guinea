@@ -5,7 +5,7 @@ use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::shape::name;
 use crate::actor::traits::Handler;
-use crate::actor::{Context, UiThreadToken};
+use crate::actor::{Cx, UiThreadToken};
 use crate::actor::{ManagedActor, short_type_name};
 use crate::lifecycle_tracker::LifecycleTracker;
 use crate::scope::Scope;
@@ -163,7 +163,7 @@ impl<A: 'static> Addr<A> {
 
     pub fn apply<F>(&self, f: F)
     where
-        F: FnOnce(&mut A, &Context<A>) + Send + 'static,
+        F: FnOnce(&mut A, &Cx<A>) + Send + 'static,
     {
         self.queue.borrow_mut().push_back(Box::new(FnEnvelope {
             func: Some(f),

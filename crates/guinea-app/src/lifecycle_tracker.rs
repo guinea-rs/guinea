@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[guinea_macros::handler]
-    fn probe_ping(_this: &mut Probe, _ctx: guinea_core::actor::Context<Probe, Ping>) {}
+    fn probe_ping(_this: &mut Probe, _: Ping) {}
 
     fn deinit<'a>(token: &UiThreadToken, shared: &'a SharedState) -> AppFeatureDeinitContext<'a> {
         AppFeatureDeinitContext {

@@ -202,6 +202,113 @@ pub fn remote(item: TokenStream) -> TokenStream {
     remote::derive_remote(input).into()
 }
 
+/// Makes a function an actor's handler for one message: `impl Handler<M>`
+/// written from its signature.
+///
+/// A handler takes what it uses and nothing else. The actor, then the message
+/// itself - destructured right in the argument when that reads better:
+///
+/// <!-- shown: a handler that takes the message -->
+/// ```rust,ignore
+/// pub struct Add(pub u32);
+///
+/// #[derive(Debug)]
+/// pub struct Counting {
+///     push: Push<Count>,
+/// }
+///
+/// actor! {
+///     Counting {
+///         handlers { Add }
+///     }
+/// }
+///
+/// #[handler]
+/// fn add(this: &mut Counting, Add(by): Add) {
+///     this.push.send(by);
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// A handler that sends on, publishes, or starts background work takes a
+/// third argument, its `Cx`. Written bare: the actor and the message are the
+/// two arguments before it, and the macro writes them in. `Cx` is typed by the
+/// message it handles, which is what `actor!`'s flow checks - a handler of
+/// `Refresh` declared `Refresh => { bg Counted }` may spawn work that answers
+/// `Counted`, and nothing else compiles:
+///
+/// <!-- shown: a handler that starts work -->
+/// ```rust,ignore
+/// pub struct Refresh;
+/// pub struct Counted(pub u32);
+///
+/// #[derive(Debug)]
+/// pub struct Counting {
+///     push: Push<Count>,
+/// }
+///
+/// actor! {
+///     Counting {
+///         handlers { Refresh => { bg Counted }, Counted }
+///     }
+/// }
+///
+/// // `cx` is `Cx<Counting, Refresh>`: the macro writes in what the two
+/// // arguments before it already say.
+/// #[handler]
+/// fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
+///     cx.spawn_bg::<Counted, _>(async {
+///         guinea::core::executor::random_delay().await;
+///         Counted(7)
+///     });
+/// }
+///
+/// #[handler]
+/// fn counted(this: &mut Counting, Counted(n): Counted) {
+///     this.push.send(n);
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// An `async fn` runs off the UI thread. It takes the actor's
+/// `AsyncContext` instead of the actor - the actor itself stays on the UI
+/// thread - and ends with the actor: dropped at its next await once the actor
+/// is gone, unless it listens for that itself.
+///
+/// <!-- shown: an async handler -->
+/// ```rust,ignore
+/// pub struct Load(pub u32);
+/// pub struct Loaded(pub u32);
+///
+/// #[derive(Debug)]
+/// pub struct Loader {
+///     push: Push<Count>,
+/// }
+///
+/// actor! {
+///     Loader {
+///         handlers { Load, Loaded }
+///     }
+/// }
+///
+/// // Runs off the UI thread, and ends with the actor: `cx` knows when it is
+/// // gone, and sends back to it while it is not.
+/// #[handler]
+/// async fn load(cx: AsyncContext<Loader>, Load(n): Load) {
+///     guinea::core::executor::random_delay().await;
+///     cx.send(Loaded(n * 2));
+/// }
+///
+/// #[handler]
+/// fn loaded(this: &mut Loader, Loaded(n): Loaded) {
+///     this.push.send(n);
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// A return type makes the handler an answer to `AsyncBus::request`: the
+/// value it returns is the reply, sent exactly once, by the generated code and
+/// nothing else. That holds for both the plain and the `async` form.
 #[proc_macro_attribute]
 pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);

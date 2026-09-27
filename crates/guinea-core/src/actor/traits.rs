@@ -1,11 +1,11 @@
-use crate::actor::Context;
+use crate::actor::Cx;
 use crate::actor::event_bus::builder::EventSubscription;
 
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<crate::actor::shape::Declared> = None;
 
-    fn handle(&mut self, ctx: Context<Self, M>)
+    fn handle(&mut self, msg: M, cx: Cx<Self, M>)
     where
         Self: Sized;
 }

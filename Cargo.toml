@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.13.3"
+version = "0.13.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/uniproc-dev/guinea"
@@ -28,23 +28,23 @@ members = [
 ]
 
 [workspace.dependencies]
-guinea-trace = { path = "crates/guinea-trace", version = "0.13.3" }
-guinea-mark = { path = "crates/guinea-mark", version = "0.13.3" }
-guinea-meta = { path = "crates/guinea-meta", version = "0.13.3" }
-guinea-meta-build = { path = "crates/guinea-meta-build", version = "0.13.3" }
-guinea-codegen = { path = "crates/guinea-codegen", version = "0.13.3" }
-guinea-core = { path = "crates/guinea-core", version = "0.13.3" }
-guinea-app = { path = "crates/guinea-app", version = "0.13.3" }
-guinea-eframe = { path = "crates/adapters/guinea-eframe", version = "0.13.3" }
-guinea-iced = { path = "crates/adapters/guinea-iced", version = "0.13.3" }
-guinea-ratatui = { path = "crates/adapters/guinea-ratatui", version = "0.13.3" }
-guinea-slint = { path = "crates/adapters/guinea-slint", version = "0.13.3" }
-guinea-slint-build = { path = "crates/adapters/guinea-slint-build", version = "0.13.3" }
-guinea-router = { path = "crates/guinea-router", version = "0.13.3" }
-guinea-winui = { path = "crates/adapters/guinea-winui", version = "0.13.3" }
-guinea-macros = { path = "crates/guinea-macros", version = "0.13.3" }
-guinea-route-dsl = { path = "crates/guinea-route-dsl", version = "0.13.3" }
-guinea = { path = "crates/guinea", version = "0.13.3" }
+guinea-trace = { path = "crates/guinea-trace", version = "0.13.4" }
+guinea-mark = { path = "crates/guinea-mark", version = "0.13.4" }
+guinea-meta = { path = "crates/guinea-meta", version = "0.13.4" }
+guinea-meta-build = { path = "crates/guinea-meta-build", version = "0.13.4" }
+guinea-codegen = { path = "crates/guinea-codegen", version = "0.13.4" }
+guinea-core = { path = "crates/guinea-core", version = "0.13.4" }
+guinea-app = { path = "crates/guinea-app", version = "0.13.4" }
+guinea-eframe = { path = "crates/adapters/guinea-eframe", version = "0.13.4" }
+guinea-iced = { path = "crates/adapters/guinea-iced", version = "0.13.4" }
+guinea-ratatui = { path = "crates/adapters/guinea-ratatui", version = "0.13.4" }
+guinea-slint = { path = "crates/adapters/guinea-slint", version = "0.13.4" }
+guinea-slint-build = { path = "crates/adapters/guinea-slint-build", version = "0.13.4" }
+guinea-router = { path = "crates/guinea-router", version = "0.13.4" }
+guinea-winui = { path = "crates/adapters/guinea-winui", version = "0.13.4" }
+guinea-macros = { path = "crates/guinea-macros", version = "0.13.4" }
+guinea-route-dsl = { path = "crates/guinea-route-dsl", version = "0.13.4" }
+guinea = { path = "crates/guinea", version = "0.13.4" }
 inventory = "0.3"
 
 # --- UI Stack (Windowing) ---

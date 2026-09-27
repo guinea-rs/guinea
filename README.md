@@ -2,20 +2,9 @@
 
 <img src="assets/banner.svg" alt="guinea" width="100%" />
 
-*Desktop applications in Rust, built from features that know what they own.*
+*The application layer for Rust GUI.*
 
 </div>
-
-### The problem
-
-A Rust GUI toolkit draws widgets, and that is where its opinion ends. Where
-state lives and who may read it, how screens nest and are navigated, what
-happens to the work a screen started when the user leaves it - every
-application decides that for itself, and decides it again in the next one. So
-it goes with what every desktop application needs and no toolkit ships:
-settings that persist, a window that reopens where it was, one running
-instance, translations, updates. Code written for one application rarely
-survives the move to the next.
 
 ### What guinea is
 

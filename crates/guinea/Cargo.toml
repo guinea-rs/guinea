@@ -1,6 +1,6 @@
 [package]
 name = "guinea"
-description = "Desktop applications in Rust, built from features that know what they own"
+description = "The application layer for Rust GUI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -36,6 +36,12 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      # The examples in the README and in doc comments are copied from tests
+      # by `cargo xtask docs`; a page edited by hand, or a test changed without
+      # it, fails here.
+      - name: Docs match their tests
+        run: cargo xtask docs --check
+
   # The half that claims to know nothing about a toolkit, built where no
   # toolkit exists. This job is the claim's only proof: `guinea-core`,
   # `guinea-app` and `guinea-router` have no Windows dependency in their

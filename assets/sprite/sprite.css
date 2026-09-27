@@ -1,0 +1,2 @@
+.guinea-loader{width:64px;height:64px;background:url(guinea-run-sprite-64px.png) 0 0/256px 64px;image-rendering:pixelated;animation:guinea-run .4s steps(4) infinite}
+@keyframes guinea-run{to{background-position:-256px 0}}

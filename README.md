@@ -1,0 +1,132 @@
+<div align="center">
+
+<img src="assets/banner.svg" alt="guinea" width="100%" />
+
+*Desktop applications in Rust, built from features that know what they own.*
+
+</div>
+
+### The problem
+
+A Rust GUI toolkit draws widgets, and that is where its opinion ends. Where
+state lives and who may read it, how screens nest and are navigated, what
+happens to the work a screen started when the user leaves it - every
+application decides that for itself, and decides it again in the next one. So
+it goes with what every desktop application needs and no toolkit ships:
+settings that persist, a window that reopens where it was, one running
+instance, translations, updates. Code written for one application rarely
+survives the move to the next.
+
+### What guinea is
+
+An opinion about how a desktop application is built, and the machinery that
+makes the opinion cheap to follow.
+
+- **An architecture** - state is a reducer, the domain is actors that change it, and a feature owns both. A page is an Elm node: it reads what it may, and asks a feature for the rest
+- **Routing after Next.js** - nested layouts and pages, declared once in `routes!`. A layout stays mounted while the pages under it change, and what it installs lives exactly as long as it does
+- **Plugins** - a feature is the unit of reuse: installed by any page or layout, in any application, and gone with it. [guinea-plugins](https://github.com/uniproc-dev/guinea-plugins) is what a desktop needs, written once
+
+### Features
+
+- **Typed routes** - the route tree is an enum `routes!` writes; navigation takes a value, not a path. Paths exist only where a deep link or a restored session needs one, and the compiler checks every field survives the round trip
+- **Features with a lifetime** - a feature is installed by a page or a layout and lives in its scope: its actors, timers and subscriptions end when the user leaves
+- **Reads checked at build time** - a page reads what it installed itself and what a layout above it exports; anything else is a compile error at the read, not a panic at the first render
+- **Elm on the page, actors in the domain** - a page is a struct with messages and one `update`; the domain answers actions through actors, and pushes state back through reducers
+- **Deterministic tests** - `#[guinea::test]` runs a test once per seed, with background work interleaved the way the seed says. WinUI pages mount without a window, and are clicked and read back as a tree
+- **What caused what** - every action, message, publication and state change is traced with its cause, to `tracing` as structured events and to devtools as a live graph
+- **Five backends** - WinUI (through `windows-reactor`), ratatui, Slint, egui and iced, behind one domain
+
+> [!WARNING]
+> **guinea is young, and its API still moves between minor versions.**
+> WinUI is the backend a real application ([uniproc](https://github.com/uniproc-dev/uniproc)) runs on every day; the other four
+> run the same example application and are tested, but nobody depends on them yet. It is not on crates.io: depend on a tag.
+
+<!-- shown: counter -->
+```rust
+use guinea::prelude::*;
+use guinea::winui::{Page, PageCx, Window, page, run};
+use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+
+/// The state, which is the reducer.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Count(pub u32);
+
+impl Reducer for Count {
+    type Update = u32;
+
+    fn reduce(&mut self, by: u32) {
+        self.0 += by;
+    }
+}
+
+/// What the UI asks for.
+pub struct Add(pub u32);
+
+/// The domain: answers `Add`, and pushes the new state.
+#[derive(Debug)]
+pub struct Counting {
+    push: Push<Count>,
+}
+
+actor! {
+    Counting {
+        handlers { Add }
+    }
+}
+
+#[handler]
+fn add(this: &mut Counting, ctx: Context<Counting, Add>) {
+    this.push.send(ctx.msg.0);
+}
+
+// What the feature publishes to the pages that install it, or sit below.
+feature! {
+    pub Counter {
+        exports { Count }
+    }
+}
+
+#[installs]
+fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+    let (count, _) = cx.state::<Count>().driven_by(|push| Counting { push });
+    Ok(Counter(count))
+}
+
+#[derive(Default)]
+pub struct Home;
+
+#[page]
+impl Page for Home {
+    type Installs = Counter;
+
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Counter> {
+        ctx.install(&())
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        let (count, dispatch) = cx.use_reducer::<Count, _>();
+
+        StackPanel::new()
+            .children((
+                TextBlock::new().text(count.0.to_string()),
+                Button::new()
+                    .on_click(move || dispatch.emit(Add(1)))
+                    .content(TextBlock::new().text("Add")),
+            ))
+            .into()
+    }
+}
+
+routes! {
+    Route {
+        page(Home) { }
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    run(GuineaApp::new(), Window::new().title("Counter"), || {
+        Route::Home {}
+    })
+}
+```
+<!-- /shown -->

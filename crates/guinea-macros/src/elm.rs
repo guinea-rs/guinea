@@ -37,18 +37,13 @@ pub enum Kind {
 /// The facade wins over the adapter when both are there: the lookup sees
 /// dev-dependencies too, and an application that names the adapter only to
 /// test with it would otherwise get a path its own build does not have.
-///
-/// Inside the adapter the path is its own name rather than `crate`, which the
-/// adapter declares with `extern crate self`: the lookup cannot tell the
-/// adapter's code from its doc tests, and in a doc test `crate` is the test.
 fn adapter_path(package: &str, facade: &str) -> TokenStream {
     let facade_module = syn::Ident::new(facade, proc_macro2::Span::call_site());
     let named = |name: &str| syn::Ident::new(name, proc_macro2::Span::call_site());
 
     let adapter = crate_name(package);
     if let Ok(FoundCrate::Itself) = adapter {
-        let own = named(&package.replace('-', "_"));
-        return quote!(::#own);
+        return quote!(crate);
     }
 
     let guinea = crate_name("guinea");

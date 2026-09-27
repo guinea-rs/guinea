@@ -20,6 +20,7 @@ members = [
     "crates/guinea-macros",
     "crates/guinea-route-dsl",
     "crates/guinea",
+    "xtask",
 ]
 
 [workspace.dependencies]

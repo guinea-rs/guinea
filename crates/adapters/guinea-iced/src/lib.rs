@@ -34,8 +34,6 @@
 //! }
 //! ```
 
-extern crate self as guinea_iced;
-
 mod dispatcher;
 mod envelope;
 mod nav;

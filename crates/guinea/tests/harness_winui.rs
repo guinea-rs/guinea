@@ -501,6 +501,7 @@ mod routed {
     use super::*;
     use guinea::winui::harness::Outlet;
     use guinea::winui::{Layout, LayoutCx, UseRoute, layout};
+    use windows_reactor::{NavigationView, NavigationViewItem};
 
     #[derive(Default)]
     pub struct One;
@@ -574,5 +575,80 @@ mod routed {
 
         assert_eq!(tabs.navigated::<TabRoute>(), [TabRoute::Two {}]);
         assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
+    }
+
+    #[derive(Default)]
+    pub struct Home;
+
+    #[page]
+    impl Page for Home {
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text("home").into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Settings;
+
+    #[page]
+    impl Page for Settings {
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text("settings").into()
+        }
+    }
+
+    /// A navigation pane: a menu item, a footer item, and the outlet as its
+    /// content.
+    #[derive(Default)]
+    pub struct Pane;
+
+    #[layout]
+    impl Layout for Pane {
+        type Params = ();
+        type Installs = ();
+
+        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+            let nav = cx.navigate::<PaneRoute>();
+
+            NavigationView::new()
+                .menu_items([("home", NavigationViewItem::new().tag("home").content("Home"))])
+                .footer_menu_items([(
+                    "settings",
+                    NavigationViewItem::new().tag("settings").content("Settings"),
+                )])
+                .on_selected_tag_changed(move |tag: Option<String>| match tag.as_deref() {
+                    Some("home") => nav.to(PaneRoute::Home {}),
+                    Some("settings") => nav.to(PaneRoute::Settings {}),
+                    _ => {}
+                })
+                .content(cx.outlet())
+                .into()
+        }
+    }
+
+    routes! {
+        PaneRoute {
+            layout(Pane) {
+                page(Home) { }
+                page(Settings) { }
+            }
+        }
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn a_navigation_view_is_walked_and_its_items_select_themselves(h: &mut Harness) {
+        let mut pane = Mounted::<Pane>::mount_at(&h.segment(), (), PaneRoute::Home {}).unwrap();
+
+        assert!(pane.find(Outlet).is_some(), "{:#?}", pane.tree());
+        assert!(pane.find_text("Home").is_some(), "{:#?}", pane.tree());
+
+        pane.click_text("Settings").settle();
+        pane.settle();
+
+        assert_eq!(pane.navigated::<PaneRoute>(), [PaneRoute::Settings {}]);
     }
 }

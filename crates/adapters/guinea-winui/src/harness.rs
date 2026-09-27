@@ -24,6 +24,7 @@ use guinea_router::router::{
 };
 use windows_reactor::test::{
     Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
+    SelectionChange, SlotId,
 };
 use windows_reactor::{Border, View};
 
@@ -66,6 +67,56 @@ const ENABLED: &[PropertyId] = &[
     PropertyId::TimePickerIsEnabled,
     PropertyId::ToggleButtonIsEnabled,
     PropertyId::ToggleSwitchIsEnabled,
+];
+
+/// Every named place a control holds a child besides its plain children - a
+/// `NavigationView`'s menu items and content, an `Expander`'s header. The
+/// reactor keeps its own list of which control has which private, so the
+/// tree is walked through all of them - a `NavigationView`'s pane before its
+/// content, the way it reads on screen.
+const SLOTS: &[SlotId] = &[
+    SlotId::TextBoxHeader,
+    SlotId::AutoSuggestBoxHeader,
+    SlotId::PasswordBoxHeader,
+    SlotId::NumberBoxHeader,
+    SlotId::SliderHeader,
+    SlotId::TitleBarContent,
+    SlotId::TitleBarRightHeader,
+    SlotId::NavigationViewHeader,
+    SlotId::NavigationViewPaneCustomContent,
+    SlotId::NavigationViewMenuItems,
+    SlotId::NavigationViewFooterMenuItems,
+    SlotId::NavigationViewPaneFooter,
+    SlotId::NavigationViewContent,
+    SlotId::NavigationViewItemIcon,
+    SlotId::NavigationViewItemContent,
+    SlotId::NavigationViewItemMenuItems,
+    SlotId::SplitViewPane,
+    SlotId::SplitViewContent,
+    SlotId::ToggleSwitchHeader,
+    SlotId::ToggleSwitchOnContent,
+    SlotId::ToggleSwitchOffContent,
+    SlotId::RadioButtonsHeader,
+    SlotId::ListBoxItems,
+    SlotId::ExpanderHeader,
+    SlotId::ExpanderContent,
+    SlotId::ComboBoxHeader,
+    SlotId::PivotItems,
+    SlotId::FlipViewItems,
+    SlotId::SelectorBarItems,
+    SlotId::SelectorBarItemIcon,
+    SlotId::TabViewTabItems,
+    SlotId::CommandBarPrimaryCommands,
+    SlotId::CommandBarSecondaryCommands,
+    SlotId::AppBarButtonIcon,
+    SlotId::MenuBarItems,
+    SlotId::DatePickerHeader,
+    SlotId::TimePickerHeader,
+    SlotId::CalendarDatePickerHeader,
+    SlotId::ListViewItems,
+    SlotId::GridViewItems,
+    SlotId::RichEditBoxHeader,
+    SlotId::ViewboxChild,
 ];
 
 type Sender<M> = Rc<dyn Fn(Signal<M>) -> bool>;
@@ -584,17 +635,75 @@ impl<'h, S: 'static> Mounted<'h, S> {
                 return Some(node);
             }
 
-            let recorded = self.pump.runtime().node(node)?;
-            unseen.extend(recorded.children().iter().rev().copied());
+            unseen.extend(self.below(node).into_iter().rev());
         }
 
         None
     }
 
+    /// What `node` holds, in order: its children, then what sits in each of
+    /// its slots.
+    fn below(&self, node: NodeId) -> Vec<NodeId> {
+        let Some(recorded) = self.pump.runtime().node(node) else {
+            return Vec::new();
+        };
+
+        let mut below = recorded.children().to_vec();
+        for slot in SLOTS {
+            below.extend(recorded.slot(*slot));
+            below.extend_from_slice(recorded.slot_children(*slot));
+        }
+
+        below
+    }
+
+    fn kind(&self, node: NodeId) -> String {
+        self.pump
+            .runtime()
+            .node(node)
+            .and_then(|recorded| recorded.kind())
+            .map(|kind| format!("{kind:?}"))
+            .unwrap_or_else(|| "?".to_string())
+    }
+
+    /// Selects `item` in the `NavigationView` it sits in, the way clicking it
+    /// would: the view hears its selection changed to the item's tag.
+    fn select(&mut self, item: NodeId, parents: &HashMap<NodeId, NodeId>) {
+        let mut above = parents.get(&item).copied();
+        while let Some(node) = above {
+            if self.kind(node) == "NavigationView" {
+                break;
+            }
+            above = parents.get(&node).copied();
+        }
+
+        let view = above.unwrap_or_else(|| {
+            panic!("a NavigationViewItem outside a NavigationView:\n{:#?}", self.node(item))
+        });
+        let Some(revision) = self
+            .pump
+            .event_revision(view, EventId::NavigationViewSelectionChanged)
+        else {
+            return;
+        };
+
+        let tag = text_of(self.property(item, PropertyId::NavigationViewItemTag));
+        self.pump.queue_event(QueuedEvent::new(
+            view,
+            EventId::NavigationViewSelectionChanged,
+            revision,
+            EventPayload::SelectionChange(SelectionChange {
+                item: Some(item),
+                tag,
+            }),
+        ));
+    }
+
     /// A click as WinUI routes one: the pointer bubbles up from `found`
     /// through every element listening for it, and stops at a button, which
-    /// takes the pointer for its own click. Nothing inside a disabled control
-    /// takes it at all.
+    /// takes the pointer for its own click, or at a `NavigationViewItem`,
+    /// which selects itself. Nothing inside a disabled control takes it at
+    /// all.
     fn click_at(&mut self, found: NodeId, label: &str, name: &'static str) -> Act<'h> {
         let parents = self.parents();
 
@@ -612,11 +721,16 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         let mut bubbled = Vec::new();
         let mut button = None;
+        let mut item = None;
         let mut at = Some(found);
 
         while let Some(node) = at {
             if self.pump.event_revision(node, EventId::ButtonClick).is_some() {
                 button = Some(node);
+                break;
+            }
+            if self.kind(node) == "NavigationViewItem" {
+                item = Some(node);
                 break;
             }
             if self
@@ -630,7 +744,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
 
         assert!(
-            button.is_some() || !bubbled.is_empty(),
+            button.is_some() || item.is_some() || !bubbled.is_empty(),
             "{label:?} is on the page, but nothing at or above it listens for a click"
         );
 
@@ -639,6 +753,9 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
         for node in &bubbled {
             self.pointer(*node, EventId::BorderPointerReleased);
+        }
+        if let Some(item) = item {
+            self.select(item, &parents);
         }
         if let Some(button) = button
             && let Some(revision) = self.pump.event_revision(button, EventId::ButtonClick)
@@ -713,7 +830,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
                 return Some(node);
             }
 
-            unseen.extend(recorded.children().iter().rev().copied());
+            unseen.extend(self.below(node).into_iter().rev());
         }
 
         None
@@ -738,7 +855,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
                 .unwrap_or_else(|| "?".to_string()),
             text: text_of(recorded.property(PropertyId::TextBlockText)),
             id: text_of(recorded.property(PropertyId::AutomationId)),
-            children: recorded.children().iter().map(|child| self.node(*child)).collect(),
+            children: self
+                .below(id)
+                .into_iter()
+                .map(|child| self.node(child))
+                .collect(),
         }
     }
 
@@ -747,11 +868,9 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let mut unseen: Vec<NodeId> = self.root().into_iter().collect();
 
         while let Some(node) = unseen.pop() {
-            if let Some(recorded) = self.pump.runtime().node(node) {
-                for child in recorded.children() {
-                    parents.insert(*child, node);
-                    unseen.push(*child);
-                }
+            for child in self.below(node) {
+                parents.insert(child, node);
+                unseen.push(child);
             }
         }
 

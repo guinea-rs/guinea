@@ -228,6 +228,10 @@ pub fn mark_anywhere(point: impl FnOnce() -> Point + Send + 'static) {
 /// A `tracing` layer that puts the application's own events into the trace,
 /// under whatever caused them, while devtools watch.
 ///
+/// Only the application's own: an event written in one of its workspace's
+/// crates. guinea's events and every dependency's - winit, wgpu, tokio - stay
+/// out of the trace and off the wire; [`LogLayer::all`] lets them in.
+///
 /// ```no_run
 /// use tracing_subscriber::prelude::*;
 ///
@@ -237,10 +241,29 @@ pub fn mark_anywhere(point: impl FnOnce() -> Point + Send + 'static) {
 ///     .init();
 /// ```
 pub fn layer() -> LogLayer {
-    LogLayer
+    LogLayer { all: false }
 }
 
-pub struct LogLayer;
+pub struct LogLayer {
+    all: bool,
+}
+
+impl LogLayer {
+    /// Every event, not only the application's own.
+    pub fn all(self) -> Self {
+        Self { all: true }
+    }
+}
+
+/// Whether an event was written in the application's own code.
+///
+/// Cargo names the files of a workspace member relative to the workspace
+/// root, and those of every other crate - registry, git, a path outside the
+/// workspace - absolutely. So the application is told apart from its
+/// dependencies without a list of either.
+fn written_here(file: Option<&str>) -> bool {
+    file.is_some_and(|file| std::path::Path::new(file).is_relative())
+}
 
 thread_local! {
     static LOGGING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -249,17 +272,26 @@ thread_local! {
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LogLayer {
     fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
         let meta = event.metadata();
-        if trace::is_point_target(meta.target()) || !trace::is_observed_anywhere() || LOGGING.get()
+        if trace::is_point_target(meta.target())
+            || !trace::is_observed_anywhere()
+            || LOGGING.get()
+            || !(self.all || written_here(meta.file()))
         {
             return;
         }
+
         LOGGING.set(true);
         let mut text = Text::default();
         event.record(&mut text);
+
         let (level, target) = (*meta.level(), meta.target());
+        let (file, line, module) = (meta.file(), meta.line(), meta.module_path());
         mark_anywhere(move || Point::Log {
             level,
             target,
+            file,
+            line,
+            module,
             text: text.finish(),
         });
         LOGGING.set(false);
@@ -397,6 +429,39 @@ mod tests {
             *seen.borrow(),
             [(Some(action), "process killed pid=42".to_string())]
         );
+    }
+
+    #[test]
+    fn a_logged_event_says_where_it_was_written() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        trace::observe(move |record| {
+            if let trace::Trace::Mark(record) = record
+                && let Point::Log {
+                    file, line, module, ..
+                } = &record.point
+            {
+                sink.borrow_mut().push((*file, line.is_some(), *module));
+            }
+        });
+
+        let subscriber = tracing_subscriber::registry().with(layer());
+        tracing::subscriber::with_default(subscriber, || tracing::info!("here"));
+        trace::stop_observing();
+
+        assert_eq!(
+            *seen.borrow(),
+            [(Some(file!()), true, Some(module_path!()))]
+        );
+    }
+
+    #[test]
+    fn only_a_file_of_the_workspace_is_the_applications() {
+        assert!(written_here(Some(file!())), "{}", file!());
+        assert!(!written_here(Some(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))));
+        assert!(!written_here(None));
     }
 
     #[test]

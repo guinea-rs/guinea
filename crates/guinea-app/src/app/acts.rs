@@ -262,7 +262,12 @@ impl Step {
                 outside: *outside,
             },
             Point::Render { segment, .. } => Step::Render { segment },
-            Point::Log { level, target, text } => Step::Log {
+            Point::Log {
+                level,
+                target,
+                text,
+                ..
+            } => Step::Log {
                 level: level.to_string(),
                 target,
                 text: text.clone(),

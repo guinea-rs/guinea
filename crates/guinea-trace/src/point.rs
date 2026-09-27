@@ -94,6 +94,11 @@ pub enum Point {
     Log {
         level: tracing::Level,
         target: &'static str,
+        /// Where it was written, as the compiler named the file: relative to
+        /// the workspace root for the application's own crates.
+        file: Option<&'static str>,
+        line: Option<u32>,
+        module: Option<&'static str>,
         /// The message, then the other fields as `name=value`.
         text: String,
     },
@@ -204,6 +209,7 @@ impl fmt::Display for Point {
                 level,
                 target,
                 text,
+                ..
             } => write!(f, "{level} {target}: {text}"),
             Point::Note(text) => f.write_str(text),
         }

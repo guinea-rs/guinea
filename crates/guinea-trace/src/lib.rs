@@ -403,6 +403,9 @@ mod tests {
             mark_under(Some(send), || Point::Log {
                 level: tracing::Level::INFO,
                 target: "app",
+                file: None,
+                line: None,
+                module: None,
                 text: "already written by whoever logged it".into(),
             });
         });

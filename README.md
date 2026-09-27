@@ -30,7 +30,7 @@ makes the opinion cheap to follow.
 ### Features
 
 - **Typed routes** - the route tree is an enum `routes!` writes; navigation takes a value, not a path. Paths exist only where a deep link or a restored session needs one, and the compiler checks every field survives the round trip
-- **Features with a lifetime** - a feature is installed by a page or a layout and lives in its scope: its actors, timers and subscriptions end when the user leaves
+- **Scoped lifetimes, known at compile time** - a feature lives exactly as long as the page or layout that installed it, and the route tree says at build time what is alive where: its actors, timers and subscriptions end when the user leaves
 - **Reads checked at build time** - a page reads what it installed itself and what a layout above it exports; anything else is a compile error at the read, not a panic at the first render
 - **The toolkit's own model on the page, actors in the domain** - on WinUI and iced a page is an Elm node with messages and one `update`, on egui and ratatui it draws itself every frame, on Slint the view is the `.slint` file and Rust wires it; the domain behind any of them answers actions through actors, and pushes state back through reducers
 - **Deterministic tests** - `#[guinea::test]` runs a test once per seed, with background work interleaved the way the seed says. WinUI pages mount without a window, and are clicked and read back as a tree

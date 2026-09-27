@@ -702,7 +702,7 @@ dependencies = [
  "libc 0.2.189",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -776,7 +776,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc 0.2.189",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -1065,7 +1065,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "guinea-core",
  "guinea-meta-build",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1126,20 +1126,20 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.8"
+version = "0.10.20"
 dependencies = [
  "capnp",
  "capnp-rpc",
  "capnpc",
  "getrandom 0.4.3",
- "ogurpchik 0.6.3",
+ "ogurpchik 0.6.4",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "guinea-macros"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.11.1"
+version = "0.12.0"
 
 [[package]]
 name = "guinea-meta"
@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1315,8 +1315,8 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "compio",
- "guinea-devtools-protocol 0.10.8",
- "ogurpchik 0.6.3",
+ "guinea-devtools-protocol 0.10.20",
+ "ogurpchik 0.6.4",
  "tracing",
  "windows-core",
  "windows-numerics",
@@ -1645,7 +1645,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1717,8 +1717,8 @@ dependencies = [
 
 [[package]]
 name = "ogurpchik"
-version = "0.6.3"
-source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.3#0d61d28bb427d15823f274e7626d076d8f25b9be"
+version = "0.6.4"
+source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.4#9c167c1e367473b7569570de91b19dfef635eede"
 dependencies = [
  "base64",
  "binrw",
@@ -1763,7 +1763,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc 0.2.189",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2047,7 +2047,7 @@ dependencies = [
  "errno",
  "libc 0.2.189",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2301,7 +2301,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2756,7 +2756,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -1025,7 +1025,7 @@ fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
     ctx.scope.own(guinea_core::scope::DropGuard(installed));
 }
 
-fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
+pub(crate) fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
     own(ctx, L::install(ctx, params)?);
     stage(L::init(ctx, params));
@@ -1115,7 +1115,7 @@ impl<P: Page> Component for PageNode<P> {
         #[cfg(feature = "harness")]
         {
             let sender = _cx.sender();
-            crate::harness::remember::<P>(move |signal| sender.send(signal));
+            crate::harness::remember::<P, P::Message>(move |signal| sender.send(signal));
         }
 
         Self {
@@ -1173,6 +1173,12 @@ impl<L: Layout> Component for LayoutNode<L> {
     type Message = Signal<L::Message>;
 
     fn create(input: &Self::Input, _cx: &ComponentContext<Self>) -> Self {
+        #[cfg(feature = "harness")]
+        {
+            let sender = _cx.sender();
+            crate::harness::remember::<L, L::Message>(move |signal| sender.send(signal));
+        }
+
         Self {
             layout: take_staged::<L>(),
             props: input.clone(),

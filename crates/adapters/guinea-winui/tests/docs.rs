@@ -631,6 +631,45 @@ mod shell {
         type Above = (Shell, ());
     }
     //@show-end
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn the_shell_mounts_on_its_own_with_an_outlet() {
+        use guinea_winui::harness::{Mounted, Outlet};
+
+        guinea_app::app::check(4, |h| {
+            let mut shell = Mounted::<Shell>::mount(&h.segment(), ()).unwrap();
+
+            assert!(shell.find_text("guinea").is_some(), "{:#?}", shell.tree());
+            assert!(shell.find_text("Home").is_some(), "{:#?}", shell.tree());
+            assert!(shell.find(Outlet).is_some(), "{:#?}", shell.tree());
+
+            shell.click_text("Menu").settle();
+            shell.settle();
+
+            assert!(shell.find_text("Home").is_none(), "{:#?}", shell.tree());
+            assert!(!h.state::<Sidebar>().open);
+        });
+    }
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn a_page_mounts_below_the_shell_and_reads_what_it_exports() {
+        use guinea_winui::harness::Mounted;
+
+        guinea_app::app::check(4, |h| {
+            let mut shell = Mounted::<Shell>::mount(&h.segment(), ()).unwrap();
+
+            let below = h.child();
+            let mut home = Mounted::<Home>::mount(&below, ()).unwrap();
+            assert!(home.find_text("home, narrow").is_some(), "{:#?}", home.tree());
+
+            shell.click_text("Menu").settle();
+            home.settle();
+
+            assert!(home.find_text("home, wide").is_some(), "{:#?}", home.tree());
+        });
+    }
 }
 
 mod per_context {

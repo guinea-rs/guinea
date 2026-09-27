@@ -1,10 +1,13 @@
-//! A page with no window.
+//! A page or a layout with no window.
 //!
 //! Mounted on reactor's recording runtime: the native tree it would build is
 //! read back as data, and its messages and clicks are delivered the way the
 //! window would deliver them. It lives in a segment of guinea-app's
-//! `Harness`, so everything the page sets off runs in the seed's order and on
-//! the test's clock.
+//! `Harness`, so everything it sets off runs in the seed's order and on the
+//! test's clock.
+//!
+//! A page that reads what a layout above it exports is mounted below that
+//! layout: the layout into `h.segment()`, the page into `h.child()`.
 
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
@@ -13,17 +16,22 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_app::app::{Act, Harness, Segment};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::mark::Mark;
 use guinea_core::scope::Scope;
-use guinea_router::router::{SegmentEntry, SegmentProps};
-use windows_reactor::View;
+use guinea_router::router::{Mount, SegmentEntry, SegmentProps};
 use windows_reactor::test::{
     Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
 };
+use windows_reactor::{Border, View};
 
 pub use windows_reactor::test::{NodeId, PropertyId, PropertyValue};
 
-use crate::winui::{Page, PageNode, Signal, WinUi, install_page, segment_entry};
+use crate::mark::MarkExt;
+use crate::winui::{
+    Layout, LayoutNode, Page, PageNode, Signal, WinUi, install_layout, install_page,
+    layout_entry, segment_entry,
+};
 
 /// How many component turns one pass may run before it looks again.
 const TURNS: usize = 64;
@@ -66,40 +74,129 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-/// What a mounted page's component answers to, kept as it is created.
-pub(crate) fn remember<P: Page>(send: impl Fn(Signal<P::Message>) -> bool + 'static) {
-    let send: Sender<P::Message> = Rc::new(send);
+/// What a mounted page's or layout's component answers to, kept as it is
+/// created.
+pub(crate) fn remember<S: 'static, M: 'static>(send: impl Fn(Signal<M>) -> bool + 'static) {
+    let send: Sender<M> = Rc::new(send);
     SENDERS.with(|senders| {
-        senders.borrow_mut().insert(TypeId::of::<P>(), Box::new(send));
+        senders.borrow_mut().insert(TypeId::of::<S>(), Box::new(send));
     });
 }
 
-fn sender<P: Page>() -> Sender<P::Message> {
+fn sender<S: 'static, M: 'static>() -> Sender<M> {
     SENDERS.with(|senders| {
         senders
             .borrow()
-            .get(&TypeId::of::<P>())
-            .and_then(|send| send.downcast_ref::<Sender<P::Message>>())
+            .get(&TypeId::of::<S>())
+            .and_then(|send| send.downcast_ref::<Sender<M>>())
             .cloned()
-            .unwrap_or_else(|| panic!("{} is not mounted", std::any::type_name::<P>()))
+            .unwrap_or_else(|| panic!("{} is not mounted", std::any::type_name::<S>()))
     })
 }
 
-/// A chain `depth` long whose every entry is this page's own: a page below
-/// `depth - 1` segments names itself by its place in the chain, and the
-/// segments above it have no entries of their own here. Made once per page
-/// and depth.
-fn chain<P: Page>(depth: usize) -> &'static [SegmentEntry<WinUi>] {
+/// A chain `depth` long whose every entry is this segment's own: a segment
+/// below `depth - 1` others names itself by its place in the chain, and the
+/// segments above it have no entries of their own here. A layout's chain goes
+/// on one further, to the [`Outlet`] it draws its outlet with. Made once per
+/// segment and depth.
+fn chain<S: Mountable<K>, K>(depth: usize) -> &'static [SegmentEntry<WinUi>] {
     CHAINS.with(|chains| {
         *chains
             .borrow_mut()
-            .entry((TypeId::of::<P>(), depth))
+            .entry((TypeId::of::<S>(), depth))
             .or_insert_with(|| {
-                let entries: Vec<SegmentEntry<WinUi>> =
-                    (0..depth).map(|_| segment_entry::<P>()).collect();
+                let entries: Vec<SegmentEntry<WinUi>> = (0..depth)
+                    .map(|_| S::entry())
+                    .chain(S::HAS_OUTLET.then_some(OUTLET))
+                    .collect();
                 Box::leak(entries.into_boxed_slice())
             })
     })
+}
+
+/// What a mounted layout draws in its outlet: an empty border marked
+/// `Outlet`, to find where the page below would go.
+#[derive(Clone, Copy, Debug)]
+pub struct Outlet;
+
+impl Mark for Outlet {
+    fn name(&self) -> &'static str {
+        "Outlet"
+    }
+}
+
+struct MountOutlet;
+
+impl Mount<WinUi> for MountOutlet {
+    fn view<'a>(&self, _props: SegmentProps<WinUi>, _nodes: &'a ()) -> View {
+        Border::new().mark(Outlet).into()
+    }
+}
+
+const OUTLET: SegmentEntry<WinUi> =
+    SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, &MountOutlet, false);
+
+/// A page or a layout - what [`Mounted`] mounts. `K` only tells the two apart,
+/// and is always inferred.
+pub trait Mountable<K>: 'static {
+    type Params: 'static;
+    type Message: 'static;
+
+    #[doc(hidden)]
+    const HAS_OUTLET: bool;
+
+    #[doc(hidden)]
+    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
+
+    #[doc(hidden)]
+    fn entry() -> SegmentEntry<WinUi>;
+
+    #[doc(hidden)]
+    fn component(props: SegmentProps<WinUi>) -> View;
+}
+
+/// [`Mountable`]'s `K` for a page.
+pub enum AsPage {}
+
+/// [`Mountable`]'s `K` for a layout.
+pub enum AsLayout {}
+
+impl<P: Page> Mountable<AsPage> for P {
+    type Params = P::Params;
+    type Message = P::Message;
+
+    const HAS_OUTLET: bool = false;
+
+    fn install(cx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
+        install_page::<P>(cx, params)
+    }
+
+    fn entry() -> SegmentEntry<WinUi> {
+        segment_entry::<P>()
+    }
+
+    fn component(props: SegmentProps<WinUi>) -> View {
+        View::component::<PageNode<P>>(props)
+    }
+}
+
+impl<L: Layout> Mountable<AsLayout> for L {
+    type Params = L::Params;
+    type Message = L::Message;
+
+    const HAS_OUTLET: bool = true;
+
+    fn install(cx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
+        install_layout::<L>(cx, params)
+    }
+
+    fn entry() -> SegmentEntry<WinUi> {
+        layout_entry::<L>()
+    }
+
+    fn component(props: SegmentProps<WinUi>) -> View {
+        View::component::<LayoutNode<L>>(props)
+    }
 }
 
 /// One element of what a page drew, as a snapshot keeps it.
@@ -141,34 +238,45 @@ impl Node {
     }
 }
 
-/// A page mounted with no window, in a segment of a [`Harness`].
-pub struct Mounted<'h, P: Page> {
+/// A page or a layout mounted with no window, in a segment of a [`Harness`].
+///
+/// A layout draws an [`Outlet`] where the page below it would go.
+pub struct Mounted<'h, S> {
     harness: &'h Harness,
     pump: Pump<RecordingRuntime>,
     /// The items brought into view so far, by list and index.
     realized: HashMap<(NodeId, usize), NodeId>,
     /// How many items each list holds, as it last said.
     counts: HashMap<NodeId, usize>,
-    page: PhantomData<P>,
+    segment: PhantomData<S>,
 }
 
-impl<'h, P: Page> Mounted<'h, P> {
-    /// Installs `P` into `segment` - what it `Installs`, and the node it
+impl<'h, S: 'static> Mounted<'h, S> {
+    /// Installs `S` into `segment` - what it `Installs`, and the node it
     /// starts as - and mounts it, the way a navigation to it would.
-    pub fn mount(segment: &Segment<'h>, params: P::Params) -> anyhow::Result<Self> {
-        Self::mount_with(segment, params, |page| page)
+    pub fn mount<K>(
+        segment: &Segment<'h>,
+        params: <S as Mountable<K>>::Params,
+    ) -> anyhow::Result<Self>
+    where
+        S: Mountable<K>,
+    {
+        Self::mount_with(segment, params, |view| view)
     }
 
-    /// [`mount`](Self::mount), with the page's view handed to `wrap` first -
-    /// for what a layout above it would give it, such as a context:
+    /// [`mount`](Self::mount), with the view handed to `wrap` first - for
+    /// what a layout above it would give it, such as a context:
     /// `|page| View::provide(&SCHEME, scheme, page)`.
-    pub fn mount_with(
+    pub fn mount_with<K>(
         segment: &Segment<'h>,
-        params: P::Params,
+        params: <S as Mountable<K>>::Params,
         wrap: impl FnOnce(View) -> View,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<Self>
+    where
+        S: Mountable<K>,
+    {
         let cx = segment.context();
-        install_page::<P>(cx, &params)?;
+        S::install(cx, &params)?;
 
         let scopes: Vec<Rc<Scope>> = cx
             .ancestors
@@ -179,7 +287,7 @@ impl<'h, P: Page> Mounted<'h, P> {
         let depth = scopes.len();
 
         let props = SegmentProps {
-            chain: chain::<P>(depth),
+            chain: chain::<S, K>(depth),
             scopes: Rc::new(scopes),
             cursor: depth - 1,
         };
@@ -188,25 +296,29 @@ impl<'h, P: Page> Mounted<'h, P> {
         runtime.record_commands(true);
 
         let mut pump = Pump::new(runtime);
-        pump.mount_view(wrap(View::component::<PageNode<P>>(props)))
-            .map_err(|refused| anyhow::anyhow!("mounting {}: {refused:?}", std::any::type_name::<P>()))?;
+        pump.mount_view(wrap(S::component(props)))
+            .map_err(|refused| anyhow::anyhow!("mounting {}: {refused:?}", std::any::type_name::<S>()))?;
 
         let mut mounted = Self {
             harness: segment.harness(),
             pump,
             realized: HashMap::new(),
             counts: HashMap::new(),
-            page: PhantomData,
+            segment: PhantomData,
         };
         mounted.settle();
 
         Ok(mounted)
     }
 
-    /// Hands the page one of its own messages, as a widget's callback would.
-    pub fn send(&mut self, message: P::Message) {
-        let delivered = sender::<P>()(Signal::Node(message));
-        assert!(delivered, "{} no longer takes messages", std::any::type_name::<P>());
+    /// Hands the page or layout one of its own messages, as a widget's
+    /// callback would.
+    pub fn send<K>(&mut self, message: <S as Mountable<K>>::Message)
+    where
+        S: Mountable<K>,
+    {
+        let delivered = sender::<S, <S as Mountable<K>>::Message>()(Signal::Node(message));
+        assert!(delivered, "{} no longer takes messages", std::any::type_name::<S>());
 
         self.turn();
     }
@@ -238,7 +350,7 @@ impl<'h, P: Page> Mounted<'h, P> {
     }
 
     /// The part of the page that carries `mark`, to find and click in.
-    pub fn within(&mut self, mark: impl Mark) -> Within<'_, 'h, P> {
+    pub fn within(&mut self, mark: impl Mark) -> Within<'_, 'h, S> {
         let root = self.page_root();
         let found = self.marked(root, &mark);
 
@@ -251,7 +363,7 @@ impl<'h, P: Page> Mounted<'h, P> {
     /// Item `index` of the first list on the page, brought into view the way
     /// scrolling to it would - a list builds only the items on screen, and
     /// with no screen, none until asked.
-    pub fn item(&mut self, index: usize) -> Within<'_, 'h, P> {
+    pub fn item(&mut self, index: usize) -> Within<'_, 'h, S> {
         let root = self.page_root();
         let found = self.realize(root, index);
 
@@ -269,7 +381,7 @@ impl<'h, P: Page> Mounted<'h, P> {
 
     /// The first item of the first list for which `test` holds, bringing
     /// items into view in order until one does.
-    pub fn item_where(&mut self, test: impl Fn(&Node) -> bool) -> Within<'_, 'h, P> {
+    pub fn item_where(&mut self, test: impl Fn(&Node) -> bool) -> Within<'_, 'h, S> {
         let root = self.page_root();
         let found = self.first_item(root, test);
 
@@ -280,7 +392,7 @@ impl<'h, P: Page> Mounted<'h, P> {
     }
 
     /// The first item of the first list that shows `text` somewhere in it.
-    pub fn item_with_text(&mut self, text: &str) -> Within<'_, 'h, P> {
+    pub fn item_with_text(&mut self, text: &str) -> Within<'_, 'h, S> {
         self.item_where(|item| item.find_text(text).is_some())
     }
 
@@ -297,7 +409,7 @@ impl<'h, P: Page> Mounted<'h, P> {
 
     /// The part of the page from `node` down - one found in a [`Node`], say,
     /// to click or read without a mark of its own.
-    pub fn at(&mut self, node: NodeId) -> Within<'_, 'h, P> {
+    pub fn at(&mut self, node: NodeId) -> Within<'_, 'h, S> {
         Within {
             mounted: self,
             root: node,
@@ -609,12 +721,12 @@ impl<'h, P: Page> Mounted<'h, P> {
 
 /// Part of a mounted page: what is found and clicked through it is found
 /// under it, so the same mark in every row of a list names one thing again.
-pub struct Within<'m, 'h, P: Page> {
-    mounted: &'m mut Mounted<'h, P>,
+pub struct Within<'m, 'h, S> {
+    mounted: &'m mut Mounted<'h, S>,
     root: NodeId,
 }
 
-impl<'h, P: Page> Within<'_, 'h, P> {
+impl<'h, S: 'static> Within<'_, 'h, S> {
     /// The part of this part that carries `mark`.
     pub fn within(self, mark: impl Mark) -> Self {
         let root = self.mounted.marked(self.root, &mark);

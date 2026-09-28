@@ -25,7 +25,8 @@ mod sink;
 pub use json::{Json, json};
 pub use point::{Bus, Point, StoreOp};
 pub use sink::{
-    Observer, is_observed, is_observed_anywhere, is_point_target, observe, stop_observing,
+    Observer, is_observed, is_observed_anywhere, is_point_target, is_recorded_anywhere, observe,
+    stop_observing,
 };
 
 use std::cell::Cell;
@@ -171,6 +172,36 @@ pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Ente
         // added to it while the point is open was spent watching it, not
         // doing it.
         watched: WATCHING.with(Cell::get),
+    }
+}
+
+/// An id for a point recorded later, by [`begin_as`]. For a point that is not
+/// entered once and left: what happens under it may be recorded before it is,
+/// on another thread, and needs its id to say so.
+pub fn reserve() -> Cause {
+    Cause::next()
+}
+
+/// Records `point` as open, under `parent` and with an id [`reserve`] gave,
+/// without making it current: it is current wherever it is [`resume`]d, and
+/// closes at [`end`].
+pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point) {
+    if sink::wanted() {
+        observed(|| {
+            sink::emit(Trace::Begin(Record {
+                id,
+                parent,
+                at: now(),
+                point: point(),
+            }));
+        });
+    }
+}
+
+/// Closes a point [`begin_as`] opened, saying what it took.
+pub fn end(id: Cause, took: Duration) {
+    if sink::wanted() {
+        observed(|| sink::emit(Trace::End { id, took }));
     }
 }
 

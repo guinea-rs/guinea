@@ -102,6 +102,20 @@ pub enum Point {
         /// The message, then the other fields as `name=value`.
         text: String,
     },
+    /// A `tracing` span the application opened - an `#[instrument]`ed
+    /// function, say. Open until the span closes, and current while it is
+    /// entered; what it took is the time it was entered, not the time it
+    /// waited in between.
+    Span {
+        name: &'static str,
+        target: &'static str,
+        /// Where it was written; see [`Point::Log`].
+        file: Option<&'static str>,
+        line: Option<u32>,
+        module: Option<&'static str>,
+        /// Its fields as `name=value`, as they were when it opened.
+        fields: String,
+    },
     /// Anything else worth a line.
     Note(String),
 }
@@ -124,6 +138,7 @@ impl Point {
             Point::Store { .. } => "store",
             Point::Render { .. } => "render",
             Point::Log { .. } => "log",
+            Point::Span { .. } => "span",
             Point::Note(_) => "note",
         }
     }
@@ -211,6 +226,8 @@ impl fmt::Display for Point {
                 text,
                 ..
             } => write!(f, "{level} {target}: {text}"),
+            Point::Span { name, fields, .. } if fields.is_empty() => f.write_str(name),
+            Point::Span { name, fields, .. } => write!(f, "{name} {fields}"),
             Point::Note(text) => f.write_str(text),
         }
     }

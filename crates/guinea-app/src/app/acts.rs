@@ -216,6 +216,7 @@ pub enum Step {
     Store { op: &'static str, path: String, field: Option<String>, outside: bool },
     Render { segment: &'static str },
     Log { level: String, target: &'static str, text: String },
+    Span { name: &'static str, fields: String },
     Note(String),
 }
 
@@ -271,6 +272,10 @@ impl Step {
                 level: level.to_string(),
                 target,
                 text: text.clone(),
+            },
+            Point::Span { name, fields, .. } => Step::Span {
+                name,
+                fields: fields.clone(),
             },
             Point::Note(note) => Step::Note(note.clone()),
         }

@@ -41,6 +41,12 @@ pub fn is_observed_anywhere() -> bool {
     OBSERVED_THREADS.load(Ordering::Relaxed) > 0
 }
 
+/// Whether a point recorded anywhere goes somewhere: to devtools, or to
+/// `tracing` as `guinea::` events.
+pub fn is_recorded_anywhere() -> bool {
+    is_observed_anywhere() || tracing::enabled!(target: "guinea", Level::DEBUG)
+}
+
 fn observer() -> Option<Observer> {
     OBSERVER.with(|slot| slot.borrow().clone())
 }
@@ -146,6 +152,22 @@ fn write(record: &Record) {
         Point::Render { segment, took_us } => {
             point!("guinea::render", record, segment = %segment, took_us)
         }
+        Point::Span {
+            name,
+            file,
+            line,
+            module,
+            fields,
+            ..
+        } => point!(
+            "guinea::span",
+            record,
+            span = %name,
+            module = *module,
+            file = *file,
+            line = *line,
+            fields = %fields
+        ),
         Point::Note(text) => point!("guinea::note", record, "{text}"),
         Point::Log { .. } => {}
     }

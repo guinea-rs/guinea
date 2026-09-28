@@ -10,8 +10,8 @@ use guinea::prelude::*;
 use guinea::winui::harness::{Mounted, PropertyId, PropertyValue};
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
 use windows_reactor::{
-    Border, Button, Callback, ChildrenControl, ContentControl, ItemsRepeater, PointerEventInfo,
-    StackPanel, TextBlock, View, VirtualSource,
+    Border, Button, Callback, CheckBox, ChildrenControl, ContentControl, ItemsRepeater,
+    PointerEventInfo, RadioButton, StackPanel, TextBlock, ToggleSwitch, View, VirtualSource,
 };
 
 const CATALOGUE: [&str; 6] = ["guinea", "guinea-app", "gui", "gum", "gulp", "gust"];
@@ -23,6 +23,9 @@ enum Marks {
     Chevron,
     Remove,
     Grip,
+    Switch,
+    Check,
+    Radio,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -491,6 +494,93 @@ fn a_click_bubbles_through_every_listener_and_stops_at_a_button(h: &mut Harness)
 fn a_disabled_button_does_not_take_the_click(h: &mut Harness) {
     let mut page = Mounted::<RowsPage>::mount(&h.segment(), ()).unwrap();
     page.item(0).click(Marks::Remove);
+}
+
+/// A switch, a check box and a radio button, each showing what the page holds
+/// and telling it when a click turns one over.
+#[derive(Default)]
+pub struct SwitchesPage {
+    on: bool,
+    checked: bool,
+    picked: bool,
+}
+
+pub enum Switching {
+    Toggled(bool),
+    Checked(bool),
+    Picked(bool),
+}
+
+#[page]
+impl Page for SwitchesPage {
+    type Params = ();
+    type Installs = ();
+    type Message = Switching;
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn update(&mut self, message: Switching, _cx: &mut UpdateCx<'_, Self>) {
+        match message {
+            Switching::Toggled(on) => self.on = on,
+            Switching::Checked(checked) => self.checked = checked,
+            Switching::Picked(picked) => self.picked = picked,
+        }
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        StackPanel::new()
+            .children((
+                ToggleSwitch::new()
+                    .mark(Marks::Switch)
+                    .is_on(self.on)
+                    .on_toggled(cx.on(Switching::Toggled)),
+                CheckBox::new()
+                    .mark(Marks::Check)
+                    .is_checked(self.checked)
+                    .on_is_checked_changed(cx.on(Switching::Checked)),
+                RadioButton::new()
+                    .mark(Marks::Radio)
+                    .is_checked(self.picked)
+                    .on_checked(cx.on(Switching::Picked)),
+                TextBlock::new().text(format!(
+                    "on {} checked {} picked {}",
+                    self.on, self.checked, self.picked
+                )),
+            ))
+            .into()
+    }
+}
+
+impl Segment for SwitchesPage {
+    type Installs = ();
+    type Above = ();
+}
+
+#[guinea::test(iterations = 2)]
+fn a_click_turns_a_switch_a_check_box_and_a_radio_button_over(h: &mut Harness) {
+    let mut page = Mounted::<SwitchesPage>::mount(&h.segment(), ()).unwrap();
+
+    page.click(Marks::Switch).settle();
+    page.click(Marks::Check).settle();
+    page.click(Marks::Radio).settle();
+    page.settle();
+    assert!(
+        page.find_text("on true checked true picked true").is_some(),
+        "{:#?}",
+        page.tree()
+    );
+
+    page.click(Marks::Switch).settle();
+    page.click(Marks::Check).settle();
+    page.click(Marks::Radio).settle();
+    page.settle();
+    assert!(
+        page.find_text("on false checked false picked true").is_some(),
+        "a switch and a check box turn back, a radio button stays on:\n{:#?}",
+        page.tree()
+    );
 }
 
 #[guinea::test(iterations = 2)]

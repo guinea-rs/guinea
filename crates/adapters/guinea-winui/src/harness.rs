@@ -119,6 +119,36 @@ const SLOTS: &[SlotId] = &[
     SlotId::ViewboxChild,
 ];
 
+/// The controls a click turns over, by kind: the event that says so, the
+/// state it turns, and whether a click turns it back. A radio button does
+/// not: a click only ever checks it.
+const FLIPS: &[(&str, EventId, PropertyId, bool)] = &[
+    (
+        "ToggleSwitch",
+        EventId::ToggleSwitchToggled,
+        PropertyId::ToggleSwitchIsOn,
+        true,
+    ),
+    (
+        "CheckBox",
+        EventId::CheckBoxIsCheckedChanged,
+        PropertyId::CheckBoxIsChecked,
+        true,
+    ),
+    (
+        "ToggleButton",
+        EventId::ToggleButtonIsCheckedChanged,
+        PropertyId::ToggleButtonIsChecked,
+        true,
+    ),
+    (
+        "RadioButton",
+        EventId::RadioButtonChecked,
+        PropertyId::RadioButtonIsChecked,
+        false,
+    ),
+];
+
 type Sender<M> = Rc<dyn Fn(Signal<M>) -> bool>;
 
 thread_local! {
@@ -772,6 +802,18 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .unwrap_or_else(|| "?".to_string())
     }
 
+    /// If `node` is a control a click turns over, the event that says so, the
+    /// state it turns and what it turns it to: the opposite of what it shows
+    /// now, or on for one that does not turn back.
+    fn flip(&self, node: NodeId) -> Option<(NodeId, EventId, PropertyId, bool)> {
+        let kind = self.kind(node);
+        let (_, event, state, turns_back) = FLIPS.iter().find(|(flips, ..)| *flips == kind)?;
+
+        let now = matches!(self.property(node, *state), Some(PropertyValue::Bool(true)));
+
+        Some((node, *event, *state, !(*turns_back && now)))
+    }
+
     /// Selects `item` in the `NavigationView` it sits in, the way clicking it
     /// would: the view hears its selection changed to the item's tag.
     fn select(&mut self, item: NodeId, parents: &HashMap<NodeId, NodeId>) {
@@ -807,9 +849,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// A click as WinUI routes one: the pointer bubbles up from `found`
     /// through every element listening for it, and stops at a button, which
-    /// takes the pointer for its own click, or at a `NavigationViewItem`,
-    /// which selects itself. Nothing inside a disabled control takes it at
-    /// all.
+    /// takes the pointer for its own click, at a `NavigationViewItem`, which
+    /// selects itself, or at a switch, a check box, a toggle button or a
+    /// radio button, which turns over - the switch to the opposite of what it
+    /// shows, the radio button only ever on. Nothing inside a disabled
+    /// control takes it at all.
     fn click_at(&mut self, found: NodeId, label: &str, name: &'static str) -> Act<'h> {
         let parents = self.parents();
         self.refuse_disabled(found, &parents, label, "clicked");
@@ -817,9 +861,14 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let mut bubbled = Vec::new();
         let mut button = None;
         let mut item = None;
+        let mut flipped = None;
         let mut at = Some(found);
 
         while let Some(node) = at {
+            if let Some(flip) = self.flip(node) {
+                flipped = Some(flip);
+                break;
+            }
             if self.pump.event_revision(node, EventId::ButtonClick).is_some() {
                 button = Some(node);
                 break;
@@ -839,7 +888,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
 
         assert!(
-            button.is_some() || item.is_some() || !bubbled.is_empty(),
+            button.is_some() || item.is_some() || flipped.is_some() || !bubbled.is_empty(),
             "{label:?} is on the page, but nothing at or above it listens for a click"
         );
 
@@ -855,6 +904,21 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
         if let Some(item) = item {
             self.select(item, &parents);
+        }
+        if let Some((control, event, state, to)) = flipped {
+            self.pump
+                .runtime_mut()
+                .record_property_observation(control, state, PropertyValue::Bool(to))
+                .expect("the control a click reached is in the tree");
+
+            if let Some(revision) = self.pump.event_revision(control, event) {
+                self.pump.queue_event(QueuedEvent::new(
+                    control,
+                    event,
+                    revision,
+                    EventPayload::Bool(to),
+                ));
+            }
         }
         if let Some(button) = button
             && let Some(revision) = self.pump.event_revision(button, EventId::ButtonClick)

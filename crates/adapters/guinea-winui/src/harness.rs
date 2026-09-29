@@ -778,9 +778,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
     }
 
     /// What `node` holds, in order: its children, then what sits in each of
-    /// its slots.
+    /// its slots, then its flyout's content - closed or open, as an
+    /// `Expander`'s content is walked folded or not.
     fn below(&self, node: NodeId) -> Vec<NodeId> {
-        let Some(recorded) = self.pump.runtime().node(node) else {
+        let runtime = self.pump.runtime();
+        let Some(recorded) = runtime.node(node) else {
             return Vec::new();
         };
 
@@ -789,6 +791,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
             below.extend(recorded.slot(*slot));
             below.extend_from_slice(recorded.slot_children(*slot));
         }
+        below.extend(runtime.flyout(node).map(|(content, _)| content));
 
         below
     }

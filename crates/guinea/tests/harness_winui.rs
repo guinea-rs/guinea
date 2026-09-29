@@ -10,8 +10,9 @@ use guinea::prelude::*;
 use guinea::winui::harness::{Mounted, PropertyId, PropertyValue};
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
 use windows_reactor::{
-    Border, Button, Callback, CheckBox, ChildrenControl, ContentControl, ItemsRepeater,
-    PointerEventInfo, RadioButton, StackPanel, TextBlock, ToggleSwitch, View, VirtualSource,
+    Border, Button, Callback, CheckBox, ChildrenControl, ContentControl, Flyout, FlyoutExt,
+    ItemsRepeater, PointerEventInfo, RadioButton, StackPanel, TextBlock, ToggleSwitch, View,
+    VirtualSource,
 };
 
 const CATALOGUE: [&str; 6] = ["guinea", "guinea-app", "gui", "gum", "gulp", "gust"];
@@ -26,6 +27,8 @@ enum Marks {
     Switch,
     Check,
     Radio,
+    Charts,
+    ShowDisk,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -581,6 +584,63 @@ fn a_click_turns_a_switch_a_check_box_and_a_radio_button_over(h: &mut Harness) {
         "a switch and a check box turn back, a radio button stays on:\n{:#?}",
         page.tree()
     );
+}
+
+/// A "…" button whose flyout holds a check box per chart, the way a sidebar
+/// picks which charts it shows.
+#[derive(Default)]
+pub struct ChartsPage {
+    disk: bool,
+}
+
+pub struct ShowDisk(bool);
+
+#[page]
+impl Page for ChartsPage {
+    type Params = ();
+    type Installs = ();
+    type Message = ShowDisk;
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn update(&mut self, ShowDisk(disk): ShowDisk, _cx: &mut UpdateCx<'_, Self>) {
+        self.disk = disk;
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        StackPanel::new()
+            .children((
+                Button::new().mark(Marks::Charts).content("…").flyout_with(Flyout::rich(
+                    CheckBox::new()
+                        .mark(Marks::ShowDisk)
+                        .is_checked(self.disk)
+                        .on_is_checked_changed(cx.on(ShowDisk)),
+                )),
+                TextBlock::new().text(format!("disk {}", self.disk)),
+            ))
+            .into()
+    }
+}
+
+impl Segment for ChartsPage {
+    type Installs = ();
+    type Above = ();
+}
+
+#[guinea::test(iterations = 2)]
+fn a_click_reaches_a_control_inside_a_button_s_flyout(h: &mut Harness) {
+    let mut page = Mounted::<ChartsPage>::mount(&h.segment(), ()).unwrap();
+    assert!(page.find(Marks::ShowDisk).is_some(), "{:#?}", page.tree());
+
+    page.click(Marks::ShowDisk).settle();
+    page.settle();
+    assert!(page.find_text("disk true").is_some(), "{:#?}", page.tree());
+
+    page.click(Marks::ShowDisk).settle();
+    page.settle();
+    assert!(page.find_text("disk false").is_some(), "{:#?}", page.tree());
 }
 
 #[guinea::test(iterations = 2)]

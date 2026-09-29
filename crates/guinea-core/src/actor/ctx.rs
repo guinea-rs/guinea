@@ -5,6 +5,7 @@ use crate::actor::event_bus::subscribe::Event;
 use crate::actor::traits::Handler;
 use crate::actor::{AllowedSignal, ManagedActor, invoke_on_ui, short_type_name};
 use crate::trace::{self, Cause, Point};
+use futures_core::Stream;
 use std::marker::PhantomData;
 use std::time::Instant;
 use tokio::sync::oneshot;
@@ -85,6 +86,57 @@ impl Task {
     /// thread devtools watch.
     fn ended(self, spawned: Cause, point: Point) {
         let _resumed = trace::resume(Some(spawned));
+
+        crate::devtools::mark_anywhere(move || point);
+    }
+}
+
+/// One source as the trace sees it: whose it is, what its items come as, and
+/// when it opened.
+#[derive(Clone, Copy)]
+struct Feed {
+    actor: &'static str,
+    actor_id: u64,
+    output: &'static str,
+    started: Instant,
+}
+
+impl Feed {
+    fn new<A: 'static>(actor_id: usize, output: &'static str) -> Self {
+        Self {
+            actor: short_type_name::<A>(),
+            actor_id: actor_id as u64,
+            output,
+            started: Instant::now(),
+        }
+    }
+
+    fn opened(&self) -> Point {
+        Point::Source {
+            actor: self.actor,
+            actor_id: self.actor_id,
+            output: self.output,
+        }
+    }
+
+    fn arrived(&self, source: Cause) -> Point {
+        Point::Arrived {
+            actor: self.actor,
+            actor_id: self.actor_id,
+            output: self.output,
+            source: source.get(),
+        }
+    }
+
+    fn closed(self, opened: Cause, gone: bool) {
+        let point = Point::Closed {
+            actor: self.actor,
+            actor_id: self.actor_id,
+            output: self.output,
+            took_us: self.started.elapsed().as_micros() as u64,
+            gone,
+        };
+        let _resumed = trace::resume(Some(opened));
 
         crate::devtools::mark_anywhere(move || point);
     }
@@ -283,6 +335,72 @@ impl<A: 'static, M> Cx<A, M> {
             };
 
             task.ended(spawned, ended);
+        });
+    }
+
+    /// Feeds this actor what `source` yields, each item as `into(item)`, for
+    /// as long as the actor lives: a watch, a subscription, a pipe that
+    /// pushes.
+    ///
+    /// A source is not work of what opened it, as a timer is not work of
+    /// what started it. The handler that opens it is done once it is open,
+    /// and each item arrives as a root of its own - so an action that opens
+    /// a watch is finished when the watch is open, not when it runs dry.
+    ///
+    /// Declared as `bg` in `actor!`, like any other work that answers later.
+    ///
+    /// ```ignore
+    /// cx.spawn_source(changes, Changed);
+    /// ```
+    pub fn spawn_source<S, Out, F>(&self, source: S, into: F)
+    where
+        S: Stream + Send + 'static,
+        Out: Send + 'static,
+        F: FnMut(S::Item) -> Out + Send + 'static,
+        A: Handler<Out> + ManagedActor,
+        A::Flow: crate::actor::flow::Allows<M, Out>,
+    {
+        let id = self.addr.id;
+        let cancel = self.addr.cancellation();
+        let feed = Feed::new::<A>(id, short_type_name::<Out>());
+        let opened = trace::mark(|| feed.opened());
+
+        crate::executor::spawn(async move {
+            let pouring = trace::within(None, pour::<A, _, _, _>(id, source, into, feed, opened));
+            let ran_dry = cancel.guard(pouring).await.is_some();
+
+            feed.closed(opened, !ran_dry || cancel.is_cancelled());
+        });
+    }
+}
+
+/// Hands each item of `source` to the UI thread, as a root of its own, until
+/// the source runs dry.
+async fn pour<A, S, Out, F>(id: usize, source: S, mut into: F, feed: Feed, opened: Cause)
+where
+    A: Handler<Out> + 'static,
+    S: Stream,
+    Out: Send + 'static,
+    F: FnMut(S::Item) -> Out,
+{
+    let mut source = std::pin::pin!(source);
+
+    while let Some(item) = std::future::poll_fn(|cx| source.as_mut().poll_next(cx)).await {
+        let message = into(item);
+
+        invoke_on_ui(move || {
+            let _root = trace::resume(None);
+            let _arrived = trace::enter(|| feed.arrived(opened));
+
+            REGISTRY.with(|reg| {
+                if let Some(addr) = reg
+                    .borrow()
+                    .get(&id)
+                    .and_then(|addr| addr.downcast_ref::<Addr<A>>())
+                {
+                    addr.send(message);
+                }
+            });
         });
     }
 }

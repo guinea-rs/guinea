@@ -2141,6 +2141,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "derive_more",
+ "futures-core",
  "guinea-macros",
  "guinea-mark",
  "guinea-trace",

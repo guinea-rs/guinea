@@ -119,6 +119,45 @@ fn write(record: &Record) {
             output = %output,
             took_us
         ),
+        Point::Source {
+            actor,
+            actor_id,
+            output,
+        } => point!(
+            "guinea::source",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output
+        ),
+        Point::Arrived {
+            actor,
+            actor_id,
+            output,
+            source,
+        } => point!(
+            "guinea::arrived",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output,
+            source
+        ),
+        Point::Closed {
+            actor,
+            actor_id,
+            output,
+            took_us,
+            gone,
+        } => point!(
+            "guinea::closed",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output,
+            took_us,
+            gone
+        ),
         Point::Publish {
             event,
             bus,

@@ -890,6 +890,140 @@ fn leaving_a_page_mid_request_ends_its_work_and_only_its_work(h: &mut Harness) {
     assert_eq!(h.state::<polling::Samples>().taken, 10, "the layout's poll stopped with the page");
 }
 
+/// A watch the way a service pushes: nothing comes until the other end sends,
+/// and the watch is opened by a click.
+mod watching {
+    use super::*;
+    use guinea::core::__private::tokio::sync::mpsc;
+    use guinea::core::actor::Stream;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll};
+
+    #[derive(Debug)]
+    pub struct Changes(pub mpsc::UnboundedReceiver<u32>);
+
+    impl Stream for Changes {
+        type Item = u32;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<u32>> {
+            self.0.poll_recv(cx)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Watch(pub Arc<Mutex<Option<Changes>>>);
+
+    impl Watch {
+        pub fn of(changes: mpsc::UnboundedReceiver<u32>) -> Self {
+            Self(Arc::new(Mutex::new(Some(Changes(changes)))))
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Changed(pub u32);
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Seen(pub Vec<u32>);
+
+    impl Reducer for Seen {
+        type Update = Changed;
+
+        fn reduce(&mut self, Changed(value): Changed) {
+            self.0.push(value);
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Watcher {
+        pub push: Push<Seen>,
+    }
+
+    actor! {
+        Watcher {
+            handlers { Watch => { bg Changed }, Changed }
+        }
+    }
+
+    #[handler]
+    fn watch(_this: &mut Watcher, Watch(changes): Watch, cx: Cx) {
+        let changes = changes.lock().unwrap().take().expect("a watch is opened once");
+        cx.spawn_source(changes, Changed);
+    }
+
+    #[handler]
+    fn changed(this: &mut Watcher, changed: Changed) {
+        this.push.send(changed);
+    }
+
+    feature! {
+        pub Watching {
+            exports { Seen }
+        }
+    }
+
+    #[installs]
+    fn watching(cx: &FeatureInitContext) -> anyhow::Result<Watching> {
+        let (seen, _) = cx.state::<Seen>().driven_by(|push| Watcher { push });
+        Ok(Watching(seen))
+    }
+}
+
+#[guinea::test(iterations = 20)]
+fn a_click_that_opens_a_watch_is_done_once_the_watch_is_open(h: &mut Harness) {
+    use guinea::core::__private::tokio::sync::mpsc;
+    use guinea::core::trace::Point;
+
+    h.install::<watching::Watching>(&()).unwrap();
+    let (other_end, changes) = mpsc::unbounded_channel();
+
+    let opened = h.act::<watching::Seen>(watching::Watch::of(changes));
+    opened.settle();
+    assert!(opened.chain().has(|point| matches!(point, Point::Source { .. })));
+
+    other_end.send(1).unwrap();
+    other_end.send(2).unwrap();
+    h.settled();
+    assert_eq!(h.state::<watching::Seen>().0, [1, 2]);
+    assert!(
+        !opened.chain().handled::<watching::Changed>(),
+        "what the watch pushed is not the click's work:\n{:#?}",
+        opened.chain()
+    );
+
+    drop(other_end);
+    h.settled();
+    assert!(
+        opened.chain().has(|point| matches!(point, Point::Closed { gone: false, .. })),
+        "the watch ran dry:\n{:#?}",
+        opened.chain()
+    );
+    assert_eq!(h.stuck(), 0);
+}
+
+#[guinea::test(iterations = 20)]
+fn leaving_the_page_closes_its_watch(h: &mut Harness) {
+    use guinea::core::__private::tokio::sync::mpsc;
+    use guinea::core::trace::Point;
+
+    let page = h.child();
+    page.install::<watching::Watching>(&()).unwrap();
+    let (other_end, changes) = mpsc::unbounded_channel();
+
+    let opened = page.act::<watching::Seen>(watching::Watch::of(changes));
+    opened.settle();
+
+    page.leave();
+    h.settled();
+    assert!(
+        opened.chain().has(|point| matches!(point, Point::Closed { gone: true, .. })),
+        "the watch outlived its page:\n{:#?}",
+        opened.chain()
+    );
+    assert!(other_end.send(3).is_err(), "the watch let go of its end");
+    assert_eq!(h.stuck(), 0);
+}
+
 #[test]
 fn a_seed_is_one_order_every_time() {
     let shown = |seed| {

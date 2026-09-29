@@ -208,6 +208,9 @@ pub enum Step {
     Spawn { actor: &'static str, output: &'static str },
     Settled { actor: &'static str, output: &'static str },
     Cancelled { actor: &'static str, output: &'static str },
+    Source { actor: &'static str, output: &'static str },
+    Arrived { actor: &'static str, output: &'static str },
+    Closed { actor: &'static str, output: &'static str, gone: bool },
     Publish { event: &'static str, bus: &'static str, subscribers: usize },
     Deliver { event: &'static str, bus: &'static str },
     Push { reducer: &'static str },
@@ -234,6 +237,18 @@ impl Step {
             Point::Spawn { actor, output, .. } => Step::Spawn { actor, output },
             Point::Settled { actor, output, .. } => Step::Settled { actor, output },
             Point::Cancelled { actor, output, .. } => Step::Cancelled { actor, output },
+            Point::Source { actor, output, .. } => Step::Source { actor, output },
+            Point::Arrived { actor, output, .. } => Step::Arrived { actor, output },
+            Point::Closed {
+                actor,
+                output,
+                gone,
+                ..
+            } => Step::Closed {
+                actor,
+                output,
+                gone: *gone,
+            },
             Point::Publish {
                 event,
                 bus: on,

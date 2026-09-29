@@ -59,6 +59,31 @@ pub enum Point {
         output: &'static str,
         took_us: u64,
     },
+    /// An actor opened a source whose items will come to it as `output`.
+    /// Recorded under what opened it, which is done with it once it is open:
+    /// the items are not its work.
+    Source {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
+    },
+    /// An item came from a source, as `output`. A root, as a timer's tick
+    /// is; `source` is the id of the [`Point::Source`] it came from.
+    Arrived {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
+        source: u64,
+    },
+    /// A source ended: it ran dry, or `gone` - the actor that opened it is
+    /// gone and the source was dropped where it last awaited.
+    Closed {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
+        took_us: u64,
+        gone: bool,
+    },
     /// An event went out.
     Publish {
         event: &'static str,
@@ -130,6 +155,9 @@ impl Point {
             Point::Spawn { .. } => "spawn",
             Point::Settled { .. } => "settled",
             Point::Cancelled { .. } => "cancelled",
+            Point::Source { .. } => "source",
+            Point::Arrived { .. } => "arrived",
+            Point::Closed { .. } => "closed",
             Point::Publish { .. } => "publish",
             Point::Deliver { .. } => "deliver",
             Point::Push { .. } => "push",
@@ -188,6 +216,29 @@ impl fmt::Display for Point {
             } => write!(
                 f,
                 "{actor} is gone: {output} cancelled after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
+            Point::Source { actor, output, .. } => write!(f, "{actor} opens a source of {output}"),
+            Point::Arrived { actor, output, .. } => write!(f, "{output} arrives at {actor}"),
+            Point::Closed {
+                actor,
+                output,
+                took_us,
+                gone: true,
+                ..
+            } => write!(
+                f,
+                "{actor} is gone: its source of {output} closed after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
+            Point::Closed {
+                actor,
+                output,
+                took_us,
+                ..
+            } => write!(
+                f,
+                "{actor}'s source of {output} ran dry after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
             Point::Publish {

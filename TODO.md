@@ -121,6 +121,48 @@ side until reactor has them.
 - Column resize was not checked after the rewrite; synthetic input did not
   move the handle. Check by hand.
 
+## WinUI adapter
+
+### `PageCx`'s hooks need tests of their own
+
+`crates/adapters/guinea-winui/src/winui.rs`:
+
+```rust
+pub fn on<T>(&self, message: impl Fn(T) -> P::Message + 'static) -> Callback<T>
+where
+    T: 'static,
+{
+    self.cx.callback(move |payload| Signal::Node(message(payload)))
+}
+
+pub fn use_reducer<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+where
+    R: Reducer + PartialEq,
+    P: Reaches<R, I>,
+{
+    use_reducer::<R, _>(&self.props, self.cx)
+}
+
+pub fn navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
+where
+    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+{
+    self.cx.use_navigate::<R>()
+}
+```
+
+The code needs nothing; tests do. Pages under the harness go through these on
+the way (`SwitchesPage`, `ChartsPage`, the routed shells), but nothing checks
+them on their own:
+
+- `on`: a widget's payload comes to `update` as the page's own message.
+- `use_reducer`: the page reads `R` from its own scope or the nearest one
+  above that exports it, redraws when it changes, and its `Dispatch` reaches
+  the feature that owns `R`.
+- `navigate`: the handle goes to the route asked for.
+
+The same for `LayoutCx`'s `on`, `use_reducer` and `navigate`.
+
 ## Core: the scope before the router
 
 Decided in conversation, not started. Three wants need the same change: a

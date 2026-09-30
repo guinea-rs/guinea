@@ -5,9 +5,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-# windows-reactor is a git dependency until windows-rs releases the API this
-# uses (0.100.0 has no `AppProxy`); crates.io takes no git dependencies.
-publish = false
 
 [dependencies]
 guinea-core.workspace = true
@@ -26,8 +23,8 @@ harness = ["windows-reactor/test", "guinea-app/test-utils", "dep:serde"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-reactor.workspace = true
-# For the generated dispatcher bindings in `src/dispatching`. Same revision as
-# the reactor, so the COM types are the ones it is already using.
+# For the generated dispatcher bindings in `src/dispatching`. The one the
+# reactor is built on, so the COM types are the ones it is already using.
 windows-core.workspace = true
 
 [lints]

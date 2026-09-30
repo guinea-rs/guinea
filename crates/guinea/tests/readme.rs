@@ -6,7 +6,7 @@
 //@show counter
 use guinea::prelude::*;
 use guinea::winui::{Page, PageCx, Window, page, run};
-use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+use guinea::winui::reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
 
 /// The state.
 #[derive(Default, Clone, PartialEq, Debug)]

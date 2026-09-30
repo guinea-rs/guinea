@@ -30,13 +30,12 @@ makes the opinion cheap to follow.
 > **guinea is young, and its API still moves between minor versions.**
 > WinUI is the backend a real application ([uniproc](https://github.com/uniproc-dev/uniproc)) runs on every day; the other four
 > run the same example application and are tested, but nobody depends on them yet.
-> On crates.io guinea comes without WinUI until `windows-reactor` releases what it uses; for WinUI, depend on a git tag.
 
 <!-- shown: counter -->
 ```rust
 use guinea::prelude::*;
 use guinea::winui::{Page, PageCx, Window, page, run};
-use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+use guinea::winui::reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
 
 /// The state.
 #[derive(Default, Clone, PartialEq, Debug)]

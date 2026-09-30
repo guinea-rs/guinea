@@ -1,10 +1,6 @@
 //! `cargo xtask docs` copies the examples marked in tests into the pages that
 //! show them: the README and the doc comments under `crates/*/src`.
 //! `--check` writes nothing and fails when a page is behind its tests.
-//!
-//! `cargo xtask facade-without-winui` is for the publish job; see `facade`.
-
-mod facade;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,10 +14,7 @@ fn main() -> ExitCode {
 
     let result = match args.first().map(String::as_str) {
         Some("docs") => docs(args[1..].iter().any(|arg| arg == "--check")),
-        Some("facade-without-winui") => facade::without_winui(&root()).map_err(|error| vec![error]),
-        _ => Err(vec![
-            "usage: cargo xtask docs [--check] | facade-without-winui".to_string(),
-        ]),
+        _ => Err(vec!["usage: cargo xtask docs [--check]".to_string()]),
     };
 
     match result {

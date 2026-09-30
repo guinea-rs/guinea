@@ -20,3 +20,8 @@ pub use guinea_macros::{winui_layout as layout, winui_page as page};
 pub use mark::MarkExt;
 pub use run::{MAIN, Window, run, window};
 pub use winui::*;
+
+/// The windows-reactor this backend is built on - `windows-reactor-pre`, the
+/// reactor at the windows-rs revision guinea is written against. An
+/// application draws with this one, so its views and guinea's are one type.
+pub use windows_reactor as reactor;

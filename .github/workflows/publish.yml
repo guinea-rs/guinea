@@ -37,15 +37,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Facade without WinUI
-        run: cargo xtask facade-without-winui
-
       - name: Publish in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
         run: |
           set -e
           CRATES=(
+            vendor/windows-reactor-pre
+            vendor/windows-canvas-pre
             guinea-mark
             guinea-meta
             guinea-meta-build
@@ -61,13 +60,18 @@ jobs:
             guinea-iced
             guinea-ratatui
             guinea-slint
+            guinea-winui
             guinea
           )
           for crate in "${CRATES[@]}"; do
-            echo "::group::cargo publish -p $crate"
+            case "$crate" in
+              vendor/*) which=(--manifest-path "crates/$crate/Cargo.toml") ;;
+              *) which=(-p "$crate") ;;
+            esac
+            echo "::group::cargo publish $crate"
             failures=0
             while true; do
-              if out=$(cargo publish -p "$crate" --allow-dirty 2>&1); then
+              if out=$(cargo publish "${which[@]}" --allow-dirty 2>&1); then
                 echo "$out"
                 break
               fi

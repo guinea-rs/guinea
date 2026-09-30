@@ -26,6 +26,7 @@ members = [
     "crates/guinea",
     "xtask",
 ]
+exclude = ["crates/vendor"]
 
 [workspace.dependencies]
 guinea-trace = { path = "crates/guinea-trace", version = "0.15.1" }
@@ -52,19 +53,15 @@ window-vibrancy = "0.7.1"
 raw-window-handle = "0.6.2"
 
 # --- UI Stack (windows-reactor) ---
-# Pinned to an explicit rev (not just `git = "..."`) so this and
-# examples/processes-app's separate workspace/lockfile can't silently drift
-# onto different commits of the same crate - they did, until this was added.
-#
-# Upstream rather than the fork since #4848, which did not extend the reactor
-# but replaced it: `RenderCx` and its hooks, `Element`, `component()`,
-# `ContextId`, `App::new().render()` and `on_exit` are all gone, and a window
-# is now a component root. The fork's own commit sits on files that rewrite
-# touched, so it has to be redone against the new shape either way.
-windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
+# windows-rs at c14074c45 has the reactor guinea is written against, and
+# crates.io does not: its windows-reactor 0.100.0 is older. The reactor and the
+# canvas at that rev are published from crates/vendor as `-pre` crates, under
+# their own lib names, on the rest of the windows-rs 0.100 family from
+# crates.io - so guinea-winui can be published too.
+windows-reactor = { package = "windows-reactor-pre", version = "0.100.0", path = "crates/vendor/windows-reactor-pre" }
 windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
-windows-canvas = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
-windows-core = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
+windows-canvas = { package = "windows-canvas-pre", version = "0.100.0", path = "crates/vendor/windows-canvas-pre" }
+windows-core = "0.100.0"
 
 # --- Async ---
 tokio = { version = "1.49.0", features = ["full"] }

@@ -1,5 +1,7 @@
 /target
 /examples/*/target
+/crates/vendor/*/target
+/crates/vendor/*/Cargo.lock
 /.idea
 /.vscode
 .cache/

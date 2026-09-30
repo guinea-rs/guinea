@@ -2,7 +2,7 @@
 version = "0.15.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/uniproc-dev/guinea"
+repository = "https://github.com/guinea-rs/guinea"
 
 [workspace]
 resolver = "2"

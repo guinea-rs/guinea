@@ -13,7 +13,7 @@ makes the opinion cheap to follow.
 
 - **An architecture** - state is a reducer, the domain is actors that change it, and a feature owns both. A page is written the way its toolkit works; whatever it is, it reads what it may, and asks a feature for the rest
 - **Routing after Next.js** - nested layouts and pages, declared once in `routes!`. A layout stays mounted while the pages under it change, and what it installs lives exactly as long as it does
-- **Plugins** - a feature is the unit of reuse: installed by any page or layout, in any application, and gone with it. [guinea-plugins](https://github.com/uniproc-dev/guinea-plugins) is what a desktop needs, written once
+- **Plugins** - a feature is the unit of reuse: installed by any page or layout, in any application, and gone with it. [guinea-plugins](https://github.com/guinea-rs/guinea-plugins) is what a desktop needs, written once
 - **Infrastructure for free** - guinea knows how the application is put together: which feature a page installed, which actor answered, what a message caused. So nothing has to be wired by hand for structured tracing with cause chains, tests after gpui's with background work ordered by a seed, and devtools that show the application live
 
 ### Features

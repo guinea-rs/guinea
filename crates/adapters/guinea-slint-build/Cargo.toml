@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 slint-build = "1.17"
 guinea-route-dsl.workspace = true
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "3.0", features = ["full"] }
 walkdir.workspace = true
 anyhow.workspace = true
 

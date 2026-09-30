@@ -529,6 +529,10 @@ where
 
     /// Reports whether it arrived *now*. A deferred navigation reports
     /// `false`: there is no answer yet to report.
+    ///
+    /// A segment that fails to install is logged and reported as not
+    /// arrived: the handle is called from a click, and the router has
+    /// already gone back to where it was.
     fn go(
         &self,
         router: &Rc<Router<U>>,
@@ -540,19 +544,23 @@ where
         let sink = self.sink.clone();
         let published = route.clone();
 
-        let outcome = router
-            .navigate_then(route, move |arrived| {
-                if arrived {
-                    if let Some(router) = weak.upgrade() {
-                        router.route_changed(name);
-                    }
-                    sink.publish(published);
+        let outcome = router.navigate_then(route, move |arrived| {
+            if arrived {
+                if let Some(router) = weak.upgrade() {
+                    router.route_changed(name);
                 }
-                settled(arrived);
-            })
-            .expect("navigate");
+                sink.publish(published);
+            }
+            settled(arrived);
+        });
 
-        outcome.is_done()
+        match outcome {
+            Ok(outcome) => outcome.is_done(),
+            Err(error) => {
+                tracing::error!(error = format!("{error:#}"), route = name, "navigation failed");
+                false
+            }
+        }
     }
 
     /// A parameterless handler that navigates to `route` - sugar for
@@ -582,6 +590,8 @@ pub(crate) struct ActiveChain<U: Ui> {
     /// ask which of them changed - and so a cached state can refuse to come
     /// back to a segment that captured something else.
     pub(crate) params: Vec<Box<dyn Any>>,
+    /// How to make them again, when the chain came from a route.
+    again: Option<Again>,
 }
 
 impl<U: Ui> ActiveChain<U> {
@@ -767,10 +777,35 @@ struct Parked<U: Ui> {
     chain: &'static [SegmentEntry<U>],
     params: Vec<Box<dyn Any>>,
     shared_len: usize,
-    route: Box<dyn Any>,
-    described: String,
+    arrival: Arrival,
     /// What the caller wanted done once this either happened or did not.
     settled: Box<dyn FnOnce(bool)>,
+}
+
+/// What a chain's route can make its params again with - to put the chain
+/// back when the navigation that replaced it fails to install.
+type Again = Rc<dyn Fn() -> Vec<Box<dyn Any>>>;
+
+/// The route a navigation is going to, kept aside until it has arrived: the
+/// router says it is somewhere only once it is.
+struct Arrival {
+    route: Rc<dyn Any>,
+    described: String,
+    again: Again,
+}
+
+impl Arrival {
+    fn of<U: Ui, R: RouteChain<U> + 'static>(route: R) -> Self {
+        let described = route.describe();
+        let route = Rc::new(route);
+
+        let making = route.clone();
+        Self {
+            route,
+            described,
+            again: Rc::new(move || making.params()),
+        }
+    }
 }
 
 /// Says a frame is in progress for as long as it is held; see
@@ -791,6 +826,7 @@ struct Held<U: Ui> {
     chain: &'static [SegmentEntry<U>],
     params: Vec<Box<dyn Any>>,
     shared_len: usize,
+    arrival: Arrival,
     settled: Box<dyn FnOnce(bool)>,
 }
 
@@ -805,7 +841,7 @@ pub struct Router<U: Ui> {
     /// Bumped by every navigation, so an answer to a superseded question can
     /// be told from an answer to the current one.
     generation: std::cell::Cell<u64>,
-    prev_route: RefCell<Option<Box<dyn Any>>>,
+    prev_route: RefCell<Option<Rc<dyn Any>>>,
     /// Where the application has been, and where it was pulled back from.
     ///
     /// Kept here rather than in the application because the browser is the
@@ -959,7 +995,7 @@ impl<U: Ui> Router<U> {
         params: Vec<Box<dyn Any>>,
     ) -> anyhow::Result<Rc<Scope>> {
         *self.prev_route.borrow_mut() = None;
-        self.install_from(chain, 0, params)
+        self.install_from(chain, 0, params, None)
     }
 
     pub fn navigate<R>(self: &Rc<Self>, route: R) -> anyhow::Result<Navigation>
@@ -1021,8 +1057,7 @@ impl<U: Ui> Router<U> {
 
         match verdict {
             Verdict::Allow => {
-                *self.described.borrow_mut() = Some(route.describe());
-                *self.prev_route.borrow_mut() = Some(Box::new(route));
+                let arrival = Arrival::of(route);
 
                 if self.drawing.get() {
                     // The frame is standing on the chain this would tear
@@ -1033,6 +1068,7 @@ impl<U: Ui> Router<U> {
                         chain,
                         params,
                         shared_len,
+                        arrival,
                         settled: Box::new(settled),
                     });
                     if let Some(held) = superseded {
@@ -1042,9 +1078,16 @@ impl<U: Ui> Router<U> {
                     return Ok(Navigation::Deferred);
                 }
 
-                let leaf = self.install_from(chain, shared_len, params)?;
-                settled(true);
-                Ok(Navigation::Done(leaf))
+                match self.commit(chain, shared_len, params, arrival) {
+                    Ok(leaf) => {
+                        settled(true);
+                        Ok(Navigation::Done(leaf))
+                    }
+                    Err(error) => {
+                        settled(false);
+                        Err(error)
+                    }
+                }
             }
 
             Verdict::Block => {
@@ -1059,8 +1102,7 @@ impl<U: Ui> Router<U> {
                     chain,
                     params,
                     shared_len,
-                    described: route.describe(),
-                    route: Box::new(route),
+                    arrival: Arrival::of(route),
                     settled: Box::new(settled),
                 });
 
@@ -1085,9 +1127,7 @@ impl<U: Ui> Router<U> {
                         return;
                     }
 
-                    *router.described.borrow_mut() = Some(parked.described);
-                    *router.prev_route.borrow_mut() = Some(parked.route);
-                    match router.install_from(parked.chain, parked.shared_len, parked.params) {
+                    match router.commit(parked.chain, parked.shared_len, parked.params, parked.arrival) {
                         Ok(_) => (parked.settled)(true),
                         Err(error) => {
                             tracing::error!(%error, "a navigation resumed after a guard failed");
@@ -1206,23 +1246,65 @@ impl<U: Ui> Router<U> {
             .count()
     }
 
+    /// Installs a navigation's chain, and says the router is at its route only
+    /// once it is.
+    fn commit(
+        &self,
+        chain: &'static [SegmentEntry<U>],
+        shared_len: usize,
+        params: Vec<Box<dyn Any>>,
+        arrival: Arrival,
+    ) -> anyhow::Result<Rc<Scope>> {
+        let Arrival {
+            route,
+            described,
+            again,
+        } = arrival;
+
+        match self.install_from(chain, shared_len, params, Some(again)) {
+            Ok(leaf) => {
+                *self.prev_route.borrow_mut() = Some(route);
+                *self.described.borrow_mut() = Some(described);
+                Ok(leaf)
+            }
+            Err(error) => {
+                if self.active.borrow().is_none() {
+                    *self.prev_route.borrow_mut() = None;
+                    *self.described.borrow_mut() = None;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Replaces the active chain from `shared_len` down with `chain`.
+    ///
+    /// When a segment fails to install, what this navigation built comes down
+    /// innermost first, and the chain it replaced goes back up - made again
+    /// from its route's params, with the states its cached segments had. Only
+    /// a chain that cannot be put back either, or one that came with no route,
+    /// leaves the router with none.
     fn install_from(
         &self,
         chain: &'static [SegmentEntry<U>],
         shared_len: usize,
         params: Vec<Box<dyn Any>>,
+        again: Option<Again>,
     ) -> anyhow::Result<Rc<Scope>> {
         // Taken before anything is dropped, so the states of cache-eligible
         // segments can be snapshotted along with what they captured.
         let prev = self.active.borrow_mut().take();
 
-        let mut scopes: Vec<Rc<Scope>> = match prev {
+        let mut previous = None;
+        let scopes: Vec<Rc<Scope>> = match prev {
             None => Vec::new(),
             Some(ActiveChain {
                 entries,
                 scopes,
                 params: captured,
+                again: before,
             }) => {
+                previous = before.map(|before| (entries, before));
                 {
                     let mut cache = self.state_cache.borrow_mut();
                     for (index, ((entry, scope), captured)) in entries
@@ -1248,7 +1330,61 @@ impl<U: Ui> Router<U> {
             }
         };
 
-        for (index, entry) in chain.iter().enumerate().skip(shared_len) {
+        let (error, kept) = match self.build(chain, scopes, &params) {
+            Ok(scopes) => return Ok(self.stand(chain, scopes, params, again)),
+            Err(failed) => failed,
+        };
+
+        let Some((entries, before)) = previous else {
+            unwind(Rc::new(kept), 0);
+            return Err(error);
+        };
+        let captured = before();
+        match self.build(entries, kept, &captured) {
+            Ok(scopes) => {
+                self.stand(entries, scopes, captured, Some(before));
+                Err(error.context("the navigation failed; the router stayed where it was"))
+            }
+            Err((back, kept)) => {
+                tracing::error!(error = %back, "the chain a failed navigation replaced would not go back");
+                unwind(Rc::new(kept), 0);
+                Err(error)
+            }
+        }
+    }
+
+    /// Makes `chain` the active one, and hands back its leaf.
+    fn stand(
+        &self,
+        chain: &'static [SegmentEntry<U>],
+        scopes: Vec<Rc<Scope>>,
+        params: Vec<Box<dyn Any>>,
+        again: Option<Again>,
+    ) -> Rc<Scope> {
+        let leaf = scopes.last().expect("chain is non-empty").clone();
+        *self.active.borrow_mut() = Some(ActiveChain {
+            entries: chain,
+            scopes: Rc::new(scopes),
+            params,
+            again,
+        });
+        leaf
+    }
+
+    /// Installs `chain` below the scopes already standing, one segment each.
+    ///
+    /// On a failure, what this built comes down the way it went up, innermost
+    /// first - including the segment that failed, which may have installed
+    /// half of itself - and the scopes that stood before are handed back.
+    fn build(
+        &self,
+        chain: &'static [SegmentEntry<U>],
+        mut scopes: Vec<Rc<Scope>>,
+        params: &[Box<dyn Any>],
+    ) -> Result<Vec<Rc<Scope>>, (anyhow::Error, Vec<Rc<Scope>>)> {
+        let standing = scopes.len();
+
+        for (index, entry) in chain.iter().enumerate().skip(standing) {
             let scope = Rc::new(Scope::new());
             let captured: &dyn Any = params
                 .get(index)
@@ -1276,28 +1412,16 @@ impl<U: Ui> Router<U> {
                 .context(scope.clone(), Rc::from(scopes.clone()));
 
             if let Err(error) = (entry.install)(&ctx, captured) {
-                // What this navigation managed to build comes down the way
-                // it went up, innermost first - including the segment that
-                // failed, which may have installed half of itself. The chain
-                // it replaced is already gone, so the router is left with
-                // none: a failed install is not a navigation that can be
-                // taken back.
                 scopes.push(scope);
-                unwind(Rc::new(scopes), 0);
+                let kept = unwind(Rc::new(scopes), standing);
 
-                return Err(error);
+                return Err((error, kept));
             }
 
             scopes.push(scope);
         }
 
-        let leaf = scopes.last().expect("chain is non-empty").clone();
-        *self.active.borrow_mut() = Some(ActiveChain {
-            entries: chain,
-            scopes: Rc::new(scopes),
-            params,
-        });
-        Ok(leaf)
+        Ok(scopes)
     }
 
     pub fn deactivate(&self) {
@@ -1328,7 +1452,7 @@ impl<U: Ui> Router<U> {
         self.prev_route
             .borrow()
             .as_ref()
-            .and_then(|route| route.downcast_ref::<R>())
+            .and_then(|route| (**route).downcast_ref::<R>())
             .cloned()
     }
 
@@ -1423,7 +1547,7 @@ impl<U: Ui> Router<U> {
             return Ok(false);
         };
 
-        match self.install_from(held.chain, held.shared_len, held.params) {
+        match self.commit(held.chain, held.shared_len, held.params, held.arrival) {
             Ok(_) => {
                 (held.settled)(true);
                 Ok(true)

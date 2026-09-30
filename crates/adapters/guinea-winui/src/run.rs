@@ -19,6 +19,19 @@ const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x8000_4005_u32 as _
 thread_local! {
     static PROXY: RefCell<Option<AppProxy>> = const { RefCell::new(None) };
     static STANDING: Cell<usize> = const { Cell::new(0) };
+    static FAILED: RefCell<Option<anyhow::Error>> = const { RefCell::new(None) };
+}
+
+/// The main window's first route did not install: the application ends, and
+/// [`run`] returns `error`.
+pub(crate) fn failed(error: anyhow::Error) {
+    FAILED.with(|failed| *failed.borrow_mut() = Some(error));
+
+    if let Some(proxy) = PROXY.with(|slot| slot.borrow().clone())
+        && let Err(error) = proxy.exit()
+    {
+        tracing::warn!(%error, "asking the application to exit");
+    }
 }
 
 /// A second window, showing the same route tree from `initial`.
@@ -69,6 +82,9 @@ where
 
     if let Some(error) = failure.borrow_mut().take() {
         return Err(error.context("guinea: installing the application"));
+    }
+    if let Some(error) = FAILED.with(|failed| failed.borrow_mut().take()) {
+        return Err(error.context("guinea: installing the first route"));
     }
     result.map_err(|error| anyhow::anyhow!("windows-reactor: {error}"))
 }

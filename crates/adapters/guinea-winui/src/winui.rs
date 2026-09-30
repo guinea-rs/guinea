@@ -1425,6 +1425,8 @@ fn router_context() -> &'static windows_reactor::Context<Option<RouterHandle>> {
 pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
     router: Rc<Router<WinUi>>,
     route: R,
+    /// Why the first route is not standing, when it failed to install.
+    failure: Option<String>,
     _question: guinea_router::router::RouteHookHandle,
     _panel: guinea_core::devtools::PanelGuard,
 }
@@ -1447,28 +1449,35 @@ where
     type Input = R;
     type Message = Routed<R>;
 
+    /// Installs the first route before the first view. One that fails leaves
+    /// the window saying why; the main window's failure also ends the
+    /// application, and `run` returns it.
     fn create(initial: &R, cx: &ComponentContext<Self>) -> Self {
         let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
         let router = Rc::new(Router::new(token));
-        if guinea_app::app::roots::labelled(crate::run::MAIN).is_none() {
+        let main = guinea_app::app::roots::labelled(crate::run::MAIN).is_none();
+        if main {
             guinea_app::app::roots::set_label(router.root(), crate::run::MAIN);
         }
-
-        // Before the first view, so the tree exists by the time anything asks
-        // to render it. A failure here is fatal to the window, and `create`
-        // cannot report one.
-        router
-            .navigate(initial.clone())
-            .expect("the initial route installs");
 
         let sender = cx.sender();
         let question = router.on_question(move || {
             sender.send(Routed::Asked);
         });
 
+        let failure = router.navigate(initial.clone()).err().map(|error| {
+            let shown = format!("{error:#}");
+            tracing::error!(error = %shown, route = initial.name(), "the first route did not install");
+            if main {
+                crate::run::failed(error);
+            }
+            shown
+        });
+
         Self {
             _panel: crate::devtools::offer(&router),
             _question: question,
+            failure,
             router,
             route: initial.clone(),
         }
@@ -1492,7 +1501,11 @@ where
             }),
         );
 
-        let tree = self.router.render(&());
+        let tree = match (self.router.active_chain(), &self.failure) {
+            (Some(_), _) => self.router.render(&()),
+            (None, Some(failure)) => TextBlock::new().text(failure.clone()).into(),
+            (None, None) => View::empty(),
+        };
         let tree = Grid::new().children((tree, question(&self.router)));
         let tree = View::provide(
             router_context(),

@@ -48,6 +48,9 @@ struct Editor;
 #[derive(Default)]
 struct Guarded;
 
+#[derive(Default)]
+struct Unreachable;
+
 struct Counted;
 
 impl Enter for Counted {
@@ -62,6 +65,20 @@ routes! {
         page(Process) link("/process/:pid") { pid: u32 }
         page(Editor) link("/editor")
         page(Guarded) guard(Counted) link("/guarded")
+        page(Unreachable) link("/unreachable")
+    }
+}
+
+#[page]
+impl Page for Unreachable {
+    type Params = UnreachableParams;
+
+    fn install(_ctx: &FeatureInitContext, _params: &UnreachableParams) -> anyhow::Result<()> {
+        anyhow::bail!("the agent is not reachable")
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        shown(cx, "unreachable".to_string())
     }
 }
 
@@ -225,4 +242,28 @@ fn a_navigation_asks_its_guards_once() {
         1,
         "the root takes the route it arrived at; it does not navigate there again"
     );
+}
+
+#[test]
+fn a_first_route_that_fails_to_install_is_shown_not_a_panic() {
+    let pump = mount(Route::Unreachable {});
+
+    assert!(SHOWN.with(|shown| shown.borrow().is_empty()));
+    let said = pump
+        .runtime()
+        .commands()
+        .iter()
+        .flatten()
+        .any(|command| format!("{command:?}").contains("the agent is not reachable"));
+    assert!(said, "the window says why it is empty");
+}
+
+#[test]
+fn a_page_that_fails_to_install_leaves_the_window_where_it_was() {
+    let mut pump = mount(Route::Process { pid: 3 });
+
+    go(Route::Unreachable {});
+    settle(&mut pump);
+
+    assert_eq!(last_shown(), "process 3 at 0%");
 }

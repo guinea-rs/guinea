@@ -27,6 +27,14 @@ iced = { version = "0.14", default-features = false, features = [
     "crisp",
 ] }
 
+[features]
+# The Linux windowing backends: with iced's defaults off, winit and softbuffer
+# get neither and do not build there. Both, as iced's own defaults have them;
+# an application that wants only one turns these off and names it.
+default = ["x11", "wayland"]
+x11 = ["iced/x11"]
+wayland = ["iced/wayland"]
+
 [lints]
 workspace = true
 

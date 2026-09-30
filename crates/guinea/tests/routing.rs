@@ -1,4 +1,4 @@
-#![cfg(feature = "winui")]
+#![cfg(all(windows, feature = "winui"))]
 
 //! The router driven through the facade, the way an application sees it.
 //!

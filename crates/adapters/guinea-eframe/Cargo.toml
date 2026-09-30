@@ -20,6 +20,14 @@ eframe = { version = "0.36", default-features = false, features = [
 egui = "0.36"
 tracing.workspace = true
 
+[features]
+# The Linux windowing backends: with eframe's defaults off, winit gets neither
+# and does not build there. Both, as eframe's own defaults have them; an
+# application that wants only one turns these off and names it.
+default = ["x11", "wayland"]
+x11 = ["eframe/x11"]
+wayland = ["eframe/wayland"]
+
 [lints]
 workspace = true
 

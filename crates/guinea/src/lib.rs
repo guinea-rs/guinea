@@ -22,10 +22,14 @@
 //!
 //! With no backend at all what is left is the router, the application runtime
 //! and the macros - which is what a port to another toolkit starts from.
+//!
+//! `winui` is a default feature and means nothing off Windows: there it
+//! enables no backend, so a build for Linux with `ratatui` added has ratatui
+//! as its one backend.
 
 pub use guinea_router::{devtools, enter, headless, link, manifest, restore, router};
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", target_os = "windows"))]
 pub use guinea_winui as winui;
 
 #[cfg(feature = "ratatui")]
@@ -45,7 +49,7 @@ pub use guinea_iced as iced;
 /// Defined only while exactly one backend feature is on. `routes!` falls back
 /// to these when a route tree does not name a backend itself.
 #[cfg(all(
-    feature = "winui",
+    all(feature = "winui", target_os = "windows"),
     not(any(
         feature = "ratatui",
         feature = "slint",
@@ -55,7 +59,7 @@ pub use guinea_iced as iced;
 ))]
 pub use guinea_winui as backend;
 #[cfg(all(
-    feature = "winui",
+    all(feature = "winui", target_os = "windows"),
     not(any(
         feature = "ratatui",
         feature = "slint",
@@ -68,7 +72,7 @@ pub type Backend = guinea_winui::WinUi;
 #[cfg(all(
     feature = "ratatui",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "slint",
         feature = "eframe",
         feature = "iced"
@@ -78,7 +82,7 @@ pub use guinea_ratatui as backend;
 #[cfg(all(
     feature = "ratatui",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "slint",
         feature = "eframe",
         feature = "iced"
@@ -89,7 +93,7 @@ pub type Backend = guinea_ratatui::Tui;
 #[cfg(all(
     feature = "slint",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "eframe",
         feature = "iced"
@@ -99,7 +103,7 @@ pub use guinea_slint as backend;
 #[cfg(all(
     feature = "slint",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "eframe",
         feature = "iced"
@@ -110,7 +114,7 @@ pub type Backend = guinea_slint::Slint;
 #[cfg(all(
     feature = "eframe",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "slint",
         feature = "iced"
@@ -120,7 +124,7 @@ pub use guinea_eframe as backend;
 #[cfg(all(
     feature = "eframe",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "slint",
         feature = "iced"
@@ -131,7 +135,7 @@ pub type Backend = guinea_eframe::Egui;
 #[cfg(all(
     feature = "iced",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "slint",
         feature = "eframe"
@@ -141,7 +145,7 @@ pub use guinea_iced as backend;
 #[cfg(all(
     feature = "iced",
     not(any(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         feature = "ratatui",
         feature = "slint",
         feature = "eframe"
@@ -156,7 +160,7 @@ pub type Backend = guinea_iced::Iced;
 /// `Ui` trait's own diagnostic says how to name one.
 #[cfg(any(
     all(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         any(
             feature = "ratatui",
             feature = "slint",
@@ -175,7 +179,7 @@ pub enum Backend {}
 
 #[cfg(any(
     all(
-        feature = "winui",
+        all(feature = "winui", target_os = "windows"),
         any(
             feature = "ratatui",
             feature = "slint",

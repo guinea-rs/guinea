@@ -1,4 +1,4 @@
-#![cfg(feature = "winui")]
+#![cfg(all(windows, feature = "winui"))]
 
 //! A WinUI page under the harness: mounted with no window, typed into and
 //! clicked, and read back as the tree it drew - with the features behind it

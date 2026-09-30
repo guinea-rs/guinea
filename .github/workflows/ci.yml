@@ -69,3 +69,9 @@ jobs:
       # another toolkit starts from.
       - name: Build the facade without a backend
         run: cargo build -p guinea --no-default-features
+
+      # Everything else as it is: the facade with its default `winui`, which
+      # means nothing here, and the eframe and iced adapters, whose windowing
+      # backends are what Linux lacked.
+      - name: Check the whole workspace
+        run: cargo check --workspace --all-targets

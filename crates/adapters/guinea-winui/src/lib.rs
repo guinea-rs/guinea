@@ -5,6 +5,10 @@
 //! put the application, so installing it happened inside the first render and
 //! this backend never labelled its root; a window is a component root now, and
 //! [`run`] is an ordinary `run` like the other four backends have.
+//!
+//! Empty off Windows, so a workspace that holds it still builds there.
+
+#![cfg(windows)]
 
 mod devtools;
 mod dispatching;

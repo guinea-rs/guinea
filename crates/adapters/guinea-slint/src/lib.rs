@@ -25,11 +25,14 @@ mod convert;
 mod dispatcher;
 mod model;
 mod nav;
+mod question;
 mod root;
 mod run;
 mod windows;
 
 pub use convert::ToSlint;
+pub use guinea_core::guard::Ask;
+pub use question::{answer, on_question};
 pub use run::{MAIN, run};
 
 use std::marker::PhantomData;

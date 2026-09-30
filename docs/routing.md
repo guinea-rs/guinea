@@ -226,9 +226,17 @@ the `Decision`. Nothing toolkit-specific, in keeping with the `Ui` seam.
 Every backend can draw it; none of them lacks the capability. Ratatui and eframe
 draw it over the frame and **must swallow input while it is up**, or tabs keep
 switching underneath the dialog - that obligation belongs in the adapter
-contract explicitly, because it is easy to forget. Slint and WinUI map it onto
-their own modality. Headless hands it to the test, which makes guards the one
-part of the router fully testable without a backend.
+contract explicitly, because it is easy to forget. WinUI keeps a
+`ContentDialog` beside the route tree, open while a question is pending, and
+its buttons answer it. Slint's window is the application's own `.slint`, so
+guinea cannot draw into it: `guinea_slint::on_question` is told when a question
+comes and goes, and whatever the window shows answers through
+`guinea_slint::answer`. Headless hands it to the test, which makes guards the
+one part of the router fully testable without a backend.
+
+A backend that draws only when told to learns of a question through
+`Router::on_question`; one that draws every frame reads `Router::pending` as it
+goes.
 
 Because the question is router state, `Navigation::Deferred` and "a question is
 pending" are the same condition, not two.

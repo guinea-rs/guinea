@@ -17,7 +17,7 @@ use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
 
 use crate::windows::SlintWindows;
-use crate::{Slint, dispatcher, nav, root, windows};
+use crate::{Slint, dispatcher, nav, question, root, windows};
 
 /// What [`run`] calls the root it opens.
 pub const MAIN: &str = "main";
@@ -99,6 +99,7 @@ where
         })
     });
     nav::install(nav_handle);
+    let _question = question::install(&router);
 
     // Installing the chain is what wires it - there is nothing to render.
     router.navigate(initial.clone())?;
@@ -107,6 +108,7 @@ where
     let outcome = window.run();
 
     shell.detach(root_id);
+    question::clear();
     nav::clear();
     root::clear();
     shutdown_current();

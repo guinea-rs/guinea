@@ -350,6 +350,7 @@ pub trait AnyRouter {
 impl<U: Ui> AnyRouter for Router<U> {
     fn remove_route_hook(&self, id: usize) {
         self.route_hooks.borrow_mut().retain(|(this, _)| *this != id);
+        self.question_hooks.borrow_mut().retain(|(this, _)| *this != id);
     }
 }
 
@@ -823,6 +824,9 @@ pub struct Router<U: Ui> {
     /// application, because a route change is something only a router has -
     /// an application without one has nothing to report.
     route_hooks: RefCell<Vec<(usize, Rc<dyn Fn(Option<&str>, &str)>)>>,
+    /// Notified when the pending question changes, for a backend that draws
+    /// only when told to.
+    question_hooks: RefCell<Vec<(usize, Rc<dyn Fn()>)>>,
     next_hook_id: std::cell::Cell<usize>,
     last_route: RefCell<Option<String>>,
     /// The mounted route as [`RouteChain::describe`] put it, for devtools.
@@ -859,6 +863,7 @@ impl<U: Ui> Router<U> {
             host,
             state_cache: RefCell::new(StateCache::new()),
             route_hooks: RefCell::new(Vec::new()),
+            question_hooks: RefCell::new(Vec::new()),
             next_hook_id: std::cell::Cell::new(0),
             last_route: RefCell::new(None),
             described: RefCell::new(None),
@@ -883,6 +888,35 @@ impl<U: Ui> Router<U> {
         RouteHookHandle {
             id,
             router: Rc::downgrade(&(self.clone() as Rc<dyn AnyRouter>)),
+        }
+    }
+
+    /// Runs `hook` whenever the question a guard is waiting on changes: one
+    /// is asked, answered, or dropped for a later navigation.
+    /// [`pending`](Self::pending) says what it is now.
+    ///
+    /// For a backend that draws only when told to - a reconciler, a retained
+    /// toolkit. One that draws every frame reads `pending` as it goes.
+    #[must_use = "the hook is removed when the handle is dropped"]
+    pub fn on_question(self: &Rc<Self>, hook: impl Fn() + 'static) -> RouteHookHandle {
+        let id = self.next_hook_id.get();
+        self.next_hook_id.set(id + 1);
+        self.question_hooks.borrow_mut().push((id, Rc::new(hook)));
+        RouteHookHandle {
+            id,
+            router: Rc::downgrade(&(self.clone() as Rc<dyn AnyRouter>)),
+        }
+    }
+
+    fn questioned(&self) {
+        let hooks: Vec<_> = self
+            .question_hooks
+            .borrow()
+            .iter()
+            .map(|(_, hook)| hook.clone())
+            .collect();
+        for hook in hooks {
+            hook();
         }
     }
 
@@ -968,6 +1002,7 @@ impl<U: Ui> Router<U> {
         let superseded = self.pending.borrow_mut().take();
         if let Some(parked) = superseded {
             (parked.settled)(false);
+            self.questioned();
         }
 
         let chain = route.chain();
@@ -1043,6 +1078,8 @@ impl<U: Ui> Router<U> {
                     let Some(parked) = router.pending.borrow_mut().take() else {
                         return;
                     };
+                    router.questioned();
+
                     if !allowed {
                         (parked.settled)(false);
                         return;
@@ -1058,6 +1095,10 @@ impl<U: Ui> Router<U> {
                         }
                     }
                 });
+
+                if self.pending.borrow().is_some() {
+                    self.questioned();
+                }
 
                 Ok(Navigation::Deferred)
             }

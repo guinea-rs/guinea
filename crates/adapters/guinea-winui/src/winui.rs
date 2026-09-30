@@ -28,7 +28,8 @@ use guinea_router::router::{
     single_entry_chain,
 };
 use windows_reactor::{
-    AutomationExt, Border, Callback, Component, ComponentContext, ContentControl, View, ViewContext,
+    AutomationExt, Border, Callback, ChildrenControl, Component, ComponentContext, ContentControl,
+    ContentDialog, ContentDialogResult, Grid, TextBlock, View, ViewContext,
 };
 
 /// windows-reactor as a [`Ui`].
@@ -1015,8 +1016,40 @@ fn take_staged<S: Default + 'static>() -> S {
 pub(crate) fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
     own(ctx, P::install(ctx, params)?);
-    stage(P::init(ctx, params));
+    stage_node(ctx, P::init(ctx, params), P::leaving);
     Ok(())
+}
+
+/// A node as its component and its leave guard share it.
+type Shared<N> = Rc<RefCell<N>>;
+
+/// Parks the node for its component, and registers the guard that asks the
+/// node whether it may go.
+///
+/// The router asks the scope, and a guard registered there reaches the node
+/// only through what it captured - so the node is shared, and asked afresh
+/// each time, with a new question when it has one.
+fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> Verdict) {
+    let node: Shared<N> = Rc::new(RefCell::new(node));
+
+    let asked = Rc::downgrade(&node);
+    ctx.on_leave(move || {
+        let Some(node) = asked.upgrade() else {
+            return Verdict::Allow;
+        };
+        match node.try_borrow() {
+            Ok(node) => leaving(&node),
+            Err(_) => {
+                tracing::warn!(
+                    node = std::any::type_name::<N>(),
+                    "asked whether it may go while it was changing; let it go"
+                );
+                Verdict::Allow
+            }
+        }
+    });
+
+    stage(node);
 }
 
 /// Hands what a segment installed to its scope - a feature's lifetime is the
@@ -1028,7 +1061,7 @@ fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
 pub(crate) fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
     own(ctx, L::install(ctx, params)?);
-    stage(L::init(ctx, params));
+    stage_node(ctx, L::init(ctx, params), L::leaving);
     Ok(())
 }
 
@@ -1101,7 +1134,7 @@ impl<L: Layout> Refreshable for LayoutNode<L> {
 /// compares for us - `SegmentProps` has the `PartialEq` that decides whether
 /// this subtree is still the same one.
 pub struct PageNode<P> {
-    page: P,
+    page: Shared<P>,
     /// The segment's props, kept because `update` is not handed the input and
     /// a node that changes itself often needs to read what it is sitting in.
     props: SegmentProps<WinUi>,
@@ -1119,12 +1152,18 @@ impl<P: Page> Component for PageNode<P> {
         }
 
         Self {
-            page: take_staged::<P>(),
+            page: take_staged::<Shared<P>>(),
             props: input.clone(),
         }
     }
 
+    /// The same page type in the same place, and either the same segment or
+    /// one installed again - with other params, into a scope of its own. The
+    /// second is a new node, and `install` staged it.
     fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
+        if input.identity() != self.props.identity() {
+            self.page = take_staged::<Shared<P>>();
+        }
         self.props = input.clone();
     }
 
@@ -1136,7 +1175,7 @@ impl<P: Page> Component for PageNode<P> {
             // refresh that touches no state still brings the view round.
             Signal::Refresh => {}
             Signal::OpenWindow(window) => open(cx, window),
-            Signal::Node(message) => self.page.update(
+            Signal::Node(message) => self.page.borrow_mut().update(
                 message,
                 &mut UpdateCx {
                     props: &self.props,
@@ -1153,7 +1192,7 @@ impl<P: Page> Component for PageNode<P> {
             guinea_core::devtools::profiling::frame_done();
         }
         let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
-        let view = self.page.view(&mut PageCx {
+        let view = self.page.borrow().view(&mut PageCx {
             props: input.clone(),
             cx,
             page: PhantomData,
@@ -1164,7 +1203,7 @@ impl<P: Page> Component for PageNode<P> {
 }
 
 pub struct LayoutNode<L> {
-    layout: L,
+    layout: Shared<L>,
     props: SegmentProps<WinUi>,
 }
 
@@ -1180,12 +1219,16 @@ impl<L: Layout> Component for LayoutNode<L> {
         }
 
         Self {
-            layout: take_staged::<L>(),
+            layout: take_staged::<Shared<L>>(),
             props: input.clone(),
         }
     }
 
+    /// See `PageNode::input_changed`.
     fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
+        if input.identity() != self.props.identity() {
+            self.layout = take_staged::<Shared<L>>();
+        }
         self.props = input.clone();
     }
 
@@ -1194,7 +1237,7 @@ impl<L: Layout> Component for LayoutNode<L> {
             // See `PageNode::update`.
             Signal::Refresh => {}
             Signal::OpenWindow(window) => open(cx, window),
-            Signal::Node(message) => self.layout.update(
+            Signal::Node(message) => self.layout.borrow_mut().update(
                 message,
                 &mut UpdateCx {
                     props: &self.props,
@@ -1209,7 +1252,7 @@ impl<L: Layout> Component for LayoutNode<L> {
             guinea_core::devtools::profiling::frame_done();
         }
         let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
-        let view = self.layout.view(&mut LayoutCx {
+        let view = self.layout.borrow().view(&mut LayoutCx {
             props: input.clone(),
             cx,
             layout: PhantomData,
@@ -1289,6 +1332,9 @@ impl<S: Segment> UpdateCx<'_, S> {
 /// in the scope and changes from under the view, so a copy held here would be
 /// one more thing to keep in step; the subscription says *when* to look, and
 /// looking is `binding.get()`.
+///
+/// Taken again when the segment is installed again in the same place: the
+/// one before listens to a scope that is gone.
 fn use_reducer<R, C>(
     props: &SegmentProps<WinUi>,
     cx: &mut ViewContext<C>,
@@ -1303,7 +1349,7 @@ where
     // Keyed by the reducer, so a view reading two of them gets two
     // subscriptions rather than one that replaces the other.
     let watching = binding.clone();
-    cx.use_effect(std::any::type_name::<R>(), (), move || {
+    cx.use_effect(std::any::type_name::<R>(), props.identity(), move || {
         let subscription = watching.on_change(move |_| refresher.refresh());
         // Ends with this component instance rather than with the scope: one
         // that had been unmounted and kept listening would be asking a
@@ -1379,7 +1425,17 @@ fn router_context() -> &'static windows_reactor::Context<Option<RouterHandle>> {
 pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
     router: Rc<Router<WinUi>>,
     route: R,
+    _question: guinea_router::router::RouteHookHandle,
     _panel: guinea_core::devtools::PanelGuard,
+}
+
+/// What reaches a [`RouterRoot`].
+pub enum Routed<R> {
+    /// The router is here now. `NavigateHandle` publishes through the sink
+    /// the root hands out, once the navigation has happened.
+    Arrived(R),
+    /// A guard's question came or went. See [`Router::pending`].
+    Asked,
 }
 
 impl<R> Component for RouterRoot<R>
@@ -1389,11 +1445,9 @@ where
     /// Where the window starts. A second window opened with a different route
     /// is a different input, and gets its own router.
     type Input = R;
-    /// Where it went. `NavigateHandle` publishes through the sink below, and
-    /// the sink sends this.
-    type Message = R;
+    type Message = Routed<R>;
 
-    fn create(initial: &R, _cx: &ComponentContext<Self>) -> Self {
+    fn create(initial: &R, cx: &ComponentContext<Self>) -> Self {
         let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
         let router = Rc::new(Router::new(token));
         if guinea_app::app::roots::labelled(crate::run::MAIN).is_none() {
@@ -1407,19 +1461,26 @@ where
             .navigate(initial.clone())
             .expect("the initial route installs");
 
+        let sender = cx.sender();
+        let question = router.on_question(move || {
+            sender.send(Routed::Asked);
+        });
+
         Self {
             _panel: crate::devtools::offer(&router),
+            _question: question,
             router,
             route: initial.clone(),
         }
     }
 
-    fn update(&mut self, route: R, _cx: &ComponentContext<Self>) {
-        if let Err(error) = self.router.navigate(route.clone()) {
-            tracing::error!(%error, "navigation failed");
-            return;
+    /// Takes the route the router arrived at, and moves nothing: the
+    /// navigation has already happened, guards and all.
+    fn update(&mut self, message: Routed<R>, _cx: &ComponentContext<Self>) {
+        match message {
+            Routed::Arrived(route) => self.route = route,
+            Routed::Asked => {}
         }
-        self.route = route;
     }
 
     fn view(&self, _input: &R, cx: &mut ViewContext<Self>) -> View {
@@ -1427,11 +1488,12 @@ where
         let nav = NavigateHandle::new(
             self.router.clone(),
             RouteSink::new(move |route: R| {
-                sender.send(route);
+                sender.send(Routed::Arrived(route));
             }),
         );
 
         let tree = self.router.render(&());
+        let tree = Grid::new().children((tree, question(&self.router)));
         let tree = View::provide(
             router_context(),
             Some(RouterHandle(self.router.clone())),
@@ -1440,6 +1502,28 @@ where
         let tree = View::provide(route_context::<R>(), Some(self.route.clone()), tree);
         View::provide(nav_context::<R>(), Some(nav), tree)
     }
+}
+
+/// The question a guard is waiting on, as a dialog whose buttons answer it.
+///
+/// Always in the tree and shown only while there is a question, so the
+/// route's own tree keeps its place beside it whether one is asked or not.
+fn question(router: &Rc<Router<WinUi>>) -> View {
+    let pending = router.pending();
+    let open = pending.is_some();
+    let ask = pending.unwrap_or_else(|| guinea_core::guard::Ask::new("", "", ""));
+
+    let answering = Rc::downgrade(router);
+    ContentDialog::new()
+        .is_open(open)
+        .primary_button_text(ask.confirm)
+        .close_button_text(ask.cancel)
+        .on_closed(move |result: ContentDialogResult| {
+            if let Some(router) = answering.upgrade() {
+                router.answer(result == ContentDialogResult::Primary);
+            }
+        })
+        .content(TextBlock::new().text(ask.text))
 }
 
 /// Subscribing to route changes from a view, the way any other effect is

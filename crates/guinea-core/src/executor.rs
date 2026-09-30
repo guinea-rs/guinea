@@ -438,10 +438,13 @@ mod seeded {
 
     /// Queues `job` as work for the UI thread, or hands it back if no
     /// executor is on this thread.
-    pub(crate) fn queue_ui(job: Job) -> Result<(), Job> {
+    pub(crate) fn queue_ui<F>(job: F) -> Result<(), F>
+    where
+        F: FnOnce() + Send + 'static,
+    {
         match current() {
             Some(executor) => {
-                executor.ready.push(Work::Ui(job));
+                executor.ready.push(Work::Ui(Box::new(job)));
                 Ok(())
             }
             None => Err(job),

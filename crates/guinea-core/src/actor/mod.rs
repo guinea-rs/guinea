@@ -46,22 +46,24 @@ impl UiThreadToken {
     }
 }
 
+/// Runs `f` on the UI thread.
+///
+/// Under `test-utils` a seeded executor on this thread takes it first, then
+/// the application's dispatcher, then the test queue: the feature adds a
+/// place for work to go and takes none away, so an application built with it
+/// - `cargo build --all-targets` unifies dev-dependencies' features - still
+/// runs.
 pub fn invoke_on_ui<F>(f: F)
 where
     F: FnOnce() + Send + 'static,
 {
-    #[cfg(feature = "test-utils")]
-    {
-        if let Err(f) = crate::executor::queue_ui(Box::new(f)) {
-            crate::actor::event_bus::EventBus::queue_test_task(f);
-        }
-    }
+    if let Err(f) = try_invoke_on_ui(f) {
+        #[cfg(feature = "test-utils")]
+        crate::actor::event_bus::EventBus::queue_test_task(Box::new(f));
 
-    #[cfg(not(feature = "test-utils"))]
-    {
-        if let Some(dispatcher) = UI_DISPATCHER.read().unwrap().as_ref() {
-            dispatcher.dispatch(Box::new(f));
-        } else {
+        #[cfg(not(feature = "test-utils"))]
+        {
+            drop(f);
             panic!(
                 "UiDispatcher not initialized! Call guinea_core::actor::set_ui_dispatcher at startup."
             );
@@ -76,22 +78,17 @@ where
     F: FnOnce() + Send + 'static,
 {
     #[cfg(feature = "test-utils")]
-    {
-        if let Err(f) = crate::executor::queue_ui(Box::new(f)) {
-            crate::actor::event_bus::EventBus::queue_test_task(f);
-        }
-        Ok(())
-    }
+    let f = match crate::executor::queue_ui(f) {
+        Ok(()) => return Ok(()),
+        Err(f) => f,
+    };
 
-    #[cfg(not(feature = "test-utils"))]
-    {
-        match UI_DISPATCHER.read().unwrap().as_ref() {
-            Some(dispatcher) => {
-                dispatcher.dispatch(Box::new(f));
-                Ok(())
-            }
-            None => Err(f),
+    match UI_DISPATCHER.read().unwrap().as_ref() {
+        Some(dispatcher) => {
+            dispatcher.dispatch(Box::new(f));
+            Ok(())
         }
+        None => Err(f),
     }
 }
 

@@ -170,6 +170,25 @@ where
 - `child_is`: a tab strip lights the tab of the page below it.
 - `open_window`: a window opens from the layout, not from `view`.
 
+## Windows: restored geometry
+
+### A restored window can open off screen
+
+Asked for by guinea-plugins (their audit, #4). The window-state plugin
+already refuses a size or a position that is not finite, not positive, or
+outside ±32767, and can do no more: it cannot see the monitors.
+
+- Each shell intersects the `Geometry` from `RestoreGeometry` with the
+  monitors' work areas before `set_size` and `set_position`. A title bar
+  outside every work area centres the window on the primary monitor, and the
+  size is clamped to the work area. Done in the shell, so it holds for every
+  source of geometry, not only the plugin.
+- `Geometry` carries the scale it was measured at, or the position in
+  physical pixels. Today the position is logical by the scale of the monitor
+  the window was on, and applied by the scale of the current one.
+- Where: `guinea-slint` `run.rs` (`restore`) and `windows.rs` (`apply`). WinUI
+  does not read `SavedGeometry` at all yet.
+
 ## Examples
 
 ### A todo app with everything in it

@@ -505,14 +505,14 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
- "guinea-app 0.16.1",
- "guinea-codegen 0.16.1",
- "guinea-core 0.16.1",
- "guinea-macros 0.16.1",
- "guinea-meta 0.16.1",
- "guinea-router 0.16.1",
+ "guinea-app 0.17.0",
+ "guinea-codegen 0.17.0",
+ "guinea-core 0.17.0",
+ "guinea-macros 0.17.0",
+ "guinea-meta 0.17.0",
+ "guinea-router 0.17.0",
 ]
 
 [[package]]
@@ -528,10 +528,10 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "anyhow",
- "guinea-core 0.16.1",
+ "guinea-core 0.17.0",
  "tokio",
  "tracing",
 ]
@@ -554,9 +554,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
- "guinea-meta-build 0.16.1",
+ "guinea-meta-build 0.17.0",
  "heck",
  "proc-macro2",
  "quote",
@@ -590,14 +590,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "arc-swap",
  "derive_more",
  "futures-core",
- "guinea-mark 0.16.1",
- "guinea-trace 0.16.1",
+ "guinea-mark 0.17.0",
+ "guinea-trace 0.17.0",
  "http",
  "inventory",
  "once_cell",
@@ -627,10 +627,10 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
- "guinea-codegen 0.16.1",
- "guinea-route-dsl 0.16.1",
+ "guinea-codegen 0.17.0",
+ "guinea-route-dsl 0.17.0",
  "heck",
  "proc-macro-crate",
  "proc-macro2",
@@ -646,7 +646,7 @@ source = "git+https://github.com/uniproc-dev/guinea?tag=v0.11.0#a8f34d02eaa12fb0
 
 [[package]]
 name = "guinea-mark"
-version = "0.16.1"
+version = "0.17.0"
 
 [[package]]
 name = "guinea-meta"
@@ -655,7 +655,7 @@ source = "git+https://github.com/uniproc-dev/guinea-meta?tag=v0.1.0#c2ed5a9cc5ae
 
 [[package]]
 name = "guinea-meta"
-version = "0.16.1"
+version = "0.17.0"
 
 [[package]]
 name = "guinea-meta-build"
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -751,11 +751,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "anyhow",
- "guinea-app 0.16.1",
- "guinea-core 0.16.1",
+ "guinea-app 0.17.0",
+ "guinea-core 0.17.0",
  "serde",
  "serde_json",
  "tracing",
@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.16.1"
+version = "0.17.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -1155,7 +1155,7 @@ dependencies = [
 name = "processes-core"
 version = "0.1.0"
 dependencies = [
- "guinea 0.16.1",
+ "guinea 0.17.0",
  "guinea-plugin-l10n",
  "guinea-plugin-l10n-build",
  "guinea-plugin-store",

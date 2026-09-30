@@ -3,6 +3,7 @@ name = "guinea-eframe"
 description = "guinea on egui: the router and the application runtime, drawn immediately"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

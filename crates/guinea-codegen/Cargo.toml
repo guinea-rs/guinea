@@ -3,6 +3,7 @@ name = "guinea-codegen"
 description = "Build-script helpers for guinea applications: generated files written only when they change"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

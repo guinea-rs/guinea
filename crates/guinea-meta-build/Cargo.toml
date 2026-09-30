@@ -3,6 +3,7 @@ name = "guinea-meta-build"
 description = "For build.rs: reads app.toml, embeds the executable's resources, and writes the constants guinea-meta reads"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

@@ -3,6 +3,7 @@ name = "guinea-slint-build"
 description = "Compiles an application's .slint tree for guinea-slint"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

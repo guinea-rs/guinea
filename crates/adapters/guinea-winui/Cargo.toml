@@ -3,6 +3,7 @@ name = "guinea-winui"
 description = "guinea on WinUI through windows-reactor: the router and the application runtime, with Elm inside each node"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

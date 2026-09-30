@@ -3,6 +3,7 @@ name = "guinea-router"
 description = "guinea's nested routing: typed routes, layouts, and the scopes they install and tear down"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

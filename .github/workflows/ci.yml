@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # The whole workspace, including the backend. Windows-only because
   # `guinea-winui` (and `guinea`, which re-exports it) pull in the
@@ -19,22 +22,27 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
 
       # Mandatory, not an optimisation: `windows-reactor` comes from a rev
       # pin on the windows-rs fork, and that repo is large enough that the
       # very first `cargo fetch` takes minutes. rust-cache restores
       # ~/.cargo/git alongside the registry and target dir, so subsequent
       # runs skip the clone entirely.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build
         run: cargo build --workspace --all-targets
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Test guinea-core without the workspace's features
+        run: cargo test -p guinea-core
 
       # The examples in the README and in doc comments are copied from tests
       # by `cargo xtask docs`; a page edited by hand, or a test changed without
@@ -49,11 +57,13 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Test the agnostic crates
         run: >

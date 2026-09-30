@@ -3,6 +3,7 @@ name = "guinea-app"
 description = "The part of a guinea application with no toolkit in it: plugins, features, services, actors, timers and teardown"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

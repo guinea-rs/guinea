@@ -205,7 +205,7 @@ pub fn actor(input: TokenStream) -> TokenStream {
     actor_dsl::actor_impl(input)
 }
 
-/// `routes! { Route { layout(TabsLayout) { page(Processes, "/:context/processes")
+/// `routes! { Route { layout(TabsLayout) { page(Processes) link("/:context/processes")
 /// { context: String } ... } } }` - the tree's `{}` nesting *is* the segment
 /// chain (no attribute stack to track); `page(...)`'s type also names the
 /// generated variant, so there's one name per leaf, not two kept in sync by

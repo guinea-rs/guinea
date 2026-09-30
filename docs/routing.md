@@ -53,8 +53,9 @@ routes! {
         layout(TabsLayout) restorable {
             page(Processes) { context: String }
             page(Metrics)   link("/m/:context") { context: String }
-            page(Secrets)   !restorable { context: String, token: ~Session }
         }
+
+        page(Secrets) { context: String, token: ~Session }
 
         layout(AdminArea) guard(RequiresAdmin) {
             page(Audit) { }
@@ -73,6 +74,16 @@ brace group, the next node keyword, or the end - no lookahead.
 any level. It declares no fields: a layout's parameters are derived as the
 intersection of its descendants', because a layout can only rely on what all of
 its children carry. There is nothing to keep in sync.
+
+A layout may appear more than once, but always under the same layouts: what it
+may read from above is checked against one answer, and a second place with
+other ancestors would compile against the first and find nothing in the second.
+The macro refuses such a tree.
+
+Each pair of parentheses holds one thing: `page(T)`, `layout(T)`, `guard(G)`,
+`link("...")`. A page's address follows it as `link`, never inside it, and two
+guards are two `guard(..)`s. Anything more in the parentheses is an error, not
+something quietly dropped.
 
 `page(T) { .. }` is a leaf, and its fields are the route's parameters. They
 reach `install` typed. The body is optional.
@@ -136,6 +147,11 @@ layout(TabsLayout) {
 
 Opting out of an inherited guard must name it - `!guard(RequiresAdmin)`, never
 a bare negation - so removing protection reads as removing protection.
+
+Guards are told apart by their whole type as written. `HasRole<Admin>` and
+`HasRole<Guest>` are two guards, so `!guard(HasRole<Guest>)` does not open an
+area that `HasRole<Admin>` closes; `auth::Session` and `legacy::Session` are two
+guards as well. An opt-out spells the guard the way the layout above it did.
 
 ## Identity and payload
 

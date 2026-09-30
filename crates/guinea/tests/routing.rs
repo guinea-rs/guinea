@@ -524,7 +524,7 @@ mod routing {
 
     #[test]
     fn routes_macro_supports_a_zero_field_page() {
-        // Regression test: `page(Home, "/")` with no trailing `{ field: Type }`
+        // Regression test: `page(Home) link("/")` with no trailing `{ field: Type }`
         // block used to generate an enum whose variant was *declared*
         // struct-style (`Home {}`) but *matched/constructed* unit-style
         // (`Home`) in `path`/`parse`/`chain` - a declaration/usage mismatch

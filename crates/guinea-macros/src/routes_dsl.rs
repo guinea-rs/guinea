@@ -3,7 +3,7 @@ use proc_macro2::{Ident, TokenStream};
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote, quote_spanned};
 
-use guinea_route_dsl::{Segment, parse_pattern, type_ident};
+use guinea_route_dsl::{Segment, parse_pattern, same_type, spelled, type_ident};
 
 fn guinea_crate_path() -> proc_macro2::TokenStream {
     match crate_name("guinea") {
@@ -265,6 +265,11 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         panic!("{}", joined(&guard_errors));
     }
 
+    let layout_errors = guinea_route_dsl::check_layouts(&tree);
+    if !layout_errors.is_empty() {
+        panic!("{}", joined(&layout_errors));
+    }
+
     let match_tree = match guinea_route_dsl::matcher::build(&leaves) {
         Ok(tree) => tree,
         Err(conflicts) => panic!("{}", joined(&conflicts)),
@@ -342,7 +347,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
             let ancestors = leaf.ancestors.iter().map(|ancestor| {
                 let position = layouts
                     .iter()
-                    .position(|layout| type_ident(&layout.ty) == type_ident(ancestor))
+                    .position(|layout| same_type(&layout.ty, ancestor))
                     .expect("every ancestor of a leaf is a layout of this tree");
                 let params = &layout_params_idents[position];
                 let taken = layouts[position]
@@ -449,7 +454,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
     let declared_links = leaves.iter().filter_map(|leaf| {
         let link = leaf.link.as_ref()?;
         let route = type_ident(&leaf.ty).to_string();
-        let guard_names = leaf.guards.iter().map(|ty| type_ident(ty).to_string());
+        let guard_names = leaf.guards.iter().map(spelled);
         let leaf_restorable = leaf.restorable;
 
         // In the order the path names them, which is how the address reads.
@@ -544,15 +549,13 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
     for layout in &layouts {
         let ty = &layout.ty;
-        // A layout appears once per tree, so the first leaf that sits under it
-        // settles what is above it.
+        // A layout stands under the same layouts wherever it appears -
+        // `check_layouts` refuses a tree where it does not - so the first leaf
+        // that sits under it settles what is above it.
         let ancestors = leaves
             .iter()
             .find_map(|leaf| {
-                let at = leaf
-                    .ancestors
-                    .iter()
-                    .position(|a| type_ident(a) == type_ident(ty))?;
+                let at = leaf.ancestors.iter().position(|a| same_type(a, ty))?;
                 Some(leaf.ancestors[..at].to_vec())
             })
             .unwrap_or_default();

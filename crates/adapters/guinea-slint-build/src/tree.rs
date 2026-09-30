@@ -230,10 +230,10 @@ mod tests {
             routes! {
                 Route {
                     layout(TabsLayout) {
-                        page(Processes, "/:context/processes") { context: String }
-                        page(Services, "/:context/services") { context: String }
+                        page(Processes) link("/:context/processes") { context: String }
+                        page(Services) link("/:context/services") { context: String }
                     }
-                    page(Metrics, "/metrics")
+                    page(Metrics) link("/metrics")
                 }
             }
         "#,

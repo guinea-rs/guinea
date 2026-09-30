@@ -67,19 +67,20 @@ impl Guards {
     /// of its own means both, and a node naming the same guard twice is saying
     /// something confused - which [`check_guards`] reports rather than
     /// silently resolving.
+    ///
+    /// Guards are told apart by their whole type as written: `HasRole<Admin>`
+    /// and `HasRole<Guest>` are two guards, and so are `auth::Session` and
+    /// `legacy::Session`.
     fn fold_into(&self, inherited: &mut Vec<syn::Type>) {
         inherited.retain(|standing| {
             !self
                 .removed
                 .iter()
-                .any(|dropped| type_ident(dropped) == type_ident(standing))
+                .any(|dropped| same_type(dropped, standing))
         });
 
         for added in &self.added {
-            if !inherited
-                .iter()
-                .any(|standing| type_ident(standing) == type_ident(added))
-            {
+            if !inherited.iter().any(|standing| same_type(standing, added)) {
                 inherited.push(added.clone());
             }
         }
@@ -222,7 +223,7 @@ impl RouteTree {
 /// `syn::Type` has no cheap equality that means what is wanted here, and this
 /// does: two fields are the same field when they are spelled the same way,
 /// which is also the only thing the author can see.
-fn same_type(left: &syn::Type, right: &syn::Type) -> bool {
+pub fn same_type(left: &syn::Type, right: &syn::Type) -> bool {
     quote!(#left).to_string() == quote!(#right).to_string()
 }
 
@@ -386,9 +387,9 @@ fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>)
             Node::Page { ty, guards, .. } => (ty, guards, None),
         };
 
-        let here = type_ident(ty);
+        let here = spelled(ty);
         let is_standing = |wanted: &syn::Type, list: &[syn::Type]| {
-            list.iter().any(|seen| type_ident(seen) == type_ident(wanted))
+            list.iter().any(|seen| same_type(seen, wanted))
         };
 
         for dropped in &guards.removed {
@@ -396,7 +397,7 @@ fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>)
                 errors.push(format!(
                     "routes!: `!guard({})` on `{here}` opens nothing - no layout above it \
                      declared that guard",
-                    type_ident(dropped)
+                    spelled(dropped)
                 ));
             }
         }
@@ -408,16 +409,16 @@ fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>)
             if is_standing(added, standing) && !is_standing(added, &guards.removed) {
                 errors.push(format!(
                     "routes!: `guard({})` on `{here}` is already standing from above",
-                    type_ident(added)
+                    spelled(added)
                 ));
             }
             if guards.added[..at]
                 .iter()
-                .any(|earlier| type_ident(earlier) == type_ident(added))
+                .any(|earlier| same_type(earlier, added))
             {
                 errors.push(format!(
                     "routes!: `guard({})` is declared twice on `{here}`",
-                    type_ident(added)
+                    spelled(added)
                 ));
             }
         }
@@ -428,11 +429,64 @@ fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>)
     }
 }
 
+/// Layouts placed more than once under different layouts.
+///
+/// A layout is one type with one answer to what stands above it - what it
+/// may read from its ancestors is checked against that answer when it
+/// compiles. Placed again under other ancestors, it would compile against
+/// the first place and find nothing to read in the second.
+pub fn check_layouts(tree: &RouteTree) -> Vec<String> {
+    let mut placed: Vec<(syn::Type, Vec<syn::Type>)> = Vec::new();
+    place_layouts(&tree.nodes, &mut Vec::new(), &mut placed);
+
+    let mut errors = Vec::new();
+    for (at, (ty, above)) in placed.iter().enumerate() {
+        let first = placed[..at]
+            .iter()
+            .find(|(earlier, _)| same_type(earlier, ty));
+        let Some((_, before)) = first else {
+            continue;
+        };
+
+        let same_above = before.len() == above.len()
+            && before.iter().zip(above).all(|(a, b)| same_type(a, b));
+        if !same_above {
+            let path = |above: &[syn::Type]| match above {
+                [] => "the root".to_string(),
+                _ => above.iter().map(spelled).collect::<Vec<_>>().join(" > "),
+            };
+            errors.push(format!(
+                "routes!: `layout({})` stands under {} in one place and under {} in another - \
+                 a layout is placed under the same layouts wherever it appears",
+                spelled(ty),
+                path(before),
+                path(above)
+            ));
+        }
+    }
+    errors
+}
+
+fn place_layouts(
+    nodes: &[Node],
+    above: &mut Vec<syn::Type>,
+    placed: &mut Vec<(syn::Type, Vec<syn::Type>)>,
+) {
+    for node in nodes {
+        if let Node::Layout { ty, children, .. } = node {
+            placed.push((ty.clone(), above.clone()));
+
+            above.push(ty.clone());
+            place_layouts(children, above, placed);
+            above.pop();
+        }
+    }
+}
+
 fn collect_layouts(nodes: &[Node], found: &mut Vec<syn::Type>) {
     for node in nodes {
         if let Node::Layout { ty, children, .. } = node {
-            let name = type_ident(ty);
-            if !found.iter().any(|seen| type_ident(seen) == name) {
+            if !found.iter().any(|seen| same_type(seen, ty)) {
                 found.push(ty.clone());
             }
             collect_layouts(children, found);
@@ -506,6 +560,34 @@ fn parse_type<'i>(
     }
 }
 
+/// The one type a pair of parentheses holds - `page(..)`, `layout(..)`,
+/// `guard(..)`.
+///
+/// Read by syn, so `HasRole<Admin, Read>` is one type and not two halves of a
+/// list. Anything after it is a mistake the author should hear about rather
+/// than have dropped: `refused` says what the mistake was.
+fn sole_type(paren: Vec<TokenTree>, refused: impl FnOnce(&syn::Type) -> String) -> ModalResult<syn::Type> {
+    use syn::parse::{ParseStream, Parser};
+
+    let stream: TokenStream = paren.into_iter().collect();
+    let read = |input: ParseStream| {
+        let ty: syn::Type = input.parse()?;
+        let rest: TokenStream = input.parse()?;
+        Ok((ty, rest))
+    };
+
+    match read.parse2(stream) {
+        Ok((ty, rest)) if rest.is_empty() => Ok(ty),
+        Ok((ty, _)) => panic!("{}", refused(&ty)),
+        Err(_) => fail(),
+    }
+}
+
+/// A type as the author wrote it, for messages and names.
+pub fn spelled(ty: &syn::Type) -> String {
+    quote!(#ty).to_string().replace(' ', "")
+}
+
 fn is_comma(tt: &TokenTree) -> bool {
     matches!(tt, TokenTree::Punct(p) if p.as_char() == ',')
 }
@@ -542,8 +624,9 @@ fn parse_fields(tokens: Vec<TokenTree>) -> Vec<Field> {
 fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
     kw("layout").parse_next(input)?;
     let paren_tokens = group_inner(Delimiter::Parenthesis).parse_next(input)?;
-    let mut paren_slice: Tokens = &paren_tokens;
-    let ty = parse_type(|_| false).parse_next(&mut paren_slice)?;
+    let ty = sole_type(paren_tokens, |ty| {
+        format!("routes!: `layout({}, ..)` - a layout is one type", spelled(ty))
+    })?;
 
     let mut guards = Guards::default();
     let mut restorable = false;
@@ -575,8 +658,13 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
 fn parse_page_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
     kw("page").parse_next(input)?;
     let paren_tokens = group_inner(Delimiter::Parenthesis).parse_next(input)?;
-    let mut paren_slice: Tokens = &paren_tokens;
-    let ty = parse_type(is_comma).parse_next(&mut paren_slice)?;
+    let ty = sole_type(paren_tokens, |ty| {
+        format!(
+            "routes!: `page({0}, ..)` - a page is one type, and its address is written \
+             after it: `page({0}) link(\"/..\")`",
+            spelled(ty)
+        )
+    })?;
 
     // Modifiers in any order, so `link(..) guard(..)` and `guard(..) link(..)`
     // both read - there is no reason for one to come first and nothing to gain
@@ -663,8 +751,14 @@ fn parse_guards<'i>(input: &mut Tokens<'i>) -> Guards {
             return guards;
         };
 
-        let mut inner: Tokens = &paren;
-        let Ok(ty) = parse_type(is_comma).parse_next(&mut inner) else {
+        let sign = if removing { "!" } else { "" };
+        let Ok(ty) = sole_type(paren, |ty| {
+            format!(
+                "routes!: `{sign}guard({0}, ..)` - one guard per `{sign}guard(..)`: write \
+                 `{sign}guard({0}) {sign}guard(..)`",
+                spelled(ty)
+            )
+        }) else {
             return guards;
         };
 
@@ -691,6 +785,9 @@ fn parse_link<'i>(input: &mut Tokens<'i>) -> Option<String> {
     let paren = group_inner(Delimiter::Parenthesis).parse_next(&mut slice).ok()?;
     let mut inner: Tokens = &paren;
     let literal = string_lit.parse_next(&mut inner).ok()?;
+    if !inner.is_empty() {
+        panic!("routes!: `link({literal:?}, ..)` - a page answers to one address");
+    }
 
     *input = &input[2..];
     Some(literal)
@@ -758,8 +855,8 @@ mod tests {
             backend = guinea::slint::Slint,
             Route {
                 layout(TabsLayout) {
-                    page(Processes, "/:context/processes") { context: String }
-                    page(Services, "/:context/services") { context: String }
+                    page(Processes) link("/:context/processes") { context: String }
+                    page(Services) link("/:context/services") { context: String }
                 }
             }
         }
@@ -914,7 +1011,7 @@ mod tests {
             .expect("the page")
             .guards
             .iter()
-            .map(|ty| type_ident(ty).to_string())
+            .map(spelled)
             .collect()
     }
 
@@ -1081,5 +1178,87 @@ mod tests {
             assert_eq!(guards_of(tree, "Audit"), ["RequiresAdmin"]);
             assert!(restorable_of(tree, "Audit"));
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "one guard per `guard(..)`")]
+    fn two_guards_in_one_pair_of_parentheses_are_refused() {
+        tree_of(r#"layout(Admin) guard(RequiresSession, RequiresAdmin) { page(Users) }"#);
+    }
+
+    #[test]
+    #[should_panic(expected = "one guard per `!guard(..)`")]
+    fn two_opt_outs_in_one_pair_of_parentheses_are_refused() {
+        tree_of(r#"layout(Admin) guard(A) guard(B) { page(Users) !guard(A, B) }"#);
+    }
+
+    #[test]
+    #[should_panic(expected = r#"`page(Processes) link("/..")`"#)]
+    fn an_address_inside_a_pages_parentheses_is_refused() {
+        tree_of(r#"page(Processes, "/:context/processes") { context: String }"#);
+    }
+
+    #[test]
+    #[should_panic(expected = "a page answers to one address")]
+    fn two_addresses_are_refused() {
+        tree_of(r#"page(Processes) link("/a", "/b")"#);
+    }
+
+    #[test]
+    fn a_generic_guard_is_one_type() {
+        let tree = tree_of(r#"page(Audit) guard(HasRole<Admin, Read>)"#);
+        assert_eq!(guards_of(&tree, "Audit"), ["HasRole<Admin,Read>"]);
+    }
+
+    #[test]
+    fn guards_are_told_apart_by_their_whole_type() {
+        let tree = tree_of(
+            r#"
+            layout(AdminArea) guard(HasRole<Admin>) {
+                page(Help) !guard(HasRole<Guest>)
+                page(Users) guard(HasRole<Guest>)
+            }
+            layout(Other) guard(auth::Session) {
+                page(Legacy) guard(legacy::Session)
+            }
+            "#,
+        );
+
+        assert_eq!(guards_of(&tree, "Help"), ["HasRole<Admin>"]);
+        assert_eq!(guards_of(&tree, "Users"), ["HasRole<Admin>", "HasRole<Guest>"]);
+        assert_eq!(guards_of(&tree, "Legacy"), ["auth::Session", "legacy::Session"]);
+
+        let errors = check_guards(&tree);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("`!guard(HasRole<Guest>)` on `Help` opens nothing"));
+    }
+
+    #[test]
+    fn a_layout_under_other_layouts_elsewhere_is_refused() {
+        let tree = tree_of(
+            r#"
+            layout(Shell) { layout(Tabs) { page(A) } }
+            layout(Tabs) { page(B) }
+            "#,
+        );
+
+        let errors = check_layouts(&tree);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("under Shell in one place and under the root in another"));
+    }
+
+    #[test]
+    fn a_layout_under_the_same_layouts_twice_is_fine() {
+        let tree = tree_of(
+            r#"
+            layout(Shell) {
+                layout(Tabs) { page(A) }
+                page(Between)
+                layout(Tabs) { page(B) }
+            }
+            "#,
+        );
+
+        assert!(check_layouts(&tree).is_empty());
     }
 }

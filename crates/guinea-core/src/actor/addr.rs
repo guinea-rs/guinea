@@ -23,6 +23,20 @@ thread_local! {
     pub static REGISTRY: RefCell<HashMap<usize, Box<dyn Any>>> = RefCell::new(HashMap::new());
 }
 
+/// The actor registered under `id`, if it is still there and is an `A`.
+///
+/// A clone, taken with the registry borrowed only for as long as it takes to
+/// clone: whatever the caller does with it next - send, and so run handlers
+/// that create or dispose actors - finds the registry free.
+pub(crate) fn registered<A: 'static>(id: usize) -> Option<Addr<A>> {
+    REGISTRY.with(|reg| {
+        reg.borrow()
+            .get(&id)
+            .and_then(|addr| addr.downcast_ref::<Addr<A>>())
+            .cloned()
+    })
+}
+
 pub struct Addr<A: 'static> {
     pub(super) id: usize,
     pub(super) guard: UiThreadToken,
@@ -283,9 +297,8 @@ impl<A: 'static> Addr<A> {
         self.cancel.cancel();
         self.subscriptions.borrow_mut().clear();
 
-        REGISTRY.with(|reg| {
-            reg.borrow_mut().remove(&self.id);
-        });
+        let gone = REGISTRY.with(|reg| reg.borrow_mut().remove(&self.id));
+        drop(gone);
     }
 
     fn process_queue(&self) {

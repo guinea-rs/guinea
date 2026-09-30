@@ -1024,6 +1024,90 @@ fn leaving_the_page_closes_its_watch(h: &mut Harness) {
     assert_eq!(h.stuck(), 0);
 }
 
+/// A background answer whose handler starts an actor and ends one - what a
+/// supervisor does when an agent comes and goes.
+mod supervising {
+    use super::*;
+    use guinea::core::actor::UiThreadToken;
+
+    #[derive(Clone, Debug)]
+    pub struct Ping;
+
+    #[derive(Debug)]
+    pub struct Agent;
+
+    actor! {
+        Agent {
+            handlers { Ping }
+        }
+    }
+
+    #[handler]
+    fn ping(_this: &mut Agent, _: Ping) {}
+
+    #[derive(Clone, Debug)]
+    pub struct Look;
+
+    #[derive(Clone, Debug)]
+    pub struct Found;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Agents(pub u32);
+
+    impl Reducer for Agents {
+        type Update = Found;
+
+        fn reduce(&mut self, _found: Found) {
+            self.0 += 1;
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Supervisor {
+        pub push: Push<Agents>,
+    }
+
+    actor! {
+        Supervisor {
+            handlers { Look => { bg Found }, Found }
+        }
+    }
+
+    #[handler]
+    fn look(_this: &mut Supervisor, _: Look, cx: Cx) {
+        cx.spawn_bg::<Found, _>(async { Found });
+    }
+
+    #[handler]
+    fn found(this: &mut Supervisor, found: Found) {
+        let agent = Addr::new_scoped(Agent, UiThreadToken::dangerously_create_token_unchecked());
+        agent.send(Ping);
+        agent.dispose();
+
+        this.push.send(found);
+    }
+
+    feature! {
+        pub Supervising {
+            exports { Agents }
+        }
+    }
+
+    #[installs]
+    fn supervising(cx: &FeatureInitContext) -> anyhow::Result<Supervising> {
+        let (agents, _) = cx.state::<Agents>().driven_by(|push| Supervisor { push });
+        Ok(Supervising(agents))
+    }
+}
+
+#[guinea::test(iterations = 8)]
+fn a_background_answer_may_start_and_end_actors(h: &mut Harness) {
+    h.install::<supervising::Supervising>(&()).unwrap();
+
+    h.act::<supervising::Agents>(supervising::Look).settle();
+    assert_eq!(h.state::<supervising::Agents>().0, 1);
+}
+
 #[test]
 fn a_seed_is_one_order_every_time() {
     let shown = |seed| {

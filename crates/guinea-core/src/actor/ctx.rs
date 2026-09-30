@@ -1,4 +1,4 @@
-use crate::actor::addr::{Addr, REGISTRY};
+use crate::actor::addr::{Addr, registered};
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::event_bus::subscribe::Event;
@@ -252,13 +252,9 @@ impl<A: 'static, M> Cx<A, M> {
 
                 let settled = trace::mark_under(Some(spawned), || task.settled());
 
-                REGISTRY.with(|reg| {
-                    if let Some(boxed_addr) = reg.borrow().get(&id)
-                        && let Some(addr) = boxed_addr.downcast_ref::<Addr<A>>()
-                    {
-                        addr.send_under(result, Some(settled));
-                    }
-                });
+                if let Some(addr) = registered::<A>(id) {
+                    addr.send_under(result, Some(settled));
+                }
             };
 
             invoke_on_ui(return_task);
@@ -392,15 +388,9 @@ where
             let _root = trace::resume(None);
             let _arrived = trace::enter(|| feed.arrived(opened));
 
-            REGISTRY.with(|reg| {
-                if let Some(addr) = reg
-                    .borrow()
-                    .get(&id)
-                    .and_then(|addr| addr.downcast_ref::<Addr<A>>())
-                {
-                    addr.send(message);
-                }
-            });
+            if let Some(addr) = registered::<A>(id) {
+                addr.send(message);
+            }
         });
     }
 }
@@ -455,13 +445,16 @@ impl<A: 'static> AsyncContext<A> {
         self.cancel.guard(fut).await
     }
 
+    /// Publishes `msg` on the global bus, from whichever thread this runs on:
+    /// the bus lives on the UI thread, and the event goes there with its
+    /// cause.
     pub fn publish<M>(&self, msg: M)
     where
         A: ManagedActor,
         M: Event,
         A::Signals: AllowedSignal<M>,
     {
-        GlobalEventBus::instance().publish(msg);
+        GlobalEventBus::publish(msg);
     }
 
     pub fn publish_local<M>(&self, bus: &EventBus, msg: M)
@@ -490,17 +483,12 @@ impl<A: 'static> AsyncContext<A> {
 
         invoke_on_ui(move || {
             let _resumed = trace::resume(cause);
-            REGISTRY.with(|reg| {
-                let reg_borrow = reg.borrow();
-                if let Some(boxed_addr) = reg_borrow.get(&id)
-                    && let Some(addr) = boxed_addr.downcast_ref::<Addr<A>>()
-                {
-                    addr.apply(move |actor, ctx| {
-                        let result = f(actor, ctx);
-                        let _ = tx.send(result);
-                    });
-                }
-            });
+            if let Some(addr) = registered::<A>(id) {
+                addr.apply(move |actor, ctx| {
+                    let result = f(actor, ctx);
+                    let _ = tx.send(result);
+                });
+            }
         });
 
         rx.await.ok()
@@ -515,15 +503,9 @@ impl<A: 'static> AsyncContext<A> {
         let cause = trace::current();
 
         invoke_on_ui(move || {
-            REGISTRY.with(|reg| {
-                if let Some(addr) = reg
-                    .borrow()
-                    .get(&id)
-                    .and_then(|a| a.downcast_ref::<Addr<A>>())
-                {
-                    addr.send_under(msg, cause);
-                }
-            });
+            if let Some(addr) = registered::<A>(id) {
+                addr.send_under(msg, cause);
+            }
         });
     }
 }

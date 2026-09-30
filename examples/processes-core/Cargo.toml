@@ -14,14 +14,29 @@ publish = false
 # builds under `--no-default-features` precisely because a terminal front end
 # has to link it too.
 guinea = { path = "../../crates/guinea", default-features = false }
-guinea-plugin-store = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-plugin-l10n = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
 # For `RingSeries` only, which is plain data - the drawing half of the widget
 # crate stays behind its `winui` feature and is not pulled in here.
-guinea-widgets = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4", default-features = false }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0", default-features = false }
 tokio = { version = "1", features = ["time"] }
 tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-guinea-plugin-l10n-build = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
+guinea-plugin-l10n-build = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+
+# The plugins take guinea from crates.io; this takes it from the tree it sits
+# in, so both are the one guinea.
+[patch.crates-io]
+guinea = { path = "../../crates/guinea" }
+guinea-app = { path = "../../crates/guinea-app" }
+guinea-codegen = { path = "../../crates/guinea-codegen" }
+guinea-core = { path = "../../crates/guinea-core" }
+guinea-macros = { path = "../../crates/guinea-macros" }
+guinea-mark = { path = "../../crates/guinea-mark" }
+guinea-meta = { path = "../../crates/guinea-meta" }
+guinea-meta-build = { path = "../../crates/guinea-meta-build" }
+guinea-route-dsl = { path = "../../crates/guinea-route-dsl" }
+guinea-router = { path = "../../crates/guinea-router" }
+guinea-trace = { path = "../../crates/guinea-trace" }

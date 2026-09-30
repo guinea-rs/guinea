@@ -11,30 +11,38 @@ guinea = { path = "../../crates/guinea" }
 processes-core = { path = "../processes-core" }
 guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
-guinea-plugin-store = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-widgets = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-plugin-l10n = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4", features = ["winui"] }
-guinea-plugin-devtools = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-xaml-tap = { path = "../../../guinea-plugins/tools/devtools/xaml-tap" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0", features = ["winui"] }
+guinea-plugin-devtools = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-xaml-tap = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
 anyhow = "1.0"
 inventory = "0.3"
 tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
-windows-canvas = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", features = [
-    "reactor",
-] }
-
-# The plugin depends on guinea from git; without this the example would build
-# two copies of guinea and the plugin's `PluginBuilder` would be a different
-# type from this application's.
-[patch."https://github.com/uniproc-dev/guinea"]
-guinea = { path = "../../crates/guinea" }
-guinea-core = { path = "../../crates/guinea-core" }
-guinea-mark = { path = "../../crates/guinea-mark" }
+windows-reactor = { package = "windows-reactor-pre", version = "0.100.0" }
+windows-canvas = { package = "windows-canvas-pre", version = "0.100.0", features = ["reactor"] }
 
 [build-dependencies]
 guinea-meta-build = { path = "../../crates/guinea-meta-build" }
 windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
 guinea-codegen = { path = "../../crates/guinea-codegen" }
+
+# The plugins take guinea and the reactor from crates.io; this takes both from
+# the tree the example sits in, so there is one guinea and one reactor.
+[patch.crates-io]
+guinea = { path = "../../crates/guinea" }
+guinea-app = { path = "../../crates/guinea-app" }
+guinea-codegen = { path = "../../crates/guinea-codegen" }
+guinea-core = { path = "../../crates/guinea-core" }
+guinea-macros = { path = "../../crates/guinea-macros" }
+guinea-mark = { path = "../../crates/guinea-mark" }
+guinea-meta = { path = "../../crates/guinea-meta" }
+guinea-meta-build = { path = "../../crates/guinea-meta-build" }
+guinea-route-dsl = { path = "../../crates/guinea-route-dsl" }
+guinea-router = { path = "../../crates/guinea-router" }
+guinea-trace = { path = "../../crates/guinea-trace" }
+guinea-winui = { path = "../../crates/adapters/guinea-winui" }
+windows-canvas-pre = { path = "../../crates/vendor/windows-canvas-pre" }
+windows-reactor-pre = { path = "../../crates/vendor/windows-reactor-pre" }

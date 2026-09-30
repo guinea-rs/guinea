@@ -2,7 +2,14 @@ version: 2
 
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /examples/processes-core
+      - /examples/processes-app
+      - /examples/processes-tui
+      - /examples/processes-eframe
+      - /examples/processes-iced
+      - /examples/processes-slint
     schedule:
       interval: weekly
       day: monday

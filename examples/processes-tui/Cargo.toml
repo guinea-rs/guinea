@@ -14,9 +14,9 @@ guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
 guinea-router = { path = "../../crates/guinea-router" }
 processes-core = { path = "../processes-core" }
-guinea-plugin-store = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-plugin-l10n = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-widgets = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4", default-features = false }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0", default-features = false }
 ratatui = "0.30"
 anyhow = "1.0"
 inventory = "0.3"
@@ -30,10 +30,18 @@ tempfile = "3"
 # harness by accident, and a dev-dependency is the way to say "tests only".
 guinea = { path = "../../crates/guinea", default-features = false, features = ["ratatui", "test-utils"] }
 
-# The plugins depend on guinea from git; without this the example would build
+# The plugins take guinea from crates.io; without this the example would build
 # two copies of guinea and the plugin's `PluginBuilder` would be a different
 # type from this application's.
-[patch."https://github.com/uniproc-dev/guinea"]
+[patch.crates-io]
 guinea = { path = "../../crates/guinea" }
+guinea-app = { path = "../../crates/guinea-app" }
+guinea-codegen = { path = "../../crates/guinea-codegen" }
 guinea-core = { path = "../../crates/guinea-core" }
+guinea-macros = { path = "../../crates/guinea-macros" }
 guinea-mark = { path = "../../crates/guinea-mark" }
+guinea-meta = { path = "../../crates/guinea-meta" }
+guinea-meta-build = { path = "../../crates/guinea-meta-build" }
+guinea-route-dsl = { path = "../../crates/guinea-route-dsl" }
+guinea-router = { path = "../../crates/guinea-router" }
+guinea-trace = { path = "../../crates/guinea-trace" }

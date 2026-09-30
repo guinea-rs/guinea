@@ -18,11 +18,11 @@ guinea = { path = "../../crates/guinea", default-features = false, features = [
 guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
 processes-core = { path = "../processes-core" }
-guinea-plugin-store = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-plugin-l10n = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
-guinea-plugin-window-state = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
+guinea-plugin-window-state = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0" }
 # For `RingSeries` only, which is plain data.
-guinea-widgets = { git = "https://github.com/uniproc-dev/guinea-plugins", tag = "v0.10.4", default-features = false }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.0", default-features = false }
 # With a backend and a renderer, unlike the adapter: picking those is the
 # application's job. Named rather than left to `default`, which pulls in both
 # femtovg and the software renderer and decides between them at startup.
@@ -43,11 +43,20 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 guinea-slint-build = { path = "../../crates/adapters/guinea-slint-build" }
 anyhow = "1.0"
 
-# The plugins depend on guinea from git; without this the example would build
+# The plugins take guinea from crates.io; without this the example would build
 # two copies of guinea and the plugin's `PluginBuilder` would be a different
 # type from this application's.
-[patch."https://github.com/uniproc-dev/guinea"]
+[patch.crates-io]
 guinea = { path = "../../crates/guinea" }
+guinea-app = { path = "../../crates/guinea-app" }
+guinea-codegen = { path = "../../crates/guinea-codegen" }
 guinea-core = { path = "../../crates/guinea-core" }
+guinea-macros = { path = "../../crates/guinea-macros" }
 guinea-mark = { path = "../../crates/guinea-mark" }
-
+guinea-meta = { path = "../../crates/guinea-meta" }
+guinea-meta-build = { path = "../../crates/guinea-meta-build" }
+guinea-route-dsl = { path = "../../crates/guinea-route-dsl" }
+guinea-router = { path = "../../crates/guinea-router" }
+guinea-slint = { path = "../../crates/adapters/guinea-slint" }
+guinea-slint-build = { path = "../../crates/adapters/guinea-slint-build" }
+guinea-trace = { path = "../../crates/guinea-trace" }

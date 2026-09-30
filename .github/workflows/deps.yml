@@ -15,7 +15,7 @@ jobs:
   audit:
     uses: guinea-rs/.github/.github/workflows/deps-audit.yml@02c22ffa63298c80099e037effd27005e0e78939
     with:
-      manifests: '["Cargo.toml", "crates/vendor/windows-reactor-pre/Cargo.toml", "crates/vendor/windows-canvas-pre/Cargo.toml"]'
+      manifests: '["Cargo.toml", "crates/vendor/windows-reactor-pre/Cargo.toml", "crates/vendor/windows-canvas-pre/Cargo.toml", "examples/processes-core/Cargo.toml", "examples/processes-app/Cargo.toml", "examples/processes-tui/Cargo.toml", "examples/processes-eframe/Cargo.toml", "examples/processes-iced/Cargo.toml", "examples/processes-slint/Cargo.toml"]'
 
   tags:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -24,4 +24,4 @@ jobs:
       issues: write
     uses: guinea-rs/.github/.github/workflows/deps-tags.yml@02c22ffa63298c80099e037effd27005e0e78939
     with:
-      manifests: '["Cargo.toml", "crates/vendor/windows-reactor-pre/Cargo.toml", "crates/vendor/windows-canvas-pre/Cargo.toml"]'
+      manifests: '["Cargo.toml", "crates/vendor/windows-reactor-pre/Cargo.toml", "crates/vendor/windows-canvas-pre/Cargo.toml", "examples/processes-core/Cargo.toml", "examples/processes-app/Cargo.toml", "examples/processes-tui/Cargo.toml", "examples/processes-eframe/Cargo.toml", "examples/processes-iced/Cargo.toml", "examples/processes-slint/Cargo.toml"]'

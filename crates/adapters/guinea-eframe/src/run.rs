@@ -74,6 +74,7 @@ where
 
     dispatcher::forget_waker();
     nav::clear();
+    router.deactivate();
     shutdown_current();
 
     outcome.map_err(|e| anyhow::anyhow!("eframe: {e}"))

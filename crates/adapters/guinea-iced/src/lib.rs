@@ -480,6 +480,9 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Iced> {
 /// The guard is registered on the scope, which the router asks, but it cannot
 /// reach the shell's store - so what it reads is a slot beside the node, kept
 /// current by every `update`.
+///
+/// A question already answered is asked again with a token of its own: the
+/// answer to the last attempt is not the answer to this one.
 fn stage_node<Node: Default + 'static>(
     ctx: &FeatureInitContext,
     node: Node,
@@ -495,7 +498,12 @@ fn stage_node<Node: Default + 'static>(
         verdict: verdict.clone(),
     };
 
-    ctx.on_leave(move || verdict.borrow().clone());
+    ctx.on_leave(move || match &*verdict.borrow() {
+        Verdict::Ask(ask, decision) if decision.is_settled() => {
+            Verdict::Ask(ask.clone(), guinea_core::guard::Decision::new())
+        }
+        kept => kept.clone(),
+    });
     nodes::stage(
         Placement {
             cursor: ctx.ancestors.len(),

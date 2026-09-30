@@ -103,6 +103,7 @@ where
 
     dispatcher::close();
     nav::clear();
+    router.deactivate();
     shutdown_current();
 
     outcome.map_err(|e| anyhow::anyhow!("iced: {e}"))

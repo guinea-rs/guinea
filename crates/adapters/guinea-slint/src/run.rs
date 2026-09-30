@@ -110,6 +110,7 @@ where
     shell.detach(root_id);
     question::clear();
     nav::clear();
+    router.deactivate();
     root::clear();
     shutdown_current();
     Ok(outcome?)

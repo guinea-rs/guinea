@@ -9,9 +9,10 @@ use std::any::Any;
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
-use guinea_router::router::{Router, SegmentEntry};
+use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
 use crate::{
+    Ask, Verdict,
     Element, Envelope, Iced, Layout, LayoutCx, Nodes, Observing, Page, PageCx, UpdateCx, deliver_page,
     envelope, layout, layout_entry, page, segment_entry,
 };
@@ -120,6 +121,49 @@ struct Other;
 impl Page for Other {
     fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Self::Message> {
         iced::widget::text("").into()
+    }
+}
+
+/// Minds being left, whatever it holds: every attempt to go puts a question.
+#[derive(Default)]
+struct Draft;
+
+#[page]
+impl Page for Draft {
+    fn leaving(&self) -> Verdict {
+        Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing"))
+    }
+
+    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Self::Message> {
+        iced::widget::text("").into()
+    }
+}
+
+const WITH_DRAFT: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Draft>()];
+
+#[derive(Clone, PartialEq, Debug)]
+enum Place {
+    Draft,
+    Other,
+}
+
+impl RouteChain<Iced> for Place {
+    fn chain(&self) -> &'static [SegmentEntry<Iced>] {
+        match self {
+            Place::Draft => &WITH_DRAFT,
+            Place::Other => &WITH_OTHER,
+        }
+    }
+
+    fn params(&self) -> Vec<Box<dyn Any>> {
+        params()
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Place::Draft => "Draft",
+            Place::Other => "Other",
+        }
     }
 }
 
@@ -251,6 +295,27 @@ fn a_page_that_did_not_ask_starts_fresh() {
         0,
         "keeping state across navigation is opt-in, and this layout did not"
     );
+}
+
+#[test]
+fn a_page_kept_once_is_asked_again_the_next_time() {
+    let mut mounted = Mounted::at(&WITH_LEAF);
+    mounted.router.navigate(Place::Draft).expect("to the draft");
+    mounted.nodes.sync(&WITH_DRAFT);
+
+    mounted.router.navigate(Place::Other).expect("asked");
+    assert!(mounted.router.pending().is_some());
+    mounted.router.answer(false);
+    assert!(mounted.router.pending().is_none());
+    assert_eq!(mounted.router.current_route::<Place>(), Some(Place::Draft));
+
+    mounted.router.navigate(Place::Other).expect("asked again");
+    assert!(
+        mounted.router.pending().is_some(),
+        "the second attempt is a question of its own, not the first one's answer"
+    );
+    mounted.router.answer(true);
+    assert_eq!(mounted.router.current_route::<Place>(), Some(Place::Other));
 }
 
 #[test]

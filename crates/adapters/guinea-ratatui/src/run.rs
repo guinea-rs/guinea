@@ -7,11 +7,13 @@
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use guinea_app::app::{GuineaApp, install_runtime, shutdown_current};
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
+use ratatui::crossterm::cursor::Show;
 use ratatui::crossterm::event::{self, Event};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
@@ -69,12 +71,13 @@ where
 
     router.navigate(initial.clone())?;
 
-    let mut terminal = enter()?;
-    let outcome = pump(&mut terminal, &router, &nav, &mut on_event);
-    // Restore the terminal before reporting anything: a failure that leaves
-    // the screen in raw mode is unreadable, including its own error message.
-    leave(&mut terminal)?;
+    let outcome = Screen::enter().and_then(|mut screen| {
+        let outcome = pump(&mut screen.terminal, &router, &nav, &mut on_event);
+        let left = screen.leave();
+        outcome.and(left)
+    });
 
+    router.deactivate();
     shutdown_current();
     outcome
 }
@@ -122,16 +125,83 @@ where
     }
 }
 
-fn enter() -> anyhow::Result<Terminal<CrosstermBackend<io::Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+type PanicHook = dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync + 'static;
+
+/// The terminal in raw mode on the alternate screen, for as long as this
+/// lives.
+///
+/// Put back however the loop ends: a return, an error, or a panic - whose
+/// message the hook prints only after the screen is back, since on the
+/// alternate screen it would vanish with it.
+struct Screen {
+    terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    /// The hook that stood before this one, to stand again once it is gone.
+    previous: Option<Arc<PanicHook>>,
+    left: bool,
 }
 
-fn leave(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
+impl Screen {
+    fn enter() -> anyhow::Result<Self> {
+        enable_raw_mode()?;
+
+        let entered = execute!(io::stdout(), EnterAlternateScreen)
+            .and_then(|()| Terminal::new(CrosstermBackend::new(io::stdout())));
+        let terminal = match entered {
+            Ok(terminal) => terminal,
+            Err(error) => {
+                restore();
+                return Err(error.into());
+            }
+        };
+
+        let previous: Arc<PanicHook> = Arc::from(std::panic::take_hook());
+        let chained = previous.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            restore();
+            chained(info);
+        }));
+
+        Ok(Self {
+            terminal,
+            previous: Some(previous),
+            left: false,
+        })
+    }
+
+    fn leave(mut self) -> anyhow::Result<()> {
+        self.left = true;
+        self.stand_down();
+
+        disable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
+        self.terminal.show_cursor()?;
+        Ok(())
+    }
+
+    /// Puts the previous panic hook back - not while panicking, when the hook
+    /// cannot be changed and is about to be needed.
+    fn stand_down(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        if let Some(previous) = self.previous.take() {
+            std::panic::set_hook(Box::new(move |info| previous(info)));
+        }
+    }
+}
+
+impl Drop for Screen {
+    fn drop(&mut self) {
+        if !self.left {
+            self.stand_down();
+            restore();
+        }
+    }
+}
+
+/// The terminal as it was before [`Screen::enter`], as far as it can be put
+/// back: whatever fails here has no one left to report to.
+fn restore() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
 }

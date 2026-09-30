@@ -2,11 +2,11 @@
 
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use guinea_app::app::{GuineaApp, install_runtime, shutdown_current};
 use guinea_core::actor::UiThreadToken;
-use guinea_router::router::RouteChain;
+use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{AppProxy, Component, ComponentContext, View, ViewContext, WindowVisuals};
 
 use crate::winui::{RouterRoot, WinUi};
@@ -20,6 +20,17 @@ thread_local! {
     static PROXY: RefCell<Option<AppProxy>> = const { RefCell::new(None) };
     static STANDING: Cell<usize> = const { Cell::new(0) };
     static FAILED: RefCell<Option<anyhow::Error>> = const { RefCell::new(None) };
+    static ROUTERS: RefCell<Vec<Weak<Router<WinUi>>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A window's router, to be taken down before the application is: its
+/// segments read from what the application holds.
+pub(crate) fn standing(router: &Rc<Router<WinUi>>) {
+    ROUTERS.with(|routers| {
+        let mut routers = routers.borrow_mut();
+        routers.retain(|router| router.strong_count() > 0);
+        routers.push(Rc::downgrade(router));
+    });
 }
 
 /// The main window's first route did not install: the application ends, and
@@ -89,11 +100,17 @@ where
     result.map_err(|error| anyhow::anyhow!("windows-reactor: {error}"))
 }
 
-/// Tears the application down when the reactor lets go of it.
+/// Tears the application down when the reactor lets go of it - the windows'
+/// route trees first, which the reactor would otherwise take down after it.
 struct Installed;
 
 impl Drop for Installed {
     fn drop(&mut self) {
+        let routers = ROUTERS.with(|routers| std::mem::take(&mut *routers.borrow_mut()));
+        for router in routers.iter().filter_map(Weak::upgrade) {
+            router.deactivate();
+        }
+
         shutdown_current();
     }
 }

@@ -1455,6 +1455,7 @@ where
     fn create(initial: &R, cx: &ComponentContext<Self>) -> Self {
         let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
         let router = Rc::new(Router::new(token));
+        crate::run::standing(&router);
         let main = guinea_app::app::roots::labelled(crate::run::MAIN).is_none();
         if main {
             guinea_app::app::roots::set_label(router.root(), crate::run::MAIN);

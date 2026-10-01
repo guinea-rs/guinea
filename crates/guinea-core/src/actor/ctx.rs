@@ -371,7 +371,8 @@ impl<A: 'static, M> Cx<A, M> {
 }
 
 /// Hands each item of `source` to the UI thread, as a root of its own, until
-/// the source runs dry.
+/// the source runs dry. Gives way after each item, so a source that is always
+/// ready still notices its actor going.
 async fn pour<A, S, Out, F>(id: usize, source: S, mut into: F, feed: Feed, opened: Cause)
 where
     A: Handler<Out> + 'static,
@@ -381,7 +382,10 @@ where
 {
     let mut source = std::pin::pin!(source);
 
-    while let Some(item) = std::future::poll_fn(|cx| source.as_mut().poll_next(cx)).await {
+    loop {
+        let Some(item) = std::future::poll_fn(|cx| source.as_mut().poll_next(cx)).await else {
+            break;
+        };
         let message = into(item);
 
         invoke_on_ui(move || {
@@ -392,6 +396,8 @@ where
                 addr.send(message);
             }
         });
+
+        crate::executor::yield_now().await;
     }
 }
 

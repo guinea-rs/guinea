@@ -17,22 +17,23 @@ use std::rc::Rc;
 
 use guinea_app::app::{Act, Harness, Segment};
 use guinea_app::feature::FeatureInitContext;
+use guinea_core::SharedState;
 use guinea_core::mark::Mark;
 use guinea_core::scope::Scope;
 use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, RouteSink, SegmentEntry, SegmentProps,
+    Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
 };
 use windows_reactor::test::{
     Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
     SelectionChange, SlotId,
 };
-use windows_reactor::{Border, PointerEventInfo, View};
+use windows_reactor::{Border, ContentDialogResult, PointerEventInfo, View};
 
 pub use windows_reactor::test::{NodeId, PropertyId, PropertyValue};
 
 use crate::mark::MarkExt;
 use crate::winui::{
-    Layout, LayoutNode, Page, PageNode, Signal, WinUi, install_layout, install_page,
+    Layout, LayoutNode, Page, PageNode, RouterRoot, Signal, WinUi, install_layout, install_page,
     layout_entry, nav_context, route_context, segment_entry,
 };
 
@@ -155,6 +156,26 @@ thread_local! {
     static SENDERS: RefCell<HashMap<TypeId, Box<dyn Any>>> = RefCell::new(HashMap::new());
     static CHAINS: RefCell<HashMap<(TypeId, usize), &'static [SegmentEntry<WinUi>]>> =
         RefCell::new(HashMap::new());
+    static ROUTED_SERVICES: RefCell<Option<SharedState>> = const { RefCell::new(None) };
+    static ROUTER: RefCell<Option<Rc<Router<WinUi>>>> = const { RefCell::new(None) };
+    static NAV: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+}
+
+/// What a [`RouterRoot`] being mounted by [`Mounted::routed`] takes its
+/// services from: the harness's, rather than an installed application's.
+pub(crate) fn routed_services() -> Option<SharedState> {
+    ROUTED_SERVICES.with(|services| services.borrow().clone())
+}
+
+/// The router a [`RouterRoot`] built, kept for [`Mounted::routed`].
+pub(crate) fn remember_router(router: &Rc<Router<WinUi>>) {
+    ROUTER.with(|kept| *kept.borrow_mut() = Some(router.clone()));
+}
+
+/// The handle a [`RouterRoot`] last handed its tree, for
+/// [`Mounted::navigate`] to go the same way a page does.
+pub(crate) fn remember_nav<R: 'static>(nav: &NavigateHandle<WinUi, R>) {
+    NAV.with(|kept| *kept.borrow_mut() = Some(Box::new(nav.clone())));
 }
 
 /// What a mounted page's or layout's component answers to, kept as it is
@@ -425,7 +446,19 @@ pub struct Mounted<'h, S> {
     /// Where it asked to go, when mounted [at a route](Self::mount_at): an
     /// `Rc<RefCell<Vec<R>>>` for that route type.
     navigated: Option<Box<dyn Any>>,
+    /// The router, when the whole route tree is [mounted](Self::routed).
+    router: Option<Rc<Router<WinUi>>>,
+    /// The root's dialog for a guard's question, found as it was created.
+    dialog: Option<NodeId>,
     segment: PhantomData<S>,
+}
+
+impl<S> Drop for Mounted<'_, S> {
+    fn drop(&mut self) {
+        if self.router.is_some() {
+            NAV.with(|kept| kept.borrow_mut().take());
+        }
+    }
 }
 
 impl<'h, S: 'static> Mounted<'h, S> {
@@ -482,6 +515,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
             realized: HashMap::new(),
             counts: HashMap::new(),
             navigated: None,
+            router: None,
+            dialog: None,
             segment: PhantomData,
         };
         mounted.settle();
@@ -516,6 +551,53 @@ impl<'h, S: 'static> Mounted<'h, S> {
         mounted.navigated = Some(Box::new(navigated));
 
         Ok(mounted)
+    }
+
+    /// The question a guard is asking, if one is: what the dialog the root
+    /// puts up says.
+    pub fn question(&self) -> Option<String> {
+        self.routed_router().pending().map(|ask| ask.text.to_string())
+    }
+
+    /// Answers the guard's question the way the dialog's buttons do: `true`
+    /// for the one that lets the navigation go on.
+    pub fn answer(&mut self, confirm: bool) -> Act<'h> {
+        let dialog = self
+            .dialog
+            .expect("a route tree mounted with `routed` keeps a dialog for a guard's question");
+        assert!(
+            self.question().is_some(),
+            "no guard is asking anything:\n{:#?}",
+            self.tree()
+        );
+
+        let result = match confirm {
+            true => ContentDialogResult::Primary,
+            false => ContentDialogResult::None,
+        };
+
+        let harness = self.harness;
+        let act = harness.record("answer", || {
+            let revision = self
+                .pump
+                .event_revision(dialog, EventId::ContentDialogClosed)
+                .expect("the dialog listens for its own closing");
+            self.pump
+                .runtime_mut()
+                .complete_content_dialog(dialog, revision, result);
+            self.turn();
+        });
+        self.settle();
+        act
+    }
+
+    fn routed_router(&self) -> &Rc<Router<WinUi>> {
+        self.router.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{} is not a route tree mounted with `Mounted::routed`",
+                std::any::type_name::<S>()
+            )
+        })
     }
 
     /// Every route `use_navigate::<R>()` was asked to go to, oldest first.
@@ -1144,6 +1226,115 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .expect("running the page's components");
 
         events + turns
+    }
+}
+
+impl<'h, R> Mounted<'h, R>
+where
+    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+{
+    /// The whole route tree at `initial`, mounted the way a window mounts it:
+    /// a [`RouterRoot`] with a router of its own.
+    ///
+    /// Navigation happens here - through [`navigate`](Self::navigate), or a
+    /// click that ends in `use_navigate` - and moves `use_route`. Segments are
+    /// installed and torn down as in the application: the layouts and pages
+    /// left behind lose their scopes, actors and timers, and the new ones
+    /// install, start and draw under the outlet above them. What the harness
+    /// provides reaches every segment, whenever it is installed. A guard's
+    /// question goes up as the root's dialog - see [`answer`](Self::answer).
+    ///
+    /// ```ignore
+    /// let mut app = Mounted::routed(&h, Route::Processes {})?;
+    /// app.navigate(Route::Services {});
+    /// app.navigate(Route::Processes {});
+    /// assert!(app.find(ProcessesMark::Loading).is_none());
+    /// ```
+    pub fn routed(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
+        let services = harness.segment().context().services.clone();
+        ROUTED_SERVICES.with(|routed| *routed.borrow_mut() = Some(services));
+
+        let mut runtime = RecordingRuntime::default();
+        runtime.record_commands(true);
+        let mut pump = Pump::new(runtime);
+        let built = pump.mount_view(View::component::<RouterRoot<R>>(initial));
+
+        ROUTED_SERVICES.with(|routed| routed.borrow_mut().take());
+        built.map_err(|refused| {
+            anyhow::anyhow!("mounting the {} tree: {refused:?}", std::any::type_name::<R>())
+        })?;
+
+        let router = ROUTER
+            .with(|kept| kept.borrow_mut().take())
+            .expect("the root builds its router as it is created");
+        let dialog = pump
+            .runtime()
+            .commands()
+            .iter()
+            .flatten()
+            .find_map(|command| match command {
+                Command::Create { node, kind } if format!("{kind:?}") == "ContentDialog" => {
+                    Some(*node)
+                }
+                _ => None,
+            });
+
+        let mut mounted = Self {
+            harness,
+            pump,
+            realized: HashMap::new(),
+            counts: HashMap::new(),
+            navigated: None,
+            router: Some(router),
+            dialog,
+            segment: PhantomData,
+        };
+        mounted.settle();
+
+        Ok(mounted)
+    }
+
+    /// Goes to `to` the way `use_navigate` does - guards, teardown and all -
+    /// and hands back what the navigation set off.
+    pub fn navigate(&mut self, to: R) -> Act<'h> {
+        let nav = NAV
+            .with(|kept| {
+                kept.borrow()
+                    .as_ref()
+                    .and_then(|nav| nav.downcast_ref::<NavigateHandle<WinUi, R>>())
+                    .cloned()
+            })
+            .expect("the root hands its tree a way to navigate as it draws");
+
+        let harness = self.harness;
+        let act = harness.record("navigate", || {
+            nav.to(to);
+            self.turn();
+        });
+        self.settle();
+        act
+    }
+
+    /// Where the application is.
+    pub fn route(&self) -> R {
+        self.routed_router()
+            .current_route::<R>()
+            .expect("the first route installed")
+    }
+
+    /// The layouts and pages mounted now, outermost first, by type name.
+    pub fn segments(&self) -> Vec<&'static str> {
+        self.routed_router()
+            .active_chain()
+            .unwrap_or_default()
+            .iter()
+            .map(|entry| (entry.type_name)())
+            .collect()
+    }
+
+    /// Whether the layout or page `T` is mounted now.
+    pub fn is_mounted<T: 'static>(&self) -> bool {
+        self.segments().contains(&std::any::type_name::<T>())
     }
 }
 

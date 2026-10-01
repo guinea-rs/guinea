@@ -1454,7 +1454,20 @@ where
     /// application, and `run` returns it.
     fn create(initial: &R, cx: &ComponentContext<Self>) -> Self {
         let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
+
+        #[cfg(feature = "harness")]
+        let router = Rc::new(match crate::harness::routed_services() {
+            Some(services) => Router::with_host(guinea_app::feature::FeatureHost::with_services(
+                token, services,
+            )),
+            None => Router::new(token),
+        });
+        #[cfg(not(feature = "harness"))]
         let router = Rc::new(Router::new(token));
+
+        #[cfg(feature = "harness")]
+        crate::harness::remember_router(&router);
+
         crate::run::standing(&router);
         let main = guinea_app::app::roots::labelled(crate::run::MAIN).is_none();
         if main {
@@ -1501,6 +1514,9 @@ where
                 sender.send(Routed::Arrived(route));
             }),
         );
+
+        #[cfg(feature = "harness")]
+        crate::harness::remember_nav(&nav);
 
         let tree = match (self.router.active_chain(), &self.failure) {
             (Some(_), _) => self.router.render(&()),

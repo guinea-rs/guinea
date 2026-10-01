@@ -33,11 +33,17 @@ impl FeatureHost {
     /// Takes the services from the installed application, or none if there is
     /// no application - a test, say.
     pub fn new(token: UiThreadToken) -> Self {
+        Self::with_services(token, crate::app::app_services())
+    }
+
+    /// With `services` rather than the installed application's - for a
+    /// harness, whose application is its own.
+    pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
         Self {
             token,
             event_bus: Rc::new(EventBus::new()),
             debug_registry: Rc::new(DebugRegistry::new()),
-            services: crate::app::app_services(),
+            services,
             root: Registration::open(),
         }
     }

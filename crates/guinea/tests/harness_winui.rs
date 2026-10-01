@@ -927,3 +927,310 @@ mod routed {
         assert_eq!(pane.navigated::<PaneRoute>(), [PaneRoute::Settings {}]);
     }
 }
+
+mod navigating {
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    use super::*;
+    use guinea::winui::{Ask, Layout, LayoutCx, UseRoute, Verdict, layout};
+
+    thread_local! {
+        static AREAS_GONE: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub mod frame_clock {
+        use guinea::prelude::*;
+
+        #[derive(Default, Clone, PartialEq, Debug)]
+        pub struct FrameTicks(pub u32);
+
+        #[derive(Clone, Debug)]
+        pub struct Tick;
+
+        impl Reducer for FrameTicks {
+            type Update = Tick;
+
+            fn reduce(&mut self, _tick: Tick) {
+                self.0 += 1;
+            }
+        }
+
+        #[derive(Debug)]
+        pub struct FrameTicker {
+            pub push: Push<FrameTicks>,
+        }
+
+        actor! {
+            FrameTicker {
+                handlers { Tick }
+            }
+        }
+
+        #[handler]
+        fn frame_tick(this: &mut FrameTicker, tick: Tick) {
+            this.push.send(tick);
+        }
+
+        feature! {
+            pub FrameClock {
+                exports { FrameTicks }
+            }
+        }
+
+        #[installs]
+        fn frame_clock(cx: &FeatureInitContext) -> anyhow::Result<FrameClock> {
+            let (ticks, ticker) = cx.state::<FrameTicks>().driven_by(|push| FrameTicker { push });
+            cx.every(std::time::Duration::from_secs(1), &ticker, || Tick);
+            Ok(FrameClock(ticks))
+        }
+    }
+
+    pub mod list_clock {
+        use guinea::prelude::*;
+
+        #[derive(Default, Clone, PartialEq, Debug)]
+        pub struct ListTicks(pub u32);
+
+        #[derive(Clone, Debug)]
+        pub struct Tick;
+
+        impl Reducer for ListTicks {
+            type Update = Tick;
+
+            fn reduce(&mut self, _tick: Tick) {
+                self.0 += 1;
+            }
+        }
+
+        #[derive(Debug)]
+        pub struct ListTicker {
+            pub push: Push<ListTicks>,
+        }
+
+        actor! {
+            ListTicker {
+                handlers { Tick }
+            }
+        }
+
+        #[handler]
+        fn list_tick(this: &mut ListTicker, tick: Tick) {
+            this.push.send(tick);
+        }
+
+        feature! {
+            pub ListClock {
+                exports { ListTicks }
+            }
+        }
+
+        #[installs]
+        fn list_clock(cx: &FeatureInitContext) -> anyhow::Result<ListClock> {
+            let (ticks, ticker) = cx.state::<ListTicks>().driven_by(|push| ListTicker { push });
+            cx.every(std::time::Duration::from_secs(1), &ticker, || Tick);
+            Ok(ListClock(ticks))
+        }
+    }
+
+    pub struct Greeting(pub &'static str);
+
+    struct Gone;
+
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            AREAS_GONE.with(|gone| gone.set(gone.get() + 1));
+        }
+    }
+
+    /// The shell: where the application is, a way to the list, and a clock
+    /// that lives as long as the shell does.
+    #[derive(Default)]
+    pub struct Frame;
+
+    #[layout]
+    impl Layout for Frame {
+        type Params = FrameParams;
+        type Installs = frame_clock::FrameClock;
+
+        fn install(
+            ctx: &FeatureInitContext,
+            _params: &FrameParams,
+        ) -> anyhow::Result<frame_clock::FrameClock> {
+            ctx.install(&())
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+            let here = match cx.use_route::<AppRoute>() {
+                AppRoute::List {} => "at list",
+                AppRoute::Other {} => "at other",
+                AppRoute::Draft {} => "at draft",
+            };
+            let (ticks, _) = cx.use_reducer::<frame_clock::FrameTicks, _>();
+            let nav = cx.navigate::<AppRoute>();
+
+            StackPanel::new()
+                .children((
+                    TextBlock::new().text(here),
+                    TextBlock::new().text(format!("frame ticks: {}", ticks.0)),
+                    Button::new()
+                        .on_click(nav.to_handler(AppRoute::List {}))
+                        .content(TextBlock::new().text("List")),
+                    cx.outlet(),
+                ))
+                .into()
+        }
+    }
+
+    /// A layout below the shell that holds the list's clock - the place a
+    /// feature is lost from when the list is left.
+    #[derive(Default)]
+    pub struct Area;
+
+    #[layout]
+    impl Layout for Area {
+        type Params = AreaParams;
+        type Installs = list_clock::ListClock;
+
+        fn install(
+            ctx: &FeatureInitContext,
+            _params: &AreaParams,
+        ) -> anyhow::Result<list_clock::ListClock> {
+            ctx.scope.own(guinea::core::scope::DropGuard(Gone));
+            ctx.install(&())
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+            cx.outlet()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct List;
+
+    #[page]
+    impl Page for List {
+        type Params = ListParams;
+
+        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+            let (ticks, _) = cx.use_reducer::<list_clock::ListTicks, _>();
+            TextBlock::new().text(format!("list ticks: {}", ticks.0)).into()
+        }
+    }
+
+    /// Reads what the harness provided, in a segment installed only after a
+    /// navigation.
+    #[derive(Default)]
+    pub struct Other {
+        greeting: &'static str,
+    }
+
+    #[page]
+    impl Page for Other {
+        type Params = OtherParams;
+
+        fn init(ctx: &FeatureInitContext, _params: &OtherParams) -> Self {
+            let greeting = ctx.require::<Greeting>().map_or("nobody", |greeting| greeting.0);
+            Self { greeting }
+        }
+
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text(format!("other says {}", self.greeting)).into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Draft;
+
+    #[page]
+    impl Page for Draft {
+        type Params = DraftParams;
+
+        fn leaving(&self) -> Verdict {
+            Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
+        }
+
+        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text("draft").into()
+        }
+    }
+
+    routes! {
+        AppRoute {
+            layout(Frame) {
+                layout(Area) {
+                    page(List) { }
+                }
+                page(Other) { }
+                page(Draft) { }
+            }
+        }
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn a_navigation_tears_down_what_it_left_and_installs_what_it_reached(h: &mut Harness) {
+        h.provide(Greeting("hello"));
+        AREAS_GONE.with(|gone| gone.set(0));
+
+        let mut app = Mounted::routed(h, AppRoute::List {}).unwrap();
+        assert_eq!(app.route(), AppRoute::List {});
+        assert!(app.is_mounted::<Frame>() && app.is_mounted::<Area>() && app.is_mounted::<List>());
+        assert!(app.find_text("at list").is_some(), "{:#?}", app.tree());
+
+        app.navigate(AppRoute::Other {});
+        assert_eq!(app.route(), AppRoute::Other {});
+        assert!(!app.is_mounted::<Area>() && !app.is_mounted::<List>(), "{:?}", app.segments());
+        assert_eq!(AREAS_GONE.with(Cell::get), 1, "the area's scope went with it");
+        assert!(app.find_text("at other").is_some(), "{:#?}", app.tree());
+        assert!(
+            app.find_text("other says hello").is_some(),
+            "what the harness provides reaches a segment installed later:\n{:#?}",
+            app.tree()
+        );
+
+        app.click_text("List").settle();
+        app.settle();
+        assert_eq!(app.route(), AppRoute::List {}, "a click through use_navigate moves too");
+        assert!(app.is_mounted::<Area>(), "{:?}", app.segments());
+        assert!(app.find_text("list ticks: 0").is_some(), "{:#?}", app.tree());
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn state_below_the_page_left_starts_again_and_state_above_it_stays(h: &mut Harness) {
+        let mut app = Mounted::routed(h, AppRoute::List {}).unwrap();
+
+        h.advance(Duration::from_secs(1));
+        app.settle();
+        assert!(app.find_text("frame ticks: 1").is_some(), "{:#?}", app.tree());
+        assert!(app.find_text("list ticks: 1").is_some(), "{:#?}", app.tree());
+
+        app.navigate(AppRoute::Other {});
+        app.navigate(AppRoute::List {});
+
+        assert!(app.find_text("frame ticks: 1").is_some(), "{:#?}", app.tree());
+        assert!(
+            app.find_text("list ticks: 0").is_some(),
+            "the area was left with the list, and its clock with it:\n{:#?}",
+            app.tree()
+        );
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn a_guard_s_question_is_answered_through_the_root_s_dialog(h: &mut Harness) {
+        let mut app = Mounted::routed(h, AppRoute::Draft {}).unwrap();
+        assert_eq!(app.question(), None);
+
+        app.navigate(AppRoute::Other {});
+        assert_eq!(app.question().as_deref(), Some("Discard the draft?"));
+        assert_eq!(app.route(), AppRoute::Draft {});
+
+        app.answer(false);
+        assert_eq!(app.question(), None);
+        assert_eq!(app.route(), AppRoute::Draft {}, "kept");
+
+        app.navigate(AppRoute::Other {});
+        app.answer(true);
+        assert_eq!(app.route(), AppRoute::Other {}, "discarded");
+        assert!(app.find_text("at other").is_some(), "{:#?}", app.tree());
+    }
+}

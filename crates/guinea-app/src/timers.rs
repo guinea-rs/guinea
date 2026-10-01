@@ -9,6 +9,7 @@
 //! so they need the runtime `spawn_bg` needs - and under a test harness they
 //! wait on the test's clock and tick when it is advanced.
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::panic::Location;
@@ -24,6 +25,27 @@ pub enum Period {
     Fixed(Duration),
     /// Asked again before every tick: for a period the user can change.
     Varying(Box<dyn Fn() -> Duration>),
+    /// See [`Period::follows`].
+    Following {
+        now: Box<dyn Fn() -> Option<Duration>>,
+        watch: Box<dyn Fn(Box<dyn Fn() + Send + Sync>) -> Box<dyn Any>>,
+    },
+}
+
+/// A value that changes and says so: what a period [follows](Period::follows).
+///
+/// Implemented for a store's reactive value by the crate that has both - a
+/// `ReactiveCell` in amethystate's guinea adapter - and by hand for anything
+/// else that can be read and watched.
+pub trait Changing: 'static {
+    type Value;
+
+    /// What it is now, or `None` while there is nothing to read.
+    fn now(&self) -> Option<Self::Value>;
+
+    /// Calls `changed` every time it changes, from whichever thread the
+    /// change happens on, until what this returns is dropped.
+    fn watch(&self, changed: Box<dyn Fn() + Send + Sync>) -> Box<dyn Any>;
 }
 
 impl Period {
@@ -31,10 +53,42 @@ impl Period {
         Period::Varying(Box::new(period))
     }
 
-    fn next(&self) -> Duration {
+    /// As long as `source` says, through `period`: a change cuts the wait
+    /// under way short and the next tick comes a new period after it, the
+    /// way [`Timer::period`] does. While `source` has nothing to read, the
+    /// timer does not tick.
+    ///
+    /// ```ignore
+    /// cx.every(Period::follows(settings.ping_interval_ms(), Duration::from_millis), &agent, || Ping);
+    /// ```
+    pub fn follows<C: Changing>(source: C, period: impl Fn(C::Value) -> Duration + 'static) -> Self {
+        let source = Rc::new(source);
+        let watched = source.clone();
+
+        Period::Following {
+            now: Box::new(move || source.now().map(&period)),
+            watch: Box::new(move |changed| watched.watch(changed)),
+        }
+    }
+
+    /// The wait before the next tick, or `None` while there is nothing to
+    /// wait by.
+    fn next(&self) -> Option<Duration> {
         match self {
-            Period::Fixed(period) => *period,
-            Period::Varying(period) => period(),
+            Period::Fixed(period) => Some(*period),
+            Period::Varying(period) => Some(period()),
+            Period::Following { now, .. } => now(),
+        }
+    }
+
+    /// Starts watching what it follows, for timer `id`: a change re-arms it
+    /// on the UI thread, wherever the change happened.
+    fn watch(&self, id: u64) -> Option<Box<dyn Any>> {
+        match self {
+            Period::Following { watch, .. } => {
+                Some(watch(Box::new(move || invoke_on_ui(move || follow(id)))))
+            }
+            _ => None,
         }
     }
 }
@@ -71,6 +125,8 @@ struct Entry {
     active: Option<Box<dyn Fn() -> bool>>,
     /// The owning scope's, when a scope owns it: asleep, it skips its ticks.
     awake: Option<Awake>,
+    /// What keeps the value a [`Period::Following`] follows watched.
+    watching: Option<Box<dyn Any>>,
     run: Box<dyn FnMut()>,
     traced: bool,
 }
@@ -137,16 +193,24 @@ impl Timer {
             return self;
         };
 
-        let (id, generation, next) = {
+        let id = entry.borrow().info.id;
+        let period = period.into();
+        let watching = period.watch(id);
+
+        let (generation, next, unwatched) = {
             let mut entry = entry.borrow_mut();
-            entry.period = period.into();
+            entry.period = period;
+            let unwatched = std::mem::replace(&mut entry.watching, watching);
             entry.generation += 1;
 
             let next = entry.period.next();
-            entry.info.period = next;
+            if let Some(next) = next {
+                entry.info.period = next;
+            }
 
-            (entry.info.id, entry.generation, next)
+            (entry.generation, next, unwatched)
         };
+        drop(unwatched);
 
         wake_after(id, generation, next);
         self
@@ -174,6 +238,7 @@ pub(crate) fn start(
 ) -> (Ticking, Timer) {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let first = period.next();
+    let watching = period.watch(id);
     let (scope, awake) = owner.unzip();
 
     let entry = Rc::new(RefCell::new(Entry {
@@ -183,12 +248,13 @@ pub(crate) fn start(
             place,
             feature,
             scope,
-            period: first,
+            period: first.unwrap_or_default(),
         },
         period,
         generation: 0,
         active: None,
         awake,
+        watching,
         run: Box::new(run),
         traced: true,
     }));
@@ -252,7 +318,9 @@ fn tick(id: u64, generation: u64) {
     let next = {
         let mut entry = entry.borrow_mut();
         let next = entry.period.next();
-        entry.info.period = next;
+        if let Some(next) = next {
+            entry.info.period = next;
+        }
 
         next
     };
@@ -263,10 +331,37 @@ fn tick(id: u64, generation: u64) {
     wake_after(id, generation, next);
 }
 
+/// What a [`Period::Following`] does when its value changes: starts a new
+/// chain from now, as [`Timer::period`] does, and ends the one under way.
+fn follow(id: u64) {
+    let entry = RUNNING.with(|running| running.borrow().get(&id).and_then(Weak::upgrade));
+    let Some(entry) = entry else {
+        return;
+    };
+
+    let (generation, next) = {
+        let mut entry = entry.borrow_mut();
+        entry.generation += 1;
+
+        let next = entry.period.next();
+        if let Some(next) = next {
+            entry.info.period = next;
+        }
+
+        (entry.generation, next)
+    };
+
+    wake_after(id, generation, next);
+}
+
 /// Arms one tick: a task that waits `after` on the clock guinea's work runs by
 /// and hands the tick to the UI thread - tokio's in an application, the test's
-/// own under a harness.
-fn wake_after(id: u64, generation: u64, after: Duration) {
+/// own under a harness. With nothing to wait by, the chain ends here.
+fn wake_after(id: u64, generation: u64, after: Option<Duration>) {
+    let Some(after) = after else {
+        return;
+    };
+
     guinea_core::executor::spawn(async move {
         tokio::time::sleep(after).await;
         invoke_on_ui(move || tick(id, generation));
@@ -422,6 +517,116 @@ mod tests {
             2,
             "the ticks it slept through were saved up for it"
         );
+    }
+
+    type Watcher = (u64, Arc<dyn Fn() + Send + Sync>);
+
+    /// A value set by hand, telling whoever watches it, from the thread that
+    /// set it.
+    #[derive(Clone, Default)]
+    struct Knob(Arc<std::sync::Mutex<(Option<u64>, Vec<Watcher>, u64)>>);
+
+    impl Knob {
+        fn set(&self, ms: u64) {
+            let watchers: Vec<Watcher> = {
+                let mut knob = self.0.lock().unwrap();
+                knob.0 = Some(ms);
+                knob.1.clone()
+            };
+            for (_, changed) in watchers {
+                changed();
+            }
+        }
+
+        fn watchers(&self) -> usize {
+            self.0.lock().unwrap().1.len()
+        }
+    }
+
+    struct Unwatch(Knob, u64);
+
+    impl Drop for Unwatch {
+        fn drop(&mut self) {
+            let id = self.1;
+            self.0.0.lock().unwrap().1.retain(|(watcher, _)| *watcher != id);
+        }
+    }
+
+    impl Changing for Knob {
+        type Value = u64;
+
+        fn now(&self) -> Option<u64> {
+            self.0.lock().unwrap().0
+        }
+
+        fn watch(&self, changed: Box<dyn Fn() + Send + Sync>) -> Box<dyn std::any::Any> {
+            let mut knob = self.0.lock().unwrap();
+            knob.2 += 1;
+            let id = knob.2;
+            knob.1.push((id, Arc::from(changed)));
+            Box::new(Unwatch(self.clone(), id))
+        }
+    }
+
+    fn following(knob: &Knob) -> (Ticking, Timer, Arc<AtomicUsize>) {
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let c = counter.clone();
+        let (ticking, timer) = start(
+            Location::caller(),
+            None,
+            None,
+            Period::follows(knob.clone(), Duration::from_millis),
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        (ticking, timer, counter)
+    }
+
+    #[test]
+    fn a_period_that_follows_a_value_changes_the_moment_the_value_does() {
+        let clock = clock();
+        let knob = Knob::default();
+        knob.set(1_000);
+        let (_ticking, _timer, counter) = following(&knob);
+
+        wait(&clock, 100);
+        knob.set(50);
+
+        wait(&clock, 50);
+        assert_eq!(count(&counter), 1, "the second it had left was waited out");
+
+        wait(&clock, 50);
+        assert_eq!(count(&counter), 2);
+    }
+
+    #[test]
+    fn a_period_with_nothing_to_follow_waits_for_something() {
+        let clock = clock();
+        let knob = Knob::default();
+        let (_ticking, _timer, counter) = following(&knob);
+
+        wait(&clock, 10_000);
+        assert_eq!(count(&counter), 0, "ticked with no period to tick by");
+
+        knob.set(30);
+        wait(&clock, 30);
+        assert_eq!(count(&counter), 1);
+    }
+
+    #[test]
+    fn what_a_period_follows_is_watched_for_as_long_as_the_timer_runs() {
+        let _clock = clock();
+        let knob = Knob::default();
+        knob.set(1_000);
+
+        let (ticking, _timer, _counter) = following(&knob);
+        assert_eq!(knob.watchers(), 1);
+
+        drop(ticking);
+        assert_eq!(knob.watchers(), 0, "the timer stopped and kept watching");
     }
 
     #[test]

@@ -778,15 +778,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "capnpc"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82ca16312ddb64529d31c8dc46148671c22e57b80134fa5f17811ad5a6a79492"
-dependencies = [
- "capnp",
-]
-
-[[package]]
 name = "cc"
 version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2233,12 +2224,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "capnp",
  "capnp-rpc",
- "capnpc",
  "getrandom 0.4.3",
  "ogurpchik",
  "serde",
@@ -2291,8 +2281,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-devtools"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "anyhow",
  "capnp",
@@ -2308,8 +2298,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -2323,8 +2313,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -2335,8 +2325,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2346,7 +2336,7 @@ dependencies = [
 [[package]]
 name = "guinea-plugin-store"
 version = "0.22.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2388,8 +2378,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
+version = "0.14.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
 dependencies = [
  "guinea-mark",
  "tracing",

@@ -350,10 +350,11 @@ where
         attrs.record(&mut fields);
 
         let opened = trace::reserve();
-        let (name, target) = (meta.name(), meta.target());
+        let (name, level, target) = (meta.name(), *meta.level(), meta.target());
         let (file, line, module) = (meta.file(), meta.line(), meta.module_path());
         begin_anywhere(opened, parent, move || Point::Span {
             name,
+            level,
             target,
             file,
             line,
@@ -646,6 +647,33 @@ mod tests {
         assert!(
             matches!(seen.last(), Some(trace::Trace::End { id, .. }) if *id == span.id),
             "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_span_is_at_the_level_it_was_opened_at() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        trace::observe(move |trace| {
+            if let trace::Trace::Begin(record) = trace
+                && let Point::Span { name, level, .. } = &record.point
+            {
+                sink.borrow_mut().push((*name, *level));
+            }
+        });
+
+        let subscriber = tracing_subscriber::registry().with(layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let _warned = tracing::warn_span!("retrying").entered();
+            let _debugged = tracing::debug_span!("parsing").entered();
+        });
+        trace::stop_observing();
+
+        assert_eq!(
+            *seen.borrow(),
+            [("retrying", tracing::Level::WARN), ("parsing", tracing::Level::DEBUG)]
         );
     }
 

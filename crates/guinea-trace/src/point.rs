@@ -133,6 +133,8 @@ pub enum Point {
     /// waited in between.
     Span {
         name: &'static str,
+        /// The level it was opened at, as [`Point::Log`]'s.
+        level: tracing::Level,
         target: &'static str,
         /// Where it was written; see [`Point::Log`].
         file: Option<&'static str>,

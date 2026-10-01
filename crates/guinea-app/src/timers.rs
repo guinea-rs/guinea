@@ -34,9 +34,10 @@ pub enum Period {
 
 /// A value that changes and says so: what a period [follows](Period::follows).
 ///
-/// Implemented for a store's reactive value by the crate that has both - a
-/// `ReactiveCell` in amethystate's guinea adapter - and by hand for anything
-/// else that can be read and watched.
+/// A store's reactive value gets it from the crate that knows both - for
+/// amethystate's `Field` and `ReactiveCell`, `.changing()` from
+/// `amethystate-guinea` - and anything else that can be read and watched
+/// implements it by hand.
 pub trait Changing: 'static {
     type Value;
 
@@ -59,7 +60,9 @@ impl Period {
     /// timer does not tick.
     ///
     /// ```ignore
-    /// cx.every(Period::follows(settings.ping_interval_ms(), Duration::from_millis), &agent, || Ping);
+    /// use amethystate_guinea::IntoChanging;
+    ///
+    /// cx.every(Period::follows(settings.ping_interval_ms().changing(), Duration::from_millis), &agent, || Ping);
     /// ```
     pub fn follows<C: Changing>(source: C, period: impl Fn(C::Value) -> Duration + 'static) -> Self {
         let source = Rc::new(source);

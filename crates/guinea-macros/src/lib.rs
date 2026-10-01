@@ -252,8 +252,9 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// Exactly one subscriber answers it: a handler that returns the reply. The
 /// generated code sends what it returns back to whoever asked, once - and the
-/// `async` form does the same after its body resolves. The actor hears the
-/// request on the global bus like any other event:
+/// `async` form does the same after its body resolves. The feature that owns
+/// the actor subscribes it to the request on the global bus, so it answers
+/// while the segment that installed it stands:
 ///
 /// <!-- shown: the one that answers -->
 /// ```rust,ignore
@@ -278,16 +279,16 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///     }
 /// }
 ///
-/// pub struct Answering;
+/// feature! {
+///     pub Killing {}
+/// }
 ///
-/// impl Plugin for Answering {
-///     const ID: &'static str = "example.answering";
-///
-///     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-///         let processes = app.spawn(Processes { protected: vec![4] });
-///         processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
-///         Ok(())
-///     }
+/// // It answers for as long as the segment that installed it stands.
+/// #[installs]
+/// fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+///     let processes = cx.spawn_actor(Processes { protected: vec![4] });
+///     processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+///     Ok(Killing)
 /// }
 /// ```
 /// <!-- /shown -->
@@ -354,6 +355,17 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// #[handler]
 /// fn heard(this: &mut Audit, request: RpcRequest<Kill>) {
 ///     this.seen.push(request.payload.0);
+/// }
+///
+/// feature! {
+///     pub Auditing {}
+/// }
+///
+/// #[installs]
+/// fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+///     let audit = cx.spawn_actor(Audit::default());
+///     audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+///     Ok(Auditing)
 /// }
 /// ```
 /// <!-- /shown -->

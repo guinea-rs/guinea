@@ -56,16 +56,16 @@ mod answering {
         }
     }
 
-    pub struct Answering;
+    feature! {
+        pub Killing {}
+    }
 
-    impl Plugin for Answering {
-        const ID: &'static str = "example.answering";
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            let processes = app.spawn(Processes { protected: vec![4] });
-            processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
-            Ok(())
-        }
+    // It answers for as long as the segment that installed it stands.
+    #[installs]
+    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+        let processes = cx.spawn_actor(Processes { protected: vec![4] });
+        processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        Ok(Killing)
     }
     //@show-end
 }
@@ -139,19 +139,18 @@ mod listening {
     fn heard(this: &mut Audit, request: RpcRequest<Kill>) {
         this.seen.push(request.payload.0);
     }
-    //@show-end
 
-    pub struct Listening;
-
-    impl Plugin for Listening {
-        const ID: &'static str = "example.listening";
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            let audit = app.spawn(Audit::default());
-            audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
-            Ok(())
-        }
+    feature! {
+        pub Auditing {}
     }
+
+    #[installs]
+    fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+        let audit = cx.spawn_actor(Audit::default());
+        audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        Ok(Auditing)
+    }
+    //@show-end
 }
 
 fn asked(h: &Harness, pid: u32) -> Option<String> {
@@ -162,7 +161,7 @@ fn asked(h: &Harness, pid: u32) -> Option<String> {
 
 #[guinea::test(iterations = 4)]
 fn the_answer_comes_back_to_whoever_asked(h: &mut Harness) {
-    h.plugin(answering::Answering).unwrap();
+    h.install::<answering::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
     assert_eq!(asked(h, 7).as_deref(), Some("Done"));
@@ -171,7 +170,7 @@ fn the_answer_comes_back_to_whoever_asked(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_request_nobody_answers_says_so_at_once(h: &mut Harness) {
-    h.plugin(listening::Listening).unwrap();
+    h.install::<listening::Auditing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
     let said = asked(h, 7).expect("an answer, not a wait for the timeout");
@@ -180,30 +179,30 @@ fn a_request_nobody_answers_says_so_at_once(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_listener_beside_the_answerer_does_not_change_the_answer(h: &mut Harness) {
-    h.plugin(listening::Listening).unwrap();
-    h.plugin(answering::Answering).unwrap();
+    h.install::<listening::Auditing>(&()).unwrap();
+    h.install::<answering::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
     assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
 }
 
-/// The same answer, from somewhere else.
-struct AnsweringToo;
+#[guinea::test(iterations = 4)]
+fn the_answerer_goes_with_its_segment(h: &mut Harness) {
+    h.install::<asking::Asking>(&()).unwrap();
 
-impl Plugin for AnsweringToo {
-    const ID: &'static str = "example.answering-too";
+    let area = h.child();
+    area.install::<answering::Killing>(&()).unwrap();
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let processes = app.spawn(answering::Processes::default());
-        processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
-        Ok(())
-    }
+    area.leave();
+    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
+    assert!(said.starts_with("nobody answers"), "{said}");
 }
 
 #[test]
 #[should_panic(expected = "a request has exactly one answerer")]
 fn a_second_answerer_is_refused() {
-    let mut h = Harness::new(0);
-    h.plugin(answering::Answering).unwrap();
-    h.plugin(AnsweringToo).unwrap();
+    let h = Harness::new(0);
+    h.install::<answering::Killing>(&()).unwrap();
+    h.child().install::<answering::Killing>(&()).unwrap();
 }

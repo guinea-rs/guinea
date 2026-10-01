@@ -52,6 +52,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Package and build what is about to be published
+        run: cargo package --workspace --exclude xtask
+
   publish:
     needs: test
     runs-on: windows-latest

@@ -1256,18 +1256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "guinea-plugin-window-state"
-version = "0.14.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.0#6fdd3d09ee13b32da09d3e5b56bd0d864876a07b"
-dependencies = [
- "anyhow",
- "guinea",
- "guinea-plugin-store",
- "serde",
- "tracing",
-]
-
-[[package]]
 name = "guinea-route-dsl"
 version = "0.18.0"
 dependencies = [
@@ -2477,7 +2465,6 @@ dependencies = [
  "guinea-macros",
  "guinea-plugin-l10n",
  "guinea-plugin-store",
- "guinea-plugin-window-state",
  "guinea-widgets",
  "iced",
  "inventory",

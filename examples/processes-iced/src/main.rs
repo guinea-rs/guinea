@@ -46,7 +46,6 @@ fn main() -> anyhow::Result<()> {
                 .backend(guinea_plugin_store::amethystate::store::builder::Backend::Json),
         )
         .plugin(guinea_plugin_l10n::L10nPlugin::<processes_core::l10n::L10n>::new("en"))
-        .plugin(guinea_plugin_window_state::WindowStatePlugin::new())
         .feature(startup::Startup);
 
     run(

@@ -50,6 +50,20 @@ jobs:
       - name: Docs match their tests
         run: cargo xtask docs --check
 
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Package what publish would
+        run: cargo package --workspace --exclude xtask --no-verify
+
   examples:
     runs-on: windows-latest
     strategy:

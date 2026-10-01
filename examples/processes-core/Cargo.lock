@@ -402,9 +402,9 @@ dependencies = [
 
 [[package]]
 name = "fluent-template-macros"
-version = "0.14.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6b1dac7e7f07f8a60aa844f616bede13deeffaf24e9e35ae9e4979a7dac4a5c"
+checksum = "3f17b7ed5b7108d57ca049e1fa7583d4fadbb71ef0e47a72dc847c1e704f37fb"
 dependencies = [
  "flume",
  "ignore",
@@ -416,9 +416,9 @@ dependencies = [
 
 [[package]]
 name = "fluent-templates"
-version = "0.14.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d48ac2b8e7c3a2198fc584af78e674d15dacdede8a6cebb686c844713f7d0ba"
+checksum = "97fc3bfc211d9a9210bd7ccba798da57148e5b02c62b98b6cef09d7228f2f232"
 dependencies = [
  "fluent-bundle",
  "fluent-langneg",
@@ -580,8 +580,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.14.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
+version = "0.14.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -595,20 +595,20 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.14.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
+version = "0.14.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
  "walkdir",
 ]
 
 [[package]]
 name = "guinea-plugin-store"
 version = "0.22.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -650,8 +650,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.14.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.1#26f5665b3a2ee5ee81045323b89dca198f8c6563"
+version = "0.14.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
 dependencies = [
  "guinea-mark",
  "tracing",

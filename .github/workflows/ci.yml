@@ -87,6 +87,10 @@ jobs:
         with:
           workspaces: examples/${{ matrix.example }} -> target
 
+      - name: capnp
+        if: matrix.example == 'processes-app' || matrix.example == 'processes-eframe'
+        run: choco install capnproto --no-progress -y
+
       - name: Build
         run: cargo build --locked --manifest-path examples/${{ matrix.example }}/Cargo.toml
 

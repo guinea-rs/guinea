@@ -1,6 +1,6 @@
 use crate::actor::addr::Addr;
 use crate::actor::event_bus::subscribe::{
-    BusSubscription, FnSubscriber, Subscriber, SubscriptionId, UntypedSubscriber,
+    AnswerFn, BusSubscription, FnSubscriber, Subscriber, SubscriptionId, UntypedSubscriber,
 };
 use crate::actor::invoke_on_ui;
 use crate::actor::short_type_name;
@@ -58,8 +58,18 @@ pub struct EventBus {
     /// is being told does not find the map borrowed.
     subscribers: RefCell<HashMap<TypeId, Vec<Rc<dyn UntypedSubscriber>>>>,
     counts: RefCell<HashMap<TypeId, usize>>,
+    /// The one subscriber that answers each request type, by its `seq`.
+    answerers: RefCell<HashMap<TypeId, (u64, &'static str)>>,
     next_id: Cell<u64>,
     kind: Bus,
+}
+
+/// Whether a request published now would be answered.
+pub(crate) enum Answering {
+    Awake,
+    Nobody,
+    /// The answerer lives in a scope that is asleep.
+    Asleep(&'static str),
 }
 
 impl Default for EventBus {
@@ -91,6 +101,7 @@ impl EventBus {
         Self {
             subscribers: RefCell::new(HashMap::new()),
             counts: RefCell::new(HashMap::new()),
+            answerers: RefCell::new(HashMap::new()),
             next_id: Cell::new(0),
             kind,
         }
@@ -143,12 +154,39 @@ impl EventBus {
         }))
     }
 
+    /// Answers `Req` with `answer`: the callback counterpart of an actor's
+    /// handler that returns the reply.
+    pub fn answer_fn<Req: RpcCall>(
+        self: &Rc<Self>,
+        answer: impl Fn(Req) -> Req::Response + 'static,
+    ) -> BusSubscription {
+        let seq = self.next_id();
+        self.insert::<RpcRequest<Req>>(Box::new(AnswerFn {
+            seq,
+            answer: Box::new(answer),
+        }))
+    }
+
     fn insert<M: Event>(self: &Rc<Self>, subscriber: Box<dyn UntypedSubscriber>) -> BusSubscription {
         let event = TypeId::of::<M>();
         let id = SubscriptionId {
             seq: subscriber.seq(),
             event,
         };
+
+        if let Some(answerer) = subscriber.answerer() {
+            let mut answerers = self.answerers.borrow_mut();
+            if let Some((_, already)) = answerers.get(&event) {
+                panic!(
+                    "{answerer} answers {} on the {:?} bus, and {already} already does: a request \
+                     has exactly one answerer. Make one of them only hear it - a handler that \
+                     returns nothing - or answer from one place.",
+                    subscriber.event(),
+                    self.kind,
+                );
+            }
+            answerers.insert(event, (id.seq, answerer));
+        }
 
         *self.counts.borrow_mut().entry(event).or_insert(0) += 1;
         self.subscribers
@@ -206,7 +244,34 @@ impl EventBus {
         }
     }
 
+    /// Whether a request `M` published now would be answered, and if not, why.
+    pub(crate) fn answering<M: Event>(&self) -> Answering {
+        let event = TypeId::of::<M>();
+        let Some((seq, answerer)) = self.answerers.borrow().get(&event).copied() else {
+            return Answering::Nobody;
+        };
+
+        let asleep = self
+            .subscribers
+            .borrow()
+            .get(&event)
+            .and_then(|list| list.iter().find(|sub| sub.seq() == seq).cloned())
+            .is_some_and(|sub| sub.is_asleep());
+
+        match asleep {
+            true => Answering::Asleep(answerer),
+            false => Answering::Awake,
+        }
+    }
+
     pub(super) fn remove(&self, id: SubscriptionId) {
+        {
+            let mut answerers = self.answerers.borrow_mut();
+            if answerers.get(&id.event).is_some_and(|(seq, _)| *seq == id.seq) {
+                answerers.remove(&id.event);
+            }
+        }
+
         let mut subscribers = self.subscribers.borrow_mut();
         let Some(list) = subscribers.get_mut(&id.event) else {
             return;
@@ -269,6 +334,13 @@ impl GlobalEventBus {
 
     pub fn subscribe_fn<M: Event>(callback: impl Fn(M) + 'static) -> BusSubscription {
         Self::instance().subscribe_fn(callback)
+    }
+
+    /// See [`EventBus::answer_fn`].
+    pub fn answer_fn<Req: RpcCall>(
+        answer: impl Fn(Req) -> Req::Response + 'static,
+    ) -> BusSubscription {
+        Self::instance().answer_fn(answer)
     }
 
     pub fn count_subscribers<M: Event>() -> usize {

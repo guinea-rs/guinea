@@ -1,7 +1,7 @@
-use crate::actor::Cx;
-use crate::actor::event_bus::GlobalEventBus;
-use crate::actor::event_bus::Event;
+use crate::actor::event_bus::{Answering, Event, GlobalEventBus};
 use crate::actor::traits::Handler;
+use crate::actor::{Cx, invoke_on_ui};
+use crate::trace;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::any::{Any, TypeId};
@@ -37,7 +37,19 @@ pub struct RpcRequest<T> {
     pub chain: Vec<TypeId>,
 }
 
-impl<T: RpcCall> Event for RpcRequest<T> {}
+impl<T: RpcCall> Event for RpcRequest<T> {
+    /// Without the address the reply goes to: a listener hears the request,
+    /// and a reply from it lands nowhere.
+    fn overheard(self) -> Self {
+        Self {
+            correlation_id: Uuid::nil(),
+            ..self
+        }
+    }
+}
+
+/// Why a request was not published: nothing could have answered it.
+struct Unanswered(String);
 
 #[derive(Clone)]
 pub struct RpcResponse<T> {
@@ -47,6 +59,13 @@ pub struct RpcResponse<T> {
 
 impl<T: Clone + Send + 'static> Event for RpcResponse<T> {}
 
+/// A request on the global bus, and what answers it. Written with
+/// `#[derive(guinea::Request)]` and `#[request(reply = Type)]`.
+///
+/// One subscriber answers it - a handler that returns `Response`, or
+/// [`EventBus::answer_fn`](super::EventBus::answer_fn). A handler that
+/// returns nothing only hears it; a `Handler<RpcRequest<Req>>` written by hand
+/// answers only if it says `const ANSWERS: bool = true`.
 pub trait RpcCall: Clone + Send + 'static {
     type Response: Clone + Send + 'static;
 }
@@ -88,6 +107,8 @@ where
     Req: RpcCall,
 {
     const DECLARED: Option<crate::actor::shape::Declared> = <A as RpcHandler<Req>>::DECLARED;
+
+    const ANSWERS: bool = true;
 
     fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
         let response = self.handle_rpc(msg.payload, cx.handling());
@@ -146,12 +167,32 @@ impl AsyncBus {
         // `spawn_bg` future running on a background tokio thread. Publishing
         // there would hit an empty, subscriber-less bus instance and always
         // time out.
-        GlobalEventBus::publish(envelope);
+        let cause = trace::current();
+        invoke_on_ui(move || {
+            let _resumed = trace::resume(cause);
+            let bus = GlobalEventBus::instance();
+
+            let unanswered = match bus.answering::<RpcRequest<Req>>() {
+                Answering::Awake => return bus.publish(envelope),
+                Answering::Nobody => format!("nobody answers {}", std::any::type_name::<Req>()),
+                Answering::Asleep(answerer) => format!(
+                    "{answerer}, which answers {}, is asleep",
+                    std::any::type_name::<Req>()
+                ),
+            };
+
+            if let Some(tx) = PENDING_REQUESTS.write().remove(&correlation_id) {
+                let _ = tx.send(Box::new(Unanswered(unanswered)));
+            }
+        });
 
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(any_res)) => match any_res.downcast::<RpcResponse<Req::Response>>() {
                 Ok(res) => Ok(res.payload),
-                Err(_) => Err(anyhow::anyhow!("Type mismatch in async response")),
+                Err(other) => match other.downcast::<Unanswered>() {
+                    Ok(unanswered) => Err(anyhow::anyhow!(unanswered.0)),
+                    Err(_) => Err(anyhow::anyhow!("Type mismatch in async response")),
+                },
             },
             Ok(Err(_)) => Err(anyhow::anyhow!("Response channel closed")),
             Err(_) => {
@@ -165,6 +206,14 @@ impl AsyncBus {
     where
         Res: Clone + Send + 'static,
     {
+        if correlation_id.is_nil() {
+            tracing::warn!(
+                reply = std::any::type_name::<Res>(),
+                "a reply from something that only hears the request went nowhere"
+            );
+            return;
+        }
+
         let envelope = RpcResponse {
             correlation_id,
             payload,
@@ -223,6 +272,7 @@ impl AsyncBus {
 mod tests {
     use super::*;
     use crate::actor::event_bus::EventBus;
+    use std::rc::Rc;
     use std::sync::Mutex;
     use std::sync::mpsc as std_mpsc;
     use std::time::Duration as StdDuration;
@@ -242,14 +292,13 @@ mod tests {
     #[tokio::test]
     async fn request_reply_round_trip_same_thread() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Pong)]
         struct Ping;
         #[derive(Clone, Debug)]
         struct Pong;
-        crate::rpc_bind!(Ping => Pong);
 
-        let _sub =
-            GlobalEventBus::instance().subscribe_fn::<RpcRequest<Ping>>(|req| req.reply(Pong));
+        let _sub = GlobalEventBus::answer_fn(|_: Ping| Pong);
 
         let handle = tokio::spawn(AsyncBus::request::<Ping>(Ping, StdDuration::from_secs(1)));
         // Let the spawned task run up to its `rx.await` - `request` queues
@@ -269,11 +318,11 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use crate::actor::{Addr, UiThreadToken};
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Echoed)]
         struct Echo(u32);
         #[derive(Clone, Debug)]
         struct Echoed(u32);
-        crate::rpc_bind!(Echo => Echoed);
 
         struct EchoActor;
         impl RpcHandler<Echo> for EchoActor {
@@ -298,18 +347,151 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_times_out_with_no_subscriber() {
+    async fn a_request_nobody_answers_fails_at_once() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        #[derive(Clone, Debug)]
-        struct Unanswered;
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = NeverReplied)]
+        struct Unasked;
         #[derive(Clone, Debug)]
         struct NeverReplied;
-        crate::rpc_bind!(Unanswered => NeverReplied);
 
-        let result =
-            AsyncBus::request::<Unanswered>(Unanswered, StdDuration::from_millis(50)).await;
+        let _hears = GlobalEventBus::instance().subscribe_fn(|_: RpcRequest<Unasked>| {});
 
-        assert!(result.is_err());
+        let handle = tokio::spawn(AsyncBus::request::<Unasked>(Unasked, StdDuration::from_secs(60)));
+        tokio::task::yield_now().await;
+        EventBus::process_queue();
+
+        let error = tokio::time::timeout(StdDuration::from_secs(5), handle)
+            .await
+            .expect("it waited for a reply nothing could give")
+            .unwrap()
+            .expect_err("nothing answers it");
+        assert!(error.to_string().contains("nobody answers"), "{error}");
+    }
+
+    #[test]
+    #[should_panic(expected = "a request has exactly one answerer")]
+    fn a_second_answerer_is_refused_when_it_subscribes() {
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Answer)]
+        struct Question;
+        #[derive(Clone, Debug)]
+        struct Answer;
+
+        let bus = Rc::new(EventBus::new());
+        let _first = bus.answer_fn(|_: Question| Answer);
+        let _second = bus.answer_fn(|_: Question| Answer);
+    }
+
+    #[test]
+    #[should_panic(expected = "a request has exactly one answerer")]
+    fn two_actors_returning_the_reply_cannot_both_answer() {
+        use crate::actor::{Addr, UiThreadToken};
+
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Answer)]
+        struct Question;
+        #[derive(Clone, Debug)]
+        struct Answer;
+
+        struct Service;
+        struct Monitor;
+        impl RpcHandler<Question> for Service {
+            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Answer {
+                Answer
+            }
+        }
+        impl RpcHandler<Question> for Monitor {
+            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Answer {
+                Answer
+            }
+        }
+
+        let token = UiThreadToken::dangerously_create_token_unchecked();
+        let bus = Rc::new(EventBus::new());
+        let _service =
+            bus.subscribe::<Service, RpcRequest<Question>>(Addr::new_scoped(Service, token.clone()));
+        let _monitor =
+            bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new_scoped(Monitor, token));
+    }
+
+    #[test]
+    fn the_answerer_s_place_is_free_again_once_it_goes() {
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Answer)]
+        struct Question;
+        #[derive(Clone, Debug)]
+        struct Answer;
+
+        let bus = Rc::new(EventBus::new());
+        drop(bus.answer_fn(|_: Question| Answer));
+        let _next = bus.answer_fn(|_: Question| Answer);
+    }
+
+    #[tokio::test]
+    async fn a_listener_hears_the_request_and_its_reply_goes_nowhere() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Count)]
+        struct HowMany;
+        #[derive(Clone, Debug, PartialEq)]
+        struct Count(u32);
+
+        let heard = Arc::new(AtomicBool::new(false));
+        let hearing = heard.clone();
+        let _listener = GlobalEventBus::subscribe_fn(move |request: RpcRequest<HowMany>| {
+            hearing.store(true, Ordering::SeqCst);
+            request.reply(Count(0));
+        });
+        let _answerer = GlobalEventBus::answer_fn(|_: HowMany| Count(7));
+
+        let handle = tokio::spawn(AsyncBus::request::<HowMany>(HowMany, StdDuration::from_secs(1)));
+        tokio::task::yield_now().await;
+        EventBus::process_queue();
+        EventBus::process_queue();
+
+        assert_eq!(handle.await.unwrap().unwrap(), Count(7));
+        assert!(heard.load(Ordering::SeqCst), "the listener was not told");
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_answerer_sleeps_fails_at_once() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        use crate::actor::{Addr, UiThreadToken};
+        use crate::scope::Scope;
+
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Done)]
+        struct Work;
+        #[derive(Clone, Debug)]
+        struct Done;
+
+        struct Worker;
+        impl RpcHandler<Work> for Worker {
+            fn handle_rpc(&mut self, _: Work, _cx: Cx<Self, Work>) -> Done {
+                Done
+            }
+        }
+
+        let scope = Rc::new(Scope::new());
+        let addr = Addr::new_scoped(Worker, UiThreadToken::dangerously_create_token_unchecked());
+        addr.live_in(&scope, &Rc::new(EventBus::new()));
+        let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
+        scope.sleep();
+
+        let handle = tokio::spawn(AsyncBus::request::<Work>(Work, StdDuration::from_secs(60)));
+        tokio::task::yield_now().await;
+        EventBus::process_queue();
+
+        let error = tokio::time::timeout(StdDuration::from_secs(5), handle)
+            .await
+            .expect("it waited for an answerer that sleeps")
+            .unwrap()
+            .expect_err("its answerer sleeps");
+        assert!(error.to_string().contains("is asleep"), "{error}");
     }
 
     /// Regression test for the bug fixed alongside this: `request`/`reply`
@@ -325,11 +507,11 @@ mod tests {
     #[test]
     fn request_resolves_when_subscriber_is_on_a_different_os_thread() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Pong)]
         struct Ping;
         #[derive(Clone, Debug)]
         struct Pong;
-        crate::rpc_bind!(Ping => Pong);
 
         let (ready_tx, ready_rx) = std_mpsc::channel::<()>();
         let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
@@ -339,8 +521,7 @@ mod tests {
         // dispatcher queue on an interval - the same shape a real
         // `UiDispatcher` runs in production.
         let ui_thread = std::thread::spawn(move || {
-            let _sub = GlobalEventBus::instance()
-                .subscribe_fn::<RpcRequest<Ping>>(|req| req.reply(Pong));
+            let _sub = GlobalEventBus::answer_fn(|_: Ping| Pong);
             ready_tx.send(()).unwrap();
             while stop_rx.try_recv().is_err() {
                 EventBus::process_queue();
@@ -376,17 +557,17 @@ mod tests {
         use crate::actor::{Addr, AsyncContext, UiThreadToken};
         use guinea_macros::handler;
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Doubled)]
         struct Double(u32);
         #[derive(Clone, Debug)]
         struct Doubled(u32);
-        crate::rpc_bind!(Double => Doubled);
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Sum)]
         struct DelayedAdd(u32, u32);
         #[derive(Clone, Debug)]
         struct Sum(u32);
-        crate::rpc_bind!(DelayedAdd => Sum);
 
         struct MathActor;
 
@@ -461,17 +642,17 @@ mod tests {
         use std::panic;
         use std::sync::{Arc, Mutex};
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = RespA)]
         struct ReqA(u32);
         #[derive(Clone, Debug)]
         struct RespA(u32);
-        crate::rpc_bind!(ReqA => RespA);
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = RespB)]
         struct ReqB(u32);
         #[derive(Clone, Debug)]
         struct RespB(u32);
-        crate::rpc_bind!(ReqB => RespB);
 
         struct ActorA;
         struct ActorB;
@@ -564,11 +745,11 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
 
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Sum)]
         struct Add(u32, u32);
         #[derive(Clone, Debug)]
         struct Sum(u32);
-        crate::rpc_bind!(Add => Sum);
 
         struct AddActor;
         impl RpcHandler<Add> for AddActor {
@@ -650,6 +831,10 @@ mod tests {
     }
 }
 
+#[deprecated(
+    since = "0.18.6",
+    note = "write the reply on the request: `#[derive(guinea::Request)] #[request(reply = Res)]`"
+)]
 #[macro_export]
 macro_rules! rpc_bind {
     ($( $req:ident => $res:ident );* $(;)?) => {

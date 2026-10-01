@@ -10,6 +10,7 @@ mod installs;
 mod mark;
 mod reducer;
 mod remote;
+mod request;
 mod routes_dsl;
 mod segment;
 
@@ -230,6 +231,26 @@ pub fn event(item: TokenStream) -> TokenStream {
         impl #impl_generics #gc::actor::event_bus::Event for #name #ty_generics #where_clause {}
     }
     .into()
+}
+
+/// Makes a type a request on the global bus, answered with `reply`: the
+/// request names its answer where the request is declared.
+///
+/// ```ignore
+/// #[derive(Clone, Debug, guinea::Request)]
+/// #[request(reply = ActionOutcome)]
+/// pub struct WindowsActionRequest(pub WindowsAction);
+///
+/// let outcome = AsyncBus::request(WindowsActionRequest(action), timeout).await?;
+/// ```
+///
+/// Exactly one handler answers it - one that returns the reply. A second
+/// answerer on the same bus is refused when it subscribes; a request nobody
+/// answers fails at once rather than at its timeout.
+#[proc_macro_derive(Request, attributes(request))]
+pub fn request(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    request::derive_request(input).into()
 }
 
 /// Makes an enum of unit variants the application's marks: each variant is a

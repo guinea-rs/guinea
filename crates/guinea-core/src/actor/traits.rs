@@ -5,6 +5,11 @@ pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<crate::actor::shape::Declared> = None;
 
+    /// Whether handling `M` answers it: set for a request's handler, the one
+    /// that returns the reply. A bus lets one subscriber answer each request
+    /// type; the rest only hear it.
+    const ANSWERS: bool = false;
+
     fn handle(&mut self, msg: M, cx: Cx<Self, M>)
     where
         Self: Sized;

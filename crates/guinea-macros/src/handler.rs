@@ -193,6 +193,8 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#gc::actor::event_bus::RpcRequest<#msg_ty>> for #actor_ty #where_clause {
                     #declared
 
+                    const ANSWERS: bool = true;
+
                     fn handle(
                         &mut self,
                         msg: #gc::actor::event_bus::RpcRequest<#msg_ty>,

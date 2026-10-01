@@ -24,6 +24,7 @@
 mod convert;
 mod dispatcher;
 mod model;
+mod monitors;
 mod nav;
 mod question;
 mod root;

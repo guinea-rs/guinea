@@ -172,22 +172,24 @@ where
 
 ## Windows: restored geometry
 
-### A restored window can open off screen
+### WinUI has no window contract
 
-Asked for by guinea-plugins (their audit, #4). The window-state plugin
-already refuses a size or a position that is not finite, not positive, or
-outside ±32767, and can do no more: it cannot see the monitors.
+The Slint shell fits geometry onto the monitors' work areas before applying
+it (`guinea_app::app::windows::fit`) and reports positions in physical
+pixels. WinUI provides no `WindowService` and never reads `SavedGeometry`,
+so the window-state plugin does nothing there.
 
-- Each shell intersects the `Geometry` from `RestoreGeometry` with the
-  monitors' work areas before `set_size` and `set_position`. A title bar
-  outside every work area centres the window on the primary monitor, and the
-  size is clamped to the work area. Done in the shell, so it holds for every
-  source of geometry, not only the plugin.
-- `Geometry` carries the scale it was measured at, or the position in
-  physical pixels. Today the position is logical by the scale of the monitor
-  the window was on, and applied by the scale of the current one.
-- Where: `guinea-slint` `run.rs` (`restore`) and `windows.rs` (`apply`). WinUI
-  does not read `SavedGeometry` at all yet.
+- windows-reactor-pre has no way to place a window: `WindowVisuals` sets a
+  client size and nothing else. It needs a position, and a way to read the
+  window's geometry and hear when it moves, through `AppWindow`
+  (`MoveAndResize`, `Changed`).
+- Then guinea-winui provides `WindowService` the way guinea-slint does,
+  restores from `SavedGeometry` before the first window shows, and fits
+  through the same `fit`.
+- Work areas: guinea-slint asks Win32 (`monitors.rs`); WinUI can ask
+  `DisplayArea`, or share the Win32 code.
+- Off Windows, guinea-slint knows no work areas and applies geometry as it
+  comes.
 
 ## Examples
 

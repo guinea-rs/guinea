@@ -16,10 +16,12 @@ use std::time::Duration;
 
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{
-    Done, Geometry, Position, Size, Unsupported, WindowChanged, Windows,
+    Done, Geometry, Position, Size, Unsupported, WindowChanged, Windows, fit,
 };
 use guinea_core::actor::event_bus::GlobalEventBus;
-use slint::{ComponentHandle, LogicalPosition, LogicalSize};
+use slint::{ComponentHandle, LogicalSize, PhysicalPosition};
+
+use crate::monitors;
 
 #[cfg(feature = "winit")]
 use slint::winit_030::WinitWindowAccessor;
@@ -171,9 +173,8 @@ impl<W: ComponentHandle + 'static> Handle for slint::Weak<W> {
             });
         }
 
-        let scale = window.scale_factor();
-        let size = window.size().to_logical(scale);
-        let position = window.position().to_logical(scale);
+        let size = window.size().to_logical(window.scale_factor());
+        let position = window.position();
 
         Some(Geometry {
             size: Some(Size {
@@ -181,8 +182,8 @@ impl<W: ComponentHandle + 'static> Handle for slint::Weak<W> {
                 height: size.height as f64,
             }),
             position: Some(Position {
-                x: position.x as f64,
-                y: position.y as f64,
+                x: f64::from(position.x),
+                y: f64::from(position.y),
             }),
             maximized: window.is_maximized(),
             fullscreen: window.is_fullscreen(),
@@ -197,12 +198,16 @@ impl<W: ComponentHandle + 'static> Handle for slint::Weak<W> {
             return Err(Unsupported);
         };
         let window = component.window();
+        let geometry = fit(geometry, &monitors::work_areas());
 
         if let Some(size) = geometry.size {
             window.set_size(LogicalSize::new(size.width as f32, size.height as f32));
         }
         if let Some(position) = geometry.position {
-            window.set_position(LogicalPosition::new(position.x as f32, position.y as f32));
+            window.set_position(PhysicalPosition::new(
+                position.x.round() as i32,
+                position.y.round() as i32,
+            ));
         }
         window.set_maximized(geometry.maximized);
         window.set_fullscreen(geometry.fullscreen);

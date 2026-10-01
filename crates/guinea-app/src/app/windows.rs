@@ -27,11 +27,99 @@ pub struct Size {
     pub height: f64,
 }
 
-/// Position of the window's top-left corner, in logical pixels.
+/// Position of the window's top-left corner, in physical pixels of the
+/// desktop - the space the monitors are laid out in.
+///
+/// Physical rather than logical because a logical position means nothing
+/// without the scale of the monitor it was measured on: one written on a 150%
+/// monitor and read back on a 100% one lands somewhere else, possibly on no
+/// monitor at all.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
+}
+
+/// A monitor's work area - the part windows may use, without the taskbar - in
+/// physical pixels of the desktop, and the scale the monitor draws at.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct WorkArea {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+}
+
+/// How much of the window's top edge, in logical pixels, has to be on a
+/// monitor for the window to count as being there: enough title bar to grab.
+const REACHABLE: f64 = 32.0;
+
+/// Puts `geometry` onto the monitors whose work areas are `areas`, the first
+/// of them the primary one.
+///
+/// A window whose top edge is on no monitor - one that was on a monitor
+/// unplugged since - is centred on the primary one. A window larger than its
+/// monitor is shrunk to it, and one hanging over the edge is moved back on.
+/// With no areas known nothing is changed: there is nothing to fit to.
+///
+/// For a shell, before it applies geometry from anywhere.
+pub fn fit(geometry: Geometry, areas: &[WorkArea]) -> Geometry {
+    let Some(primary) = areas.first() else {
+        return geometry;
+    };
+
+    let home = geometry
+        .position
+        .and_then(|at| reaching(at, geometry.size, areas));
+    let area = home.unwrap_or(primary);
+
+    let size = geometry.size.map(|size| Size {
+        width: size.width.min(area.width / area.scale),
+        height: size.height.min(area.height / area.scale),
+    });
+
+    let (width, height) = match size {
+        Some(size) => (size.width * area.scale, size.height * area.scale),
+        None => (REACHABLE * area.scale, REACHABLE * area.scale),
+    };
+
+    let position = match (geometry.position, home) {
+        (Some(at), Some(_)) => Some(Position {
+            x: at.x.min(area.x + area.width - width).max(area.x),
+            y: at.y.min(area.y + area.height - height).max(area.y),
+        }),
+        (Some(_), None) if size.is_some() => Some(Position {
+            x: area.x + (area.width - width) / 2.0,
+            y: area.y + (area.height - height) / 2.0,
+        }),
+        _ => None,
+    };
+
+    Geometry {
+        size,
+        position,
+        ..geometry
+    }
+}
+
+/// The area holding the most of the window's top edge, if any holds some.
+fn reaching<'a>(at: Position, size: Option<Size>, areas: &'a [WorkArea]) -> Option<&'a WorkArea> {
+    let overlap = |area: &WorkArea| {
+        let width = size.map_or(REACHABLE, |size| size.width) * area.scale;
+        let height = REACHABLE * area.scale;
+
+        let across = (at.x + width).min(area.x + area.width) - at.x.max(area.x);
+        let down = (at.y + height).min(area.y + area.height) - at.y.max(area.y);
+        across.max(0.0) * down.max(0.0)
+    };
+
+    areas
+        .iter()
+        .map(|area| (area, overlap(area)))
+        .filter(|(_, overlap)| *overlap > 0.0)
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(area, _)| area)
 }
 
 /// Where a window is and how it is shown.
@@ -213,5 +301,103 @@ mod tests {
         // A caller that can carry on should: nothing went wrong, the shell
         // just has no such concept.
         assert_eq!(service.start_drag(root.id()), Err(Unsupported));
+    }
+
+    const PRIMARY: WorkArea = WorkArea {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1040.0,
+        scale: 1.0,
+    };
+
+    const RIGHT_AT_150: WorkArea = WorkArea {
+        x: 1920.0,
+        y: 0.0,
+        width: 2560.0,
+        height: 1380.0,
+        scale: 1.5,
+    };
+
+    fn window(width: f64, height: f64, x: f64, y: f64) -> Geometry {
+        Geometry {
+            size: Some(Size { width, height }),
+            position: Some(Position { x, y }),
+            ..Geometry::default()
+        }
+    }
+
+    #[test]
+    fn a_window_on_a_monitor_stays_where_it_was() {
+        let at = window(800.0, 600.0, 2000.0, 100.0);
+
+        assert_eq!(fit(at, &[PRIMARY, RIGHT_AT_150]), at);
+    }
+
+    #[test]
+    fn a_window_on_an_unplugged_monitor_is_centred_on_the_primary_one() {
+        let fitted = fit(window(800.0, 600.0, 2000.0, 100.0), &[PRIMARY]);
+
+        assert_eq!(fitted.size, Some(Size { width: 800.0, height: 600.0 }));
+        assert_eq!(fitted.position, Some(Position { x: 560.0, y: 220.0 }));
+    }
+
+    #[test]
+    fn a_window_larger_than_its_monitor_is_shrunk_to_it_and_kept_on_it() {
+        let fitted = fit(window(2400.0, 1400.0, -10.0, -10.0), &[PRIMARY]);
+
+        assert_eq!(fitted.size, Some(Size { width: 1920.0, height: 1040.0 }));
+        assert_eq!(fitted.position, Some(Position { x: 0.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn a_title_bar_above_the_top_comes_back_down() {
+        let fitted = fit(window(800.0, 600.0, 100.0, -20.0), &[PRIMARY]);
+
+        assert_eq!(fitted.position, Some(Position { x: 100.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn a_monitor_is_measured_at_its_own_scale() {
+        let fitted = fit(window(2000.0, 1000.0, 1920.0, 0.0), &[PRIMARY, RIGHT_AT_150]);
+
+        assert_eq!(
+            fitted.size,
+            Some(Size { width: 2560.0 / 1.5, height: 1380.0 / 1.5 }),
+            "2560 by 1380 physical pixels are 1706.67 by 920 logical ones at 150%"
+        );
+        assert_eq!(fitted.position, Some(Position { x: 1920.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn the_monitor_holding_most_of_the_title_bar_is_the_one() {
+        let fitted = fit(window(800.0, 600.0, 1800.0, 100.0), &[PRIMARY, RIGHT_AT_150]);
+
+        assert_eq!(
+            fitted.position,
+            Some(Position { x: 1920.0, y: 100.0 }),
+            "1080 of 1200 physical pixels of the edge are on the right monitor"
+        );
+    }
+
+    #[test]
+    fn with_no_monitors_known_nothing_changes() {
+        let at = window(800.0, 600.0, 99_000.0, 99_000.0);
+
+        assert_eq!(fit(at, &[]), at);
+    }
+
+    #[test]
+    fn a_size_without_a_position_is_still_shrunk_and_left_unplaced() {
+        let fitted = fit(
+            Geometry {
+                size: Some(Size { width: 4000.0, height: 300.0 }),
+                ..Geometry::default()
+            },
+            &[PRIMARY],
+        );
+
+        assert_eq!(fitted.size, Some(Size { width: 1920.0, height: 300.0 }));
+        assert_eq!(fitted.position, None);
     }
 }

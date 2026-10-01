@@ -2330,6 +2330,7 @@ dependencies = [
  "i-slint-backend-testing",
  "slint",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

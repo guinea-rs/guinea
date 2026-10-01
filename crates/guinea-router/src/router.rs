@@ -1,7 +1,7 @@
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use guinea_core::binding::ReducerBinding;
 use guinea_core::guard::{Ask, Decision, Verdict};
@@ -58,6 +58,9 @@ pub struct SegmentEntry<U: Ui> {
     /// Built by the backend: the agnostic half only calls it.
     pub mount: &'static dyn Mount<U>,
     pub cache_state: bool,
+    /// Declared `keep` in `routes!`: left, it sleeps instead of being torn
+    /// down, and a navigation back wakes it as it was.
+    pub keep: bool,
     /// Where `routes!` listed this segment.
     pub declared: Option<guinea_core::actor::shape::Declared>,
     /// Where the segment itself was written, when `#[segment]` wrote it down.
@@ -256,9 +259,15 @@ impl<U: Ui> SegmentEntry<U> {
             same_params,
             mount,
             cache_state,
+            keep: false,
             declared: None,
             written: None,
         }
+    }
+
+    /// The same entry, kept asleep when a navigation leaves it.
+    pub const fn kept(self) -> Self {
+        Self { keep: true, ..self }
     }
 
     /// The same entry, knowing where `routes!` listed it.
@@ -611,6 +620,8 @@ impl<U: Ui> ActiveChain<U> {
 /// one a closing window takes.
 impl<U: Ui> Drop for Router<U> {
     fn drop(&mut self) {
+        self.forget_sleeping();
+
         if let Ok(mut active) = self.active.try_borrow_mut()
             && let Some(active) = active.take()
         {
@@ -727,6 +738,46 @@ impl StateCache {
         }
         self.entries.remove(&key)
     }
+}
+
+/// A `keep` segment a navigation left: its scope, asleep, and what it needs
+/// to be woken as the same segment.
+struct Sleeping {
+    scope: Rc<Scope>,
+    /// What it had captured. Woken only for the same capture.
+    params: Box<dyn Any>,
+    /// The scopes it was installed under, outermost first. It wakes only
+    /// below the very same ones: what it inherited from them is theirs.
+    above: Vec<Weak<Scope>>,
+}
+
+impl Sleeping {
+    fn is_below(&self, scope: &Rc<Scope>) -> bool {
+        self.above
+            .iter()
+            .any(|above| std::ptr::eq(above.as_ptr(), Rc::as_ptr(scope)))
+    }
+
+    fn sits_on(&self, standing: &[Rc<Scope>]) -> bool {
+        self.above.len() == standing.len()
+            && self
+                .above
+                .iter()
+                .zip(standing)
+                .all(|(above, scope)| std::ptr::eq(above.as_ptr(), Rc::as_ptr(scope)))
+    }
+}
+
+/// How far below `shared_len` a navigation leaving `entries` keeps them: the
+/// run of `keep` segments right under what stays. A `keep` segment below one
+/// that goes is torn down with it - it has nothing left to wake under.
+fn kept_until<U: Ui>(entries: &[SegmentEntry<U>], shared_len: usize) -> usize {
+    shared_len
+        + entries
+            .iter()
+            .skip(shared_len)
+            .take_while(|entry| entry.keep)
+            .count()
 }
 
 /// A place the application has been: the route itself, erased, and the path
@@ -856,6 +907,8 @@ pub struct Router<U: Ui> {
     /// keep, which to tear down, and in what order.
     host: FeatureHost,
     state_cache: RefCell<StateCache>,
+    /// The `keep` segments navigations have left, by where they sat.
+    sleeping: RefCell<HashMap<StateCacheKey, Sleeping>>,
     /// Notified after a navigation is applied. Kept here rather than on the
     /// application, because a route change is something only a router has -
     /// an application without one has nothing to report.
@@ -898,6 +951,7 @@ impl<U: Ui> Router<U> {
             forward: RefCell::new(Vec::new()),
             host,
             state_cache: RefCell::new(StateCache::new()),
+            sleeping: RefCell::new(HashMap::new()),
             route_hooks: RefCell::new(Vec::new()),
             question_hooks: RefCell::new(Vec::new()),
             next_hook_id: std::cell::Cell::new(0),
@@ -1178,7 +1232,12 @@ impl<U: Ui> Router<U> {
     /// re-enter this borrow.
     fn may_leave(&self, shared_len: usize) -> Verdict {
         let leaving: Vec<Rc<Scope>> = match self.active.borrow().as_ref() {
-            Some(active) => active.scopes.iter().skip(shared_len).cloned().collect(),
+            Some(active) => active
+                .scopes
+                .iter()
+                .skip(kept_until(active.entries, shared_len))
+                .cloned()
+                .collect(),
             None => return Verdict::Allow,
         };
 
@@ -1305,16 +1364,17 @@ impl<U: Ui> Router<U> {
                 again: before,
             }) => {
                 previous = before.map(|before| (entries, before));
+                let keeping = kept_until(entries, shared_len);
+                let mut captured: Vec<Option<Box<dyn Any>>> =
+                    captured.into_iter().map(Some).collect();
                 {
                     let mut cache = self.state_cache.borrow_mut();
-                    for (index, ((entry, scope), captured)) in entries
-                        .iter()
-                        .zip(scopes.iter())
-                        .zip(captured)
-                        .enumerate()
-                        .skip(shared_len)
+                    for (index, (entry, scope)) in
+                        entries.iter().zip(scopes.iter()).enumerate().skip(keeping)
                     {
-                        if entry.cache_state {
+                        if entry.cache_state
+                            && let Some(captured) = captured.get_mut(index).and_then(Option::take)
+                        {
                             cache.insert(
                                 cache_key(entries, index),
                                 Cached {
@@ -1326,31 +1386,158 @@ impl<U: Ui> Router<U> {
                     }
                 }
 
-                unwind(scopes, shared_len)
+                self.leave(entries, scopes, captured, shared_len, keeping)
             }
         };
 
         let (error, kept) = match self.build(chain, scopes, &params) {
-            Ok(scopes) => return Ok(self.stand(chain, scopes, params, again)),
+            Ok(scopes) => {
+                let leaf = self.stand(chain, scopes, params, again);
+                self.wake_standing();
+                return Ok(leaf);
+            }
             Err(failed) => failed,
         };
 
         let Some((entries, before)) = previous else {
-            unwind(Rc::new(kept), 0);
+            self.tear_down(kept, 0);
             return Err(error);
         };
         let captured = before();
         match self.build(entries, kept, &captured) {
             Ok(scopes) => {
                 self.stand(entries, scopes, captured, Some(before));
+                self.wake_standing();
                 Err(error.context("the navigation failed; the router stayed where it was"))
             }
             Err((back, kept)) => {
                 tracing::error!(error = %back, "the chain a failed navigation replaced would not go back");
-                unwind(Rc::new(kept), 0);
+                self.tear_down(kept, 0);
                 Err(error)
             }
         }
+    }
+
+    /// Takes a chain down to its first `shared_len` segments, innermost
+    /// first, and hands back what is left standing. The segments below that,
+    /// up to `keeping`, go to sleep instead of going.
+    fn leave(
+        &self,
+        entries: &[SegmentEntry<U>],
+        scopes: Rc<Vec<Rc<Scope>>>,
+        mut captured: Vec<Option<Box<dyn Any>>>,
+        shared_len: usize,
+        keeping: usize,
+    ) -> Vec<Rc<Scope>> {
+        let mut standing = match Rc::try_unwrap(scopes) {
+            Ok(owned) => owned,
+            Err(shared) => (*shared).clone(),
+        };
+
+        while standing.len() > shared_len {
+            let scope = standing.pop().expect("longer than what stays");
+            let index = standing.len();
+            let params = (index < keeping)
+                .then(|| captured.get_mut(index).and_then(Option::take))
+                .flatten();
+
+            let Some(params) = params else {
+                self.forget_below(&scope);
+                drop(scope);
+                continue;
+            };
+
+            scope.sleep();
+            let sleeping = Sleeping {
+                scope,
+                params,
+                above: standing.iter().map(Rc::downgrade).collect(),
+            };
+
+            let replaced = self
+                .sleeping
+                .borrow_mut()
+                .insert(cache_key(entries, index), sleeping);
+            if let Some(replaced) = replaced {
+                self.forget(replaced);
+            }
+        }
+
+        standing
+    }
+
+    /// Tears `scopes` down to the first `shared_len`, with whatever sleeps
+    /// below the ones that go.
+    fn tear_down(&self, scopes: Vec<Rc<Scope>>, shared_len: usize) -> Vec<Rc<Scope>> {
+        self.leave(&[], Rc::new(scopes), Vec::new(), shared_len, shared_len)
+    }
+
+    /// The segment that slept at `index` of `chain`, if it can wake there:
+    /// under the very scopes it was installed under, with the same capture.
+    /// One that cannot is torn down.
+    fn wakeable(
+        &self,
+        chain: &'static [SegmentEntry<U>],
+        index: usize,
+        standing: &[Rc<Scope>],
+        captured: &dyn Any,
+    ) -> Option<Rc<Scope>> {
+        let entry = &chain[index];
+        let sleeping = self.sleeping.borrow_mut().remove(&cache_key(chain, index))?;
+
+        if entry.keep && sleeping.sits_on(standing) && (entry.same_params)(&*sleeping.params, captured) {
+            return Some(sleeping.scope);
+        }
+
+        self.forget(sleeping);
+        None
+    }
+
+    /// Wakes what the active chain woke up with, outermost first, once the
+    /// chain stands: a wake hook is free to navigate.
+    fn wake_standing(&self) {
+        let Some(scopes) = self.active_scopes() else {
+            return;
+        };
+
+        for scope in scopes.iter().filter(|scope| !scope.is_awake()) {
+            scope.wake();
+        }
+    }
+
+    /// Tears down a sleeping segment, after whatever sleeps below it.
+    fn forget(&self, sleeping: Sleeping) {
+        self.forget_below(&sleeping.scope);
+        drop(sleeping);
+    }
+
+    /// Tears down whatever sleeps below `scope`, deepest first.
+    fn forget_below(&self, scope: &Rc<Scope>) {
+        let mut below: Vec<Sleeping> = {
+            let mut sleeping = self.sleeping.borrow_mut();
+            let keys: Vec<StateCacheKey> = sleeping
+                .iter()
+                .filter(|(_, sleeping)| sleeping.is_below(scope))
+                .map(|(key, _)| *key)
+                .collect();
+
+            keys.iter().filter_map(|key| sleeping.remove(key)).collect()
+        };
+
+        below.sort_by_key(|sleeping| std::cmp::Reverse(sleeping.above.len()));
+        drop(below);
+    }
+
+    /// Tears down everything asleep, deepest first.
+    fn forget_sleeping(&self) {
+        let Ok(mut sleeping) = self.sleeping.try_borrow_mut() else {
+            return;
+        };
+        let mut all: Vec<Sleeping> = sleeping.drain().map(|(_, sleeping)| sleeping).collect();
+        drop(sleeping);
+
+        all.sort_by_key(|sleeping| std::cmp::Reverse(sleeping.above.len()));
+        drop(all);
     }
 
     /// Makes `chain` the active one, and hands back its leaf.
@@ -1385,12 +1572,17 @@ impl<U: Ui> Router<U> {
         let standing = scopes.len();
 
         for (index, entry) in chain.iter().enumerate().skip(standing) {
-            let scope = Rc::new(Scope::new());
             let captured: &dyn Any = params
                 .get(index)
                 .map(|p| &**p)
                 .expect("params has one entry per segment - the macro emits them together");
 
+            if let Some(asleep) = self.wakeable(chain, index, &scopes, captured) {
+                scopes.push(asleep);
+                continue;
+            }
+
+            let scope = Rc::new(Scope::new());
             if entry.cache_state
                 && let Some(cached) = self.state_cache.borrow_mut().take(cache_key(chain, index))
             {
@@ -1413,7 +1605,7 @@ impl<U: Ui> Router<U> {
 
             if let Err(error) = (entry.install)(&ctx, captured) {
                 scopes.push(scope);
-                let kept = unwind(Rc::new(scopes), standing);
+                let kept = self.tear_down(scopes, standing);
 
                 return Err((error, kept));
             }
@@ -1429,6 +1621,7 @@ impl<U: Ui> Router<U> {
         // down takes the segments apart in the same direction a navigation
         // does. This is the path a closing window takes, which is the one
         // place where getting it wrong is hardest to notice.
+        self.forget_sleeping();
         if let Some(active) = self.active.borrow_mut().take() {
             unwind(active.scopes, 0);
         }

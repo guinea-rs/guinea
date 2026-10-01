@@ -127,6 +127,8 @@ every route argument. Ours appears only where the feature is used.
   on the offending field.
 - `link` opens an external entry point - it is flat and explicit, never
   inherited.
+- `keep` neither tightens nor opens: it says what becomes of one segment when a
+  navigation leaves it, so it is flat. See [Keeping a segment](#keeping-a-segment).
 
 A cascading `link` would make renaming `/app` to `/workspace` - a wide breaking
 change to a published contract - look like a one-word edit. Flat paths make it
@@ -183,6 +185,55 @@ was never reused - and it lexes cleanly inside a macro body.
 Because both outward tiers must reconstruct a route whole:
 
 > `~` is allowed only on a route that is neither `link` nor `restorable`.
+
+## Keeping a segment
+
+A navigation tears down every segment it leaves. For most that is right - a
+page's state is the page's, and coming back to it is coming to it fresh. An
+area whose state is expensive to have again is the exception: a process list
+that starts from `Loading` until the next report, with its sort and selection
+gone, because the user looked at another tab for a second.
+
+Moving the feature up into the shell keeps it, and leaks it into every page
+under the shell. `keep` keeps it where it is:
+
+```rust
+layout(ProcessesArea) keep {
+    page(Processes)
+    page(ProcessesSettings)
+}
+```
+
+Left, a `keep` segment sleeps instead of going. Its scope stays, with its
+reducers, its actors and its features; coming back to it wakes the same scope -
+no `install`, no `init` - and the view draws from the state it kept.
+
+Asleep, it is deaf. What its scope owns stops: its timers skip their ticks, and
+its actors and its callbacks are not told what either bus carries. Nothing is
+queued for it, so what happened meanwhile is missed rather than replayed. A
+feature catches up when it wakes:
+
+```rust
+cx.on_wake(move || agent.send(AgentStateRequest));
+```
+
+Work a feature started on its own - a task it spawned, a stream it pours into a
+reducer - runs on: guinea cannot pause what it did not start. Such work can ask
+`cx.scope.awake()` whether there is anyone to do it for.
+
+What keeping does not change:
+
+- A segment that sleeps is not leaving, so its leave guards are not asked.
+- It wakes only where it slept: under the very scopes it was installed under,
+  with the same capture. Reached with another capture, it is torn down and
+  installed fresh; when a segment above it goes, it goes first.
+- `keep` is not inherited, and a `keep` segment under one that a navigation
+  tears down goes with it - there is nothing left to wake it under.
+- It is runtime only. Nothing about it survives a restart; `restorable` is a
+  separate promise.
+
+There is no time-to-live. A sleeping segment costs memory and nothing else, and
+a window closing takes everything asleep in it down, innermost first.
 
 ## Guards
 

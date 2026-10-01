@@ -148,6 +148,16 @@ impl<A: 'static> Addr<A> {
         self.subscriptions.borrow_mut().push(subscription);
     }
 
+    /// Whether the scope it lives in is asleep: what a bus carries meanwhile
+    /// is not for it.
+    pub(crate) fn is_asleep(&self) -> bool {
+        self.home
+            .borrow()
+            .as_ref()
+            .and_then(|home| home.scope.upgrade())
+            .is_some_and(|scope| !scope.is_awake())
+    }
+
     pub fn new_scoped(state: A, token: UiThreadToken) -> Self {
         Self::new(state, token, &crate::lifecycle_tracker::NullTracker)
     }

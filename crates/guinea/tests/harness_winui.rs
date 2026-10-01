@@ -937,6 +937,7 @@ mod navigating {
 
     thread_local! {
         static AREAS_GONE: Cell<usize> = const { Cell::new(0) };
+        static KEPT_WAKES: Cell<usize> = const { Cell::new(0) };
     }
 
     pub mod frame_clock {
@@ -1065,6 +1066,7 @@ mod navigating {
                 AppRoute::List {} => "at list",
                 AppRoute::Other {} => "at other",
                 AppRoute::Draft {} => "at draft",
+                AppRoute::KeptList {} => "at kept list",
             };
             let (ticks, _) = cx.use_reducer::<frame_clock::FrameTicks, _>();
             let nav = cx.navigate::<AppRoute>();
@@ -1155,11 +1157,49 @@ mod navigating {
         }
     }
 
+    /// The same clock as [`Area`], in a layout the routes keep.
+    #[derive(Default)]
+    pub struct KeptArea;
+
+    #[layout]
+    impl Layout for KeptArea {
+        type Params = KeptAreaParams;
+        type Installs = list_clock::ListClock;
+
+        fn install(
+            ctx: &FeatureInitContext,
+            _params: &KeptAreaParams,
+        ) -> anyhow::Result<list_clock::ListClock> {
+            ctx.on_wake(|| KEPT_WAKES.with(|wakes| wakes.set(wakes.get() + 1)));
+            ctx.install(&())
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+            cx.outlet()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct KeptList;
+
+    #[page]
+    impl Page for KeptList {
+        type Params = KeptListParams;
+
+        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+            let (ticks, _) = cx.use_reducer::<list_clock::ListTicks, _>();
+            TextBlock::new().text(format!("kept ticks: {}", ticks.0)).into()
+        }
+    }
+
     routes! {
         AppRoute {
             layout(Frame) {
                 layout(Area) {
                     page(List) { }
+                }
+                layout(KeptArea) keep {
+                    page(KeptList) { }
                 }
                 page(Other) { }
                 page(Draft) { }
@@ -1232,5 +1272,37 @@ mod navigating {
         app.answer(true);
         assert_eq!(app.route(), AppRoute::Other {}, "discarded");
         assert!(app.find_text("at other").is_some(), "{:#?}", app.tree());
+    }
+
+    #[guinea::test(iterations = 4)]
+    fn a_kept_layout_comes_back_with_its_state_and_its_clock_slept_meanwhile(h: &mut Harness) {
+        KEPT_WAKES.with(|wakes| wakes.set(0));
+        let mut app = Mounted::routed(h, AppRoute::KeptList {}).unwrap();
+
+        h.advance(Duration::from_secs(1));
+        app.settle();
+        assert!(app.find_text("kept ticks: 1").is_some(), "{:#?}", app.tree());
+
+        app.navigate(AppRoute::Other {});
+        assert!(!app.is_mounted::<KeptArea>(), "{:?}", app.segments());
+        h.advance(Duration::from_secs(3));
+        app.settle();
+        assert_eq!(KEPT_WAKES.with(Cell::get), 0);
+
+        app.navigate(AppRoute::KeptList {});
+        assert!(
+            app.find_text("kept ticks: 1").is_some(),
+            "the area kept its state, and its clock did not tick while it slept:\n{:#?}",
+            app.tree()
+        );
+        assert_eq!(KEPT_WAKES.with(Cell::get), 1, "woken once, on the way back");
+
+        h.advance(Duration::from_secs(1));
+        app.settle();
+        assert!(
+            app.find_text("kept ticks: 2").is_some(),
+            "awake, the clock ticks again:\n{:#?}",
+            app.tree()
+        );
     }
 }

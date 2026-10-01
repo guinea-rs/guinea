@@ -31,6 +31,8 @@ pub enum Node {
         ty: syn::Type,
         guards: Guards,
         restorable: bool,
+        /// `keep`: left, it sleeps rather than going. Not inherited.
+        keep: bool,
         children: Vec<Node>,
     },
     Page {
@@ -40,6 +42,7 @@ pub enum Node {
         link: Option<String>,
         guards: Guards,
         restorable: bool,
+        keep: bool,
         fields: Vec<Field>,
     },
 }
@@ -125,6 +128,9 @@ pub struct Leaf {
     /// Whether this route survives a restart - declared here or inherited
     /// from a layout above.
     pub restorable: bool,
+    /// Which segments of the chain are declared `keep`: the ancestors in
+    /// order, then the page.
+    pub keep: Vec<bool>,
 }
 
 impl Leaf {
@@ -164,7 +170,7 @@ impl RouteTree {
     /// Every page, in declaration order, with its ancestors.
     pub fn leaves(&self) -> Vec<Leaf> {
         let mut leaves = Vec::new();
-        flatten(&self.nodes, &mut Vec::new(), &[], false, &mut leaves);
+        flatten(&self.nodes, &mut Vec::new(), &mut Vec::new(), &[], false, &mut leaves);
         leaves
     }
 
@@ -319,6 +325,7 @@ pub fn parse_pattern(pattern: &str) -> Vec<Segment> {
 fn flatten(
     nodes: &[Node],
     ancestors: &mut Vec<syn::Type>,
+    keeping: &mut Vec<bool>,
     standing: &[syn::Type],
     kept: bool,
     leaves: &mut Vec<Leaf>,
@@ -329,13 +336,16 @@ fn flatten(
                 ty,
                 guards,
                 restorable,
+                keep,
                 children,
             } => {
                 let mut inside = standing.to_vec();
                 guards.fold_into(&mut inside);
 
                 ancestors.push(ty.clone());
-                flatten(children, ancestors, &inside, kept || *restorable, leaves);
+                keeping.push(*keep);
+                flatten(children, ancestors, keeping, &inside, kept || *restorable, leaves);
+                keeping.pop();
                 ancestors.pop();
             }
             Node::Page {
@@ -343,10 +353,14 @@ fn flatten(
                 link,
                 guards,
                 restorable,
+                keep,
                 fields,
             } => {
                 let mut here = standing.to_vec();
                 guards.fold_into(&mut here);
+
+                let mut keep_chain = keeping.clone();
+                keep_chain.push(*keep);
 
                 leaves.push(Leaf {
                     ancestors: ancestors.clone(),
@@ -355,6 +369,7 @@ fn flatten(
                     fields: fields.clone(),
                     guards: here,
                     restorable: kept || *restorable,
+                    keep: keep_chain,
                 });
             }
         }
@@ -630,6 +645,7 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
 
     let mut guards = Guards::default();
     let mut restorable = false;
+    let mut keep = false;
     loop {
         let declared = parse_guards(input);
         if !declared.is_empty() {
@@ -637,8 +653,12 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
             guards.removed.extend(declared.removed);
             continue;
         }
-        if parse_restorable(input) {
+        if parse_word(input, "restorable") {
             restorable = true;
+            continue;
+        }
+        if parse_word(input, "keep") {
+            keep = true;
             continue;
         }
         break;
@@ -651,6 +671,7 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
         ty,
         guards,
         restorable,
+        keep,
         children,
     })
 }
@@ -672,6 +693,7 @@ fn parse_page_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
     let mut link = None;
     let mut guards = Guards::default();
     let mut restorable = false;
+    let mut keep = false;
     loop {
         if let Some(found) = parse_link(input) {
             link = Some(found);
@@ -683,8 +705,12 @@ fn parse_page_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
             guards.removed.extend(declared.removed);
             continue;
         }
-        if parse_restorable(input) {
+        if parse_word(input, "restorable") {
             restorable = true;
+            continue;
+        }
+        if parse_word(input, "keep") {
+            keep = true;
             continue;
         }
         break;
@@ -704,22 +730,27 @@ fn parse_page_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
         link,
         guards,
         restorable,
+        keep,
         fields,
     })
 }
 
-/// `restorable`, if it is there.
+/// A modifier that is a word on its own, if it is there.
 ///
-/// A word on its own rather than a call: it takes no argument, and the tier it
-/// opts into is the whole statement. It cascades, because it tightens - and it
-/// has no negation, unlike `guard`. Opting out would make a layout's claim
-/// false: an area that says it survives a restart, with a page inside it that
-/// does not, restores into nothing, and implicit onward resolution is what
-/// breaks history everywhere it is tried. A page that cannot be restored does
-/// not belong under a layout that can.
-fn parse_restorable<'i>(input: &mut Tokens<'i>) -> bool {
+/// `restorable` takes no argument: the tier it opts into is the whole
+/// statement. It cascades, because it tightens - and it has no negation,
+/// unlike `guard`. Opting out would make a layout's claim false: an area that
+/// says it survives a restart, with a page inside it that does not, restores
+/// into nothing, and implicit onward resolution is what breaks history
+/// everywhere it is tried. A page that cannot be restored does not belong
+/// under a layout that can.
+///
+/// `keep` does not cascade. It says what becomes of one segment when a
+/// navigation leaves it - it sleeps, and is woken as it was - and the pages
+/// under a kept layout are each their own question.
+fn parse_word<'i>(input: &mut Tokens<'i>, modifier: &str) -> bool {
     match input.first() {
-        Some(TokenTree::Ident(word)) if word == "restorable" => {
+        Some(TokenTree::Ident(word)) if word == modifier => {
             *input = &input[1..];
             true
         }
@@ -1130,6 +1161,33 @@ mod tests {
         assert!(restorable_of(&tree, "Further"), "through a plain layout too");
         assert!(!restorable_of(&tree, "Outside"));
         assert!(restorable_of(&tree, "OnItsOwn"), "a page may claim it alone");
+    }
+
+    #[test]
+    fn keep_is_said_of_one_segment_and_not_inherited() {
+        let tree = tree_of(
+            r#"
+            layout(Shell) {
+                layout(ProcessesArea) guard(Session) keep {
+                    page(Processes)
+                    page(Settings) keep link("/settings")
+                }
+                page(Services)
+            }
+            "#,
+        );
+        let keep_of = |page: &str| {
+            tree.leaves()
+                .into_iter()
+                .find(|leaf| type_ident(&leaf.ty) == page)
+                .expect("the page")
+                .keep
+        };
+
+        assert_eq!(keep_of("Processes"), [false, true, false]);
+        assert_eq!(keep_of("Settings"), [false, true, true]);
+        assert_eq!(keep_of("Services"), [false, false]);
+        assert_eq!(guards_of(&tree, "Processes"), ["Session"], "keep read among the other modifiers");
     }
 
     #[test]

@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use guinea_core::actor::invoke_on_ui;
+use guinea_core::scope::Awake;
 
 /// How long between ticks.
 pub enum Period {
@@ -68,6 +69,8 @@ struct Entry {
     /// when it comes due.
     generation: u64,
     active: Option<Box<dyn Fn() -> bool>>,
+    /// The owning scope's, when a scope owns it: asleep, it skips its ticks.
+    awake: Option<Awake>,
     run: Box<dyn FnMut()>,
     traced: bool,
 }
@@ -165,12 +168,13 @@ impl Timer {
 pub(crate) fn start(
     place: &'static Location<'static>,
     feature: Option<&'static str>,
-    scope: Option<usize>,
+    owner: Option<(usize, Awake)>,
     period: Period,
     run: impl FnMut() + 'static,
 ) -> (Ticking, Timer) {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let first = period.next();
+    let (scope, awake) = owner.unzip();
 
     let entry = Rc::new(RefCell::new(Entry {
         info: TimerInfo {
@@ -184,6 +188,7 @@ pub(crate) fn start(
         period,
         generation: 0,
         active: None,
+        awake,
         run: Box::new(run),
         traced: true,
     }));
@@ -227,7 +232,9 @@ fn tick(id: u64, generation: u64) {
 
     let (active, traced) = {
         let entry = entry.borrow();
-        (entry.active.as_ref().is_none_or(|active| active()), entry.traced)
+        let active = entry.active.as_ref().is_none_or(|active| active())
+            && entry.awake.as_ref().is_none_or(Awake::now);
+        (active, entry.traced)
     };
 
     if active {
@@ -382,6 +389,39 @@ mod tests {
         active.store(false, Ordering::SeqCst);
         wait(&clock, 60);
         assert_eq!(count(&counter), 1);
+    }
+
+    #[test]
+    fn a_timer_skips_its_ticks_while_its_scope_sleeps() {
+        let clock = clock();
+        let scope = guinea_core::scope::Scope::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let c = counter.clone();
+        let (_ticking, _timer) = start(
+            Location::caller(),
+            None,
+            Some((0, scope.awake())),
+            Duration::from_millis(30).into(),
+            move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        wait(&clock, 30);
+        assert_eq!(count(&counter), 1);
+
+        scope.sleep();
+        wait(&clock, 90);
+        assert_eq!(count(&counter), 1, "ticked while its scope slept");
+
+        scope.wake();
+        wait(&clock, 30);
+        assert_eq!(
+            count(&counter),
+            2,
+            "the ticks it slept through were saved up for it"
+        );
     }
 
     #[test]

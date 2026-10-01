@@ -508,17 +508,24 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
     let chain_consts = leaves.iter().zip(&variant_idents).map(|(leaf, ident)| {
         let const_name = format_ident!("__routes_chain_{}_{}", enum_ident, ident);
         let leaf_ty = &leaf.ty;
-        let ancestor_entries = leaf.ancestors.iter().map(|ty| {
+        let kept = |at: usize| match leaf.keep.get(at) {
+            Some(true) => quote!(.kept()),
+            _ => quote!(),
+        };
+
+        let ancestor_entries = leaf.ancestors.iter().enumerate().map(|(at, ty)| {
             let declared = declared_at(ty);
-            quote! { #backend_mod::layout_entry::<#ty>().at(#declared) }
+            let kept = kept(at);
+            quote! { #backend_mod::layout_entry::<#ty>().at(#declared) #kept }
         });
         let len = leaf.ancestors.len() + 1;
         let declared = declared_at(leaf_ty);
+        let leaf_kept = kept(leaf.ancestors.len());
         quote! {
             #[allow(non_upper_case_globals)]
             const #const_name: [#router::SegmentEntry<#backend_ty>; #len] = [
                 #(#ancestor_entries,)*
-                #backend_mod::segment_entry::<#leaf_ty>().at(#declared),
+                #backend_mod::segment_entry::<#leaf_ty>().at(#declared) #leaf_kept,
             ];
         }
     });

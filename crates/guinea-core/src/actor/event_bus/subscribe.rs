@@ -75,6 +75,10 @@ where
     M: Event,
 {
     fn deliver(&self, msg: Box<dyn Any>, _bus: Bus) {
+        if self.addr.is_asleep() {
+            return;
+        }
+
         if let Ok(concrete_msg) = msg.downcast::<M>() {
             self.addr.send(*concrete_msg);
         }

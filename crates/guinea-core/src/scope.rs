@@ -209,6 +209,25 @@ pub struct Scope {
     installing: RefCell<Vec<usize>>,
     /// Asked before this scope is torn down. See [`Scope::on_leave`].
     leave_guards: RefCell<Vec<Rc<dyn Fn() -> crate::guard::Verdict>>>,
+    /// Set while a router keeps this scope without showing it. See
+    /// [`Scope::sleep`].
+    asleep: Rc<std::cell::Cell<bool>>,
+    /// Run when it is shown again. See [`Scope::on_wake`].
+    wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
+}
+
+/// Whether a scope is awake, for something it owns to ask on its own.
+///
+/// Held rather than the scope itself: a timer or a subscription the scope owns
+/// must not keep it alive.
+#[derive(Clone)]
+pub struct Awake(Rc<std::cell::Cell<bool>>);
+
+impl Awake {
+    /// Whether the scope is awake now.
+    pub fn now(&self) -> bool {
+        !self.0.get()
+    }
 }
 
 impl Drop for Scope {
@@ -651,6 +670,42 @@ impl Scope {
     /// and the caller runs them while deciding.
     pub fn leave_guards(&self) -> Vec<Rc<dyn Fn() -> crate::guard::Verdict>> {
         self.leave_guards.borrow().clone()
+    }
+
+    /// Puts this scope to sleep: kept, with its state and actors, but deaf.
+    ///
+    /// What it owns stops hearing anything while it sleeps - its timers skip
+    /// their ticks, its actors and callbacks are not told what the buses
+    /// carry - and nothing is queued for later: what happened meanwhile is
+    /// missed. A router does this to a `keep` segment it leaves.
+    pub fn sleep(&self) {
+        self.asleep.set(true);
+    }
+
+    /// Wakes this scope, then runs what asked to hear of it, in the order it
+    /// asked.
+    pub fn wake(&self) {
+        self.asleep.set(false);
+
+        let hooks = self.wake_hooks.borrow().clone();
+        for hook in hooks {
+            hook();
+        }
+    }
+
+    pub fn is_awake(&self) -> bool {
+        !self.asleep.get()
+    }
+
+    /// Whether this scope is awake, for what it owns to ask later.
+    pub fn awake(&self) -> Awake {
+        Awake(self.asleep.clone())
+    }
+
+    /// Runs `hook` every time this scope wakes: for a feature to catch up on
+    /// what it missed while it slept.
+    pub fn on_wake(&self, hook: impl Fn() + 'static) {
+        self.wake_hooks.borrow_mut().push(Rc::new(hook));
     }
 }
 

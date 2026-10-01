@@ -227,7 +227,22 @@ impl FeatureInitContext {
                 })
         };
 
-        self.scope.own(DropGuard(owner.observe::<R>(callback)));
+        let awake = self.scope.awake();
+        self.scope.own(DropGuard(owner.observe::<R>(move |update| {
+            if awake.now() {
+                callback(update);
+            }
+        })));
+    }
+
+    /// Runs `hook` every time this segment wakes - for one declared `keep`
+    /// in `routes!`, which the router puts to sleep instead of tearing down.
+    ///
+    /// What it slept through it missed: its timers did not tick and the
+    /// buses did not tell it anything. This is where it catches up - asks for
+    /// a fresh report, resets what counted the gap.
+    pub fn on_wake(&self, hook: impl Fn() + 'static) {
+        self.scope.on_wake(hook);
     }
 
     /// Asked before this segment is torn down by a navigation.
@@ -280,12 +295,22 @@ impl FeatureInitContext {
     pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Window);
         self.scope
-            .own_subscription(self.event_bus.subscribe_fn(callback));
+            .own_subscription(self.event_bus.subscribe_fn(self.while_awake(callback)));
     }
 
     pub fn subscribe_global<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Global);
-        self.scope.own(GlobalEventBus::subscribe_fn(callback));
+        self.scope
+            .own(GlobalEventBus::subscribe_fn(self.while_awake(callback)));
+    }
+
+    fn while_awake<M>(&self, callback: impl Fn(M) + 'static) -> impl Fn(M) + 'static {
+        let awake = self.scope.awake();
+        move |event| {
+            if awake.now() {
+                callback(event);
+            }
+        }
     }
 
     pub fn spawn_actor<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
@@ -343,7 +368,7 @@ impl FeatureInitContext {
         let (ticking, timer) = timers::start(
             place,
             self.scope.current_feature(),
-            Some(self.scope.key()),
+            Some((self.scope.key(), self.scope.awake())),
             period,
             run,
         );

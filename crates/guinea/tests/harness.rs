@@ -774,6 +774,16 @@ fn a_service_provided_to_the_harness_serves_its_features(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 2)]
+fn a_segment_requires_what_the_harness_was_provided(h: &mut Harness) {
+    h.provide(reports::Prefix("proc-"));
+
+    assert_eq!(h.segment().require::<reports::Prefix>().unwrap().0, "proc-");
+    assert_eq!(h.child().try_require::<reports::Prefix>().map(|prefix| prefix.0), Some("proc-"));
+    assert!(h.segment().try_require::<reports::Limit>().is_none());
+    assert!(h.segment().require::<reports::Limit>().is_err());
+}
+
+#[guinea::test(iterations = 2)]
 fn a_setting_nobody_provided_is_its_default(h: &mut Harness) {
     h.child().install::<reports::Limited>(&()).unwrap();
     assert_eq!(reports::LIMITED_TO.get(), Some(reports::Limit(0)));

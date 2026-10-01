@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus, GlobalEventBus};
@@ -342,6 +342,17 @@ impl<'h> Segment<'h> {
                 ..self.cx.clone()
             },
         }
+    }
+
+    /// A service the harness was provided, as a feature installing here
+    /// would [`require`](FeatureInitContext::require) it.
+    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
+        self.cx.require::<T>()
+    }
+
+    /// See [`FeatureInitContext::try_require`].
+    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.cx.try_require::<T>()
     }
 
     /// Tears the segment down, as leaving a page does.

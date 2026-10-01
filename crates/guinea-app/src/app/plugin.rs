@@ -16,6 +16,26 @@ pub trait AppFeature: Send + 'static {
     fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()>;
 }
 
+/// Returned from [`Plugin::build`] or [`AppFeature::install`] to end the
+/// application before it starts: what is already installed is torn down, no
+/// window opens, and `run` returns `Ok`.
+///
+/// ```ignore
+/// if another_copy_is_running() {
+///     return Err(Stop.into());
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stop;
+
+impl std::fmt::Display for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the application stopped before it started")
+    }
+}
+
+impl std::error::Error for Stop {}
+
 pub(crate) trait ErasedPlugin: Send {
     fn id(&self) -> &'static str;
     fn concrete(&self) -> TypeId;

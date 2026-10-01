@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
-use guinea_app::app::{GuineaApp, install_runtime, shutdown_current};
+use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{AppProxy, Component, ComponentContext, View, ViewContext, WindowVisuals};
@@ -92,6 +92,9 @@ where
     PROXY.with(|slot| slot.borrow_mut().take());
 
     if let Some(error) = failure.borrow_mut().take() {
+        if error.is::<Stop>() {
+            return Ok(());
+        }
         return Err(error.context("guinea: installing the application"));
     }
     if let Some(error) = FAILED.with(|failed| failed.borrow_mut().take()) {

@@ -16,7 +16,7 @@ mod harness;
 
 pub use builder::{FeatureBuilder, PluginBuilder};
 pub use meta::AppMeta;
-pub use plugin::{AppFeature, Plugin};
+pub use plugin::{AppFeature, Plugin, Stop};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use acts::{Chain, Shape, Step};
@@ -105,6 +105,10 @@ impl GuineaApp {
     /// For backend adapters. The caller must already be on the UI thread -
     /// that is what `token` attests to - and must hand the result to
     /// [`install_runtime`] so teardown can find it.
+    ///
+    /// When a plugin or feature fails, or returns [`Stop`], what was installed
+    /// before it is torn down here and the error is returned; an adapter
+    /// returns `Ok` from `run` for [`Stop`].
     pub fn install(self, token: UiThreadToken) -> anyhow::Result<AppRuntime> {
         // Before anything is built: a feature may spawn an actor while
         // installing, and that needs a runtime on this thread.
@@ -124,7 +128,10 @@ impl GuineaApp {
         }
 
         for register in self.registrations {
-            register(&mut builder)?;
+            if let Err(error) = register(&mut builder) {
+                runtime::teardown(&token, &builder);
+                return Err(error);
+            }
         }
         for hook in self.ready {
             hook(&mut builder);

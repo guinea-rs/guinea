@@ -303,6 +303,72 @@ fn meta_declared_after_a_plugin_is_still_there_for_it() {
     assert_eq!(taken(), vec!["read the identifier"]);
 }
 
+struct Opened;
+
+impl Plugin for Opened {
+    const ID: &'static str = "test.opened";
+
+    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        trace("opened");
+        app.on_cleanup(|_| {
+            trace("closed");
+            Ok(())
+        });
+        Ok(())
+    }
+}
+
+struct SecondCopy;
+
+impl Plugin for SecondCopy {
+    const ID: &'static str = "test.second-copy";
+
+    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
+        Err(super::Stop.into())
+    }
+}
+
+struct Broken;
+
+impl Plugin for Broken {
+    const ID: &'static str = "test.broken";
+
+    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
+        anyhow::bail!("broken")
+    }
+}
+
+#[test]
+fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
+    taken();
+
+    let error = super::GuineaApp::new()
+        .plugin(Opened)
+        .plugin(SecondCopy)
+        .feature(Startup)
+        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .err()
+        .expect("stopped");
+
+    assert!(error.is::<super::Stop>(), "{error:#}");
+    assert_eq!(taken(), vec!["opened", "closed"], "nothing after it was built");
+}
+
+#[test]
+fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
+    taken();
+
+    let error = super::GuineaApp::new()
+        .plugin(Opened)
+        .plugin(Broken)
+        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .err()
+        .expect("failed");
+
+    assert!(!error.is::<super::Stop>(), "{error:#}");
+    assert_eq!(taken(), vec!["opened", "closed"]);
+}
+
 mod owners {
     use guinea_macros::{actor, handler};
 

@@ -236,17 +236,131 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// Makes a type a request on the global bus, answered with `reply`: the
 /// request names its answer where the request is declared.
 ///
-/// ```ignore
+/// <!-- shown: a request and its reply -->
+/// ```rust,ignore
 /// #[derive(Clone, Debug, guinea::Request)]
-/// #[request(reply = ActionOutcome)]
-/// pub struct WindowsActionRequest(pub WindowsAction);
+/// #[request(reply = Outcome)]
+/// pub struct Kill(pub u32);
 ///
-/// let outcome = AsyncBus::request(WindowsActionRequest(action), timeout).await?;
+/// #[derive(Clone, Debug, PartialEq)]
+/// pub enum Outcome {
+///     Done,
+///     Denied,
+/// }
 /// ```
+/// <!-- /shown -->
 ///
-/// Exactly one handler answers it - one that returns the reply. A second
-/// answerer on the same bus is refused when it subscribes; a request nobody
-/// answers fails at once rather than at its timeout.
+/// Exactly one subscriber answers it: a handler that returns the reply. The
+/// generated code sends what it returns back to whoever asked, once - and the
+/// `async` form does the same after its body resolves. The actor hears the
+/// request on the global bus like any other event:
+///
+/// <!-- shown: the one that answers -->
+/// ```rust,ignore
+/// #[derive(Debug, Default)]
+/// pub struct Processes {
+///     protected: Vec<u32>,
+/// }
+///
+/// actor! {
+///     Processes {
+///         handlers { RpcRequest<Kill> }
+///     }
+/// }
+///
+/// // Returning the reply is what makes it the answer: the generated code
+/// // sends it back, once.
+/// #[handler]
+/// fn kill(this: &mut Processes, Kill(pid): Kill) -> Outcome {
+///     match this.protected.contains(&pid) {
+///         true => Outcome::Denied,
+///         false => Outcome::Done,
+///     }
+/// }
+///
+/// pub struct Answering;
+///
+/// impl Plugin for Answering {
+///     const ID: &'static str = "example.answering";
+///
+///     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+///         let processes = app.spawn(Processes { protected: vec![4] });
+///         processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+///         Ok(())
+///     }
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// Asking is `AsyncBus::request`, awaited off the UI thread. It resolves to
+/// the reply, or to an error saying why there is none: nothing answers the
+/// request, the one that does sleeps in a `keep` segment, or the timeout ran
+/// out. The first two are known before anything is published, so they come
+/// back at once:
+///
+/// <!-- shown: asking -->
+/// ```rust,ignore
+/// pub struct Ask(pub u32);
+/// pub struct Told(pub String);
+///
+/// #[derive(Debug)]
+/// pub struct Asker {
+///     push: Push<Said>,
+/// }
+///
+/// actor! {
+///     Asker {
+///         handlers { Ask, Told }
+///     }
+/// }
+///
+/// // Asked off the UI thread, and answered with what the one answerer
+/// // returned - or with why there was nothing to wait for.
+/// #[handler]
+/// async fn ask(cx: AsyncContext<Asker>, Ask(pid): Ask) {
+///     let said = match AsyncBus::request(Kill(pid), Duration::from_secs(5)).await {
+///         Ok(outcome) => format!("{outcome:?}"),
+///         Err(error) => error.to_string(),
+///     };
+///     cx.send(Told(said));
+/// }
+///
+/// #[handler]
+/// fn told(this: &mut Asker, Told(said): Told) {
+///     this.push.send(said);
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// Anything else subscribed to the request only hears it. A handler that
+/// returns nothing is told what was asked and cannot answer - its reply goes
+/// nowhere:
+///
+/// <!-- shown: one that only hears it -->
+/// ```rust,ignore
+/// #[derive(Debug, Default)]
+/// pub struct Audit {
+///     pub seen: Vec<u32>,
+/// }
+///
+/// actor! {
+///     Audit {
+///         handlers { RpcRequest<Kill> }
+///     }
+/// }
+///
+/// // Returns nothing, so it hears the request and cannot answer it: there
+/// // is one answerer, and it is not this.
+/// #[handler]
+/// fn heard(this: &mut Audit, request: RpcRequest<Kill>) {
+///     this.seen.push(request.payload.0);
+/// }
+/// ```
+/// <!-- /shown -->
+///
+/// A second answerer on the same bus is a setup bug, and is refused - with a
+/// panic naming both - when it subscribes, rather than racing the first one
+/// for every request. A closure answers with `GlobalEventBus::answer_fn`.
 #[proc_macro_derive(Request, attributes(request))]
 pub fn request(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);

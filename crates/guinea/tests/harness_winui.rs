@@ -29,6 +29,7 @@ enum Marks {
     Radio,
     Charts,
     ShowDisk,
+    Speak,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -1329,11 +1330,14 @@ mod application_exports {
 
     impl AppFeature for Localisation {
         fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-            app.state::<Language>().seed(Language("en")).plain();
+            let language = app.state::<Language>().seed(Language("en")).plain();
             app.export::<Language>()?;
+            app.answers(move |Speak(to)| language.push(to));
             Ok(())
         }
     }
+
+    pub struct Speak(&'static str);
 
     #[derive(Default)]
     pub struct Greeting;
@@ -1397,5 +1401,38 @@ mod application_exports {
         let page = Mounted::<Polyglot>::mount(&h.segment(), ()).unwrap();
 
         assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
+    }
+
+    #[derive(Default)]
+    pub struct Switcher;
+
+    #[page]
+    impl Page for Switcher {
+        type Params = ();
+
+        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+            let speak = guinea::feature::Reads::dispatch::<Language, guinea::feature::FromApp>(cx);
+            Button::new()
+                .mark(Marks::Speak)
+                .on_click(move || speak.emit(Speak("ru")))
+                .content(TextBlock::new().text("speak"))
+                .into()
+        }
+    }
+
+    impl Segment for Switcher {
+        type Installs = ();
+        type Above = ();
+    }
+
+    #[guinea::test(iterations = 2)]
+    fn a_page_asks_what_the_application_exports_without_reading_it(h: &mut Harness) {
+        h.feature(Localisation).unwrap();
+
+        let mut switcher = Mounted::<Switcher>::mount(&h.segment(), ()).unwrap();
+        switcher.click(Marks::Speak).settle();
+
+        let page = Mounted::<Greeting>::mount(&h.segment(), ()).unwrap();
+        assert!(page.find_text("speaks ru").is_some(), "{:#?}", page.tree());
     }
 }

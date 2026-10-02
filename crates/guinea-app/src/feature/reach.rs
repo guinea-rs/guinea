@@ -142,6 +142,13 @@ pub trait Reads {
     where
         R: Reducer + PartialEq,
         Self::Segment: Reaches<R, I>;
+
+    /// What may be asked of the feature that owns `R`, without reading it:
+    /// the segment is not drawn again when `R` changes.
+    fn dispatch<R, I>(&self) -> Dispatch
+    where
+        R: Reducer,
+        Self::Segment: Reaches<R, I>;
 }
 
 /// A reducer the application claims and exports, which every segment of

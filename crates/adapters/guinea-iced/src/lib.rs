@@ -324,6 +324,14 @@ impl<P: Segment> Reads for PageCx<'_, P> {
     {
         self.state::<R, I>()
     }
+
+    fn dispatch<R, I>(&self) -> Dispatch
+    where
+        R: Reducer,
+        P: Reaches<R, I>,
+    {
+        self.props.binding::<R>().dispatch()
+    }
 }
 
 impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
@@ -335,6 +343,14 @@ impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
         L: Reaches<R, I>,
     {
         self.state::<R, I>()
+    }
+
+    fn dispatch<R, I>(&self) -> Dispatch
+    where
+        R: Reducer,
+        L: Reaches<R, I>,
+    {
+        self.props.binding::<R>().dispatch()
     }
 }
 

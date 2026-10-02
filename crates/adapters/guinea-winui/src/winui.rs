@@ -1698,6 +1698,14 @@ impl<P: Page + Segment> Reads for PageCx<'_, P> {
     {
         self.use_reducer::<R, I>()
     }
+
+    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    where
+        R: Reducer,
+        P: Reaches<R, I>,
+    {
+        self.props.binding::<R>().dispatch()
+    }
 }
 
 impl<P: Page> std::ops::Deref for PageCx<'_, P> {
@@ -1782,6 +1790,14 @@ impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
         L: Reaches<R, I>,
     {
         self.use_reducer::<R, I>()
+    }
+
+    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    where
+        R: Reducer,
+        L: Reaches<R, I>,
+    {
+        self.props.binding::<R>().dispatch()
     }
 }
 

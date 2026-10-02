@@ -302,6 +302,14 @@ impl ScopeContext {
         self.services.get::<T>()
     }
 
+    /// `R` as it is now, from this scope or the nearest one above that
+    /// exports it; `None` when nothing in reach does. Read once: nothing here
+    /// hears it change - [`observe`](Self::observe) does.
+    pub fn read<R: Reducer>(&self) -> Option<Rc<R>> {
+        let owner = self.scope.owner_of::<R>()?;
+        Some(owner.binding::<R>().get())
+    }
+
     /// What the application provided, or `T::default()` when it provided
     /// nothing: for settings with a sensible default that an application may
     /// override.

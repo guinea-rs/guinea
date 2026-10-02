@@ -422,6 +422,25 @@ mod exports {
     }
 
     #[test]
+    fn a_feature_reads_what_the_application_exports() {
+        let mut harness = Harness::new(0);
+        harness.feature(Localisation).unwrap();
+
+        let page = harness.child();
+
+        assert_eq!(page.context().read::<Language>().map(|it| it.0), Some("en"));
+    }
+
+    #[test]
+    fn reading_what_nothing_in_reach_exports_is_none() {
+        let harness = Harness::new(0);
+
+        let read = harness.segment().context().read::<Language>();
+
+        assert!(read.is_none(), "got {read:?}");
+    }
+
+    #[test]
     fn exporting_what_nothing_claimed_is_an_error_that_names_it() {
         let app = builder();
 

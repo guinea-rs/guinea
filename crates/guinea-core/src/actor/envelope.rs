@@ -22,7 +22,6 @@ where
         if let Some(message) = self.message.take() {
             let _handling = trace::enter_under(Some(self.cause), || Point::Handle {
                 actor: short_type_name::<A>(),
-                actor_id: addr.id() as u64,
                 message: short_type_name::<M>(),
             });
             actor.handle(message, Cx::new(addr.clone()));

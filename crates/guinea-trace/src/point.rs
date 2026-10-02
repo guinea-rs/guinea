@@ -30,11 +30,9 @@ pub enum Point {
         actor: &'static str,
         message: &'static str,
     },
-    /// An actor handled a message. `actor_id` is the id the snapshot lists
-    /// it under, as on [`Point::Spawn`].
+    /// An actor handled a message.
     Handle {
         actor: &'static str,
-        actor_id: u64,
         message: &'static str,
     },
     /// An actor started background work whose result will come back as

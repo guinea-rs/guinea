@@ -99,6 +99,7 @@ impl Drop for PanelGuard {
 /// `root` is the window a registry or a bus belongs to, as `RootId::get`
 /// numbers it; `None` for the application's own, or for one no window owns.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Change {
     ActorAdded {
         root: Option<u64>,
@@ -110,6 +111,9 @@ pub enum Change {
         root: Option<u64>,
         id: usize,
     },
+    /// An actor handled a message, so its state may read differently now.
+    /// Where it lives is what [`Change::ActorAdded`] said.
+    ActorHandled { id: usize },
     /// A timer devtools may see started; its id is the one the running
     /// timers list it under.
     TimerStarted { id: u64 },

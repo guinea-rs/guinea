@@ -337,6 +337,7 @@ impl<A: 'static> Addr<A> {
                 let mut state_guard = self.state.borrow_mut();
                 Envelope::<A>::handle(envelope.as_mut(), &mut *state_guard, self);
             }
+            crate::devtools::changed(|| crate::devtools::Change::ActorHandled { id: self.id });
         }
 
         self.is_processing.set(false);

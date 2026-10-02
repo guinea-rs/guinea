@@ -574,16 +574,14 @@ mod tests {
     }
 
     #[test]
-    fn a_handle_says_which_actor_handled_it() {
-        use crate::trace::Trace;
+    fn devtools_hear_which_actor_handled_a_message() {
+        use crate::devtools::{self, Change};
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |trace| {
-            if let Trace::Begin(record) = trace
-                && let Point::Handle { actor_id, .. } = record.point
-            {
-                sink.borrow_mut().push(actor_id);
+        devtools::watch(move |change| {
+            if let Change::ActorHandled { id } = change {
+                sink.borrow_mut().push(*id);
             }
         });
 
@@ -594,10 +592,10 @@ mod tests {
             UiThreadToken::dangerously_create_token_unchecked(),
         );
         addr.send(First);
-        trace::stop_observing();
+        devtools::stop_watching();
 
-        let id = addr.id() as u64;
-        assert_eq!(*seen.borrow(), [id, id]);
+        let id = addr.id();
+        assert_eq!(*seen.borrow(), [id, id], "First, then the Second it sent");
     }
 
     #[test]

@@ -63,7 +63,7 @@ mod answering {
     // It answers for as long as the segment that installed it stands.
     #[installs]
     fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
-        let processes = cx.spawn_actor(Processes { protected: vec![4] });
+        let processes = cx.spawn(Processes { protected: vec![4] });
         processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
         Ok(Killing)
     }
@@ -146,7 +146,7 @@ mod listening {
 
     #[installs]
     fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
-        let audit = cx.spawn_actor(Audit::default());
+        let audit = cx.spawn(Audit::default());
         audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
         Ok(Auditing)
     }

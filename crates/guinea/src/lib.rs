@@ -235,7 +235,7 @@ pub use guinea_core::__private::anyhow;
 /// there are several.
 pub mod prelude {
     pub use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
-    pub use guinea_app::feature::{ContextActorExt, ContextTimersExt, Feature, FeatureInitContext};
+    pub use guinea_app::feature::{Feature, FeatureInitContext, ScopeContext};
     pub use guinea_app::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, GlobalEventBus};
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};

@@ -96,9 +96,6 @@ impl GuineaApp {
         self
     }
 
-    /// Runs after each successful navigation, with the previous and current
-    /// paths.
-
     /// Replays the recipe: installs every plugin and feature in registration
     /// order, then runs the ready hooks.
     ///
@@ -129,7 +126,7 @@ impl GuineaApp {
 
         for register in self.registrations {
             if let Err(error) = register(&mut builder) {
-                runtime::teardown(&token, &builder);
+                runtime::teardown(&builder);
                 return Err(error);
             }
         }
@@ -137,7 +134,7 @@ impl GuineaApp {
             hook(&mut builder);
         }
 
-        Ok(AppRuntime { token, builder })
+        Ok(AppRuntime { builder })
     }
 }
 

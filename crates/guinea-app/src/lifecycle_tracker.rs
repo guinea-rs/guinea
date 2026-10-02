@@ -1,97 +1,72 @@
-use crate::feature::AppFeatureDeinitContext;
-use guinea_core::actor::UiThreadToken;
 use guinea_core::actor::addr::Addr;
 use guinea_core::actor::event_bus::subscribe::BusSubscription;
 use guinea_core::lifecycle_tracker::LifecycleTracker;
-use std::any::Any;
+use guinea_core::scope::{DropGuard, Scope, Teardown};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Default)]
-struct LifecycleCore {
-    subs: Vec<BusSubscription>,
-    actor_counters: Vec<Rc<&'static str>>,
-    owned: Vec<Box<dyn FnOnce()>>,
-    anchors: Vec<Box<dyn Any>>,
+/// The application's lifetime: its scope, which holds everything plugins and
+/// features set up, and the actors to count once that scope is gone.
+#[derive(Clone)]
+pub struct AppLifecycle {
+    inner: Rc<AppLifecycleInner>,
 }
 
-impl LifecycleCore {
-    fn track_loop<T: 'static>(&mut self, handle: T) {
-        self.anchors.push(Box::new(handle));
-    }
+struct AppLifecycleInner {
+    scope: Scope,
+    counted: RefCell<Vec<Rc<&'static str>>>,
+}
 
-    fn track_actor<A: 'static>(&mut self, addr: &Addr<A>) {
-        self.actor_counters.push(addr.strong_count_ptr());
-    }
+struct Cleanup(Box<dyn FnOnce()>);
 
-    fn own_actor<A: 'static>(&mut self, addr: &Addr<A>) {
-        let addr = addr.clone();
-        self.owned.push(Box::new(move || addr.dispose()));
+impl Teardown for Cleanup {
+    fn teardown(self) {
+        (self.0)();
     }
+}
 
-    fn track_sub(&mut self, subscription: BusSubscription) {
-        self.subs.push(subscription);
+impl Default for AppLifecycle {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    fn shutdown(&mut self) -> Vec<(&'static str, usize)> {
-        self.subs.clear();
-        for teardown in self.owned.drain(..).rev() {
-            teardown();
+impl AppLifecycle {
+    pub fn new() -> Self {
+        let scope = Scope::root();
+        crate::app::actors::set_app_scope(scope);
+
+        Self {
+            inner: Rc::new(AppLifecycleInner {
+                scope,
+                counted: RefCell::new(Vec::new()),
+            }),
         }
-        let counters = std::mem::take(&mut self.actor_counters);
-        self.anchors.clear();
+    }
 
-        counters
+    /// The application's own scope.
+    pub fn scope(&self) -> Scope {
+        self.inner.scope
+    }
+
+    pub(crate) fn on_cleanup(&self, run: impl FnOnce() + 'static) {
+        self.inner.scope.own(Cleanup(Box::new(run)));
+    }
+
+    /// Removes the application's scope - everything in it the last first - and
+    /// returns the actors still referenced afterwards.
+    pub fn shutdown(self) -> Vec<(&'static str, usize)> {
+        self.inner.scope.remove();
+
+        let counted = std::mem::take(&mut *self.inner.counted.borrow_mut());
+        let leaked: Vec<(&'static str, usize)> = counted
             .into_iter()
             .filter_map(|counter| {
                 let held = Rc::strong_count(&counter) - 1;
                 (held > 0).then_some((*counter, held))
             })
-            .collect()
-    }
-}
+            .collect();
 
-// --- AppLifecycle ---
-
-#[derive(Clone, Default)]
-pub struct AppLifecycle {
-    inner: Rc<RefCell<AppLifecycleInner>>,
-}
-
-#[derive(Default)]
-struct AppLifecycleInner {
-    core: LifecycleCore,
-    cleanups: Vec<Box<dyn for<'a> FnOnce(&mut AppFeatureDeinitContext<'a>) -> anyhow::Result<()>>>,
-}
-
-impl AppLifecycle {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn on_cleanup(
-        &self,
-        f: impl for<'a> FnOnce(&mut AppFeatureDeinitContext<'a>) -> anyhow::Result<()> + 'static,
-    ) {
-        self.inner.borrow_mut().cleanups.push(Box::new(f));
-    }
-
-    /// Returns the actors still referenced after teardown.
-    pub fn shutdown(
-        self,
-        token: &UiThreadToken,
-        ctx: &mut AppFeatureDeinitContext<'_>,
-    ) -> Vec<(&'static str, usize)> {
-        crate::app::actors::forget_all();
-        let mut inner = self.inner.borrow_mut();
-        for cleanup in inner.cleanups.drain(..).rev() {
-            if let Err(e) = cleanup(ctx) {
-                tracing::error!(error = %e, "an application cleanup failed");
-            }
-        }
-        let _ = token;
-
-        let leaked = inner.core.shutdown();
         for (actor, refs) in &leaked {
             tracing::error!(actor = %actor, refs, "an actor outlived the application");
         }
@@ -99,19 +74,21 @@ impl AppLifecycle {
     }
 
     pub fn track_loop<T: 'static>(&self, handle: T) {
-        self.inner.borrow_mut().core.track_loop(handle);
+        self.inner.scope.own(DropGuard(handle));
     }
 
+    /// Counts `addr` among the actors that must be gone once the application
+    /// is.
     pub fn track_actor<A: 'static>(&self, addr: &Addr<A>) {
-        self.inner.borrow_mut().core.track_actor(addr);
+        self.inner.counted.borrow_mut().push(addr.strong_count_ptr());
     }
 
     pub fn own_actor<A: 'static>(&self, addr: &Addr<A>) {
-        self.inner.borrow_mut().core.own_actor(addr);
+        self.inner.scope.own(addr.clone());
     }
 
     pub fn track_sub(&self, subscription: BusSubscription) {
-        self.inner.borrow_mut().core.track_sub(subscription);
+        self.inner.scope.own_subscription(subscription);
     }
 }
 
@@ -133,8 +110,6 @@ impl LifecycleTracker for AppLifecycle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::feature::AppFeatureDeinitContext;
-    use guinea_core::SharedState;
     use guinea_core::actor::UiThreadToken;
     use guinea_core::actor::event_bus::GlobalEventBus;
     use std::sync::Arc;
@@ -163,41 +138,30 @@ mod tests {
     #[guinea_macros::handler]
     fn probe_ping(_this: &mut Probe, _: Ping) {}
 
-    fn deinit<'a>(token: &UiThreadToken, shared: &'a SharedState) -> AppFeatureDeinitContext<'a> {
-        AppFeatureDeinitContext {
-            token: token.clone(),
-            shared,
-        }
-    }
-
     #[test]
     fn an_actor_owned_by_the_lifecycle_is_not_reported_as_leaked() {
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        let shared = SharedState::new();
         let lifecycle = AppLifecycle::new();
 
         {
-            let mut app = crate::app::PluginBuilder::new(token.clone(), lifecycle.clone());
-            let _addr = crate::feature::ContextActorExt::spawn(&mut app, Probe);
+            let app = crate::app::PluginBuilder::new(token.clone(), lifecycle.clone());
+            let _addr = app.spawn(Probe);
         }
 
-        let mut ctx = deinit(&token, &shared);
-        assert!(lifecycle.shutdown(&token, &mut ctx).is_empty());
+        assert!(lifecycle.shutdown().is_empty());
     }
 
     #[test]
     fn an_address_kept_past_shutdown_is_reported_once() {
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        let shared = SharedState::new();
         let lifecycle = AppLifecycle::new();
 
         let kept = {
-            let mut app = crate::app::PluginBuilder::new(token.clone(), lifecycle.clone());
-            crate::feature::ContextActorExt::spawn(&mut app, Probe)
+            let app = crate::app::PluginBuilder::new(token.clone(), lifecycle.clone());
+            app.spawn(Probe)
         };
 
-        let mut ctx = deinit(&token, &shared);
-        let leaked = lifecycle.shutdown(&token, &mut ctx);
+        let leaked = lifecycle.shutdown();
 
         assert_eq!(leaked.len(), 1, "one actor, reported once");
         assert!(leaked[0].0.ends_with("Probe"), "got {}", leaked[0].0);
@@ -213,11 +177,7 @@ mod tests {
         lifecycle.track_loop(DropCheck(counter.clone()));
         assert_eq!(counter.load(Ordering::SeqCst), 0);
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let shared = SharedState::new();
-        let mut ctx = deinit(&token, &shared);
-
-        lifecycle.shutdown(&token, &mut ctx);
+        lifecycle.shutdown();
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -230,11 +190,7 @@ mod tests {
 
         assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 2);
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let shared = SharedState::new();
-        let mut ctx = deinit(&token, &shared);
-
-        lifecycle.clone().shutdown(&token, &mut ctx);
+        lifecycle.clone().shutdown();
 
         assert_eq!(
             GlobalEventBus::count_subscribers::<Ping>(),

@@ -20,9 +20,27 @@ pub struct AppFeatureDeinitContext<'a> {
     pub shared: &'a SharedState,
 }
 
+/// What installing into a scope may do, wherever the scope is: a segment's in
+/// a window, or the application's own.
+///
+/// A plugin and an application feature are handed it through their builder,
+/// a segment's feature through [`FeatureInitContext`], and both say the same
+/// things the same way: claim state and drive it, answer actions, watch other
+/// state, spawn actors, run timers. What only a window has - its bus, its
+/// place in a chain, leaving and waking - is the window context's own.
+#[derive(Clone)]
+pub struct ScopeContext {
+    pub scope: Scope,
+    pub token: UiThreadToken,
+    /// What plugins provided during application startup.
+    pub services: SharedState,
+}
+
+/// What a segment's feature is handed: the [`ScopeContext`] of its scope, and
+/// the window it is in.
 #[derive(Clone)]
 pub struct FeatureInitContext {
-    pub scope: Scope,
+    pub scope_cx: ScopeContext,
     /// Where in its chain the segment being installed sits: 0 for the
     /// outermost. The scopes above it are the tree's - `scope.ancestors()`.
     pub cursor: usize,
@@ -30,10 +48,15 @@ pub struct FeatureInitContext {
     /// or the only one. What a service shared between roots uses to tell
     /// callers apart.
     pub root: crate::app::roots::RootId,
-    pub token: UiThreadToken,
     pub event_bus: Rc<EventBus>,
-    /// What plugins provided during application startup.
-    pub services: SharedState,
+}
+
+impl std::ops::Deref for FeatureInitContext {
+    type Target = ScopeContext;
+
+    fn deref(&self) -> &ScopeContext {
+        &self.scope_cx
+    }
 }
 
 /// A named unit with its own lifetime, its own state, and one bit saying it is
@@ -102,7 +125,7 @@ impl FeatureInitContext {
 
         // Its own corner of the scope, so that two instances of one feature
         // answering the same action type do not become one.
-        self.scope.open_section(name::<F>(), F::DECLARED);
+        self.scope.open_section(Some(name::<F>()), F::DECLARED);
         let installed = F::install(self, params);
         self.scope.close_section();
 
@@ -143,87 +166,7 @@ impl FeatureInitContext {
     /// is state the UI owns, and `emit` on it does not compile.
     #[track_caller]
     pub fn state<R: Reducer>(&self) -> Claim<'_, R> {
-        let at = Location::caller();
-        self.scope.note_reducer_declared::<R>(Declared {
-            file: at.file(),
-            line: at.line(),
-            column: at.column(),
-            crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
-        });
-
-        Claim::new(self.scope, &self.event_bus, &self.token)
-    }
-
-    /// Says this segment answers `M`, and how.
-    ///
-    /// The way in for a domain that does not use an actor - a task holding a
-    /// `RefCell`, a channel, a plain closure. Nothing the UI touches can tell
-    /// the difference, which is the point: how a domain implements its logic
-    /// is its own business.
-    ///
-    /// `actor!` calls this for every handler it lists, so a feature with an
-    /// actor never writes it by hand.
-    pub fn answers<M: 'static>(
-        &self,
-        answer: impl Fn(M) + 'static,
-    ) {
-        self.scope.answers(answer);
-    }
-
-    /// A service a plugin provided at startup.
-    ///
-    /// The counterpart of `PluginBuilder::provide`: this is how a page reaches
-    /// the store, or anything else an application-level plugin set up.
-    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        let service = std::any::type_name::<T>();
-        match self.services.try_get::<T>() {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => anyhow::bail!(
-                "no plugin provided service `{service}` - install the plugin that \
-                 provides it on the application, before the window opens"
-            ),
-            Err(poisoned) => Err(anyhow::Error::new(poisoned))
-                .with_context(|| format!("requiring service `{service}`")),
-        }
-    }
-
-    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.services.get::<T>()
-    }
-
-    /// What the application provided, or `T::default()` when it provided
-    /// nothing: for settings with a sensible default that an application may
-    /// override.
-    pub fn require_or_default<T: Clone + Default + Send + Sync + 'static>(&self) -> T {
-        self.try_require::<T>()
-            .map_or_else(T::default, |provided| T::clone(&provided))
-    }
-
-    /// Reacts to what happens to `R`, wherever `R` lives.
-    ///
-    /// The coherence rule between two pieces of state that reference each
-    /// other rather than nest: a cursor into a list the domain refreshes has
-    /// to hear that the list was replaced, and a rename is not a replacement.
-    /// The update itself is what tells those apart, so this is handed the
-    /// update rather than told that something moved.
-    ///
-    /// Runs before anything is asked to redraw, and the subscription is owned
-    /// by this scope - the rule dies with the segment that declared it.
-    pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) {
-        let owner = self.scope.owner_of::<R>().unwrap_or_else(|| {
-            panic!(
-                "observing {} here found no scope that owns it: this segment did not \
-                 claim it, and no ancestor exported it",
-                std::any::type_name::<R>()
-            )
-        });
-
-        let awake = self.scope.awake();
-        self.scope.own(DropGuard(owner.observe::<R>(move |update| {
-            if awake.now() {
-                callback(update);
-            }
-        })));
+        self.scope_cx.claim(Some(&self.event_bus), Location::caller())
     }
 
     /// Runs `hook` every time this segment wakes - for one declared `keep`
@@ -283,19 +226,126 @@ impl FeatureInitContext {
         });
     }
 
+    /// Hears `M` on this window's bus, for as long as this segment lives and
+    /// while it is awake.
     pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Window);
         self.scope
             .own_subscription(self.event_bus.subscribe_fn(self.while_awake(callback)));
     }
 
+    /// Creates `actor` in this segment, where it can hear this window's bus.
+    /// See [`ScopeContext::spawn`].
+    pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
+        self.scope_cx.spawn_in(Some(&self.event_bus), actor)
+    }
+}
+
+impl ScopeContext {
+    /// Claims `R` for this scope, and says what else is true of it. See
+    /// [`FeatureInitContext::state`]; here the claim is the application's,
+    /// and an actor driving it lives in no window.
+    #[track_caller]
+    pub fn state<R: Reducer>(&self) -> Claim<'_, R> {
+        self.claim(None, Location::caller())
+    }
+
+    fn claim<'a, R: Reducer>(
+        &'a self,
+        bus: Option<&'a Rc<EventBus>>,
+        at: &'static Location<'static>,
+    ) -> Claim<'a, R> {
+        self.scope.note_reducer_declared::<R>(Declared {
+            file: at.file(),
+            line: at.line(),
+            column: at.column(),
+            crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
+        });
+
+        Claim::new(self.scope, bus, &self.token)
+    }
+
+    /// Says this scope answers `M`, and how.
+    ///
+    /// The way in for a domain that does not use an actor - a task holding a
+    /// `RefCell`, a channel, a plain closure. Nothing the UI touches can tell
+    /// the difference, which is the point: how a domain implements its logic
+    /// is its own business.
+    ///
+    /// `actor!` calls this for every handler it lists, so a feature with an
+    /// actor never writes it by hand.
+    pub fn answers<M: 'static>(
+        &self,
+        answer: impl Fn(M) + 'static,
+    ) {
+        self.scope.answers(answer);
+    }
+
+    /// A service a plugin provided at startup.
+    ///
+    /// The counterpart of `PluginBuilder::provide`: this is how a page reaches
+    /// the store, or anything else an application-level plugin set up.
+    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
+        let service = std::any::type_name::<T>();
+        match self.services.try_get::<T>() {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => anyhow::bail!(
+                "no plugin provided service `{service}` - install the plugin that \
+                 provides it on the application, before the window opens"
+            ),
+            Err(poisoned) => Err(anyhow::Error::new(poisoned))
+                .with_context(|| format!("requiring service `{service}`")),
+        }
+    }
+
+    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.services.get::<T>()
+    }
+
+    /// What the application provided, or `T::default()` when it provided
+    /// nothing: for settings with a sensible default that an application may
+    /// override.
+    pub fn require_or_default<T: Clone + Default + Send + Sync + 'static>(&self) -> T {
+        self.try_require::<T>()
+            .map_or_else(T::default, |provided| T::clone(&provided))
+    }
+
+    /// Reacts to what happens to `R`, wherever `R` lives.
+    ///
+    /// The coherence rule between two pieces of state that reference each
+    /// other rather than nest: a cursor into a list the domain refreshes has
+    /// to hear that the list was replaced, and a rename is not a replacement.
+    /// The update itself is what tells those apart, so this is handed the
+    /// update rather than told that something moved.
+    ///
+    /// Runs before anything is asked to redraw, and the subscription is owned
+    /// by this scope - the rule dies with the scope that declared it.
+    pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) {
+        let owner = self.scope.owner_of::<R>().unwrap_or_else(|| {
+            panic!(
+                "observing {} here found no scope that owns it: this segment did not \
+                 claim it, and no ancestor exported it",
+                std::any::type_name::<R>()
+            )
+        });
+
+        let awake = self.scope.awake();
+        self.scope.own(DropGuard(owner.observe::<R>(move |update| {
+            if awake.now() {
+                callback(update);
+            }
+        })));
+    }
+
+    /// Hears `M` on the global bus, for as long as this scope lives and while
+    /// it is awake.
     pub fn subscribe_global<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Global);
         self.scope
             .own(GlobalEventBus::subscribe_fn(self.while_awake(callback)));
     }
 
-    fn while_awake<M>(&self, callback: impl Fn(M) + 'static) -> impl Fn(M) + 'static {
+    pub(crate) fn while_awake<M>(&self, callback: impl Fn(M) + 'static) -> impl Fn(M) + 'static {
         let awake = self.scope.awake();
         move |event| {
             if awake.now() {
@@ -304,9 +354,19 @@ impl FeatureInitContext {
         }
     }
 
-    pub fn spawn_actor<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
+    /// Creates `actor`, subscribes it to what it listens for, and makes it
+    /// this scope's: listed for devtools, and disposed when the scope goes.
+    pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
+        self.spawn_in(None, actor)
+    }
+
+    fn spawn_in<A: ManagedActor + Debug + 'static>(
+        &self,
+        bus: Option<&Rc<EventBus>>,
+        actor: A,
+    ) -> Addr<A> {
         let addr = Addr::new_managed_scoped(actor, self.token.clone());
-        addr.live_in(self.scope, &self.event_bus);
+        addr.live_in(self.scope, bus);
         self.scope.hold_actor(&addr, self.scope.current_feature(), None);
         self.scope.own(addr.clone());
         addr

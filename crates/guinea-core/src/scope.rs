@@ -276,6 +276,24 @@ impl HeldActor {
     }
 }
 
+fn read_all(scopes: Vec<Scope>) -> Vec<ActorSnapshot> {
+    scopes
+        .into_iter()
+        .filter_map(Scope::data)
+        .flat_map(|data| data.actors.borrow().iter().map(HeldActor::read).collect::<Vec<_>>())
+        .collect()
+}
+
+fn read_one(scopes: Vec<Scope>, id: usize) -> Option<ActorSnapshot> {
+    scopes.into_iter().filter_map(Scope::data).find_map(|data| {
+        data.actors
+            .borrow()
+            .iter()
+            .find(|actor| actor.id == id)
+            .map(HeldActor::read)
+    })
+}
+
 /// Tells devtools an actor is no longer listed, when its scope goes.
 struct Unlisted {
     root: Option<u64>,
@@ -566,23 +584,24 @@ impl Scope {
 
     /// The actors this scope and every scope under it hold, read now.
     pub fn actors(self) -> Vec<ActorSnapshot> {
-        self.subtree()
-            .into_iter()
-            .filter_map(Scope::data)
-            .flat_map(|data| data.actors.borrow().iter().map(HeldActor::read).collect::<Vec<_>>())
-            .collect()
+        read_all(self.subtree())
     }
 
     /// The actor `id`, if this scope or one under it holds it, read now; the
     /// others are not read.
     pub fn actor(self, id: usize) -> Option<ActorSnapshot> {
-        self.subtree().into_iter().filter_map(Scope::data).find_map(|data| {
-            data.actors
-                .borrow()
-                .iter()
-                .find(|actor| actor.id == id)
-                .map(HeldActor::read)
-        })
+        read_one(self.subtree(), id)
+    }
+
+    /// The actors this scope holds itself, read now - not those of the
+    /// scopes under it.
+    pub fn actors_here(self) -> Vec<ActorSnapshot> {
+        read_all(vec![self])
+    }
+
+    /// The actor `id`, if this scope holds it itself, read now.
+    pub fn actor_here(self, id: usize) -> Option<ActorSnapshot> {
+        read_one(vec![self], id)
     }
 
     /// This scope and every scope under it, children first.
@@ -671,9 +690,9 @@ impl Scope {
         declarations.get(section).copied().flatten().map(|declared| declared.crate_dir)
     }
 
-    /// Opens a section for the feature `name` about to install. Returns its
-    /// index.
-    pub fn open_section(self, name: &'static str, declared: Option<Declared>) -> usize {
+    /// Opens a section for what is about to install - the feature `name`, or
+    /// something that is not a feature, such as a plugin. Returns its index.
+    pub fn open_section(self, name: Option<&'static str>, declared: Option<Declared>) -> usize {
         let data = self.installing("installing a feature");
         let mut sections = data.sections.borrow_mut();
         if sections.is_empty() {
@@ -683,7 +702,7 @@ impl Scope {
         let index = sections.len() - 1;
         let mut names = data.section_names.borrow_mut();
         names.resize(index + 1, None);
-        names[index] = Some(name);
+        names[index] = name;
 
         let mut declarations = data.section_declarations.borrow_mut();
         declarations.resize(index + 1, None);
@@ -776,7 +795,7 @@ impl Scope {
     /// Marks `R` as readable from segments below this one.
     ///
     /// Called by `cx.install::<F>()` for everything in `F::Exports`, and by
-    /// nothing else. A reducer a feature claimed but did not export stays
+    /// an application's `export::<R>()`. A reducer a feature claimed but did not export stays
     /// visible to the feature itself and invisible from below - which is the
     /// whole difference between a feature and a folder.
     pub fn note_export<R: 'static>(self) {
@@ -1441,7 +1460,7 @@ mod tests {
         }
 
         let scope = Scope::root();
-        scope.open_section("app::CounterFeature", None);
+        scope.open_section(Some("app::CounterFeature"), None);
         scope.note_reducer_owner::<Counter>();
         scope.state::<Counter>();
         scope.close_section();

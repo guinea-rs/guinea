@@ -170,7 +170,6 @@ fn a_feature_may_pull_plugins_and_read_what_they_provide() {
 
 #[test]
 fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
-    use crate::feature::AppFeatureDeinitContext;
     use guinea_core::actor::event_bus::{Event, GlobalEventBus};
 
     #[derive(Clone)]
@@ -189,12 +188,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
 
     assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 1);
 
-    let shared = guinea_core::SharedState::new();
-    let mut ctx = AppFeatureDeinitContext {
-        token: token.clone(),
-        shared: &shared,
-    };
-    lifecycle.shutdown(&token, &mut ctx);
+    lifecycle.shutdown();
 
     assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 0);
 }
@@ -369,12 +363,83 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     assert_eq!(taken(), vec!["opened", "closed"]);
 }
 
+mod exports {
+    use guinea_core::actor::UiThreadToken;
+    use guinea_core::scope::{Reducer, Scope};
+
+    use super::super::Harness;
+    use super::{AppFeature, FeatureBuilder, builder};
+
+    #[derive(Clone, Debug, Default)]
+    struct Language(&'static str);
+
+    impl Reducer for Language {
+        type Update = &'static str;
+
+        fn reduce(&mut self, update: &'static str) {
+            self.0 = update;
+        }
+    }
+
+    struct Localisation;
+
+    impl AppFeature for Localisation {
+        fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
+            app.state::<Language>().seed(Language("en")).plain();
+            app.export::<Language>()?;
+            Ok(())
+        }
+    }
+
+    fn language(scope: Scope) -> Option<&'static str> {
+        scope
+            .owner_of::<Language>()
+            .map(|owner| owner.state::<Language>().borrow().0)
+    }
+
+    #[test]
+    fn a_page_reads_what_an_application_feature_exports() {
+        let mut harness = Harness::new(0);
+        harness.feature(Localisation).unwrap();
+
+        let page = harness.child();
+
+        assert_eq!(language(harness.segment().context().scope), Some("en"));
+        assert_eq!(language(page.context().scope), Some("en"));
+    }
+
+    #[test]
+    fn a_window_reads_what_the_installed_application_exports() {
+        let token = UiThreadToken::dangerously_create_token_unchecked();
+        let runtime = super::super::GuineaApp::new()
+            .feature(Localisation)
+            .install(token.clone())
+            .expect("install");
+        crate::app::install_runtime(runtime);
+
+        let window = crate::feature::FeatureHost::new(token);
+
+        assert_eq!(language(window.scope()), Some("en"));
+    }
+
+    #[test]
+    fn exporting_what_nothing_claimed_is_an_error_that_names_it() {
+        let app = builder();
+
+        let outcome = app.export::<Language>().map(|_| ());
+
+        assert!(
+            matches!(&outcome, Err(error) if format!("{error:#}").contains("Language")),
+            "got {outcome:?}"
+        );
+    }
+}
+
 mod owners {
     use guinea_macros::{actor, handler};
 
-    use super::super::actors::{app_actors, forget_all};
+    use super::super::actors::app_actors;
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder, builder};
-    use crate::feature::ContextActorExt;
 
     pub struct Sweep;
 
@@ -436,6 +501,5 @@ mod owners {
         };
         assert_eq!(owner("Sweeper"), Some(Some(std::any::type_name::<Housekeeping>())));
         assert_eq!(owner("Loose"), Some(None), "a plugin is not a feature");
-        forget_all();
     }
 }

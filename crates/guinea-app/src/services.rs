@@ -33,13 +33,23 @@ pub trait Services {
     }
 }
 
-impl Services for crate::feature::FeatureInitContext {
+impl Services for crate::feature::ScopeContext {
     fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        crate::feature::FeatureInitContext::try_require(self)
+        crate::feature::ScopeContext::try_require(self)
     }
 
     fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        crate::feature::FeatureInitContext::require(self)
+        crate::feature::ScopeContext::require(self)
+    }
+}
+
+impl Services for crate::feature::FeatureInitContext {
+    fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        crate::feature::ScopeContext::try_require(self)
+    }
+
+    fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
+        crate::feature::ScopeContext::require(self)
     }
 }
 

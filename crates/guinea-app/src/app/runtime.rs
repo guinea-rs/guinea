@@ -1,16 +1,12 @@
 use std::cell::RefCell;
 
 use guinea_core::SharedState;
-use guinea_core::actor::UiThreadToken;
-
-use crate::feature::AppFeatureDeinitContext;
 
 use super::builder::FeatureBuilder;
 
 /// An installed application: everything the recipe built, plus the hooks that
 /// outlive installation. Held on the UI thread until the process exits.
 pub struct AppRuntime {
-    pub(crate) token: UiThreadToken,
     pub(crate) builder: FeatureBuilder,
 }
 
@@ -43,7 +39,7 @@ pub fn app_services() -> SharedState {
     RUNTIME.with(|slot| {
         slot.borrow()
             .as_ref()
-            .map(|runtime| crate::feature::FeatureContext::shared(&*runtime.builder).clone())
+            .map(|runtime| runtime.builder.services.clone())
             .unwrap_or_default()
     })
 }
@@ -65,18 +61,9 @@ pub fn shutdown_current() {
         return;
     };
 
-    teardown(&runtime.token, &runtime.builder);
+    teardown(&runtime.builder);
 }
 
-pub(crate) fn teardown(
-    token: &UiThreadToken,
-    builder: &FeatureBuilder,
-) -> Vec<(&'static str, usize)> {
-    let lifecycle = builder.lifecycle().clone();
-    let mut ctx = AppFeatureDeinitContext {
-        token: token.clone(),
-        shared: crate::feature::FeatureContext::shared(&**builder),
-    };
-
-    lifecycle.shutdown(token, &mut ctx)
+pub(crate) fn teardown(builder: &FeatureBuilder) -> Vec<(&'static str, usize)> {
+    builder.lifecycle().clone().shutdown()
 }

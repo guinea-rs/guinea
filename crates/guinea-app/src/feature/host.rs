@@ -5,7 +5,7 @@ use guinea_core::actor::event_bus::EventBus;
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{Scope, ScopeGuard};
 
-use super::FeatureInitContext;
+use super::{FeatureInitContext, ScopeContext};
 use crate::app::roots::{Registration, RootId};
 
 /// What a feature needs to be installed into a scope: the window's own scope,
@@ -18,7 +18,8 @@ use crate::app::roots::{Registration, RootId};
 /// here, and the router is one of its callers.
 pub struct FeatureHost {
     /// The window's own scope, which every scope installed through this host
-    /// sits under. Removed when the host goes, before its registration does.
+    /// sits under, and which sits under the application's. Removed when the
+    /// host goes, before its registration does.
     scope: ScopeGuard,
     token: UiThreadToken,
     /// One per window, shared by every feature installed through this host,
@@ -42,7 +43,7 @@ impl FeatureHost {
     pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
         let root = Registration::open();
         let id = root.id().get();
-        let scope = Scope::root();
+        let scope = crate::app::actors::app_scope().map_or_else(Scope::root, Scope::child);
         scope.set_window(id);
 
         Self {
@@ -84,12 +85,14 @@ impl FeatureHost {
     /// of its chain.
     pub fn context(&self, scope: Scope, cursor: usize) -> FeatureInitContext {
         FeatureInitContext {
-            scope,
+            scope_cx: ScopeContext {
+                scope,
+                token: self.token.clone(),
+                services: self.services.clone(),
+            },
             cursor,
             root: self.root.id(),
-            token: self.token.clone(),
             event_bus: self.event_bus.clone(),
-            services: self.services.clone(),
         }
     }
 
@@ -152,7 +155,7 @@ mod tests {
 
         let scope = host
             .install(|ctx| {
-                ctx.spawn_actor(Counter);
+                ctx.spawn(Counter);
                 ctx.subscribe(|_: Ping| {});
                 Ok(())
             })

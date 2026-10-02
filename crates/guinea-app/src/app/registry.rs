@@ -77,14 +77,6 @@ impl Registry {
         Admission::Proceed
     }
 
-    /// The feature being installed, unless a plugin it pulled in is.
-    pub(crate) fn installing_feature(&self) -> Option<&'static str> {
-        match self.stack.last() {
-            Some(Unit::Feature(name)) => Some(*name),
-            _ => None,
-        }
-    }
-
     pub(crate) fn enter(&mut self, unit: Unit) {
         self.stack.push(unit);
     }

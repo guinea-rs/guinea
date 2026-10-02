@@ -226,15 +226,16 @@ pub trait Serves: Sized + 'static {
 /// can be emitted to it.
 pub struct Claim<'a, R: Reducer> {
     scope: Scope,
-    bus: &'a Rc<EventBus>,
+    bus: Option<&'a Rc<EventBus>>,
     token: &'a UiThreadToken,
     reducer: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<'a, R: Reducer> Claim<'a, R> {
-    /// For a context that hands features their scope - `FeatureInitContext`
-    /// in `guinea-app`, and nothing else.
-    pub fn new(scope: Scope, bus: &'a Rc<EventBus>, token: &'a UiThreadToken) -> Self {
+    /// For a context that hands features their scope - the contexts in
+    /// `guinea-app`, and nothing else. `bus` is the window's, when the scope
+    /// is in one.
+    pub fn new(scope: Scope, bus: Option<&'a Rc<EventBus>>, token: &'a UiThreadToken) -> Self {
         scope.note_reducer_owner::<R>();
         Self {
             scope,

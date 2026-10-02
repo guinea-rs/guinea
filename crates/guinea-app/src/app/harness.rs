@@ -11,8 +11,7 @@ use guinea_core::feature::Dispatch;
 use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
 use guinea_core::trace::{self, Cause, Point};
 
-use crate::feature::context_ext::FeatureContext;
-use crate::feature::{Feature, FeatureInitContext};
+use crate::feature::{Feature, FeatureInitContext, ScopeContext};
 use crate::lifecycle_tracker::AppLifecycle;
 
 use super::acts::{Chain, Recorder};
@@ -54,7 +53,7 @@ impl TestApp {
     /// Runs cleanups in LIFO order and returns the actors still referenced
     /// afterwards - empty is what a correctly torn-down application looks like.
     pub fn shutdown(self) -> Vec<(&'static str, usize)> {
-        runtime::teardown(&self.token, &self.builder)
+        runtime::teardown(&self.builder)
     }
 }
 
@@ -109,16 +108,18 @@ impl Harness {
         GlobalEventBus::replace_for_test();
         let app = TestApp::new();
         let root = Registration::open();
-        let scope = Scope::root().guard();
+        let scope = app.lifecycle().scope().child().guard();
         scope.set_window(root.id().get());
 
         let segment = FeatureInitContext {
-            scope: *scope,
+            scope_cx: ScopeContext {
+                scope: *scope,
+                token: app.token.clone(),
+                services: app.services.clone(),
+            },
             cursor: 0,
             root: root.id(),
-            token: app.token.clone(),
             event_bus: Rc::new(EventBus::for_root(root.id().get())),
-            services: app.shared().clone(),
         };
 
         Self {
@@ -255,7 +256,7 @@ impl Drop for Harness {
     /// can put it back.
     fn drop(&mut self) {
         self.segment.scope.remove();
-        runtime::teardown(&self.app.token, &self.app.builder);
+        runtime::teardown(&self.app.builder);
     }
 }
 
@@ -331,7 +332,10 @@ impl<'h> Segment<'h> {
         Segment {
             harness: self.harness,
             cx: FeatureInitContext {
-                scope: *scope,
+                scope_cx: ScopeContext {
+                    scope: *scope,
+                    ..self.cx.scope_cx.clone()
+                },
                 cursor: self.cx.cursor + 1,
                 ..self.cx.clone()
             },

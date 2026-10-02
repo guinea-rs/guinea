@@ -53,7 +53,7 @@ impl Layout for Frame {
     type Installs = ();
 
     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        ctx.spawn_actor(Clock(0));
+        ctx.spawn(Clock(0));
         Ok(())
     }
 

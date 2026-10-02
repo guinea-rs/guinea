@@ -108,13 +108,13 @@ impl<A: 'static> Addr<A> {
     }
 
     /// Where the actor lives: the scope that owns it, and that scope's
-    /// window bus. What `subscribe_on` reaches the window bus through, and
-    /// notes a listener on.
+    /// window bus when it is in a window. What `subscribe_on` reaches the
+    /// window bus through, and notes a listener on.
     #[doc(hidden)]
-    pub fn live_in(&self, scope: Scope, bus: &Rc<EventBus>) {
+    pub fn live_in(&self, scope: Scope, bus: Option<&Rc<EventBus>>) {
         *self.home.borrow_mut() = Some(Home {
             scope,
-            bus: Rc::downgrade(bus),
+            bus: bus.map(Rc::downgrade).unwrap_or_default(),
         });
     }
 
@@ -351,7 +351,7 @@ mod tests {
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
         let scope = Scope::root();
         let addr = Addr::new_scoped((), UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(scope, &Rc::new(EventBus::new()));
+        addr.live_in(scope, Some(&Rc::new(EventBus::new())));
 
         scope.remove();
 

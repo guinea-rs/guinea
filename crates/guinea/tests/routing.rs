@@ -785,7 +785,7 @@ mod routing {
             fn install(ctx: &FeatureInitContext, _params: &ProbePageParams) -> anyhow::Result<()> {
                 PROBE_DROPPED.with(|d| *d.borrow_mut() = false);
                 let push = ctx.state::<Probe>().plain().port();
-                let addr = ctx.spawn_actor(ProbeActor {
+                let addr = ctx.spawn(ProbeActor {
                     seen: Rc::new(RefCell::new(Vec::new())),
                     _push: Box::new(move |()| push.send(())),
                 });

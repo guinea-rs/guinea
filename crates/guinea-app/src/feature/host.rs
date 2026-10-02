@@ -104,7 +104,7 @@ impl FeatureHost {
     /// which goes when the guard does.
     ///
     /// The whole path for an application that has no routes: no chain, no
-    /// `AppUri`, no backend.
+    /// route, no backend.
     pub fn install(
         &self,
         install: impl Fn(&FeatureInitContext) -> anyhow::Result<()>,

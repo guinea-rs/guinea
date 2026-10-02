@@ -210,9 +210,8 @@ pub fn actor(input: TokenStream) -> TokenStream {
 /// { context: String } ... } } }` - the tree's `{}` nesting *is* the segment
 /// chain (no attribute stack to track); `page(...)`'s type also names the
 /// generated variant, so there's one name per leaf, not two kept in sync by
-/// hand. Generates the enum itself plus `path`/`parse` (string <-> enum),
-/// `RouteChain` (enum -> segment chain), and `ToUri` (enum -> `AppUri`, just
-/// the generated `.path()` string parsed - no per-app glue needed).
+/// hand. Generates the enum itself, `link` and `deep_links` for the routes
+/// that agreed to have an address, and `RouteChain` (enum -> segment chain).
 #[proc_macro]
 pub fn routes(input: TokenStream) -> TokenStream {
     routes_dsl::routes_impl(input)

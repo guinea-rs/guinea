@@ -9,14 +9,11 @@ pub mod load;
 pub use guinea_mark as mark;
 pub mod remote;
 pub mod notify;
-pub mod page_status;
-pub mod ratelimit_tracing;
 pub mod shared_state;
 pub mod scope;
 #[cfg(feature = "test-utils")]
 pub mod test_kit;
 pub mod trace;
-pub mod uri;
 
 pub use load::Load;
 pub use shared_state::SharedState;

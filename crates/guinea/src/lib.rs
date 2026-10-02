@@ -207,7 +207,6 @@ pub use guinea_app::services::Services;
 
 pub use guinea_codegen as codegen;
 pub use guinea_core as core;
-pub use guinea_core::uri;
 pub use guinea_meta as meta;
 
 pub use guinea_core::actor::event_bus::Event;
@@ -215,7 +214,6 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 #[allow(deprecated)]
 pub use guinea_core::rpc_bind;
-pub use guinea_core::ratelimit;
 pub use guinea_macros::{
     Event, Mark, Remote, Request, actor, feature, handler, installs, reducer, routes, segment,
 };

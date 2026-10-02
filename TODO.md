@@ -209,6 +209,23 @@ write up a comparison: how much code, what got simpler, what got harder, what
 guinea was missing. Each one is a test of the design against an application
 nobody wrote for guinea.
 
+## Actors
+
+### Background work where only the latest run counts (uniproc)
+
+Asked for by uniproc: `cx.spawn_bg_latest(key, fut)`, or whatever it ends up
+called. While a run with the same key is under way, a new one replaces the one
+waiting - at most one waits, the newest - and the result of a run that a newer
+one overtook never reaches the actor.
+
+Every actor writes it by hand today: a "building" flag, the value waiting, an
+epoch counter, and a restart in the result's handler. uniproc's
+`ProcessesActor` (`crates/domain/src/features/processes/actor.rs`, commit
+`a70b354`) and `latest::Searcher` in `crates/guinea/tests/harness.rs`
+(`in_every_order_the_latest_query_wins`) are two of them. An async handler is
+no way out: each message gets a task of its own, so the order they came in is
+lost - an ordering test went red on `SEED=1`.
+
 ## Harness
 
 ### `settle` is something to remember

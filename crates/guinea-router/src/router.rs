@@ -165,7 +165,7 @@ impl<U: Ui> SegmentProps<U> {
     /// this segment. So it panics rather than silently treating the current
     /// scope as the owner.
     pub fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
-        let owner = resolve::<R>(&self.scopes[..=self.cursor]).unwrap_or_else(|| {
+        let owner = self.scopes[self.cursor].owner_of::<R>().unwrap_or_else(|| {
             panic!(
                 "reading {} here found no scope that owns it: this segment did not claim \
                  it, and no ancestor exported it. Either this route never installs the \
@@ -198,19 +198,6 @@ impl<U: Ui> SegmentProps<U> {
             nodes,
         )
     }
-}
-
-/// Finds the scope that owns `R` for a segment sitting at the end of `chain`.
-///
-/// Innermost first, and the two ends are asked different questions: the
-/// segment itself may read anything it claimed, an ancestor only what it
-/// exported.
-pub fn resolve<R: Reducer>(chain: &[Scope]) -> Option<Scope> {
-    let (&here, above) = chain.split_last()?;
-    if here.has_feature::<R>() {
-        return Some(here);
-    }
-    above.iter().rev().copied().find(|scope| scope.exports::<R>())
 }
 
 /// Narrows what the router carries back to what a segment declared.
@@ -1554,11 +1541,7 @@ impl<U: Ui> Router<U> {
                 }
             }
 
-            // The ancestors snapshot is everything built so far this loop -
-            // root to this segment's immediate parent, never including
-            // `scope` itself. `inherit()` walks it to find an ancestor that
-            // already `install()`-ed the feature being asked for.
-            let ctx = self.host.context(scope, Rc::from(scopes.clone()));
+            let ctx = self.host.context(scope, index);
 
             if let Err(error) = (entry.install)(&ctx, captured) {
                 scopes.push(scope);

@@ -6,7 +6,6 @@ use std::sync::Arc;
 use crate::timers::{self, Period, Timer};
 use anyhow::Context as _;
 use guinea_core::SharedState;
-use guinea_core::actor::registry::{DebugRegistry, Owner};
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Handler, ManagedActor, UiThreadToken};
 use guinea_core::trace::Bus;
@@ -14,7 +13,7 @@ use guinea_core::actor::event_bus::{EventBus, GlobalEventBus};
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
-use guinea_core::scope::{DropGuard, Reducer, Scope, Teardown};
+use guinea_core::scope::{DropGuard, Reducer, Scope};
 
 pub struct AppFeatureDeinitContext<'a> {
     pub token: UiThreadToken,
@@ -24,14 +23,15 @@ pub struct AppFeatureDeinitContext<'a> {
 #[derive(Clone)]
 pub struct FeatureInitContext {
     pub scope: Scope,
-    pub ancestors: Rc<[Scope]>,
+    /// Where in its chain the segment being installed sits: 0 for the
+    /// outermost. The scopes above it are the tree's - `scope.ancestors()`.
+    pub cursor: usize,
     /// Which root this feature is being installed into - the second window,
     /// or the only one. What a service shared between roots uses to tell
     /// callers apart.
     pub root: crate::app::roots::RootId,
     pub token: UiThreadToken,
     pub event_bus: Rc<EventBus>,
-    pub debug_registry: Rc<DebugRegistry>,
     /// What plugins provided during application startup.
     pub services: SharedState,
 }
@@ -151,7 +151,7 @@ impl FeatureInitContext {
             crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
         });
 
-        Claim::new(self.scope, &self.event_bus, &self.token, &self.debug_registry)
+        Claim::new(self.scope, &self.event_bus, &self.token)
     }
 
     /// Says this segment answers `M`, and how.
@@ -210,22 +210,13 @@ impl FeatureInitContext {
     /// Runs before anything is asked to redraw, and the subscription is owned
     /// by this scope - the rule dies with the segment that declared it.
     pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) {
-        let owner = if self.scope.has_feature::<R>() {
-            self.scope
-        } else {
-            self.ancestors
-                .iter()
-                .rev()
-                .find(|scope| scope.exports::<R>())
-                .copied()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "observing {} here found no scope that owns it: this segment did not \
-                         claim it, and no ancestor exported it",
-                        std::any::type_name::<R>()
-                    )
-                })
-        };
+        let owner = self.scope.owner_of::<R>().unwrap_or_else(|| {
+            panic!(
+                "observing {} here found no scope that owns it: this segment did not \
+                 claim it, and no ancestor exported it",
+                std::any::type_name::<R>()
+            )
+        });
 
         let awake = self.scope.awake();
         self.scope.own(DropGuard(owner.observe::<R>(move |update| {
@@ -316,22 +307,7 @@ impl FeatureInitContext {
     pub fn spawn_actor<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
         let addr = Addr::new_managed_scoped(actor, self.token.clone());
         addr.live_in(self.scope, &self.event_bus);
-        let id = addr.id();
-        self.debug_registry.register_owned(
-            &addr,
-            Owner {
-                scope: Some(self.scope.key()),
-                feature: self.scope.current_feature(),
-                drives: None,
-            },
-        );
-        // Unregister from the window-wide debug snapshot registry before the
-        // scope-owned Addr is disposed, otherwise the registry's cloned Addr
-        // keeps the actor alive after navigation.
-        self.scope.own(DebugRegistration {
-            id,
-            registry: self.debug_registry.clone(),
-        });
+        self.scope.hold_actor(&addr, self.scope.current_feature(), None);
         self.scope.own(addr.clone());
         addr
     }
@@ -375,16 +351,5 @@ impl FeatureInitContext {
         self.scope.own(ticking);
 
         timer
-    }
-}
-
-struct DebugRegistration {
-    id: usize,
-    registry: Rc<DebugRegistry>,
-}
-
-impl Teardown for DebugRegistration {
-    fn teardown(self) {
-        self.registry.unregister(self.id);
     }
 }

@@ -207,33 +207,21 @@ pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Slint>] {
     single_entry_chain(segment_entry::<P>())
 }
 
-/// The scope a segment was installed in, and the ones above it.
-///
-/// The same lookup `SegmentProps` does, from what `install` is given: a
-/// reducer belongs to the nearest scope whose `install` claimed it.
+/// The scope a segment was installed in, and the same lookup `SegmentProps`
+/// does from it.
 #[derive(Clone)]
 struct Where {
     scope: guinea_core::scope::Scope,
-    ancestors: Rc<[guinea_core::scope::Scope]>,
 }
 
 impl Where {
     fn of(ctx: &FeatureInitContext) -> Self {
-        Self {
-            scope: ctx.scope,
-            ancestors: ctx.ancestors.clone(),
-        }
+        Self { scope: ctx.scope }
     }
 
     fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
-        let chain: Vec<_> = self
-            .ancestors
-            .iter()
-            .copied()
-            .chain(std::iter::once(self.scope))
-            .collect();
-
-        guinea_router::router::resolve::<R>(&chain)
+        self.scope
+            .owner_of::<R>()
             .unwrap_or_else(|| {
                 panic!(
                     "binding {} here found no scope that owns it: this segment did not claim \

@@ -232,9 +232,7 @@ pub struct Observing<'a, Message> {
 impl<'a, Message: Send + 'static> Observing<'a, Message> {
     fn new(ctx: &'a FeatureInitContext, deliver: Deliver) -> Self {
         Self {
-            // The chain position of the segment being installed: everything
-            // above it is already built, and nothing below exists yet.
-            cursor: ctx.ancestors.len(),
+            cursor: ctx.cursor,
             ctx,
             deliver,
             message: PhantomData,
@@ -506,7 +504,7 @@ fn stage_node<Node: Default + 'static>(
     });
     nodes::stage(
         Placement {
-            cursor: ctx.ancestors.len(),
+            cursor: ctx.cursor,
             segment: TypeId::of::<Node>(),
         },
         held,

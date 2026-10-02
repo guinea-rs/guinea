@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus, GlobalEventBus};
 use guinea_core::actor::{UiThreadToken, short_type_name};
-use guinea_core::actor::registry::DebugRegistry;
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
@@ -111,14 +110,14 @@ impl Harness {
         let app = TestApp::new();
         let root = Registration::open();
         let scope = Scope::root().guard();
+        scope.set_window(root.id().get());
 
         let segment = FeatureInitContext {
             scope: *scope,
-            ancestors: Rc::from([]),
+            cursor: 0,
             root: root.id(),
             token: app.token.clone(),
             event_bus: Rc::new(EventBus::for_root(root.id().get())),
-            debug_registry: Rc::new(DebugRegistry::for_root(root.id().get())),
             services: app.shared().clone(),
         };
 
@@ -260,8 +259,8 @@ impl Drop for Harness {
     }
 }
 
-/// One segment of a [`Harness`]: a scope features install into, with the
-/// segments above it as its ancestors.
+/// One segment of a [`Harness`]: a scope features install into, under the
+/// segment it was made from.
 ///
 /// A [`child`](Self::child) owns its scope. Leaving it - or dropping it -
 /// tears the scope down the way a navigation does: its actors are disposed and
@@ -284,23 +283,13 @@ impl<'h> Segment<'h> {
     /// Where a page here reads `R` from: this scope if it claimed `R`, or the
     /// nearest one above that exports it - the rule the router reads by.
     fn owner<R: Reducer>(&self) -> Scope {
-        if self.cx.scope.claims::<R>() {
-            return self.cx.scope;
-        }
-
-        self.cx
-            .ancestors
-            .iter()
-            .rev()
-            .find(|scope| scope.exports::<R>())
-            .copied()
-            .unwrap_or_else(|| {
-                panic!(
-                    "nothing here claims {} and nothing above exports it - install the feature \
-                     that does",
-                    std::any::type_name::<R>()
-                )
-            })
+        self.cx.scope.owner_of::<R>().unwrap_or_else(|| {
+            panic!(
+                "nothing here claims {} and nothing above exports it - install the feature \
+                 that does",
+                std::any::type_name::<R>()
+            )
+        })
     }
 
     /// What a page here reading `R` is handed to act with.
@@ -337,15 +326,13 @@ impl<'h> Segment<'h> {
 
     /// A segment below this one.
     pub fn child(&self) -> Segment<'h> {
-        let mut above: Vec<Scope> = self.cx.ancestors.to_vec();
-        above.push(self.cx.scope);
         let scope = self.cx.scope.child().guard();
 
         Segment {
             harness: self.harness,
             cx: FeatureInitContext {
                 scope: *scope,
-                ancestors: Rc::from(above),
+                cursor: self.cx.cursor + 1,
                 ..self.cx.clone()
             },
             _owned: Some(scope),

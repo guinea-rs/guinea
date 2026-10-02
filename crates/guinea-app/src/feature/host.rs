@@ -2,17 +2,16 @@ use std::rc::Rc;
 
 use guinea_core::SharedState;
 use guinea_core::actor::event_bus::EventBus;
-use guinea_core::actor::registry::DebugRegistry;
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{Scope, ScopeGuard};
 
 use super::FeatureInitContext;
 use crate::app::roots::{Registration, RootId};
 
-/// What a feature needs to be installed into a scope: the UI thread, the
-/// window's event bus, its debug registry, and whatever plugins provided.
+/// What a feature needs to be installed into a scope: the window's own scope,
+/// the UI thread, the window's event bus, and whatever plugins provided.
 ///
-/// The router used to own all four and hand them out. It shouldn't: they are
+/// The router used to own all of these and hand them out. It shouldn't: they are
 /// no more about routing than they are about anything else, and an
 /// application that never navigates - a single window, a dialog, a backend
 /// with no notion of a route - needs them just the same. So the host lives
@@ -25,7 +24,6 @@ pub struct FeatureHost {
     /// One per window, shared by every feature installed through this host,
     /// so actors in different features can reach each other.
     event_bus: Rc<EventBus>,
-    debug_registry: Rc<DebugRegistry>,
     services: SharedState,
     /// This host *is* the root, so its registration is held here: the entry
     /// goes when the host goes, together with the scopes under it.
@@ -44,12 +42,13 @@ impl FeatureHost {
     pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
         let root = Registration::open();
         let id = root.id().get();
+        let scope = Scope::root();
+        scope.set_window(id);
 
         Self {
-            scope: Scope::root().guard(),
+            scope: scope.guard(),
             token,
             event_bus: Rc::new(EventBus::for_root(id)),
-            debug_registry: Rc::new(DebugRegistry::for_root(id)),
             services,
             root,
         }
@@ -73,10 +72,6 @@ impl FeatureHost {
         &self.event_bus
     }
 
-    pub fn debug_registry(&self) -> &Rc<DebugRegistry> {
-        &self.debug_registry
-    }
-
     /// What plugins provided at startup.
     ///
     /// The one thing an enter guard can read: it answers before anything is
@@ -85,17 +80,15 @@ impl FeatureHost {
         &self.services
     }
 
-    /// The context a feature installs through. `ancestors` is what
-    /// `FeatureInitContext::inherit` walks - root first, never including
-    /// `scope` itself.
-    pub fn context(&self, scope: Scope, ancestors: Rc<[Scope]>) -> FeatureInitContext {
+    /// The context a feature installs through, for the segment at `cursor`
+    /// of its chain.
+    pub fn context(&self, scope: Scope, cursor: usize) -> FeatureInitContext {
         FeatureInitContext {
             scope,
-            ancestors,
+            cursor,
             root: self.root.id(),
             token: self.token.clone(),
             event_bus: self.event_bus.clone(),
-            debug_registry: self.debug_registry.clone(),
             services: self.services.clone(),
         }
     }
@@ -110,7 +103,7 @@ impl FeatureHost {
         install: impl Fn(&FeatureInitContext) -> anyhow::Result<()>,
     ) -> anyhow::Result<ScopeGuard> {
         let scope = self.scope().child().guard();
-        let ctx = self.context(*scope, Rc::from(Vec::new()));
+        let ctx = self.context(*scope, 0);
         install(&ctx)?;
         Ok(scope)
     }

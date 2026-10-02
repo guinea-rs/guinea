@@ -153,7 +153,7 @@ impl<U: Ui> Inspected for Router<U> {
             _ => Vec::new(),
         };
 
-        let mut actors = self.host().debug_registry().snapshots();
+        let mut actors = self.host().scope().actors();
         actors.sort_by_key(|actor| actor.id);
 
         RouterView {
@@ -172,7 +172,7 @@ impl<U: Ui> Inspected for Router<U> {
     }
 
     fn actor(&self, id: usize) -> Option<ActorSnapshot> {
-        self.host().debug_registry().snapshot_of(id)
+        self.host().scope().actor(id)
     }
 
     fn root_id(&self) -> RootId {

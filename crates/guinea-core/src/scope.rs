@@ -8,7 +8,9 @@ use tokio::task::JoinHandle;
 
 use crate::actor::Addr;
 use crate::actor::event_bus::subscribe::BusSubscription;
+use crate::actor::registry::{ActorSnapshot, Owner};
 use crate::actor::shape::Declared;
+use crate::actor::traits::ManagedActor;
 
 static NEXT_SUBSCRIBER_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -248,6 +250,45 @@ struct ScopeData {
     asleep: Rc<std::cell::Cell<bool>>,
     /// Run when it is shown again. See [`Scope::on_wake`].
     wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
+    /// The window this scope is the root of. See [`Scope::set_window`].
+    window: std::cell::Cell<Option<u64>>,
+    /// The actors it holds, for devtools to read. See [`Scope::hold_actor`].
+    actors: RefCell<Vec<HeldActor>>,
+}
+
+struct HeldActor {
+    id: usize,
+    type_name: &'static str,
+    shape: crate::actor::shape::Shape,
+    owner: Owner,
+    snapshot: Box<dyn Fn() -> String>,
+}
+
+impl HeldActor {
+    fn read(&self) -> ActorSnapshot {
+        ActorSnapshot {
+            id: self.id,
+            type_name: self.type_name,
+            shape: self.shape,
+            owner: self.owner,
+            state: (self.snapshot)(),
+        }
+    }
+}
+
+/// Tells devtools an actor is no longer listed, when its scope goes.
+struct Unlisted {
+    root: Option<u64>,
+    id: usize,
+}
+
+impl Teardown for Unlisted {
+    fn teardown(self) {
+        crate::devtools::changed(|| crate::devtools::Change::ActorRemoved {
+            root: self.root,
+            id: self.id,
+        });
+    }
 }
 
 struct Node {
@@ -451,6 +492,118 @@ impl Scope {
     /// The scopes above this one, the nearest first.
     pub fn ancestors(self) -> Vec<Scope> {
         std::iter::successors(self.parent(), |scope| scope.parent()).collect()
+    }
+
+    /// Where `R` is read from here: this scope if it claimed `R`, or the
+    /// nearest one above that exports it.
+    ///
+    /// The two ends are asked different questions on purpose. A segment may
+    /// read anything it claimed itself; what a scope above claimed is its own
+    /// business unless it said otherwise in `Exports`.
+    pub fn owner_of<R: 'static>(self) -> Option<Scope> {
+        if self.claims::<R>() {
+            return Some(self);
+        }
+
+        std::iter::successors(self.parent(), |scope| scope.parent())
+            .find(|scope| scope.exports::<R>())
+    }
+
+    /// Says this scope is the root of window `id`, as `RootId::get` numbers
+    /// it: what devtools are told the actors under it belong to.
+    pub fn set_window(self, id: u64) {
+        if let Some(data) = self.data() {
+            data.window.set(Some(id));
+        }
+    }
+
+    /// The window this scope is under, if it is under one.
+    pub fn window(self) -> Option<u64> {
+        std::iter::successors(Some(self), |scope| scope.parent())
+            .find_map(|scope| scope.data()?.window.get())
+    }
+
+    /// Lists `addr` among the actors this scope holds, for devtools, until
+    /// the scope is removed - `feature` created it, and it drives `drives`
+    /// when it was made to.
+    ///
+    /// Only the listing: what ends the actor is still whoever owns it, which
+    /// for an actor of a segment is [`own`](Self::own) on this same scope.
+    pub fn hold_actor<A: ManagedActor + std::fmt::Debug>(
+        self,
+        addr: &Addr<A>,
+        feature: Option<&'static str>,
+        drives: Option<&'static str>,
+    ) {
+        let Some(data) = self.data() else { return };
+        let id = addr.id();
+        let type_name = crate::actor::short_type_name::<A>();
+        let owner = Owner {
+            scope: Some(self.key()),
+            feature,
+            drives,
+        };
+
+        let held = addr.clone();
+        data.actors.borrow_mut().push(HeldActor {
+            id,
+            type_name,
+            shape: A::SHAPE,
+            owner,
+            snapshot: Box::new(move || held.debug_snapshot()),
+        });
+        drop(data);
+
+        let root = self.window();
+        crate::devtools::changed(|| crate::devtools::Change::ActorAdded {
+            root,
+            id,
+            type_name,
+            owner,
+        });
+        self.own(Unlisted { root, id });
+    }
+
+    /// The actors this scope and every scope under it hold, read now.
+    pub fn actors(self) -> Vec<ActorSnapshot> {
+        self.subtree()
+            .into_iter()
+            .filter_map(Scope::data)
+            .flat_map(|data| data.actors.borrow().iter().map(HeldActor::read).collect::<Vec<_>>())
+            .collect()
+    }
+
+    /// The actor `id`, if this scope or one under it holds it, read now; the
+    /// others are not read.
+    pub fn actor(self, id: usize) -> Option<ActorSnapshot> {
+        self.subtree().into_iter().filter_map(Scope::data).find_map(|data| {
+            data.actors
+                .borrow()
+                .iter()
+                .find(|actor| actor.id == id)
+                .map(HeldActor::read)
+        })
+    }
+
+    /// This scope and every scope under it, children first.
+    fn subtree(self) -> Vec<Scope> {
+        TREE.try_with(|tree| {
+            let tree = tree.borrow();
+            if tree.node(self).is_none() {
+                return Vec::new();
+            }
+
+            let mut order = Vec::new();
+            tree.collect(self.index, &mut order);
+            order
+                .into_iter()
+                .map(|index| Scope {
+                    index,
+                    generation: tree.nodes[index as usize].generation,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
     }
 
     /// Removes this scope when the guard is dropped.
@@ -1130,6 +1283,128 @@ mod tests {
         scope.own(Said("at once", said.clone()));
 
         assert_eq!(*said.borrow(), ["at once"]);
+    }
+
+    #[derive(Debug)]
+    struct Ticker(u32);
+
+    struct Tick;
+
+    guinea_macros::actor! {
+        Ticker {
+            handlers {
+                Tick
+            }
+        }
+    }
+
+    impl crate::actor::Handler<Tick> for Ticker {
+        fn handle(&mut self, _: Tick, _cx: crate::actor::Cx<Self, Tick>) {
+            self.0 += 1;
+        }
+    }
+
+    fn ticker() -> Addr<Ticker> {
+        Addr::new_managed_scoped(
+            Ticker(0),
+            crate::actor::UiThreadToken::dangerously_create_token_unchecked(),
+        )
+    }
+
+    fn watched(run: impl FnOnce()) -> Vec<crate::devtools::Change> {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        crate::devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+
+        run();
+        crate::devtools::stop_watching();
+
+        seen.take()
+    }
+
+    #[test]
+    fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
+        use crate::devtools::Change;
+
+        let window = Scope::root();
+        window.set_window(7);
+        let page = window.child();
+        let addr = ticker();
+        let id = addr.id();
+
+        let seen = watched(|| {
+            page.hold_actor(&addr, Some("app::Clock"), Some("Time"));
+            window.remove();
+        });
+
+        assert_eq!(
+            seen,
+            [
+                Change::ActorAdded {
+                    root: Some(7),
+                    id,
+                    type_name: crate::actor::short_type_name::<Ticker>(),
+                    owner: Owner {
+                        scope: Some(page.key()),
+                        feature: Some("app::Clock"),
+                        drives: Some("Time"),
+                    },
+                },
+                Change::ActorRemoved { root: Some(7), id },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_window_reads_the_actors_under_it_and_one_by_id_without_the_rest() {
+        let window = Scope::root();
+        let page = window.child();
+        let (bumped, other) = (ticker(), ticker());
+        window.hold_actor(&other, None, None);
+        page.hold_actor(&bumped, None, None);
+        bumped.send(Tick);
+
+        let mut held: Vec<usize> = window.actors().iter().map(|actor| actor.id).collect();
+        held.sort_unstable();
+        let mut expected = vec![bumped.id(), other.id()];
+        expected.sort_unstable();
+        assert_eq!(held, expected);
+        assert_eq!(page.actors().len(), 1, "a page reads only what is under it");
+
+        let read = window.actor(bumped.id()).map(|actor| actor.state);
+        assert_eq!(read, Some(format!("{:#?}", Ticker(1))));
+        assert!(window.actor(usize::MAX).is_none());
+
+        window.remove();
+        assert!(window.actors().is_empty(), "what a removed scope held is not listed");
+    }
+
+    #[test]
+    fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
+        #[derive(Clone, Default, Debug)]
+        struct Hidden;
+
+        impl Reducer for Hidden {
+            type Update = ();
+
+            fn reduce(&mut self, _: ()) {}
+        }
+
+        let root = Scope::root();
+        let layout = root.child();
+        let page = layout.child();
+        root.note_reducer_owner::<Counter>();
+        root.note_export::<Counter>();
+        layout.note_reducer_owner::<Counter>();
+        layout.note_export::<Counter>();
+        layout.note_reducer_owner::<Hidden>();
+        page.note_reducer_owner::<Hidden>();
+
+        assert_eq!(page.owner_of::<Counter>(), Some(layout), "the nearest export wins");
+        assert_eq!(page.owner_of::<Hidden>(), Some(page), "what it claimed is its own");
+        assert_eq!(layout.child().owner_of::<Hidden>(), None, "claimed above is not exported");
+        assert_eq!(root.owner_of::<Counter>(), Some(root));
+        root.remove();
     }
 
     #[test]

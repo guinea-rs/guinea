@@ -23,11 +23,11 @@ pub trait ContextActorExt: FeatureContext + Sized {
     ///
     /// Application-level by construction: `PluginBuilder` is the only
     /// [`FeatureContext`] there is, so a segment cannot reach this. A
-    /// segment's actor comes from `cx.state::<R>().driven_by(..)`, whose
-    /// registration is paired with a teardown and ends with the segment.
+    /// segment's actor comes from `cx.state::<R>().driven_by(..)`, and is
+    /// held by the segment's scope.
     ///
-    /// The registry keeps an address of everything it lists, which is why
-    /// `AppLifecycle::shutdown` clears it before counting what leaked.
+    /// The listing keeps an address of everything in it, which is why
+    /// `AppLifecycle::shutdown` drops it before counting what leaked.
     fn spawn<A: ManagedActor + std::fmt::Debug>(&mut self, actor: A) -> Addr<A> {
         let addr = Addr::new_managed(actor, self.token(), self.tracker());
 

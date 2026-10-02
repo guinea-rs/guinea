@@ -488,7 +488,10 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let cx = segment.context();
         S::install(cx, &params)?;
 
-        let scopes: Vec<Scope> = cx.ancestors.iter().copied().chain([cx.scope]).collect();
+        let mut scopes: Vec<Scope> = cx.scope.ancestors();
+        scopes.truncate(cx.cursor);
+        scopes.reverse();
+        scopes.push(cx.scope);
         let depth = scopes.len();
 
         let props = SegmentProps {

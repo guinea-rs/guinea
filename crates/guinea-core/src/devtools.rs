@@ -714,6 +714,17 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_built_for_a_change_nobody_watches() {
+        let built = std::cell::Cell::new(false);
+        changed(|| {
+            built.set(true);
+            Change::TimerStarted { id: 0 }
+        });
+
+        assert!(!built.get());
+    }
+
+    #[test]
     fn a_span_is_at_the_level_it_was_opened_at() {
         use tracing_subscriber::layer::SubscriberExt;
 

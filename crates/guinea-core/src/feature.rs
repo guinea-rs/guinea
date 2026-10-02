@@ -16,7 +16,6 @@
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
-use crate::actor::registry::DebugRegistry;
 use crate::actor::{Addr, ManagedActor, UiThreadToken};
 use crate::scope::{Reducer, Scope};
 
@@ -49,7 +48,9 @@ impl<R: Reducer> std::fmt::Debug for Push<R> {
 }
 
 impl<R: Reducer> Push<R> {
-    fn new(scope: Scope) -> Self {
+    /// The way into `R` in `scope` - for a test that drives an actor without
+    /// installing the feature around it.
+    pub fn new(scope: Scope) -> Self {
         Self {
             scope,
             reducer: std::marker::PhantomData,
@@ -227,25 +228,18 @@ pub struct Claim<'a, R: Reducer> {
     scope: Scope,
     bus: &'a Rc<EventBus>,
     token: &'a UiThreadToken,
-    debug: &'a Rc<DebugRegistry>,
     reducer: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<'a, R: Reducer> Claim<'a, R> {
     /// For a context that hands features their scope - `FeatureInitContext`
     /// in `guinea-app`, and nothing else.
-    pub fn new(
-        scope: Scope,
-        bus: &'a Rc<EventBus>,
-        token: &'a UiThreadToken,
-        debug: &'a Rc<DebugRegistry>,
-    ) -> Self {
+    pub fn new(scope: Scope, bus: &'a Rc<EventBus>, token: &'a UiThreadToken) -> Self {
         scope.note_reducer_owner::<R>();
         Self {
             scope,
             bus,
             token,
-            debug,
             reducer: std::marker::PhantomData,
         }
     }
@@ -280,18 +274,11 @@ impl<'a, R: Reducer> Claim<'a, R> {
         let actor = Addr::new_managed_scoped(build(Push::new(self.scope)), self.token.clone());
         actor.live_in(self.scope, self.bus);
         A::serve(&actor, self.scope);
-        self.debug.register_owned(
+        self.scope.hold_actor(
             &actor,
-            crate::actor::registry::Owner {
-                scope: Some(self.scope.key()),
-                feature: self.scope.current_feature(),
-                drives: Some(crate::actor::short_type_name::<R>()),
-            },
+            self.scope.current_feature(),
+            Some(crate::actor::short_type_name::<R>()),
         );
-        self.scope.own(Unregister {
-            id: actor.id(),
-            registry: self.debug.clone(),
-        });
         self.scope.own(actor.clone());
         (self.bound(), actor)
     }
@@ -311,17 +298,6 @@ impl<'a, R: Reducer> Claim<'a, R> {
             // through itself, not through whatever else the scope holds.
             dispatch: Dispatch::in_section(self.scope, self.scope.current_section()),
         }
-    }
-}
-
-struct Unregister {
-    id: usize,
-    registry: Rc<DebugRegistry>,
-}
-
-impl crate::scope::Teardown for Unregister {
-    fn teardown(self) {
-        self.registry.unregister(self.id);
     }
 }
 

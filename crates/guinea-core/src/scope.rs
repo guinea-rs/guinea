@@ -448,7 +448,7 @@ impl Scope {
     }
 
     /// Removes this scope and every scope under it, now: children before
-    /// their parent, and each one's resources in the order it took them.
+    /// their parent, and each one's resources the last first.
     ///
     /// From the moment this is called, every `Scope` naming them is dead.
     /// Removing a scope that is already gone does nothing.
@@ -1144,10 +1144,11 @@ impl ScopeData {
             .is_some_and(|cell| !cell.observers.borrow().is_empty())
     }
 
-    /// Runs what this scope took on, in the order it took it.
+    /// Lets go of what this scope took on, the last first: what came later
+    /// may rest on what came before it.
     fn tear_down(&self) {
         let teardowns = std::mem::take(&mut *self.teardowns.borrow_mut());
-        for teardown in teardowns {
+        for teardown in teardowns.into_iter().rev() {
             teardown();
         }
     }
@@ -1244,6 +1245,18 @@ mod tests {
         root.remove();
 
         assert_eq!(*said.borrow(), ["newer", "below", "older", "root"]);
+    }
+
+    #[test]
+    fn a_scope_lets_go_of_what_it_holds_in_the_reverse_of_the_order_it_took_it() {
+        let said = Rc::new(RefCell::new(Vec::new()));
+        let scope = Scope::root();
+        scope.own(Said("store", said.clone()));
+        scope.own(Said("actor reading the store", said.clone()));
+
+        scope.remove();
+
+        assert_eq!(*said.borrow(), ["actor reading the store", "store"]);
     }
 
     #[test]

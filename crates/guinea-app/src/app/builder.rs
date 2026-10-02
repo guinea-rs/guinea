@@ -6,9 +6,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::{Addr, ManagedActor, UiThreadToken};
-use guinea_core::scope::Reducer;
-
-use crate::feature::{AppFeatureDeinitContext, ScopeContext};
+use crate::feature::{AppExport, AppFeatureDeinitContext, ScopeContext};
 
 use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Plugin};
@@ -94,8 +92,9 @@ impl PluginBuilder {
 
     /// Lets every window read `R`, which this plugin or feature claimed with
     /// [`state`](ScopeContext::state): a page reads it as it reads what a
-    /// layout above it exports.
-    pub fn export<R: Reducer>(&self) -> anyhow::Result<&Self> {
+    /// layout above it exports. `R` says so in its type by being an
+    /// [`AppExport`], which is what lets a page's typed read name it.
+    pub fn export<R: AppExport>(&self) -> anyhow::Result<&Self> {
         let reducer = std::any::type_name::<R>();
         anyhow::ensure!(
             self.scope.claims::<R>(),

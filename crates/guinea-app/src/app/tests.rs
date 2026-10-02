@@ -378,6 +378,8 @@ mod exports {
         }
     }
 
+    impl crate::feature::AppExport for Language {}
+
     struct Localisation;
 
     impl AppFeature for Localisation {

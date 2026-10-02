@@ -1306,3 +1306,59 @@ mod navigating {
         );
     }
 }
+
+mod application_exports {
+    use guinea::feature::AppExport;
+
+    use super::*;
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Language(pub &'static str);
+
+    impl Reducer for Language {
+        type Update = &'static str;
+
+        fn reduce(&mut self, to: &'static str) {
+            self.0 = to;
+        }
+    }
+
+    impl AppExport for Language {}
+
+    struct Localisation;
+
+    impl AppFeature for Localisation {
+        fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
+            app.state::<Language>().seed(Language("en")).plain();
+            app.export::<Language>()?;
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Greeting;
+
+    #[page]
+    impl Page for Greeting {
+        type Params = ();
+
+        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+            let (language, _) = cx.use_reducer::<Language, _>();
+            TextBlock::new().text(format!("speaks {}", language.0)).into()
+        }
+    }
+
+    impl Segment for Greeting {
+        type Installs = ();
+        type Above = ();
+    }
+
+    #[guinea::test(iterations = 2)]
+    fn a_page_reads_what_the_application_exports(h: &mut Harness) {
+        h.feature(Localisation).unwrap();
+
+        let page = Mounted::<Greeting>::mount(&h.segment(), ()).unwrap();
+
+        assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
+    }
+}

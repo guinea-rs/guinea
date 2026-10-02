@@ -113,16 +113,28 @@ tuple!(
 );
 
 /// Proof that a segment may read `R`: it installed the feature that exports
-/// it, or a segment above it did.
+/// it, a segment above it did, or the application exports it.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot read `{R}` from here",
     label = "no feature in reach exports it",
-    note = "a segment reads what it installed itself, and what a segment above it listed in `Exports`"
+    note = "a segment reads what it installed itself, what a segment above it listed in `Exports`, and what the application exports - an `AppExport`"
 )]
 pub trait Reaches<R, I> {}
 
 impl<S: Segment, R, I> Reaches<R, (Here, I)> for S where S::Installs: Provides<R, I> {}
 impl<S: Segment, R, I> Reaches<R, (There<Here>, I)> for S where S::Above: Reaches<R, I> {}
+
+/// A reducer the application claims and exports, which every segment of
+/// every window may read.
+///
+/// What `app.export::<R>()` asks of `R`: the export is what makes it there at
+/// run time, this is what lets a page name it at build time.
+pub trait AppExport: Reducer {}
+
+/// The index of a read the application answers.
+pub struct FromApp;
+
+impl<S: Segment, R: AppExport> Reaches<R, FromApp> for S {}
 
 // The ancestors are a cons list rather than a segment, so they walk their own
 // way.

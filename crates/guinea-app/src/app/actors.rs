@@ -1,5 +1,8 @@
 //! The application's own scope on this thread, and the actors it holds rather
 //! than a window.
+//!
+//! Named here, not kept: the [`AppHost`](super::AppHost) owns the scope, and
+//! this goes dead with it.
 
 use std::cell::Cell;
 
@@ -17,12 +20,14 @@ pub(crate) fn set_app_scope(scope: Scope) {
 
 /// The scope of the application installed on this thread, while it is.
 pub fn app_scope() -> Option<Scope> {
-    APP.get().filter(|scope| scope.is_alive())
+    APP.get().filter(Scope::is_alive)
 }
 
 /// Every application-level actor on this thread, by id.
 pub fn app_actors() -> Vec<ActorSnapshot> {
-    let mut snapshots = app_scope().map(Scope::actors_here).unwrap_or_default();
+    let mut snapshots = app_scope()
+        .map(|scope| scope.actors_here())
+        .unwrap_or_default();
     snapshots.sort_by_key(|actor| actor.id);
     snapshots
 }

@@ -9,8 +9,8 @@ use guinea_core::actor::{Addr, ManagedActor, UiThreadToken};
 use guinea_core::scope::Reducer;
 
 use crate::feature::{AppFeatureDeinitContext, ScopeContext};
-use crate::lifecycle_tracker::AppLifecycle;
 
+use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Plugin};
 use super::registry::{Admission, Registry, Unit};
 
@@ -22,7 +22,7 @@ use super::registry::{Admission, Registry, Unit};
 /// window, cleaning up at exit.
 pub struct PluginBuilder {
     cx: ScopeContext,
-    lifecycle: AppLifecycle,
+    host: AppHost,
     registry: Rc<RefCell<Registry>>,
 }
 
@@ -32,20 +32,20 @@ pub struct FeatureBuilder {
 }
 
 impl PluginBuilder {
-    pub(crate) fn new(token: UiThreadToken, lifecycle: AppLifecycle) -> Self {
+    pub(crate) fn new(token: UiThreadToken, host: AppHost) -> Self {
         Self {
             cx: ScopeContext {
-                scope: lifecycle.scope(),
+                scope: host.scope(),
                 token,
                 services: SharedState::new(),
             },
-            lifecycle,
+            host,
             registry: Rc::new(RefCell::new(Registry::default())),
         }
     }
 
-    pub(crate) fn lifecycle(&self) -> &AppLifecycle {
-        &self.lifecycle
+    pub(crate) fn host(&self) -> &AppHost {
+        &self.host
     }
 
     pub(crate) fn plugin_ids(&self) -> Vec<&'static str> {
@@ -116,7 +116,7 @@ impl PluginBuilder {
     ) -> &Self {
         let token = self.token.clone();
         let services = self.services.clone();
-        self.lifecycle.on_cleanup(move || {
+        self.host.on_cleanup(move || {
             let mut ctx = AppFeatureDeinitContext {
                 token,
                 shared: &services,
@@ -133,7 +133,7 @@ impl PluginBuilder {
     /// reported if anything still holds it once the application is gone.
     pub fn spawn<A: ManagedActor + std::fmt::Debug + 'static>(&self, actor: A) -> Addr<A> {
         let addr = self.cx.spawn(actor);
-        self.lifecycle.track_actor(&addr);
+        self.host.count(&addr);
         addr
     }
 
@@ -162,9 +162,9 @@ impl PluginBuilder {
 }
 
 impl FeatureBuilder {
-    pub(crate) fn new(token: UiThreadToken, lifecycle: AppLifecycle) -> Self {
+    pub(crate) fn new(token: UiThreadToken, host: AppHost) -> Self {
         Self {
-            inner: PluginBuilder::new(token, lifecycle),
+            inner: PluginBuilder::new(token, host),
         }
     }
 

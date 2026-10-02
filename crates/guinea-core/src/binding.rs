@@ -95,6 +95,7 @@ impl<R: Reducer> ReducerBinding<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scope::ScopeTree;
     use std::cell::Cell;
 
     #[derive(Clone, Default, Debug)]
@@ -110,7 +111,7 @@ mod tests {
 
     #[test]
     fn a_binding_reads_on_after_its_scope_is_removed() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let binding = scope.binding::<Counter>();
         binding.push(1);
 
@@ -124,7 +125,7 @@ mod tests {
 
     #[test]
     fn subscribing_to_a_removed_scope_hears_nothing() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let binding = scope.binding::<Counter>();
         scope.remove();
 
@@ -138,7 +139,7 @@ mod tests {
 
     #[test]
     fn dropping_a_subscription_after_its_scope_is_harmless() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let subscription = scope.binding::<Counter>().on_change(|_| {});
         scope.remove();
 
@@ -147,7 +148,7 @@ mod tests {
 
     #[test]
     fn on_change_sees_every_push_until_dropped() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let binding = scope.binding::<Counter>();
 
         let seen = Rc::new(Cell::new(0u32));
@@ -165,7 +166,7 @@ mod tests {
 
     #[test]
     fn bind_calls_back_before_anything_changes() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let binding = scope.binding::<Counter>();
         binding.push(7);
 
@@ -178,7 +179,7 @@ mod tests {
 
     #[test]
     fn a_read_is_shared_and_a_change_while_it_is_held_goes_to_a_copy() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let binding = scope.binding::<Counter>();
         binding.push(1);
 

@@ -349,9 +349,9 @@ mod tests {
 
     #[test]
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
-        let scope = Scope::root();
+        let scope = crate::scope::ScopeTree::new();
         let addr = Addr::new_scoped((), UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(scope, Some(&Rc::new(EventBus::new())));
+        addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
 
         scope.remove();
 

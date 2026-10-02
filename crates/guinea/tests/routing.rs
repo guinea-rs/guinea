@@ -857,7 +857,7 @@ mod routing {
 }
 
 mod a_reducer_is_plain_rust {
-    use guinea_core::scope::{Reducer, Scope};
+    use guinea_core::scope::{Reducer, ScopeTree};
 
     /// What `#[reducer]`, `#[derive(ReducerState)]`, `#[dispatch]`, `#[port]`
     /// and half of `messages!` used to produce between them. The whole
@@ -879,7 +879,7 @@ mod a_reducer_is_plain_rust {
 
     #[test]
     fn the_state_is_the_reducer() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         scope.push::<Widget>(42);
 
         assert_eq!(scope.state::<Widget>().borrow().value, 42);

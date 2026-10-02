@@ -461,7 +461,7 @@ mod tests {
     async fn a_request_whose_answerer_sleeps_fails_at_once() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use crate::actor::{Addr, UiThreadToken};
-        use crate::scope::Scope;
+        use crate::scope::ScopeTree;
 
         #[derive(Clone, Debug, guinea_macros::Request)]
         #[request(reply = Done)]
@@ -476,9 +476,9 @@ mod tests {
             }
         }
 
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let addr = Addr::new_scoped(Worker, UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(scope, Some(&Rc::new(EventBus::new())));
+        addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
         let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
         scope.sleep();
 

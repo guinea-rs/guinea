@@ -3,7 +3,7 @@ use std::rc::Rc;
 use guinea_core::SharedState;
 use guinea_core::actor::event_bus::EventBus;
 use guinea_core::actor::UiThreadToken;
-use guinea_core::scope::{Scope, ScopeGuard};
+use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
 use crate::app::roots::{Registration, RootId};
@@ -21,6 +21,9 @@ pub struct FeatureHost {
     /// sits under, and which sits under the application's. Removed when the
     /// host goes, before its registration does.
     scope: ScopeGuard,
+    /// The tree the window's scope is in, when there is no application to
+    /// host it - a test, say.
+    _tree: Option<ScopeTree>,
     token: UiThreadToken,
     /// One per window, shared by every feature installed through this host,
     /// so actors in different features can reach each other.
@@ -43,11 +46,20 @@ impl FeatureHost {
     pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
         let root = Registration::open();
         let id = root.id().get();
-        let scope = crate::app::actors::app_scope().map_or_else(Scope::root, Scope::child);
+        let (tree, parent) = match crate::app::actors::app_scope() {
+            Some(app) => (None, app),
+            None => {
+                let tree = ScopeTree::new();
+                let root = tree.scope();
+                (Some(tree), root)
+            }
+        };
+        let scope = parent.child();
         scope.set_window(id);
 
         Self {
             scope: scope.guard(),
+            _tree: tree,
             token,
             event_bus: Rc::new(EventBus::for_root(id)),
             services,
@@ -106,7 +118,7 @@ impl FeatureHost {
         install: impl Fn(&FeatureInitContext) -> anyhow::Result<()>,
     ) -> anyhow::Result<ScopeGuard> {
         let scope = self.scope().child().guard();
-        let ctx = self.context(*scope, 0);
+        let ctx = self.context(scope.scope(), 0);
         install(&ctx)?;
         Ok(scope)
     }

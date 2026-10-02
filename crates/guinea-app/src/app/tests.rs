@@ -3,9 +3,7 @@ use std::rc::Rc;
 
 use guinea_core::actor::UiThreadToken;
 
-use crate::lifecycle_tracker::AppLifecycle;
-
-use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
+use super::{AppFeature, AppHost, FeatureBuilder, Plugin, PluginBuilder};
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -23,7 +21,7 @@ fn builder() -> FeatureBuilder {
     TRACE.with(|t| t.borrow_mut().clear());
     FeatureBuilder::new(
         UiThreadToken::dangerously_create_token_unchecked(),
-        AppLifecycle::new(),
+        AppHost::new(),
     )
 }
 
@@ -177,18 +175,17 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     impl Event for Tick {}
 
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let lifecycle = AppLifecycle::new();
+    let app = PluginBuilder::new(token, AppHost::new());
     let seen = Rc::new(RefCell::new(0usize));
 
     {
-        let app = PluginBuilder::new(token.clone(), lifecycle.clone());
         let seen = seen.clone();
         app.subscribe_global::<Tick>(move |_| *seen.borrow_mut() += 1);
     }
 
     assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 1);
 
-    lifecycle.shutdown();
+    app.host().shutdown();
 
     assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 0);
 }

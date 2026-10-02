@@ -12,10 +12,10 @@ use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureInitContext, ScopeContext};
-use crate::lifecycle_tracker::AppLifecycle;
 
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
+use super::host::AppHost;
 use super::plugin::{AppFeature, Plugin};
 use super::roots::Registration;
 use super::runtime;
@@ -35,7 +35,7 @@ impl TestApp {
     pub fn new() -> Self {
         let token = UiThreadToken::dangerously_create_token_unchecked();
         Self {
-            builder: FeatureBuilder::new(token.clone(), AppLifecycle::new()),
+            builder: FeatureBuilder::new(token.clone(), AppHost::new()),
             token,
         }
     }
@@ -108,12 +108,12 @@ impl Harness {
         GlobalEventBus::replace_for_test();
         let app = TestApp::new();
         let root = Registration::open();
-        let scope = app.lifecycle().scope().child().guard();
+        let scope = app.host().scope().child().guard();
         scope.set_window(root.id().get());
 
         let segment = FeatureInitContext {
             scope_cx: ScopeContext {
-                scope: *scope,
+                scope: scope.scope(),
                 token: app.token.clone(),
                 services: app.services.clone(),
             },
@@ -333,7 +333,7 @@ impl<'h> Segment<'h> {
             harness: self.harness,
             cx: FeatureInitContext {
                 scope_cx: ScopeContext {
-                    scope: *scope,
+                    scope: scope.scope(),
                     ..self.cx.scope_cx.clone()
                 },
                 cursor: self.cx.cursor + 1,

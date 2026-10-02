@@ -1,5 +1,6 @@
 pub mod actors;
 mod builder;
+mod host;
 mod meta;
 #[cfg(feature = "own-runtime")]
 mod runtime_host;
@@ -15,6 +16,7 @@ mod acts;
 mod harness;
 
 pub use builder::{FeatureBuilder, PluginBuilder};
+pub use host::AppHost;
 pub use meta::AppMeta;
 pub use plugin::{AppFeature, Plugin, Stop};
 
@@ -28,8 +30,6 @@ pub use runtime::{
 };
 
 use guinea_core::actor::UiThreadToken;
-
-use crate::lifecycle_tracker::AppLifecycle;
 
 pub type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
 pub type ReadyHook = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
@@ -112,7 +112,7 @@ impl GuineaApp {
         #[cfg(feature = "own-runtime")]
         runtime_host::ensure_entered()?;
 
-        let mut builder = FeatureBuilder::new(token.clone(), AppLifecycle::new());
+        let mut builder = FeatureBuilder::new(token.clone(), AppHost::new());
 
         // First, whatever the order of the calls that built this: a plugin
         // asking who the application is must not depend on where `meta()` sat

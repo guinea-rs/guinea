@@ -202,7 +202,7 @@ pub mod backend {
 }
 
 
-pub use guinea_app::{app, app_meta, feature, lifecycle_tracker, services, timers};
+pub use guinea_app::{app, app_meta, feature, services, timers};
 pub use guinea_app::services::Services;
 
 pub use guinea_codegen as codegen;

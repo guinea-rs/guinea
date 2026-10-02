@@ -205,7 +205,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use crate::scope::{Reducer, Scope};
+    use crate::scope::{Reducer, ScopeTree};
 
     #[derive(Clone, Default, Debug)]
     struct Count(u32);
@@ -230,8 +230,8 @@ mod tests {
         }
     }
 
-    fn watched() -> (Scope, Rc<StdCell<u32>>, crate::scope::Subscription) {
-        let scope = Scope::root();
+    fn watched() -> (ScopeTree, Rc<StdCell<u32>>, crate::scope::Subscription) {
+        let scope = ScopeTree::new();
         let runs = Rc::new(StdCell::new(0));
         let sub = scope.subscribe::<Count>({
             let runs = runs.clone();
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn an_observer_is_handed_the_update_itself() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let _sub = scope.observe::<Count>({
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn observers_run_before_listeners_and_state_settles_first() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let order = Rc::new(RefCell::new(Vec::new()));
 
         let _observer = scope.observe::<Count>({
@@ -351,13 +351,14 @@ mod tests {
 
     #[test]
     fn an_observer_feeding_another_cell_settles_before_anything_draws() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let order = Rc::new(RefCell::new(Vec::new()));
 
-        let _follows = scope.observe::<Count>(move |update| scope.push::<Mirror>(*update * 10));
+        let held = scope.scope();
+        let _follows = scope.observe::<Count>(move |update| held.push::<Mirror>(*update * 10));
         let _mirror_listener = scope.subscribe::<Mirror>({
             let order = order.clone();
-            move || order.borrow_mut().push(scope.state::<Mirror>().borrow().0)
+            move || order.borrow_mut().push(held.state::<Mirror>().borrow().0)
         });
 
         super::turn(|| scope.push::<Count>(4));
@@ -371,15 +372,16 @@ mod tests {
 
     #[test]
     fn a_push_from_a_listener_is_another_round_of_the_same_drain() {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let runs = Rc::new(StdCell::new(0));
 
+        let held = scope.scope();
         let _sub = scope.subscribe::<Count>({
             let runs = runs.clone();
             move || {
                 runs.set(runs.get() + 1);
                 if runs.get() < 3 {
-                    scope.push::<Count>(99);
+                    held.push::<Count>(99);
                 }
             }
         });
@@ -393,18 +395,19 @@ mod tests {
     /// A listener that sends to an actor, whose handler pushes to the cell the
     /// listener watches: the turn the actor opens ends inside the listener.
     fn feeding_itself(through_a_turn: bool) -> usize {
-        let scope = Scope::root();
+        let scope = ScopeTree::new();
         let runs = Rc::new(StdCell::new(0));
 
+        let held = scope.scope();
         let _sub = scope.subscribe::<Count>({
             let runs = runs.clone();
             move || {
                 runs.set(runs.get() + 1);
                 let n = runs.get() as u32;
                 if through_a_turn {
-                    super::turn(|| scope.push::<Count>(n));
+                    super::turn(|| held.push::<Count>(n));
                 } else {
-                    scope.push::<Count>(n);
+                    held.push::<Count>(n);
                 }
             }
         });

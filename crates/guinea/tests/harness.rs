@@ -601,7 +601,8 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
     assert!(remote::act_in(&scopes, "Rename", "42").is_err(), "a number is not a name");
     assert!(remote::act_in(&scopes, "Rename", "42").unwrap_err().contains("Rename"));
 
-    let elsewhere = [guinea::core::scope::Scope::root()];
+    let tree = guinea::core::scope::ScopeTree::new();
+    let elsewhere = [tree.scope()];
     let refused = remote::act_in(&elsewhere, "Rename", r#""x""#).unwrap_err();
     assert!(refused.contains("nothing on the open page answers"), "{refused}");
 }

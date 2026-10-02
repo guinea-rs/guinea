@@ -65,5 +65,5 @@ pub fn shutdown_current() {
 }
 
 pub(crate) fn teardown(builder: &FeatureBuilder) -> Vec<(&'static str, usize)> {
-    builder.lifecycle().clone().shutdown()
+    builder.host().shutdown()
 }

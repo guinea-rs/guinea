@@ -17,6 +17,12 @@ struct AppLifecycleInner {
     counted: RefCell<Vec<Rc<&'static str>>>,
 }
 
+impl Drop for AppLifecycleInner {
+    fn drop(&mut self) {
+        self.scope.remove();
+    }
+}
+
 struct Cleanup(Box<dyn FnOnce()>);
 
 impl Teardown for Cleanup {
@@ -179,6 +185,20 @@ mod tests {
 
         lifecycle.shutdown();
 
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_application_let_go_of_without_a_shutdown_is_torn_down_all_the_same() {
+        let lifecycle = AppLifecycle::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+        lifecycle.track_loop(DropCheck(counter.clone()));
+
+        let kept = lifecycle.clone();
+        drop(lifecycle);
+        assert_eq!(counter.load(Ordering::SeqCst), 0, "a handle is still held");
+
+        drop(kept);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 

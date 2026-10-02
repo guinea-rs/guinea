@@ -231,8 +231,8 @@ mod routing {
             .scope()
             .expect("nothing guards this route");
 
-        assert!(
-            Rc::ptr_eq(&scope_a, &scope_b),
+        assert_eq!(
+            scope_a, scope_b,
             "re-navigating to an unchanged route must reuse the exact same Scope, \
              not silently reinstall it - anything accumulating state in that Scope \
              (e.g. a live-updating chart) would otherwise reset on every single render"
@@ -414,8 +414,8 @@ mod routing {
             .expect("navigate to processes/fedora");
         let leaf_scope_2 = router.active_scope().unwrap();
 
-        assert!(
-            !Rc::ptr_eq(&leaf_scope_1, &leaf_scope_2),
+        assert_ne!(
+            leaf_scope_1, leaf_scope_2,
             "same leaf type but different captured params must reinstall the leaf"
         );
         assert_eq!(
@@ -784,9 +784,6 @@ mod routing {
 
             fn install(ctx: &FeatureInitContext, _params: &ProbePageParams) -> anyhow::Result<()> {
                 PROBE_DROPPED.with(|d| *d.borrow_mut() = false);
-                // The real way in; it must not keep the page scope alive via a
-                // strong Rc, otherwise Scope -> Addr -> Actor -> Push -> Scope
-                // forms a cycle.
                 let push = ctx.state::<Probe>().plain().port();
                 let addr = ctx.spawn_actor(ProbeActor {
                     seen: Rc::new(RefCell::new(Vec::new())),
@@ -861,7 +858,6 @@ mod routing {
 
 mod a_reducer_is_plain_rust {
     use guinea_core::scope::{Reducer, Scope};
-    use std::rc::Rc;
 
     /// What `#[reducer]`, `#[derive(ReducerState)]`, `#[dispatch]`, `#[port]`
     /// and half of `messages!` used to produce between them. The whole
@@ -883,7 +879,7 @@ mod a_reducer_is_plain_rust {
 
     #[test]
     fn the_state_is_the_reducer() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         scope.push::<Widget>(42);
 
         assert_eq!(scope.state::<Widget>().borrow().value, 42);

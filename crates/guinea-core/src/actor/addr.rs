@@ -52,7 +52,7 @@ pub struct Addr<A: 'static> {
 }
 
 struct Home {
-    scope: Weak<Scope>,
+    scope: Scope,
     bus: Weak<EventBus>,
 }
 
@@ -111,9 +111,9 @@ impl<A: 'static> Addr<A> {
     /// window bus. What `subscribe_on` reaches the window bus through, and
     /// notes a listener on.
     #[doc(hidden)]
-    pub fn live_in(&self, scope: &Rc<Scope>, bus: &Rc<EventBus>) {
+    pub fn live_in(&self, scope: Scope, bus: &Rc<EventBus>) {
         *self.home.borrow_mut() = Some(Home {
-            scope: Rc::downgrade(scope),
+            scope,
             bus: Rc::downgrade(bus),
         });
     }
@@ -125,7 +125,7 @@ impl<A: 'static> Addr<A> {
         A: Handler<M>,
     {
         let (scope, window) = match self.home.borrow().as_ref() {
-            Some(home) => (home.scope.upgrade(), home.bus.upgrade()),
+            Some(home) => (Some(home.scope), home.bus.upgrade()),
             None => (None, None),
         };
 
@@ -148,14 +148,13 @@ impl<A: 'static> Addr<A> {
         self.subscriptions.borrow_mut().push(subscription);
     }
 
-    /// Whether the scope it lives in is asleep: what a bus carries meanwhile
+    /// Whether the scope it lives in is asleep, or gone: what a bus carries
     /// is not for it.
     pub(crate) fn is_asleep(&self) -> bool {
         self.home
             .borrow()
             .as_ref()
-            .and_then(|home| home.scope.upgrade())
-            .is_some_and(|scope| !scope.is_awake())
+            .is_some_and(|home| !home.scope.is_awake())
     }
 
     pub fn new_scoped(state: A, token: UiThreadToken) -> Self {
@@ -341,5 +340,21 @@ impl<A: 'static> Addr<A> {
         }
 
         self.is_processing.set(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_actor_whose_scope_was_removed_hears_nothing_more() {
+        let scope = Scope::root();
+        let addr = Addr::new_scoped((), UiThreadToken::dangerously_create_token_unchecked());
+        addr.live_in(scope, &Rc::new(EventBus::new()));
+
+        scope.remove();
+
+        assert!(addr.is_asleep(), "a removed scope read as awake");
     }
 }

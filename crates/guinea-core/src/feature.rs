@@ -13,7 +13,7 @@
 //! used rather than in the name of a method that fetches it. Nothing is left
 //! to wire, so nothing can be left unwired.
 
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
 use crate::actor::registry::DebugRegistry;
@@ -22,18 +22,18 @@ use crate::scope::{Reducer, Scope};
 
 /// The way back into a reducer, for whoever changes it.
 ///
-/// Handed to an actor as a parameter rather than fetched by name, and holding
-/// its scope weakly: an actor that kept this would otherwise keep the page it
-/// belongs to alive, and the actor is what the page owns.
+/// Handed to an actor as a parameter rather than fetched by name. It names its
+/// scope and does not keep it: the scope goes when it is removed, and this
+/// quietly stops.
 pub struct Push<R: Reducer> {
-    scope: Weak<Scope>,
+    scope: Scope,
     reducer: std::marker::PhantomData<R>,
 }
 
 impl<R: Reducer> Clone for Push<R> {
     fn clone(&self) -> Self {
         Self {
-            scope: self.scope.clone(),
+            scope: self.scope,
             reducer: std::marker::PhantomData,
         }
     }
@@ -43,15 +43,15 @@ impl<R: Reducer> std::fmt::Debug for Push<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Push")
             .field("reducer", &std::any::type_name::<R>())
-            .field("scope_alive", &(self.scope.strong_count() > 0))
+            .field("scope_alive", &self.scope.is_alive())
             .finish()
     }
 }
 
 impl<R: Reducer> Push<R> {
-    fn new(scope: &Rc<Scope>) -> Self {
+    fn new(scope: Scope) -> Self {
         Self {
-            scope: Rc::downgrade(scope),
+            scope,
             reducer: std::marker::PhantomData,
         }
     }
@@ -59,11 +59,11 @@ impl<R: Reducer> Push<R> {
     /// Applies an update. A no-op once the scope is gone, which is what
     /// happens to work an actor finishes after its page has been left.
     pub fn send(&self, update: R::Update) {
-        if let Some(scope) = self.scope.upgrade() {
+        if self.scope.is_alive() {
             crate::trace::mark(|| crate::trace::Point::Push {
                 reducer: crate::actor::short_type_name::<R>(),
             });
-            scope.push::<R>(update);
+            self.scope.push::<R>(update);
         }
     }
 }
@@ -88,26 +88,26 @@ impl<R: Reducer> Push<R> {
 /// the feature is installed here at all - which was never a type's question.
 #[derive(Clone, Default)]
 pub struct Dispatch {
-    /// One installed feature's corner of one scope. Weak, so a dispatcher a
-    /// widget captured cannot keep a page it outlived alive.
+    /// One installed feature's corner of one scope. Named, not kept: a
+    /// dispatcher a widget captured answers nothing once its page is removed.
     ///
     /// One and not a chain: which feature answers is settled by what the
     /// reader was reading, and reading already found the scope and the
     /// instance. Searching upward would make two instances of one feature
     /// indistinguishable again.
-    at: Option<(Weak<Scope>, usize)>,
+    at: Option<(Scope, usize)>,
 }
 
 impl Dispatch {
     /// The section that owns `R` - what a reader of `R` is handed.
-    pub fn owning<R: 'static>(scope: &Rc<Scope>) -> Self {
+    pub fn owning<R: 'static>(scope: Scope) -> Self {
         Self::in_section(scope, scope.section_of::<R>())
     }
 
     /// A named section - what a feature is handed while it is installing.
-    pub(crate) fn in_section(scope: &Rc<Scope>, section: usize) -> Self {
+    pub(crate) fn in_section(scope: Scope, section: usize) -> Self {
         Self {
-            at: Some((Rc::downgrade(scope), section)),
+            at: Some((scope, section)),
         }
     }
 
@@ -115,8 +115,6 @@ impl Dispatch {
     pub fn emit<M: 'static>(&self, action: M) {
         let found = self
             .at
-            .as_ref()
-            .and_then(|(scope, section)| Some((scope.upgrade()?, *section)))
             .and_then(|(scope, section)| scope.answerer::<M>(section));
 
         match found {
@@ -150,7 +148,7 @@ impl Dispatch {
 /// impls, since nothing stops a downstream crate implementing `Reducer` for a
 /// tuple.
 pub trait Exported {
-    fn mark(scope: &Scope);
+    fn mark(scope: Scope);
 
     /// The first listed reducer this scope never claimed, if there is one.
     ///
@@ -167,17 +165,17 @@ pub trait Exported {
     /// created on first read, so nothing ever fails. Silence is the whole
     /// problem: a wrong export looks exactly like a feature that has not
     /// pushed an update yet.
-    fn unclaimed(scope: &Scope) -> Option<&'static str>;
+    fn unclaimed(scope: Scope) -> Option<&'static str>;
 }
 
-fn missing<R: Reducer>(scope: &Scope) -> Option<&'static str> {
+fn missing<R: Reducer>(scope: Scope) -> Option<&'static str> {
     (!scope.claims::<R>()).then(|| std::any::type_name::<R>())
 }
 
 impl Exported for () {
-    fn mark(_scope: &Scope) {}
+    fn mark(_scope: Scope) {}
 
-    fn unclaimed(_scope: &Scope) -> Option<&'static str> {
+    fn unclaimed(_scope: Scope) -> Option<&'static str> {
         None
     }
 }
@@ -185,11 +183,11 @@ impl Exported for () {
 macro_rules! exported {
     ($($reducer:ident),+) => {
         impl<$($reducer: Reducer),+> Exported for ($($reducer,)+) {
-            fn mark(scope: &Scope) {
+            fn mark(scope: Scope) {
                 $(scope.note_export::<$reducer>();)+
             }
 
-            fn unclaimed(scope: &Scope) -> Option<&'static str> {
+            fn unclaimed(scope: Scope) -> Option<&'static str> {
                 None$(.or_else(|| missing::<$reducer>(scope)))+
             }
         }
@@ -216,7 +214,7 @@ exported!(A, B, C, D, E, F, G, H, I, J, K, L);
 /// unwired. Implementing it by hand is not the alternative to having an actor
 /// - `cx.answers::<M>(..)` is.
 pub trait Serves: Sized + 'static {
-    fn serve(addr: &Addr<Self>, scope: &Rc<Scope>);
+    fn serve(addr: &Addr<Self>, scope: Scope);
 }
 
 /// A reducer being claimed, and what may still be said about it.
@@ -226,7 +224,7 @@ pub trait Serves: Sized + 'static {
 /// the UI owns outright, and the type says so: nothing drives it, so nothing
 /// can be emitted to it.
 pub struct Claim<'a, R: Reducer> {
-    scope: &'a Rc<Scope>,
+    scope: Scope,
     bus: &'a Rc<EventBus>,
     token: &'a UiThreadToken,
     debug: &'a Rc<DebugRegistry>,
@@ -237,7 +235,7 @@ impl<'a, R: Reducer> Claim<'a, R> {
     /// For a context that hands features their scope - `FeatureInitContext`
     /// in `guinea-app`, and nothing else.
     pub fn new(
-        scope: &'a Rc<Scope>,
+        scope: Scope,
         bus: &'a Rc<EventBus>,
         token: &'a UiThreadToken,
         debug: &'a Rc<DebugRegistry>,

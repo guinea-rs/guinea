@@ -213,26 +213,24 @@ pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Slint>] {
 /// reducer belongs to the nearest scope whose `install` claimed it.
 #[derive(Clone)]
 struct Where {
-    scope: Rc<guinea_core::scope::Scope>,
-    ancestors: Rc<[Rc<guinea_core::scope::Scope>]>,
+    scope: guinea_core::scope::Scope,
+    ancestors: Rc<[guinea_core::scope::Scope]>,
 }
 
 impl Where {
     fn of(ctx: &FeatureInitContext) -> Self {
         Self {
-            scope: ctx.scope.clone(),
+            scope: ctx.scope,
             ancestors: ctx.ancestors.clone(),
         }
     }
 
     fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
-        // Same rule as `SegmentProps::binding`: this segment may read what it
-        // claimed, an ancestor only what it exported.
         let chain: Vec<_> = self
             .ancestors
             .iter()
-            .cloned()
-            .chain(std::iter::once(self.scope.clone()))
+            .copied()
+            .chain(std::iter::once(self.scope))
             .collect();
 
         guinea_router::router::resolve::<R>(&chain)

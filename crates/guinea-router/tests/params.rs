@@ -138,7 +138,7 @@ fn go(router: &Rc<Router<Headless>>, route: Route) {
     router.navigate(route).expect("navigate");
 }
 
-fn scratch(scope: &Rc<Scope>) -> u32 {
+fn scratch(scope: Scope) -> u32 {
     scope.state::<Scratch>().borrow().0
 }
 
@@ -152,8 +152,8 @@ fn a_layout_stays_while_what_it_derives_stays() {
     go(&router, Route::Sibling("ubuntu".into()));
     let second = router.scope_at(0).expect("a layout is mounted");
 
-    assert!(
-        Rc::ptr_eq(&first, &second),
+    assert_eq!(
+        first, second,
         "only the page under it changed, and the layout captured the same host"
     );
 }
@@ -168,8 +168,8 @@ fn a_layout_reinstalls_when_what_it_derives_changes() {
     go(&router, Route::UnderA("fedora".into()));
     let second = router.scope_at(0).expect("a layout is mounted");
 
-    assert!(
-        !Rc::ptr_eq(&first, &second),
+    assert_ne!(
+        first, second,
         "the chain is the same shape, but the layout was handed a different \
          host - keeping it would leave a layout built for one showing another"
     );
@@ -189,7 +189,7 @@ fn a_cached_page_comes_back_to_the_capture_it_left() {
     go(&router, Route::UnderA("ubuntu".into()));
 
     assert_eq!(
-        scratch(&router.scope_at(1).expect("a page is mounted")),
+        scratch(router.scope_at(1).expect("a page is mounted")),
         7,
         "same host, so the state it was cached with is still its own"
     );
@@ -209,7 +209,7 @@ fn a_cached_page_does_not_come_back_to_a_different_capture() {
     go(&router, Route::UnderA("fedora".into()));
 
     assert_eq!(
-        scratch(&router.scope_at(1).expect("a page is mounted")),
+        scratch(router.scope_at(1).expect("a page is mounted")),
         0,
         "a page cached under one host is a different page's worth of state \
          under another"
@@ -229,7 +229,7 @@ fn the_same_page_under_two_layouts_is_two_places() {
     go(&router, Route::UnderB("ubuntu".into()));
 
     assert_eq!(
-        scratch(&router.scope_at(1).expect("a page is mounted")),
+        scratch(router.scope_at(1).expect("a page is mounted")),
         0,
         "same type at the same depth, but under a different layout - keying \
          the cache on depth and type alone would have let one restore into \

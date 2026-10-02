@@ -7,21 +7,18 @@
 //! primitive all three are built on.
 
 use std::cell::Ref;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use crate::feature::Dispatch;
 use crate::scope::{DropGuard, Reducer, Scope, Slot, Subscription};
 
 /// A handle to one reducer's state and actions inside one scope.
 ///
-/// Holds the scope weakly and the state cell strongly: reading keeps working
-/// after the scope is torn down (the last frame of a page being navigated away
-/// from still renders), while a binding stored in an actor cannot keep its own
-/// scope alive. That cycle - `Scope -> cells -> listeners -> closure ->
-/// Rc<Scope>` - is the reason this type exists rather than each consumer
-/// wiring it by hand.
+/// Names the scope and holds the state cell: reading keeps working after the
+/// scope is removed (the last frame of a page being navigated away from still
+/// renders), while pushing and subscribing quietly stop.
 pub struct ReducerBinding<R: Reducer> {
-    owner: Weak<Scope>,
+    owner: Scope,
     state: Rc<Slot<R>>,
     dispatch: Dispatch,
 }
@@ -29,7 +26,7 @@ pub struct ReducerBinding<R: Reducer> {
 impl<R: Reducer> Clone for ReducerBinding<R> {
     fn clone(&self) -> Self {
         Self {
-            owner: self.owner.clone(),
+            owner: self.owner,
             state: self.state.clone(),
             dispatch: self.dispatch.clone(),
         }
@@ -37,9 +34,9 @@ impl<R: Reducer> Clone for ReducerBinding<R> {
 }
 
 impl<R: Reducer> ReducerBinding<R> {
-    pub(crate) fn new(scope: &Rc<Scope>) -> Self {
+    pub(crate) fn new(scope: Scope) -> Self {
         Self {
-            owner: Rc::downgrade(scope),
+            owner: scope,
             state: scope.state::<R>(),
             dispatch: Dispatch::owning::<R>(scope),
         }
@@ -64,9 +61,7 @@ impl<R: Reducer> ReducerBinding<R> {
     /// Applies an update directly, without an actor in between. A no-op once
     /// the owning scope is gone.
     pub fn push(&self, update: R::Update) {
-        if let Some(scope) = self.owner.upgrade() {
-            scope.push::<R>(update);
-        }
+        self.owner.push::<R>(update);
     }
 
     /// Calls `f` after every change, until the returned [`Subscription`] is
@@ -76,12 +71,8 @@ impl<R: Reducer> ReducerBinding<R> {
     /// subscription must end with the component instance, not with the scope,
     /// or unmounted components accumulate as live listeners.
     pub fn on_change(&self, f: impl Fn(&R) + 'static) -> Subscription {
-        let Some(scope) = self.owner.upgrade() else {
-            return Subscription::inert();
-        };
-
         let state = self.state.clone();
-        scope.subscribe::<R>(move || {
+        self.owner.subscribe::<R>(move || {
             let now = state.borrow().clone();
             f(&now)
         })
@@ -90,12 +81,8 @@ impl<R: Reducer> ReducerBinding<R> {
     /// Like [`Self::on_change`], but the subscription lives as long as the
     /// scope - for backends with no effect system to hang a cleanup on.
     pub fn on_change_owned(&self, f: impl Fn(&R) + 'static) {
-        let Some(scope) = self.owner.upgrade() else {
-            return;
-        };
-
         let subscription = self.on_change(f);
-        scope.own(DropGuard(subscription));
+        self.owner.own(DropGuard(subscription));
     }
 
     /// Calls `f` immediately with the current state, then after every change.
@@ -122,45 +109,45 @@ mod tests {
     }
 
     #[test]
-    fn a_binding_does_not_keep_its_scope_alive() {
-        let scope = Rc::new(Scope::new());
+    fn a_binding_reads_on_after_its_scope_is_removed() {
+        let scope = Scope::root();
         let binding = scope.binding::<Counter>();
-
-        assert_eq!(Rc::strong_count(&scope), 1, "the binding holds a Weak");
+        binding.push(1);
 
         binding.on_change_owned(|_| {});
-        drop(scope);
+        scope.remove();
 
-        assert_eq!(binding.peek().0, 0, "the state cell outlives the scope");
+        assert_eq!(binding.peek().0, 1, "the state cell outlives the scope");
         binding.push(1);
-        assert_eq!(binding.peek().0, 0, "pushing into a dead scope is a no-op");
+        assert_eq!(binding.peek().0, 1, "pushing into a removed scope is a no-op");
     }
 
     #[test]
-    fn subscribing_does_not_keep_the_scope_alive_either() {
-        let scope = Rc::new(Scope::new());
-        let _subscription = scope.binding::<Counter>().on_change(|_| {});
+    fn subscribing_to_a_removed_scope_hears_nothing() {
+        let scope = Scope::root();
+        let binding = scope.binding::<Counter>();
+        scope.remove();
 
-        assert_eq!(
-            Rc::strong_count(&scope),
-            1,
-            "an outstanding subscription must not raise the scope's strong count"
-        );
+        let seen = Rc::new(Cell::new(false));
+        let recorder = seen.clone();
+        let _subscription = binding.on_change(move |_| recorder.set(true));
+        binding.push(1);
+
+        assert!(!seen.get());
     }
 
     #[test]
     fn dropping_a_subscription_after_its_scope_is_harmless() {
-        let subscription = {
-            let scope = Rc::new(Scope::new());
-            scope.binding::<Counter>().on_change(|_| {})
-        };
+        let scope = Scope::root();
+        let subscription = scope.binding::<Counter>().on_change(|_| {});
+        scope.remove();
 
         drop(subscription);
     }
 
     #[test]
     fn on_change_sees_every_push_until_dropped() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let binding = scope.binding::<Counter>();
 
         let seen = Rc::new(Cell::new(0u32));
@@ -178,7 +165,7 @@ mod tests {
 
     #[test]
     fn bind_calls_back_before_anything_changes() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let binding = scope.binding::<Counter>();
         binding.push(7);
 
@@ -191,7 +178,7 @@ mod tests {
 
     #[test]
     fn a_read_is_shared_and_a_change_while_it_is_held_goes_to_a_copy() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let binding = scope.binding::<Counter>();
         binding.push(1);
 

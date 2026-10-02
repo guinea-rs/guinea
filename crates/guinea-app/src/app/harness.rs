@@ -9,7 +9,7 @@ use guinea_core::actor::{UiThreadToken, short_type_name};
 use guinea_core::actor::registry::DebugRegistry;
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
-use guinea_core::scope::{DropGuard, Reducer, Scope};
+use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::context_ext::FeatureContext;
@@ -93,6 +93,7 @@ impl DerefMut for TestApp {
 /// [`advance`](Self::advance).
 pub struct Harness {
     segment: FeatureInitContext,
+    _scope: ScopeGuard,
     _root: Registration,
     app: TestApp,
     recorder: Recorder,
@@ -109,9 +110,10 @@ impl Harness {
         GlobalEventBus::replace_for_test();
         let app = TestApp::new();
         let root = Registration::open();
+        let scope = Scope::root().guard();
 
         let segment = FeatureInitContext {
-            scope: Rc::new(Scope::new()),
+            scope: *scope,
             ancestors: Rc::from([]),
             root: root.id(),
             token: app.token.clone(),
@@ -122,6 +124,7 @@ impl Harness {
 
         Self {
             segment,
+            _scope: scope,
             _root: root,
             app,
             recorder: Recorder::start(),
@@ -187,6 +190,7 @@ impl Harness {
         Segment {
             harness: self,
             cx: self.segment.clone(),
+            _owned: None,
         }
     }
 
@@ -251,7 +255,7 @@ impl Drop for Harness {
     /// something process-wide in place takes it away again, so the next seed
     /// can put it back.
     fn drop(&mut self) {
-        self.segment.scope = Rc::new(Scope::new());
+        self.segment.scope.remove();
         runtime::teardown(&self.app.token, &self.app.builder);
     }
 }
@@ -259,12 +263,14 @@ impl Drop for Harness {
 /// One segment of a [`Harness`]: a scope features install into, with the
 /// segments above it as its ancestors.
 ///
-/// It owns its scope. Leaving it - or dropping it - tears the scope down the
-/// way a navigation does: its actors are disposed and their tasks cancelled,
-/// while the segments above carry on.
+/// A [`child`](Self::child) owns its scope. Leaving it - or dropping it -
+/// tears the scope down the way a navigation does: its actors are disposed and
+/// their tasks cancelled, while the segments above carry on. The harness's own
+/// segment goes with the harness.
 pub struct Segment<'h> {
     harness: &'h Harness,
     cx: FeatureInitContext,
+    _owned: Option<ScopeGuard>,
 }
 
 impl<'h> Segment<'h> {
@@ -277,9 +283,9 @@ impl<'h> Segment<'h> {
 
     /// Where a page here reads `R` from: this scope if it claimed `R`, or the
     /// nearest one above that exports it - the rule the router reads by.
-    fn owner<R: Reducer>(&self) -> Rc<Scope> {
+    fn owner<R: Reducer>(&self) -> Scope {
         if self.cx.scope.claims::<R>() {
-            return self.cx.scope.clone();
+            return self.cx.scope;
         }
 
         self.cx
@@ -287,7 +293,7 @@ impl<'h> Segment<'h> {
             .iter()
             .rev()
             .find(|scope| scope.exports::<R>())
-            .cloned()
+            .copied()
             .unwrap_or_else(|| {
                 panic!(
                     "nothing here claims {} and nothing above exports it - install the feature \
@@ -299,7 +305,7 @@ impl<'h> Segment<'h> {
 
     /// What a page here reading `R` is handed to act with.
     pub fn dispatch<R: Reducer>(&self) -> Dispatch {
-        Dispatch::owning::<R>(&self.owner::<R>())
+        Dispatch::owning::<R>(self.owner::<R>())
     }
 
     /// See [`Harness::act`].
@@ -331,16 +337,18 @@ impl<'h> Segment<'h> {
 
     /// A segment below this one.
     pub fn child(&self) -> Segment<'h> {
-        let mut above: Vec<Rc<Scope>> = self.cx.ancestors.to_vec();
-        above.push(self.cx.scope.clone());
+        let mut above: Vec<Scope> = self.cx.ancestors.to_vec();
+        above.push(self.cx.scope);
+        let scope = self.cx.scope.child().guard();
 
         Segment {
             harness: self.harness,
             cx: FeatureInitContext {
-                scope: Rc::new(Scope::new()),
+                scope: *scope,
                 ancestors: Rc::from(above),
                 ..self.cx.clone()
             },
+            _owned: Some(scope),
         }
     }
 

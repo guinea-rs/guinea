@@ -18,14 +18,13 @@
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
-use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 use crate::scope::Scope;
 
 /// One applied update, on its way to whoever is watching.
 struct Change {
-    scope: Weak<Scope>,
+    scope: Scope,
     cell: TypeId,
     update: Option<Box<dyn Any>>,
 }
@@ -65,21 +64,19 @@ pub fn turn<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
-pub(crate) fn mark(scope: &Rc<Scope>, cell: TypeId, update: Option<Box<dyn Any>>) {
+pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
     let opened_the_round = MARKED.with(|marked| {
         let mut marked = marked.borrow_mut();
         let was_empty = marked.is_empty();
 
-        let seen = marked
-            .iter()
-            .any(|c| c.cell == cell && std::ptr::eq(c.scope.as_ptr(), Rc::as_ptr(scope)));
+        let seen = marked.iter().any(|c| c.cell == cell && c.scope == scope);
 
         // An observed update is kept whole - a rename and a fresh list are
         // different things to whoever is watching. A bare mark says only that
         // the cell moved, so one of those is as good as ten.
         if update.is_some() || !seen {
             marked.push(Change {
-                scope: Rc::downgrade(scope),
+                scope,
                 cell,
                 update,
             });
@@ -136,7 +133,7 @@ pub fn drain() {
     let mut listeners = 0usize;
 
     'drained: while MARKED.with(|marked| !marked.borrow().is_empty()) {
-        let mut touched: Vec<(Weak<Scope>, TypeId)> = Vec::new();
+        let mut touched: Vec<(Scope, TypeId)> = Vec::new();
 
         // State first, and until it stops moving: an observer turning someone
         // else's update into its own is how one piece of state follows another,
@@ -155,20 +152,17 @@ pub fn drain() {
             let batch = MARKED.with(|marked| std::mem::take(&mut *marked.borrow_mut()));
 
             for change in batch {
-                let Some(scope) = change.scope.upgrade() else {
+                if !change.scope.is_alive() {
                     gone += 1;
                     continue;
-                };
+                }
 
-                if !touched
-                    .iter()
-                    .any(|(s, c)| *c == change.cell && std::ptr::eq(s.as_ptr(), Rc::as_ptr(&scope)))
-                {
-                    touched.push((change.scope.clone(), change.cell));
+                if !touched.contains(&(change.scope, change.cell)) {
+                    touched.push((change.scope, change.cell));
                 }
 
                 let Some(update) = change.update else { continue };
-                for observer in scope.observers_of(change.cell) {
+                for observer in change.scope.observers_of(change.cell) {
                     updates += 1;
                     observer(&*update);
                 }
@@ -178,10 +172,10 @@ pub fn drain() {
         cells += touched.len();
 
         for (scope, cell) in touched {
-            let Some(scope) = scope.upgrade() else {
+            if !scope.is_alive() {
                 gone += 1;
                 continue;
-            };
+            }
             for listener in scope.listeners_of(cell) {
                 listeners += 1;
                 listener();
@@ -236,8 +230,8 @@ mod tests {
         }
     }
 
-    fn watched() -> (Rc<Scope>, Rc<StdCell<u32>>, crate::scope::Subscription) {
-        let scope = Rc::new(Scope::new());
+    fn watched() -> (Scope, Rc<StdCell<u32>>, crate::scope::Subscription) {
+        let scope = Scope::root();
         let runs = Rc::new(StdCell::new(0));
         let sub = scope.subscribe::<Count>({
             let runs = runs.clone();
@@ -303,16 +297,12 @@ mod tests {
     }
 
     #[test]
-    fn a_scope_dropped_before_the_turn_ends_notifies_nobody() {
-        let runs = Rc::new(StdCell::new(0));
+    fn a_scope_removed_before_the_turn_ends_notifies_nobody() {
+        let (scope, runs, _sub) = watched();
 
         super::turn(|| {
-            let scope = Rc::new(Scope::new());
-            let _sub = scope.subscribe::<Count>({
-                let runs = runs.clone();
-                move || runs.set(runs.get() + 1)
-            });
             scope.push::<Count>(1);
+            scope.remove();
         });
 
         assert_eq!(runs.get(), 0);
@@ -320,7 +310,7 @@ mod tests {
 
     #[test]
     fn an_observer_is_handed_the_update_itself() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let _sub = scope.observe::<Count>({
@@ -342,7 +332,7 @@ mod tests {
 
     #[test]
     fn observers_run_before_listeners_and_state_settles_first() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let order = Rc::new(RefCell::new(Vec::new()));
 
         let _observer = scope.observe::<Count>({
@@ -361,27 +351,13 @@ mod tests {
 
     #[test]
     fn an_observer_feeding_another_cell_settles_before_anything_draws() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let order = Rc::new(RefCell::new(Vec::new()));
 
-        let _follows = scope.observe::<Count>({
-            let scope = Rc::downgrade(&scope);
-            move |update| {
-                if let Some(scope) = scope.upgrade() {
-                    scope.push::<Mirror>(*update * 10);
-                }
-            }
-        });
+        let _follows = scope.observe::<Count>(move |update| scope.push::<Mirror>(*update * 10));
         let _mirror_listener = scope.subscribe::<Mirror>({
             let order = order.clone();
-            let scope = Rc::downgrade(&scope);
-            move || {
-                let value = scope
-                    .upgrade()
-                    .map(|s| s.state::<Mirror>().borrow().0)
-                    .unwrap_or(0);
-                order.borrow_mut().push(value);
-            }
+            move || order.borrow_mut().push(scope.state::<Mirror>().borrow().0)
         });
 
         super::turn(|| scope.push::<Count>(4));
@@ -395,18 +371,15 @@ mod tests {
 
     #[test]
     fn a_push_from_a_listener_is_another_round_of_the_same_drain() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let runs = Rc::new(StdCell::new(0));
 
         let _sub = scope.subscribe::<Count>({
             let runs = runs.clone();
-            let scope = Rc::downgrade(&scope);
             move || {
                 runs.set(runs.get() + 1);
                 if runs.get() < 3 {
-                    if let Some(scope) = scope.upgrade() {
-                        scope.push::<Count>(99);
-                    }
+                    scope.push::<Count>(99);
                 }
             }
         });
@@ -420,15 +393,13 @@ mod tests {
     /// A listener that sends to an actor, whose handler pushes to the cell the
     /// listener watches: the turn the actor opens ends inside the listener.
     fn feeding_itself(through_a_turn: bool) -> usize {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let runs = Rc::new(StdCell::new(0));
 
         let _sub = scope.subscribe::<Count>({
             let runs = runs.clone();
-            let scope = Rc::downgrade(&scope);
             move || {
                 runs.set(runs.get() + 1);
-                let Some(scope) = scope.upgrade() else { return };
                 let n = runs.get() as u32;
                 if through_a_turn {
                     super::turn(|| scope.push::<Count>(n));

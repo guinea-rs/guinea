@@ -156,23 +156,57 @@ pub struct Installed {
 
 impl Cell {
     fn empty<R: Reducer>() -> Self {
+        Self::holding(Rc::new(Slot::new(Rc::new(R::default()))))
+    }
+
+    fn holding(state: Rc<dyn Any>) -> Self {
         Cell {
-            state: Rc::new(Slot::new(Rc::new(R::default()))),
+            state,
             listeners: RefCell::new(Vec::new()),
             observers: RefCell::new(Vec::new()),
         }
     }
 }
 
-#[derive(Default)]
+/// Where a segment's state, features and resources live, from the moment it
+/// is installed until it is removed.
+///
+/// A name for one, and `Copy`: the tree of scopes on this thread owns what each
+/// scope holds, and nothing else does. Holding a `Scope` does not keep it
+/// alive, so a scope goes exactly when [`remove`](Self::remove) is called on it
+/// or on a scope above it - children first - and not whenever the last of
+/// whoever happened to be holding it lets go.
+///
+/// A removed scope's name never comes back: the slot it lived in is reused
+/// under a new generation, so an old `Scope` keeps naming the scope that is
+/// gone, and [`is_alive`](Self::is_alive) says so.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Scope {
+    index: u32,
+    generation: u32,
+}
+
+impl std::fmt::Debug for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Scope({}v{})", self.index, self.generation)
+    }
+}
+
+/// Which of its parent's outlets a scope sits in. A layout has one today,
+/// [`MAIN`].
+pub type Outlet = &'static str;
+
+/// The outlet a scope sits in unless it is said otherwise.
+pub const MAIN: Outlet = "main";
+
+#[derive(Default)]
+struct ScopeData {
     cells: RefCell<HashMap<TypeId, Cell>>,
     /// Kept apart from `cells`: a cell restored from the state cache arrives
     /// erased, and learns its type again at the next typed access.
     kinds: RefCell<HashMap<TypeId, Kind>>,
     teardowns: RefCell<Vec<Box<dyn FnOnce()>>>,
-    /// Features (identified by their `install` function's own type - see
-    /// `FeatureInitContext::install`/`inherit` in the `guinea` crate) that
+    /// Features (identified by their `install` function's own type) that
     /// were explicitly installed *in this scope*. Separate from `cells`
     /// (which tracks `Reducer` state/actions) because a feature can spawn
     /// several actors/reducers as one unit - this tracks the unit itself,
@@ -216,10 +250,104 @@ pub struct Scope {
     wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
 }
 
+struct Node {
+    generation: u32,
+    data: Option<Rc<ScopeData>>,
+    parent: Option<u32>,
+    outlet: Outlet,
+    children: Vec<u32>,
+}
+
+/// Every scope on this thread, and which sits under which.
+#[derive(Default)]
+struct Tree {
+    nodes: Vec<Node>,
+    free: Vec<u32>,
+}
+
+impl Tree {
+    fn insert(&mut self, parent: Option<u32>, outlet: Outlet) -> Scope {
+        let data = Some(Rc::new(ScopeData::default()));
+        let index = match self.free.pop() {
+            Some(index) => {
+                let node = &mut self.nodes[index as usize];
+                node.data = data;
+                node.parent = parent;
+                node.outlet = outlet;
+                index
+            }
+            None => {
+                self.nodes.push(Node {
+                    generation: 0,
+                    data,
+                    parent,
+                    outlet,
+                    children: Vec::new(),
+                });
+                (self.nodes.len() - 1) as u32
+            }
+        };
+
+        if let Some(parent) = parent {
+            self.nodes[parent as usize].children.push(index);
+        }
+
+        Scope {
+            index,
+            generation: self.nodes[index as usize].generation,
+        }
+    }
+
+    fn node(&self, scope: Scope) -> Option<&Node> {
+        self.nodes
+            .get(scope.index as usize)
+            .filter(|node| node.generation == scope.generation && node.data.is_some())
+    }
+
+    /// Takes `scope` and everything under it out of the tree, children
+    /// before their parent and the newest child first, and hands back what
+    /// they held in that order.
+    fn detach(&mut self, scope: Scope) -> Vec<Rc<ScopeData>> {
+        let Some(node) = self.node(scope) else {
+            return Vec::new();
+        };
+        if let Some(parent) = node.parent {
+            self.nodes[parent as usize].children.retain(|child| *child != scope.index);
+        }
+
+        let mut order = Vec::new();
+        self.collect(scope.index, &mut order);
+
+        let mut detached = Vec::with_capacity(order.len());
+        for index in order {
+            let node = &mut self.nodes[index as usize];
+            node.generation = node.generation.wrapping_add(1);
+            node.parent = None;
+            node.children.clear();
+            if let Some(data) = node.data.take() {
+                detached.push(data);
+            }
+            self.free.push(index);
+        }
+        detached
+    }
+
+    fn collect(&self, index: u32, order: &mut Vec<u32>) {
+        for child in self.nodes[index as usize].children.iter().rev() {
+            self.collect(*child, order);
+        }
+        order.push(index);
+    }
+}
+
+thread_local! {
+    static TREE: RefCell<Tree> = RefCell::new(Tree::default());
+}
+
 /// Whether a scope is awake, for something it owns to ask on its own.
 ///
-/// Held rather than the scope itself: a timer or a subscription the scope owns
-/// must not keep it alive.
+/// Held rather than the scope itself, so that a timer the scope owns can ask
+/// from off the scope's own code paths.
 #[derive(Clone)]
 pub struct Awake(Rc<std::cell::Cell<bool>>);
 
@@ -230,17 +358,120 @@ impl Awake {
     }
 }
 
-impl Drop for Scope {
+/// Removes its scope when dropped: for whoever creates a root, or a child
+/// that nothing else will remove.
+#[must_use = "the scope is removed as soon as this is dropped"]
+pub struct ScopeGuard(Scope);
+
+impl ScopeGuard {
+    pub fn scope(&self) -> Scope {
+        self.0
+    }
+}
+
+impl std::ops::Deref for ScopeGuard {
+    type Target = Scope;
+
+    fn deref(&self) -> &Scope {
+        &self.0
+    }
+}
+
+impl Drop for ScopeGuard {
     fn drop(&mut self) {
-        for teardown in self.teardowns.get_mut().drain(..) {
-            teardown();
-        }
+        self.0.remove();
     }
 }
 
 impl Scope {
-    pub fn new() -> Self {
-        Self::default()
+    /// A scope with nothing above it: a window, a harness, a test.
+    pub fn root() -> Scope {
+        TREE.with(|tree| tree.borrow_mut().insert(None, MAIN))
+    }
+
+    /// A new scope under this one, removed when this one is.
+    pub fn child(self) -> Scope {
+        self.child_in(MAIN)
+    }
+
+    /// A new scope under this one, in `outlet`.
+    pub fn child_in(self, outlet: Outlet) -> Scope {
+        TREE.with(|tree| {
+            let mut tree = tree.borrow_mut();
+            assert!(
+                tree.node(self).is_some(),
+                "a child for {self:?}, which was removed"
+            );
+            tree.insert(Some(self.index), outlet)
+        })
+    }
+
+    /// Removes this scope and every scope under it, now: children before
+    /// their parent, and each one's resources in the order it took them.
+    ///
+    /// From the moment this is called, every `Scope` naming them is dead.
+    /// Removing a scope that is already gone does nothing.
+    pub fn remove(self) {
+        let detached = TREE
+            .try_with(|tree| tree.borrow_mut().detach(self))
+            .unwrap_or_default();
+
+        for data in detached {
+            data.tear_down();
+        }
+    }
+
+    /// Whether this scope is still there.
+    pub fn is_alive(self) -> bool {
+        TREE.try_with(|tree| tree.borrow().node(self).is_some())
+            .unwrap_or(false)
+    }
+
+    /// The scope this one sits under, if it has one and it is still there.
+    pub fn parent(self) -> Option<Scope> {
+        TREE.try_with(|tree| {
+            let tree = tree.borrow();
+            let parent = tree.node(self)?.parent?;
+            Some(Scope {
+                index: parent,
+                generation: tree.nodes[parent as usize].generation,
+            })
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// Which of its parent's outlets this scope sits in.
+    pub fn outlet(self) -> Option<Outlet> {
+        TREE.try_with(|tree| tree.borrow().node(self).map(|node| node.outlet))
+            .ok()
+            .flatten()
+    }
+
+    /// The scopes above this one, the nearest first.
+    pub fn ancestors(self) -> Vec<Scope> {
+        std::iter::successors(self.parent(), |scope| scope.parent()).collect()
+    }
+
+    /// Removes this scope when the guard is dropped.
+    pub fn guard(self) -> ScopeGuard {
+        ScopeGuard(self)
+    }
+
+    /// Identifies this scope, and never another one.
+    pub fn key(self) -> usize {
+        ((self.generation as usize) << 32) | self.index as usize
+    }
+
+    fn data(self) -> Option<Rc<ScopeData>> {
+        TREE.try_with(|tree| tree.borrow().node(self).and_then(|node| node.data.clone()))
+            .ok()
+            .flatten()
+    }
+
+    fn installing(self, doing: &str) -> Rc<ScopeData> {
+        self.data()
+            .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }
 
     /// Marks feature `F` (its `install` function, used purely as a type
@@ -248,82 +479,80 @@ impl Scope {
     /// here - two different call sites both claiming ownership of the same
     /// feature in the same scope is a setup bug, not something to merge
     /// silently.
-    pub fn mark_feature_installed<F: 'static>(&self) {
-        let newly_inserted = self.installed_features.borrow_mut().insert(TypeId::of::<F>());
+    pub fn mark_feature_installed<F: 'static>(self) {
+        let data = self.installing("installing a feature");
+        let newly_inserted = data.installed_features.borrow_mut().insert(TypeId::of::<F>());
         assert!(
             newly_inserted,
             "feature already installed in this scope - install() called twice for the same feature"
         );
     }
 
-    /// Marks reducer `R` as owned by this scope - same underlying set as
-    /// [`mark_feature_installed`](Self::mark_feature_installed), keyed on
-    /// `R` instead of an install-function type. Idempotent (unlike
-    /// `mark_feature_installed`): a feature's actor constructor calling
-    /// `ctx.port::<R>()` more than once (e.g. wiring two actors to the
-    /// same reducer) is normal, not a setup bug - only the reducer-typed
-    /// query this feeds (`resolve_owner`) cares whether it happened at
-    /// all, not how many times.
     /// Whether anything in this scope has claimed `R`.
     ///
     /// What tells an export that was earned from one that was only declared.
-    pub fn claims<R: 'static>(&self) -> bool {
-        self.owners.borrow().contains_key(&TypeId::of::<R>())
+    pub fn claims<R: 'static>(self) -> bool {
+        self.data()
+            .is_some_and(|data| data.owners.borrow().contains_key(&TypeId::of::<R>()))
     }
 
-    pub fn note_reducer_owner<R: 'static>(&self) {
-        self.installed_features.borrow_mut().insert(TypeId::of::<R>());
-        self.owners
-            .borrow_mut()
-            .entry(TypeId::of::<R>())
-            .or_insert_with(|| self.current_section());
+    pub fn note_reducer_owner<R: 'static>(self) {
+        let data = self.installing("claiming a reducer");
+        data.installed_features.borrow_mut().insert(TypeId::of::<R>());
+        let section = data.current_section();
+        data.owners.borrow_mut().entry(TypeId::of::<R>()).or_insert(section);
     }
 
     /// Notes where reducer `R` was claimed, the first claim winning.
-    pub fn note_reducer_declared<R: 'static>(&self, declared: Declared) {
-        self.declarations.borrow_mut().entry(TypeId::of::<R>()).or_insert(declared);
+    pub fn note_reducer_declared<R: 'static>(self, declared: Declared) {
+        let data = self.installing("claiming a reducer");
+        data.declarations.borrow_mut().entry(TypeId::of::<R>()).or_insert(declared);
     }
 
     /// The manifest directory of the feature installing now, for a claim that
     /// only knows the file the compiler gave it.
-    pub fn current_crate_dir(&self) -> Option<&'static str> {
-        let section = self.current_section();
-        let declarations = self.section_declarations.borrow();
+    pub fn current_crate_dir(self) -> Option<&'static str> {
+        let data = self.data()?;
+        let section = data.current_section();
+        let declarations = data.section_declarations.borrow();
         declarations.get(section).copied().flatten().map(|declared| declared.crate_dir)
     }
 
     /// Opens a section for the feature `name` about to install. Returns its
     /// index.
-    pub fn open_section(&self, name: &'static str, declared: Option<Declared>) -> usize {
-        let mut sections = self.sections.borrow_mut();
+    pub fn open_section(self, name: &'static str, declared: Option<Declared>) -> usize {
+        let data = self.installing("installing a feature");
+        let mut sections = data.sections.borrow_mut();
         if sections.is_empty() {
-            // Section 0: whatever the segment claims outside any feature.
             sections.push(HashMap::new());
         }
         sections.push(HashMap::new());
         let index = sections.len() - 1;
-        let mut names = self.section_names.borrow_mut();
+        let mut names = data.section_names.borrow_mut();
         names.resize(index + 1, None);
         names[index] = Some(name);
 
-        let mut declarations = self.section_declarations.borrow_mut();
+        let mut declarations = data.section_declarations.borrow_mut();
         declarations.resize(index + 1, None);
         declarations[index] = declared;
 
-        self.installing.borrow_mut().push(index);
+        data.installing.borrow_mut().push(index);
         index
     }
 
     /// The feature a section belongs to; `None` for the segment's own.
-    pub fn section_name(&self, section: usize) -> Option<&'static str> {
-        self.section_names.borrow().get(section).copied().flatten()
+    pub fn section_name(self, section: usize) -> Option<&'static str> {
+        self.data()?.section_name(section)
     }
 
     /// Every feature installed here, in the order they were.
-    pub fn features(&self) -> Vec<Installed> {
-        let declarations = self.section_declarations.borrow();
+    pub fn features(self) -> Vec<Installed> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+        let declarations = data.section_declarations.borrow();
 
-        self.section_names
+        data.section_names
             .borrow()
             .iter()
             .enumerate()
@@ -337,57 +566,58 @@ impl Scope {
     }
 
     /// The feature being installed right now, if any.
-    pub fn current_feature(&self) -> Option<&'static str> {
-        self.section_name(self.current_section())
+    pub fn current_feature(self) -> Option<&'static str> {
+        let data = self.data()?;
+        data.section_name(data.current_section())
     }
 
     /// Notes that whatever is installing listens to `event` on `bus` - through
     /// `actor` when an actor does the listening.
     pub fn note_listener(
-        &self,
+        self,
         event: &'static str,
         actor: Option<&'static str>,
         bus: crate::trace::Bus,
     ) {
-        self.listeners.borrow_mut().push(Listener {
+        let Some(data) = self.data() else { return };
+        let feature = data.section_name(data.current_section());
+        data.listeners.borrow_mut().push(Listener {
             event,
             actor,
             bus,
-            feature: self.current_feature(),
+            feature,
         });
     }
 
-    pub fn listeners(&self) -> Vec<Listener> {
-        self.listeners.borrow().clone()
+    pub fn listeners(self) -> Vec<Listener> {
+        self.data()
+            .map(|data| data.listeners.borrow().clone())
+            .unwrap_or_default()
     }
 
-    /// Identifies this scope for as long as it lives.
-    pub fn key(self: &Rc<Self>) -> usize {
-        Rc::as_ptr(self) as usize
-    }
-
-    pub fn close_section(&self) {
-        self.installing.borrow_mut().pop();
+    pub fn close_section(self) {
+        if let Some(data) = self.data() {
+            data.installing.borrow_mut().pop();
+        }
     }
 
     /// The section being installed, or the segment's own when none is.
-    pub fn current_section(&self) -> usize {
-        self.installing.borrow().last().copied().unwrap_or(0)
+    pub fn current_section(self) -> usize {
+        self.data().map_or(0, |data| data.current_section())
     }
 
     /// Which section owns `R` - the instance whose dispatcher a reader of `R`
     /// should be handed.
-    pub fn section_of<R: 'static>(&self) -> usize {
-        self.owners
-            .borrow()
-            .get(&TypeId::of::<R>())
-            .copied()
+    pub fn section_of<R: 'static>(self) -> usize {
+        self.data()
+            .and_then(|data| data.owners.borrow().get(&TypeId::of::<R>()).copied())
             .unwrap_or(0)
     }
 
     /// Whether feature `F` was marked installed in *this exact* scope.
-    pub fn has_feature<F: 'static>(&self) -> bool {
-        self.installed_features.borrow().contains(&TypeId::of::<F>())
+    pub fn has_feature<F: 'static>(self) -> bool {
+        self.data()
+            .is_some_and(|data| data.installed_features.borrow().contains(&TypeId::of::<F>()))
     }
 
     /// Marks `R` as readable from segments below this one.
@@ -396,27 +626,25 @@ impl Scope {
     /// nothing else. A reducer a feature claimed but did not export stays
     /// visible to the feature itself and invisible from below - which is the
     /// whole difference between a feature and a folder.
-    pub fn note_export<R: 'static>(&self) {
-        self.exports.borrow_mut().insert(TypeId::of::<R>());
+    pub fn note_export<R: 'static>(self) {
+        let data = self.installing("exporting a reducer");
+        data.exports.borrow_mut().insert(TypeId::of::<R>());
     }
 
     /// Whether `R` is readable from below this scope.
-    pub fn exports<R: 'static>(&self) -> bool {
-        self.exports.borrow().contains(&TypeId::of::<R>())
-    }
-
-    fn note_kind<R: Reducer>(&self) {
-        self.kinds
-            .borrow_mut()
-            .entry(TypeId::of::<R>())
-            .or_insert_with(Kind::of::<R>);
+    pub fn exports<R: 'static>(self) -> bool {
+        self.data()
+            .is_some_and(|data| data.exports.borrow().contains(&TypeId::of::<R>()))
     }
 
     /// Every reducer this scope holds whose type it has seen, printed.
-    pub fn describe_states(&self) -> Vec<DescribedState> {
-        let cells = self.cells.borrow();
-        let kinds = self.kinds.borrow();
-        let owners = self.owners.borrow();
+    pub fn describe_states(self) -> Vec<DescribedState> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+        let cells = data.cells.borrow();
+        let kinds = data.kinds.borrow();
+        let owners = data.owners.borrow();
         let mut described: Vec<DescribedState> = cells
             .iter()
             .filter_map(|(type_id, cell)| {
@@ -426,8 +654,8 @@ impl Scope {
                     state: (kind.describe)(&*cell.state),
                     feature: owners
                         .get(type_id)
-                        .and_then(|section| self.section_name(*section)),
-                    declared: self.declarations.borrow().get(type_id).copied(),
+                        .and_then(|section| data.section_name(*section)),
+                    declared: data.declarations.borrow().get(type_id).copied(),
                 })
             })
             .collect();
@@ -435,19 +663,21 @@ impl Scope {
         described
     }
 
-    pub fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
-        self.note_kind::<R>();
-        let mut cells = self.cells.borrow_mut();
-        let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
-        cell.state
-            .clone()
-            .downcast::<Slot<R>>()
-            .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R")
+    /// `R`'s state here, created from `R::default()` on first read.
+    ///
+    /// A removed scope has no state to hand out: what comes back is a fresh
+    /// default nobody else sees.
+    pub fn state<R: Reducer>(self) -> Rc<Slot<R>> {
+        match self.data() {
+            Some(data) => data.state::<R>(),
+            None => Rc::new(Slot::new(Rc::new(R::default()))),
+        }
     }
 
-    pub fn peek<R: Reducer>(&self) -> Option<Rc<Slot<R>>> {
-        self.note_kind::<R>();
-        let cells = self.cells.borrow();
+    pub fn peek<R: Reducer>(self) -> Option<Rc<Slot<R>>> {
+        let data = self.data()?;
+        data.note_kind::<R>();
+        let cells = data.cells.borrow();
         let cell = cells.get(&TypeId::of::<R>())?;
         Some(
             cell.state
@@ -460,16 +690,14 @@ impl Scope {
     /// Sets `R`'s starting value instead of `R::default()`. Call before
     /// anything else touches `R` in this scope - overwrites any existing cell,
     /// dropping its listeners.
-    pub fn seed<R: Reducer>(&self, state: R) {
-        self.note_kind::<R>();
-        self.cells.borrow_mut().insert(
-            TypeId::of::<R>(),
-            Cell {
-                state: Rc::new(Slot::new(Rc::new(state))),
-                listeners: RefCell::new(Vec::new()),
-                observers: RefCell::new(Vec::new()),
-            },
-        );
+    pub fn seed<R: Reducer>(self, state: R) {
+        let data = self.installing("seeding a reducer");
+        data.note_kind::<R>();
+        let replaced = data
+            .cells
+            .borrow_mut()
+            .insert(TypeId::of::<R>(), Cell::holding(Rc::new(Slot::new(Rc::new(state)))));
+        drop(replaced);
     }
 
     /// Says that this scope answers `M`, and how.
@@ -478,11 +706,12 @@ impl Scope {
     /// the answerer out of every signature the UI touches. `actor!` calls this
     /// for each handler it lists; a domain that runs on tasks, or a channel,
     /// or a plain closure over a `RefCell`, calls it itself.
-    pub fn answers<M: 'static>(&self, answer: impl Fn(M) + 'static) {
+    pub fn answers<M: 'static>(self, answer: impl Fn(M) + 'static) {
+        let data = self.installing("answering an action");
         let answer: Rc<dyn Fn(M)> = Rc::new(answer);
-        let section = self.current_section();
+        let section = data.current_section();
 
-        let mut sections = self.sections.borrow_mut();
+        let mut sections = data.sections.borrow_mut();
         while sections.len() <= section {
             sections.push(HashMap::new());
         }
@@ -490,21 +719,17 @@ impl Scope {
     }
 
     /// What answers `M` in one section of this scope, if anything does.
-    pub fn answerer<M: 'static>(
-        &self,
-        section: usize,
-    ) -> Option<Rc<dyn Fn(M)>> {
-        let sections = self.sections.borrow();
-        let answer = sections.get(section)?.get(&TypeId::of::<M>())?.clone();
-        answer.downcast::<Rc<dyn Fn(M)>>().ok().map(|a| (*a).clone())
+    pub fn answerer<M: 'static>(self, section: usize) -> Option<Rc<dyn Fn(M)>> {
+        self.data()?.answerer::<M>(section)
     }
 
     /// What answers `M` anywhere in this scope - the first feature that does,
     /// in the order they installed. For a sender that knows the action and
     /// not which state it was reading.
-    pub fn first_answerer<M: 'static>(&self) -> Option<Rc<dyn Fn(M)>> {
-        let sections = self.sections.borrow().len();
-        (0..sections).find_map(|section| self.answerer::<M>(section))
+    pub fn first_answerer<M: 'static>(self) -> Option<Rc<dyn Fn(M)>> {
+        let data = self.data()?;
+        let sections = data.sections.borrow().len();
+        (0..sections).find_map(|section| data.answerer::<M>(section))
     }
 
     /// Applies `msg` to `F`'s state now, and marks the cell so its listeners
@@ -512,13 +737,16 @@ impl Scope {
     ///
     /// The state is current the moment this returns; what waits is the
     /// redraw. Nothing a listener does - navigating, dropping scopes, sending
-    /// to another actor - happens on the stack of whoever pushed.
-    pub fn push<R: Reducer>(self: &Rc<Self>, update: R::Update) {
-        let carried: Option<Box<dyn Any>> = self
+    /// to another actor - happens on the stack of whoever pushed. A no-op once
+    /// the scope is removed.
+    pub fn push<R: Reducer>(self, update: R::Update) {
+        let Some(data) = self.data() else { return };
+        let carried: Option<Box<dyn Any>> = data
             .is_observed(TypeId::of::<R>())
             .then(|| Box::new(update.clone()) as Box<dyn Any>);
+        let state = data.state::<R>();
+        drop(data);
 
-        let state = self.state::<R>();
         {
             let mut state = state.borrow_mut();
             Rc::make_mut(&mut state).reduce(update);
@@ -534,13 +762,13 @@ impl Scope {
     /// is what tells a rename apart from a whole new list. Runs during the
     /// drain, before any listener, so state that depends on this one has
     /// settled by the time anything draws.
-    pub fn observe<R: Reducer>(
-        self: &Rc<Self>,
-        callback: impl Fn(&R::Update) + 'static,
-    ) -> Subscription {
+    pub fn observe<R: Reducer>(self, callback: impl Fn(&R::Update) + 'static) -> Subscription {
+        let Some(data) = self.data() else {
+            return Subscription::inert();
+        };
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         {
-            let mut cells = self.cells.borrow_mut();
+            let mut cells = data.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
             cell.observers.borrow_mut().push((
                 id,
@@ -552,15 +780,208 @@ impl Scope {
             ));
         }
 
-        let scope = Rc::downgrade(self);
         Subscription {
             unsubscribe: Some(Box::new(move || {
-                let Some(scope) = scope.upgrade() else { return };
-                if let Some(cell) = scope.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
+                let Some(data) = self.data() else { return };
+                if let Some(cell) = data.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
                     cell.observers.borrow_mut().retain(|(oid, _)| *oid != id);
                 }
             })),
         }
+    }
+
+    pub(crate) fn listeners_of(self, cell: TypeId) -> Vec<Rc<dyn Fn()>> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+        let cells = data.cells.borrow();
+        cells
+            .get(&cell)
+            .map(|cell| cell.listeners.borrow().iter().map(|(_, f)| f.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn observers_of(self, cell: TypeId) -> Vec<Rc<dyn Fn(&dyn Any)>> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+        let cells = data.cells.borrow();
+        cells
+            .get(&cell)
+            .map(|cell| cell.observers.borrow().iter().map(|(_, f)| f.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn subscribe<R: Reducer>(self, callback: impl Fn() + 'static) -> Subscription {
+        let Some(data) = self.data() else {
+            return Subscription::inert();
+        };
+        let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
+        {
+            let mut cells = data.cells.borrow_mut();
+            let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
+            cell.listeners.borrow_mut().push((id, Rc::new(callback)));
+        }
+
+        Subscription {
+            unsubscribe: Some(Box::new(move || {
+                let Some(data) = self.data() else { return };
+                if let Some(cell) = data.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
+                    cell.listeners.borrow_mut().retain(|(lid, _)| *lid != id);
+                }
+            })),
+        }
+    }
+
+    /// A handle to `R`'s state and actions in this scope, for code that reads
+    /// or watches them without being a UI hook. See [`crate::binding`].
+    pub fn binding<R: Reducer>(self) -> crate::binding::ReducerBinding<R> {
+        crate::binding::ReducerBinding::new(self)
+    }
+
+    pub fn own_subscription(self, subscription: BusSubscription) {
+        self.own(DropGuard(subscription));
+    }
+
+    /// Returns a shallow clone of every reducer state currently held by this
+    /// scope, keyed by the reducer's `TypeId`. Used by the router to cache
+    /// page state in memory while the page is not mounted.
+    pub fn snapshot_states(self) -> HashMap<TypeId, Rc<dyn Any>> {
+        let Some(data) = self.data() else {
+            return HashMap::new();
+        };
+        data.cells
+            .borrow()
+            .iter()
+            .map(|(type_id, cell)| (*type_id, cell.state.clone()))
+            .collect()
+    }
+
+    /// Pre-populates reducer cells with previously cached states. This is the
+    /// inverse of [`snapshot_states`](Self::snapshot_states): when a page is
+    /// remounted, restoring its state before `install` runs lets the page find
+    /// ready data instead of defaults.
+    pub fn restore_states(self, states: HashMap<TypeId, Rc<dyn Any>>) {
+        let data = self.installing("restoring state");
+        let mut replaced = Vec::new();
+        {
+            let mut cells = data.cells.borrow_mut();
+            for (type_id, state) in states {
+                replaced.extend(cells.insert(type_id, Cell::holding(state)));
+            }
+        }
+        drop(replaced);
+    }
+
+    /// Binds any [`Teardown`] resource to this scope's lifetime: it is torn
+    /// down when the scope is - at once, if the scope is already gone.
+    pub fn own<R: Teardown>(self, resource: R) {
+        match self.data() {
+            Some(data) => data
+                .teardowns
+                .borrow_mut()
+                .push(Box::new(move || resource.teardown())),
+            None => resource.teardown(),
+        }
+    }
+
+    /// Asked before this scope is torn down by a navigation.
+    ///
+    /// Registered during `install`, which is the whole reason leaving and
+    /// entering are declared in different places: on the way out the scope
+    /// exists, so the guard can read its own state - which is what "unsaved
+    /// changes" is. On the way in there is nothing to read yet.
+    pub fn on_leave(self, guard: impl Fn() -> crate::guard::Verdict + 'static) {
+        let data = self.installing("guarding a leave");
+        data.leave_guards.borrow_mut().push(Rc::new(guard));
+    }
+
+    /// The guards to ask, in the order they were registered.
+    ///
+    /// Cloned out rather than borrowed: a guard is free to touch this scope,
+    /// and the caller runs them while deciding.
+    pub fn leave_guards(self) -> Vec<Rc<dyn Fn() -> crate::guard::Verdict>> {
+        self.data()
+            .map(|data| data.leave_guards.borrow().clone())
+            .unwrap_or_default()
+    }
+
+    /// Puts this scope to sleep: kept, with its state and actors, but deaf.
+    ///
+    /// What it owns stops hearing anything while it sleeps - its timers skip
+    /// their ticks, its actors and callbacks are not told what the buses
+    /// carry - and nothing is queued for later: what happened meanwhile is
+    /// missed. A router does this to a `keep` segment it leaves.
+    pub fn sleep(self) {
+        if let Some(data) = self.data() {
+            data.asleep.set(true);
+        }
+    }
+
+    /// Wakes this scope, then runs what asked to hear of it, in the order it
+    /// asked.
+    pub fn wake(self) {
+        let Some(data) = self.data() else { return };
+        data.asleep.set(false);
+
+        let hooks = data.wake_hooks.borrow().clone();
+        drop(data);
+        for hook in hooks {
+            hook();
+        }
+    }
+
+    /// Whether this scope is there and awake. A removed one is neither.
+    pub fn is_awake(self) -> bool {
+        self.data().is_some_and(|data| !data.asleep.get())
+    }
+
+    /// Whether this scope is awake, for what it owns to ask later.
+    pub fn awake(self) -> Awake {
+        match self.data() {
+            Some(data) => Awake(data.asleep.clone()),
+            None => Awake(Rc::new(std::cell::Cell::new(true))),
+        }
+    }
+
+    /// Runs `hook` every time this scope wakes: for a feature to catch up on
+    /// what it missed while it slept.
+    pub fn on_wake(self, hook: impl Fn() + 'static) {
+        let data = self.installing("waiting for a wake");
+        data.wake_hooks.borrow_mut().push(Rc::new(hook));
+    }
+}
+
+impl ScopeData {
+    fn section_name(&self, section: usize) -> Option<&'static str> {
+        self.section_names.borrow().get(section).copied().flatten()
+    }
+
+    fn current_section(&self) -> usize {
+        self.installing.borrow().last().copied().unwrap_or(0)
+    }
+
+    fn note_kind<R: Reducer>(&self) {
+        self.kinds
+            .borrow_mut()
+            .entry(TypeId::of::<R>())
+            .or_insert_with(Kind::of::<R>);
+    }
+
+    fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
+        self.note_kind::<R>();
+        let mut cells = self.cells.borrow_mut();
+        let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
+        cell.state
+            .clone()
+            .downcast::<Slot<R>>()
+            .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R")
+    }
+
+    fn answerer<M: 'static>(&self, section: usize) -> Option<Rc<dyn Fn(M)>> {
+        let sections = self.sections.borrow();
+        let answer = sections.get(section)?.get(&TypeId::of::<M>())?.clone();
+        answer.downcast::<Rc<dyn Fn(M)>>().ok().map(|a| (*a).clone())
     }
 
     fn is_observed(&self, cell: TypeId) -> bool {
@@ -570,142 +991,12 @@ impl Scope {
             .is_some_and(|cell| !cell.observers.borrow().is_empty())
     }
 
-    pub(crate) fn listeners_of(&self, cell: TypeId) -> Vec<Rc<dyn Fn()>> {
-        let cells = self.cells.borrow();
-        cells
-            .get(&cell)
-            .map(|cell| cell.listeners.borrow().iter().map(|(_, f)| f.clone()).collect())
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn observers_of(&self, cell: TypeId) -> Vec<Rc<dyn Fn(&dyn Any)>> {
-        let cells = self.cells.borrow();
-        cells
-            .get(&cell)
-            .map(|cell| cell.observers.borrow().iter().map(|(_, f)| f.clone()).collect())
-            .unwrap_or_default()
-    }
-    pub fn subscribe<R: Reducer>(
-        self: &Rc<Self>,
-        callback: impl Fn() + 'static,
-    ) -> Subscription {
-        let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
-        {
-            let mut cells = self.cells.borrow_mut();
-            let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
-            cell.listeners.borrow_mut().push((id, Rc::new(callback)));
+    /// Runs what this scope took on, in the order it took it.
+    fn tear_down(&self) {
+        let teardowns = std::mem::take(&mut *self.teardowns.borrow_mut());
+        for teardown in teardowns {
+            teardown();
         }
-
-        let scope = Rc::downgrade(self);
-        Subscription {
-            unsubscribe: Some(Box::new(move || {
-                let Some(scope) = scope.upgrade() else { return };
-                if let Some(cell) = scope.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
-                    cell.listeners.borrow_mut().retain(|(lid, _)| *lid != id);
-                }
-            })),
-        }
-    }
-
-    /// A handle to `R`'s state and actions in this scope, for code that reads
-    /// or watches them without being a UI hook. See [`crate::binding`].
-    pub fn binding<R: Reducer>(self: &Rc<Self>) -> crate::binding::ReducerBinding<R> {
-        crate::binding::ReducerBinding::new(self)
-    }
-
-    pub fn own_subscription(&self, subscription: BusSubscription) {
-        self.teardowns
-            .borrow_mut()
-            .push(Box::new(move || drop(subscription)));
-    }
-
-    /// Returns a shallow clone of every reducer state currently held by this
-    /// scope, keyed by the reducer's `TypeId`. Used by the router to cache
-    /// page state in memory while the page is not mounted.
-    pub fn snapshot_states(&self) -> HashMap<TypeId, Rc<dyn Any>> {
-        self.cells
-            .borrow()
-            .iter()
-            .map(|(type_id, cell)| (*type_id, cell.state.clone()))
-            .collect()
-    }
-
-    /// Pre-populates reducer cells with previously cached states. This is the
-    /// inverse of [`snapshot_states`]: when a page is remounted, restoring its
-    /// state before `install` runs lets the page find ready data instead of
-    /// defaults.
-    pub fn restore_states(&self, states: HashMap<TypeId, Rc<dyn Any>>) {
-        let mut cells = self.cells.borrow_mut();
-        for (type_id, state) in states {
-            cells.insert(
-                type_id,
-                Cell {
-                    state,
-                    listeners: RefCell::new(Vec::new()),
-                    observers: RefCell::new(Vec::new()),
-                },
-            );
-        }
-    }
-
-    /// Binds any [`Teardown`] resource to this scope's lifetime: it is torn
-    /// down when the scope is.
-    pub fn own<R: Teardown>(&self, resource: R) {
-        self.teardowns.borrow_mut().push(Box::new(move || resource.teardown()));
-    }
-
-    /// Asked before this scope is torn down by a navigation.
-    ///
-    /// Registered during `install`, which is the whole reason leaving and
-    /// entering are declared in different places: on the way out the scope
-    /// exists, so the guard can read its own state - which is what "unsaved
-    /// changes" is. On the way in there is nothing to read yet.
-    pub fn on_leave(&self, guard: impl Fn() -> crate::guard::Verdict + 'static) {
-        self.leave_guards.borrow_mut().push(Rc::new(guard));
-    }
-
-    /// The guards to ask, in the order they were registered.
-    ///
-    /// Cloned out rather than borrowed: a guard is free to touch this scope,
-    /// and the caller runs them while deciding.
-    pub fn leave_guards(&self) -> Vec<Rc<dyn Fn() -> crate::guard::Verdict>> {
-        self.leave_guards.borrow().clone()
-    }
-
-    /// Puts this scope to sleep: kept, with its state and actors, but deaf.
-    ///
-    /// What it owns stops hearing anything while it sleeps - its timers skip
-    /// their ticks, its actors and callbacks are not told what the buses
-    /// carry - and nothing is queued for later: what happened meanwhile is
-    /// missed. A router does this to a `keep` segment it leaves.
-    pub fn sleep(&self) {
-        self.asleep.set(true);
-    }
-
-    /// Wakes this scope, then runs what asked to hear of it, in the order it
-    /// asked.
-    pub fn wake(&self) {
-        self.asleep.set(false);
-
-        let hooks = self.wake_hooks.borrow().clone();
-        for hook in hooks {
-            hook();
-        }
-    }
-
-    pub fn is_awake(&self) -> bool {
-        !self.asleep.get()
-    }
-
-    /// Whether this scope is awake, for what it owns to ask later.
-    pub fn awake(&self) -> Awake {
-        Awake(self.asleep.clone())
-    }
-
-    /// Runs `hook` every time this scope wakes: for a feature to catch up on
-    /// what it missed while it slept.
-    pub fn on_wake(&self, hook: impl Fn() + 'static) {
-        self.wake_hooks.borrow_mut().push(Rc::new(hook));
     }
 }
 
@@ -729,7 +1020,6 @@ impl<A: 'static> Teardown for Addr<A> {
     }
 }
 
-
 /// Blanket teardown for resources that just need dropping
 /// (`scope.own(DropGuard(resource))` when no specialized impl exists).
 pub struct DropGuard<T: 'static>(pub T);
@@ -740,14 +1030,16 @@ impl<T: 'static> Teardown for DropGuard<T> {
     }
 }
 
+/// The application's own scope on this thread: a root nothing removes, for
+/// state that belongs to no window.
 pub struct GlobalScope;
 
 impl GlobalScope {
-    pub fn instance() -> Rc<Scope> {
+    pub fn instance() -> Scope {
         thread_local! {
-            static SCOPE: Rc<Scope> = Rc::new(Scope::new());
+            static SCOPE: Scope = Scope::root();
         }
-        SCOPE.with(|scope| scope.clone())
+        SCOPE.with(|scope| *scope)
     }
 }
 
@@ -777,6 +1069,78 @@ mod tests {
         }
     }
 
+    struct Said(&'static str, Rc<RefCell<Vec<&'static str>>>);
+
+    impl Teardown for Said {
+        fn teardown(self) {
+            self.1.borrow_mut().push(self.0);
+        }
+    }
+
+    #[test]
+    fn removing_a_scope_tears_down_what_is_under_it_first() {
+        let said = Rc::new(RefCell::new(Vec::new()));
+        let root = Scope::root();
+        let older = root.child();
+        let below = older.child();
+        let newer = root.child();
+
+        for (scope, name) in [(root, "root"), (older, "older"), (below, "below"), (newer, "newer")] {
+            scope.own(Said(name, said.clone()));
+        }
+        root.remove();
+
+        assert_eq!(*said.borrow(), ["newer", "below", "older", "root"]);
+    }
+
+    #[test]
+    fn a_removed_scope_stays_gone_and_its_slot_names_another_one() {
+        let root = Scope::root();
+        let gone = root.child();
+        gone.remove();
+        let next = root.child();
+
+        assert!(!gone.is_alive());
+        assert!(next.is_alive());
+        assert_ne!(gone, next);
+        assert_ne!(gone.key(), next.key());
+        assert_eq!(next.parent(), Some(root));
+        root.remove();
+    }
+
+    #[test]
+    fn a_scope_goes_when_it_is_removed_however_many_name_it() {
+        let said = Rc::new(RefCell::new(Vec::new()));
+        let scope = Scope::root();
+        let named_elsewhere = scope;
+        scope.own(Said("torn down", said.clone()));
+
+        scope.remove();
+
+        assert_eq!(*said.borrow(), ["torn down"]);
+        assert!(!named_elsewhere.is_alive());
+    }
+
+    #[test]
+    fn what_a_removed_scope_is_handed_is_torn_down_at_once() {
+        let said = Rc::new(RefCell::new(Vec::new()));
+        let scope = Scope::root();
+        scope.remove();
+
+        scope.own(Said("at once", said.clone()));
+
+        assert_eq!(*said.borrow(), ["at once"]);
+    }
+
+    #[test]
+    fn the_global_scope_is_one_scope_with_nothing_above_it() {
+        GlobalScope::instance().push::<Counter>(CounterMsg::Set(3));
+
+        assert_eq!(GlobalScope::instance(), GlobalScope::instance());
+        assert_eq!(GlobalScope::instance().parent(), None);
+        assert_eq!(GlobalScope::instance().state::<Counter>().borrow().value, 3);
+    }
+
     #[test]
     fn a_described_state_names_the_feature_that_claimed_it() {
         #[derive(Clone, Default, Debug)]
@@ -788,7 +1152,7 @@ mod tests {
             fn reduce(&mut self, _: ()) {}
         }
 
-        let scope = Scope::new();
+        let scope = Scope::root();
         scope.open_section("app::CounterFeature", None);
         scope.note_reducer_owner::<Counter>();
         scope.state::<Counter>();
@@ -804,35 +1168,32 @@ mod tests {
         };
         assert_eq!(feature("Counter"), Some(Some("app::CounterFeature")));
         assert_eq!(feature("Loose"), Some(None));
+        scope.remove();
     }
 
     #[test]
     fn state_survives_unmount_remount_within_a_live_store() {
-        let store = Rc::new(Scope::new());
+        let store = Scope::root();
 
-        // "mount" #1: read default, then a push arrives.
         let first_read = store.state::<Counter>();
         assert_eq!(first_read.borrow().value, 0);
         store.push::<Counter>(CounterMsg::Set(42));
 
-        // "unmount": drop the only handle a view held.
         drop(first_read);
 
-        // "remount": a fresh `use_feature` call resolves the cell again -
-        // must see the value left behind, not a new default.
         let second_read = store.state::<Counter>();
         assert_eq!(second_read.borrow().value, 42);
+        store.remove();
     }
 
     #[test]
     fn push_notifies_subscribers_and_unsubscribe_stops_it() {
-        let store = Rc::new(Scope::new());
+        let store = Scope::root();
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let seen_for_sub = seen.clone();
-        let store_for_sub = store.clone();
         let sub = store.subscribe::<Counter>(move || {
-            seen_for_sub.borrow_mut().push(store_for_sub.state::<Counter>().borrow().value);
+            seen_for_sub.borrow_mut().push(store.state::<Counter>().borrow().value);
         });
 
         store.push::<Counter>(CounterMsg::Set(1));
@@ -846,53 +1207,51 @@ mod tests {
             vec![1, 2],
             "no further notifications after the Subscription is dropped"
         );
+        store.remove();
     }
 
     #[tokio::test]
-    async fn dropping_the_store_aborts_owned_tasks() {
+    async fn removing_the_store_aborts_owned_tasks() {
         let ran_to_completion = Arc::new(AtomicBool::new(false));
         let flag = ran_to_completion.clone();
 
-        let store = Scope::new();
+        let store = Scope::root();
         let handle = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             flag.store(true, Ordering::SeqCst);
         });
         store.own(handle);
 
-        // Scope teardown, well before the task's sleep elapses.
-        drop(store);
+        store.remove();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(
             !ran_to_completion.load(Ordering::SeqCst),
-            "task should have been aborted when its owning cell was dropped"
+            "task should have been aborted when its owning scope was removed"
         );
     }
 
     #[test]
-    fn own_actor_disposes_the_registry_entry_on_cell_drop() {
+    fn own_actor_disposes_the_registry_entry_on_removal() {
         let token = crate::actor::UiThreadToken::dangerously_create_token_unchecked();
         let addr = Addr::new_scoped((), token);
         let counter = addr.strong_count_ptr();
 
-        let store = Scope::new();
+        let store = Scope::root();
         store.own(addr.clone());
         drop(addr);
 
-        // Only our own local `counter` handle plus the REGISTRY's - the
-        // Scope hasn't torn down yet, so it hasn't disposed it.
         assert!(
             Rc::strong_count(&counter) > 1,
             "REGISTRY should still hold the actor alive while its Scope is alive"
         );
 
-        drop(store);
+        store.remove();
 
         assert_eq!(
             Rc::strong_count(&counter),
             1,
-            "dropping the Scope's cell should dispose the REGISTRY entry, \
+            "removing the Scope should dispose the REGISTRY entry, \
              leaving only this test's own counter handle"
         );
     }

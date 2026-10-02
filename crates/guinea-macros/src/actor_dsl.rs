@@ -552,7 +552,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         impl #impl_generics #gc::feature::Serves for #self_ty #where_clause {
             fn serve(
                 addr: &#gc::actor::Addr<Self>,
-                scope: &::std::rc::Rc<#gc::scope::Scope>,
+                scope: #gc::scope::Scope,
             ) {
                 #(#served)*
             }

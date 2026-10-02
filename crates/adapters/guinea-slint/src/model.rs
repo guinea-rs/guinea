@@ -83,7 +83,6 @@ mod tests {
     use super::Rows;
     use guinea_core::scope::{Reducer, Scope};
     use slint::Model;
-    use std::rc::Rc;
 
     #[derive(Clone, Default, Debug)]
     struct Items(Vec<String>);
@@ -96,16 +95,16 @@ mod tests {
         }
     }
 
-    fn rows(scope: &Rc<Scope>) -> slint::ModelRc<slint::SharedString> {
+    fn rows(scope: Scope) -> slint::ModelRc<slint::SharedString> {
         Rows::new(scope.binding::<Items>(), |items: &Items| items.0.as_slice())
     }
 
     #[test]
     fn the_model_answers_from_the_state_it_was_given() {
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         scope.seed::<Items>(Items(vec!["systemd".to_string(), "sshd".to_string()]));
 
-        let model = rows(&scope);
+        let model = rows(scope);
 
         assert_eq!(model.row_count(), 2);
         assert_eq!(model.row_data(1).unwrap(), "sshd");
@@ -115,10 +114,10 @@ mod tests {
     fn a_change_to_the_state_is_a_change_to_the_model() {
         // Nothing was set on the model and nothing was copied into it: the
         // state moved, and the model reads the state.
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         scope.seed::<Items>(Items(vec!["systemd".to_string(), "sshd".to_string()]));
 
-        let model = rows(&scope);
+        let model = rows(scope);
         scope.push::<Items>(vec!["systemd".to_string()]);
 
         assert_eq!(model.row_count(), 1);

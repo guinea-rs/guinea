@@ -202,7 +202,7 @@ fn go(router: &Rc<Router<Headless>>, route: impl RouteChain<Headless> + 'static)
     assert!(router.navigate(route).expect("navigate").is_done());
 }
 
-fn area(router: &Router<Headless>) -> Rc<Scope> {
+fn area(router: &Router<Headless>) -> Scope {
     router.scope_at(1).expect("the area is mounted")
 }
 
@@ -218,7 +218,7 @@ fn a_kept_segment_comes_back_as_it_was_without_installing_again() {
 
     go(&router, Route::List("a".into()));
     assert_eq!(said(), ["gone Other", "install List", "Area woke"]);
-    assert!(Rc::ptr_eq(&before, &area(&router)), "the area came back as another scope");
+    assert_eq!(before, area(&router), "the area came back as another scope");
 }
 
 #[test]

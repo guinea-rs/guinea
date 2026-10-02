@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn a_timer_skips_its_ticks_while_its_scope_sleeps() {
         let clock = clock();
-        let scope = guinea_core::scope::Scope::new();
+        let scope = guinea_core::scope::Scope::root();
         let counter = Arc::new(AtomicUsize::new(0));
 
         let c = counter.clone();

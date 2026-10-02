@@ -17,8 +17,6 @@
 //! [`Point::Action`](crate::trace::Point::Action), and its id is handed back,
 //! so what it set off can be followed in the trace.
 
-use std::rc::Rc;
-
 use serde::de::DeserializeOwned;
 
 use crate::actor::event_bus::{Event, GlobalEventBus};
@@ -28,7 +26,7 @@ use crate::trace::{self, Point};
 
 /// Hands the decoded action to a scope if the scope answers it: `None` when
 /// it does not, the action's id when it did.
-pub type Emit = fn(&Rc<Scope>, &str) -> Option<Result<u64, String>>;
+pub type Emit = fn(Scope, &str) -> Option<Result<u64, String>>;
 
 /// An action a tool may send, registered by the derive.
 pub struct RemoteAction {
@@ -37,7 +35,7 @@ pub struct RemoteAction {
     /// The type's module path and name.
     pub path: &'static str,
     /// Whether a scope answers it.
-    pub answered_by: fn(&Rc<Scope>) -> bool,
+    pub answered_by: fn(Scope) -> bool,
     pub emit: Emit,
 }
 
@@ -55,7 +53,7 @@ inventory::collect!(RemoteEvent);
 /// to the first of `scopes` that answers one by that name, innermost first:
 /// `scopes` run from the outermost layout to the page. Answers the action's
 /// id in the trace.
-pub fn act_in(scopes: &[Rc<Scope>], named: &str, json: &str) -> Result<u64, String> {
+pub fn act_in(scopes: &[Scope], named: &str, json: &str) -> Result<u64, String> {
     let candidates: Vec<&RemoteAction> = inventory::iter::<RemoteAction>()
         .filter(|action| action.name == named || action.path == named)
         .collect();
@@ -67,7 +65,7 @@ pub fn act_in(scopes: &[Rc<Scope>], named: &str, json: &str) -> Result<u64, Stri
         ));
     }
 
-    for scope in scopes.iter().rev() {
+    for &scope in scopes.iter().rev() {
         let answering: Vec<&RemoteAction> = candidates
             .iter()
             .copied()
@@ -137,13 +135,13 @@ pub fn events() -> Vec<&'static str> {
 }
 
 /// What the derive registers for an action, to ask a scope about it.
-pub fn answered_by<M: 'static>(scope: &Rc<Scope>) -> bool {
+pub fn answered_by<M: 'static>(scope: Scope) -> bool {
     scope.first_answerer::<M>().is_some()
 }
 
 /// What the derive registers for an action.
 pub fn emit_json<M: DeserializeOwned + 'static>(
-    scope: &Rc<Scope>,
+    scope: Scope,
     json: &str,
 ) -> Option<Result<u64, String>> {
     let answer = scope.first_answerer::<M>()?;

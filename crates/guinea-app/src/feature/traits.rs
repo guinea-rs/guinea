@@ -23,8 +23,8 @@ pub struct AppFeatureDeinitContext<'a> {
 
 #[derive(Clone)]
 pub struct FeatureInitContext {
-    pub scope: Rc<Scope>,
-    pub ancestors: Rc<[Rc<Scope>]>,
+    pub scope: Scope,
+    pub ancestors: Rc<[Scope]>,
     /// Which root this feature is being installed into - the second window,
     /// or the only one. What a service shared between roots uses to tell
     /// callers apart.
@@ -98,7 +98,7 @@ impl FeatureInitContext {
     /// now with something real behind the bit.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<F> {
         self.scope.mark_feature_installed::<F>();
-        F::Exports::mark(&self.scope);
+        F::Exports::mark(self.scope);
 
         // Its own corner of the scope, so that two instances of one feature
         // answering the same action type do not become one.
@@ -111,7 +111,7 @@ impl FeatureInitContext {
         // reducer's `Default`, for as long as the application runs, and look
         // exactly like a feature that has not pushed an update yet.
         if installed.is_ok()
-            && let Some(name) = F::Exports::unclaimed(&self.scope)
+            && let Some(name) = F::Exports::unclaimed(self.scope)
         {
             panic!(
                 "{} exports {name}, but nothing in it claimed that reducer - \
@@ -151,7 +151,7 @@ impl FeatureInitContext {
             crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
         });
 
-        Claim::new(&self.scope, &self.event_bus, &self.token, &self.debug_registry)
+        Claim::new(self.scope, &self.event_bus, &self.token, &self.debug_registry)
     }
 
     /// Says this segment answers `M`, and how.
@@ -211,13 +211,13 @@ impl FeatureInitContext {
     /// by this scope - the rule dies with the segment that declared it.
     pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) {
         let owner = if self.scope.has_feature::<R>() {
-            self.scope.clone()
+            self.scope
         } else {
             self.ancestors
                 .iter()
                 .rev()
                 .find(|scope| scope.exports::<R>())
-                .cloned()
+                .copied()
                 .unwrap_or_else(|| {
                     panic!(
                         "observing {} here found no scope that owns it: this segment did not \
@@ -315,7 +315,7 @@ impl FeatureInitContext {
 
     pub fn spawn_actor<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
         let addr = Addr::new_managed_scoped(actor, self.token.clone());
-        addr.live_in(&self.scope, &self.event_bus);
+        addr.live_in(self.scope, &self.event_bus);
         let id = addr.id();
         self.debug_registry.register_owned(
             &addr,

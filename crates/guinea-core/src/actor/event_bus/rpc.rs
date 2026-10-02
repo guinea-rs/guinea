@@ -476,9 +476,9 @@ mod tests {
             }
         }
 
-        let scope = Rc::new(Scope::new());
+        let scope = Scope::root();
         let addr = Addr::new_scoped(Worker, UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(&scope, &Rc::new(EventBus::new()));
+        addr.live_in(scope, &Rc::new(EventBus::new()));
         let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
         scope.sleep();
 

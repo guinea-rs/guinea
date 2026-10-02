@@ -52,7 +52,7 @@ trait Inspected {
     fn root_id(&self) -> RootId;
 
     /// The scopes of the active chain, from the outermost layout down.
-    fn scopes(&self) -> Vec<Rc<guinea_core::scope::Scope>>;
+    fn scopes(&self) -> Vec<guinea_core::scope::Scope>;
 }
 
 thread_local! {
@@ -179,9 +179,9 @@ impl<U: Ui> Inspected for Router<U> {
         self.root()
     }
 
-    fn scopes(&self) -> Vec<Rc<guinea_core::scope::Scope>> {
+    fn scopes(&self) -> Vec<guinea_core::scope::Scope> {
         self.active_scopes()
-            .map(|scopes| scopes.iter().cloned().collect())
+            .map(|scopes| scopes.to_vec())
             .unwrap_or_default()
     }
 }

@@ -5,9 +5,9 @@
 //! same statement backwards: the reader goes first, and what it reads outlives
 //! it.
 //!
-//! This used to run the other way. It never crashed - `Push` holds its scope
-//! weakly, so an update from a segment being torn down landed nowhere - which
-//! is exactly why it needed a test rather than a bug report.
+//! This used to run the other way. It never crashed - an update from a segment
+//! being torn down landed nowhere - which is exactly why it needed a test
+//! rather than a bug report.
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -184,10 +184,23 @@ fn only_what_leaves_is_torn_down() {
     assert_eq!(gone(), ["Processes", "Services", "Tabs", "Shell"]);
 }
 
-/// An immediate-mode backend draws *from* the chain, holding it alive, so a
-/// navigation asked for inside the drawing cannot take it apart yet: the
-/// scopes would be cloned rather than dropped, and the teardown would happen
-/// later and outside in.
+/// What a view keeps of the chain names the scopes and does not keep them: the
+/// chain comes apart when the router takes it apart, in the same order,
+/// whoever still has the list.
+#[test]
+fn a_chain_a_view_still_holds_comes_apart_all_the_same() {
+    let router = router();
+    let held = router.active_scopes().expect("a chain is mounted");
+
+    router.deactivate();
+
+    assert_eq!(gone(), ["Processes", "Tabs", "Shell"]);
+    drop(held);
+}
+
+/// An immediate-mode backend draws *from* the chain, so a navigation asked for
+/// inside the drawing must not take it apart yet: every teardown would run
+/// under a frame that is still reading the scopes.
 #[test]
 fn a_navigation_from_inside_a_frame_waits_for_the_frame() {
     let router = router();

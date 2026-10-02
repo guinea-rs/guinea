@@ -1,7 +1,7 @@
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use guinea_core::binding::ReducerBinding;
 use guinea_core::guard::{Ask, Decision, Verdict};
@@ -83,7 +83,7 @@ pub trait Mount<U: Ui>: 'static {
 /// stack that chain installed, and which of the two this segment is.
 pub struct SegmentProps<U: Ui> {
     pub chain: &'static [SegmentEntry<U>],
-    pub scopes: Rc<Vec<Rc<Scope>>>,
+    pub scopes: Rc<Vec<Scope>>,
     pub cursor: usize,
 }
 
@@ -140,7 +140,7 @@ impl<U: Ui> SegmentProps<U> {
         (self.cursor..chain.len().min(scopes.len())).map(move |cursor| SegmentIdentity {
             cursor,
             segment: (chain[cursor].type_id)(),
-            scope: Rc::as_ptr(&scopes[cursor]) as usize,
+            scope: scopes[cursor].key(),
         })
     }
 
@@ -148,7 +148,7 @@ impl<U: Ui> SegmentProps<U> {
         SegmentIdentity {
             cursor: self.cursor,
             segment: (self.chain[self.cursor].type_id)(),
-            scope: Rc::as_ptr(&self.scopes[self.cursor]) as usize,
+            scope: self.scopes[self.cursor].key(),
         }
     }
 
@@ -205,12 +205,12 @@ impl<U: Ui> SegmentProps<U> {
 /// Innermost first, and the two ends are asked different questions: the
 /// segment itself may read anything it claimed, an ancestor only what it
 /// exported.
-pub fn resolve<R: Reducer>(chain: &[Rc<Scope>]) -> Option<&Rc<Scope>> {
-    let (here, above) = chain.split_last()?;
+pub fn resolve<R: Reducer>(chain: &[Scope]) -> Option<Scope> {
+    let (&here, above) = chain.split_last()?;
     if here.has_feature::<R>() {
         return Some(here);
     }
-    above.iter().rev().find(|scope| Scope::exports::<R>(scope))
+    above.iter().rev().copied().find(|scope| scope.exports::<R>())
 }
 
 /// Narrows what the router carries back to what a segment declared.
@@ -594,7 +594,7 @@ where
 /// the raw `Context`.
 pub(crate) struct ActiveChain<U: Ui> {
     pub(crate) entries: &'static [SegmentEntry<U>],
-    pub(crate) scopes: Rc<Vec<Rc<Scope>>>,
+    pub(crate) scopes: Rc<Vec<Scope>>,
     /// What each segment was installed with, kept so the next navigation can
     /// ask which of them changed - and so a cached state can refuse to come
     /// back to a segment that captured something else.
@@ -614,18 +614,19 @@ impl<U: Ui> ActiveChain<U> {
     }
 }
 
-/// Dropping a router is a teardown like any other, and has to run in the same
-/// direction. Without this the field just drops, which takes the chain apart
-/// from the outside in - the case that is hardest to notice, since it is the
-/// one a closing window takes.
+/// Dropping a router is a teardown like any other, and runs the same way a
+/// navigation does: the page before the layout it sits in.
 impl<U: Ui> Drop for Router<U> {
     fn drop(&mut self) {
         self.forget_sleeping();
 
-        if let Ok(mut active) = self.active.try_borrow_mut()
-            && let Some(active) = active.take()
-        {
-            unwind(active.scopes, 0);
+        let active = self
+            .active
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut active| active.take());
+        if let Some(active) = active {
+            unwind(&active.scopes);
         }
 
         if self.listed.get() {
@@ -634,32 +635,17 @@ impl<U: Ui> Drop for Router<U> {
     }
 }
 
-/// Tears a chain down to its first `keep` segments and hands back what is
-/// left standing.
+/// Removes a chain, innermost first.
 ///
-/// Innermost first, which is the direction the declarations point: a segment
-/// says what it installs and what it reads from above, so the one that reads
-/// is the one that has to go before what it reads. Dropping the vector - or
-/// `Vec::truncate`, which was here before - runs the other way and tears a
-/// layout down while the page inside it is still being torn down.
-///
-/// It degraded quietly rather than crashing, because [`Push`] holds its scope
-/// weakly and a late update lands nowhere. That made it invisible, not
-/// harmless: a teardown that touched what it depended on found it gone.
-///
-/// [`Push`]: guinea_core::feature::Push
-fn unwind(scopes: Rc<Vec<Rc<Scope>>>, keep: usize) -> Vec<Rc<Scope>> {
-    let mut standing = match Rc::try_unwrap(scopes) {
-        Ok(owned) => owned,
-        // Something still holds the chain - a view mid-render, say. Those
-        // scopes die with it; the ones this owns still go in the right order.
-        Err(shared) => (*shared).clone(),
-    };
-
-    while standing.len() > keep {
-        standing.pop();
+/// The direction the declarations point: a segment says what it installs and
+/// what it reads from above, so the one that reads is the one that has to go
+/// before what it reads. Each scope sits under the one before it, so removing
+/// the outermost would take the rest with it in that order anyway; going
+/// from the inside says so.
+fn unwind(scopes: &[Scope]) {
+    for scope in scopes.iter().rev() {
+        scope.remove();
     }
-    standing
 }
 
 fn common_prefix_len<U: Ui>(prev: &[SegmentEntry<U>], next: &[SegmentEntry<U>]) -> usize {
@@ -746,30 +732,14 @@ impl StateCache {
 
 /// A `keep` segment a navigation left: its scope, asleep, and what it needs
 /// to be woken as the same segment.
+///
+/// The scope stays where it was in the tree, under the scope it was installed
+/// under - so it goes when that one does, and it wakes only under that very
+/// one: what it inherited from above is theirs.
 struct Sleeping {
-    scope: Rc<Scope>,
+    scope: Scope,
     /// What it had captured. Woken only for the same capture.
     params: Box<dyn Any>,
-    /// The scopes it was installed under, outermost first. It wakes only
-    /// below the very same ones: what it inherited from them is theirs.
-    above: Vec<Weak<Scope>>,
-}
-
-impl Sleeping {
-    fn is_below(&self, scope: &Rc<Scope>) -> bool {
-        self.above
-            .iter()
-            .any(|above| std::ptr::eq(above.as_ptr(), Rc::as_ptr(scope)))
-    }
-
-    fn sits_on(&self, standing: &[Rc<Scope>]) -> bool {
-        self.above.len() == standing.len()
-            && self
-                .above
-                .iter()
-                .zip(standing)
-                .all(|(above, scope)| std::ptr::eq(above.as_ptr(), Rc::as_ptr(scope)))
-    }
 }
 
 /// How far below `shared_len` a navigation leaving `entries` keeps them: the
@@ -805,7 +775,7 @@ impl Visited {
 /// safe to supersede.
 pub enum Navigation {
     /// Installed. The leaf's scope.
-    Done(Rc<Scope>),
+    Done(Scope),
     /// A guard is asking. Nothing has changed; see [`Router::pending`].
     Deferred,
     /// A guard refused.
@@ -813,7 +783,7 @@ pub enum Navigation {
 }
 
 impl Navigation {
-    pub fn scope(self) -> Option<Rc<Scope>> {
+    pub fn scope(self) -> Option<Scope> {
         match self {
             Navigation::Done(scope) => Some(scope),
             _ => None,
@@ -1051,7 +1021,7 @@ impl<U: Ui> Router<U> {
         &self,
         chain: &'static [SegmentEntry<U>],
         params: Vec<Box<dyn Any>>,
-    ) -> anyhow::Result<Rc<Scope>> {
+    ) -> anyhow::Result<Scope> {
         *self.prev_route.borrow_mut() = None;
         self.install_from(chain, 0, params, None)
     }
@@ -1235,12 +1205,12 @@ impl<U: Ui> Router<U> {
     /// guard is free to start another navigation, and would otherwise
     /// re-enter this borrow.
     fn may_leave(&self, shared_len: usize) -> Verdict {
-        let leaving: Vec<Rc<Scope>> = match self.active.borrow().as_ref() {
+        let leaving: Vec<Scope> = match self.active.borrow().as_ref() {
             Some(active) => active
                 .scopes
                 .iter()
                 .skip(kept_until(active.entries, shared_len))
-                .cloned()
+                .copied()
                 .collect(),
             None => return Verdict::Allow,
         };
@@ -1317,7 +1287,7 @@ impl<U: Ui> Router<U> {
         shared_len: usize,
         params: Vec<Box<dyn Any>>,
         arrival: Arrival,
-    ) -> anyhow::Result<Rc<Scope>> {
+    ) -> anyhow::Result<Scope> {
         let Arrival {
             route,
             described,
@@ -1353,13 +1323,13 @@ impl<U: Ui> Router<U> {
         shared_len: usize,
         params: Vec<Box<dyn Any>>,
         again: Option<Again>,
-    ) -> anyhow::Result<Rc<Scope>> {
-        // Taken before anything is dropped, so the states of cache-eligible
+    ) -> anyhow::Result<Scope> {
+        // Taken before anything is removed, so the states of cache-eligible
         // segments can be snapshotted along with what they captured.
         let prev = self.active.borrow_mut().take();
 
         let mut previous = None;
-        let scopes: Vec<Rc<Scope>> = match prev {
+        let scopes: Vec<Scope> = match prev {
             None => Vec::new(),
             Some(ActiveChain {
                 entries,
@@ -1428,15 +1398,12 @@ impl<U: Ui> Router<U> {
     fn leave(
         &self,
         entries: &[SegmentEntry<U>],
-        scopes: Rc<Vec<Rc<Scope>>>,
+        scopes: Rc<Vec<Scope>>,
         mut captured: Vec<Option<Box<dyn Any>>>,
         shared_len: usize,
         keeping: usize,
-    ) -> Vec<Rc<Scope>> {
-        let mut standing = match Rc::try_unwrap(scopes) {
-            Ok(owned) => owned,
-            Err(shared) => (*shared).clone(),
-        };
+    ) -> Vec<Scope> {
+        let mut standing = scopes.to_vec();
 
         while standing.len() > shared_len {
             let scope = standing.pop().expect("longer than what stays");
@@ -1446,24 +1413,17 @@ impl<U: Ui> Router<U> {
                 .flatten();
 
             let Some(params) = params else {
-                self.forget_below(&scope);
-                drop(scope);
+                self.forget(scope);
                 continue;
             };
 
             scope.sleep();
-            let sleeping = Sleeping {
-                scope,
-                params,
-                above: standing.iter().map(Rc::downgrade).collect(),
-            };
-
             let replaced = self
                 .sleeping
                 .borrow_mut()
-                .insert(cache_key(entries, index), sleeping);
+                .insert(cache_key(entries, index), Sleeping { scope, params });
             if let Some(replaced) = replaced {
-                self.forget(replaced);
+                self.forget(replaced.scope);
             }
         }
 
@@ -1472,29 +1432,37 @@ impl<U: Ui> Router<U> {
 
     /// Tears `scopes` down to the first `shared_len`, with whatever sleeps
     /// below the ones that go.
-    fn tear_down(&self, scopes: Vec<Rc<Scope>>, shared_len: usize) -> Vec<Rc<Scope>> {
+    fn tear_down(&self, scopes: Vec<Scope>, shared_len: usize) -> Vec<Scope> {
         self.leave(&[], Rc::new(scopes), Vec::new(), shared_len, shared_len)
     }
 
     /// The segment that slept at `index` of `chain`, if it can wake there:
-    /// under the very scopes it was installed under, with the same capture.
+    /// under the very scope it was installed under, with the same capture.
     /// One that cannot is torn down.
     fn wakeable(
         &self,
         chain: &'static [SegmentEntry<U>],
         index: usize,
-        standing: &[Rc<Scope>],
+        standing: &[Scope],
         captured: &dyn Any,
-    ) -> Option<Rc<Scope>> {
+    ) -> Option<Scope> {
         let entry = &chain[index];
         let sleeping = self.sleeping.borrow_mut().remove(&cache_key(chain, index))?;
 
-        if entry.keep && sleeping.sits_on(standing) && (entry.same_params)(&*sleeping.params, captured) {
+        if entry.keep
+            && sleeping.scope.parent() == Some(self.parent_of(standing))
+            && (entry.same_params)(&*sleeping.params, captured)
+        {
             return Some(sleeping.scope);
         }
 
-        self.forget(sleeping);
+        self.forget(sleeping.scope);
         None
+    }
+
+    /// The scope the next segment below `standing` goes under.
+    fn parent_of(&self, standing: &[Scope]) -> Scope {
+        standing.last().copied().unwrap_or_else(|| self.host.scope())
     }
 
     /// Wakes what the active chain woke up with, outermost first, once the
@@ -1509,50 +1477,37 @@ impl<U: Ui> Router<U> {
         }
     }
 
-    /// Tears down a sleeping segment, after whatever sleeps below it.
-    fn forget(&self, sleeping: Sleeping) {
-        self.forget_below(&sleeping.scope);
-        drop(sleeping);
+    /// Removes `scope`, and with it whatever sleeps below it, and stops
+    /// keeping what went.
+    fn forget(&self, scope: Scope) {
+        scope.remove();
+        self.sleeping
+            .borrow_mut()
+            .retain(|_, sleeping| sleeping.scope.is_alive());
     }
 
-    /// Tears down whatever sleeps below `scope`, deepest first.
-    fn forget_below(&self, scope: &Rc<Scope>) {
-        let mut below: Vec<Sleeping> = {
-            let mut sleeping = self.sleeping.borrow_mut();
-            let keys: Vec<StateCacheKey> = sleeping
-                .iter()
-                .filter(|(_, sleeping)| sleeping.is_below(scope))
-                .map(|(key, _)| *key)
-                .collect();
-
-            keys.iter().filter_map(|key| sleeping.remove(key)).collect()
-        };
-
-        below.sort_by_key(|sleeping| std::cmp::Reverse(sleeping.above.len()));
-        drop(below);
-    }
-
-    /// Tears down everything asleep, deepest first.
+    /// Removes everything asleep.
     fn forget_sleeping(&self) {
         let Ok(mut sleeping) = self.sleeping.try_borrow_mut() else {
             return;
         };
-        let mut all: Vec<Sleeping> = sleeping.drain().map(|(_, sleeping)| sleeping).collect();
+        let all: Vec<Scope> = sleeping.drain().map(|(_, sleeping)| sleeping.scope).collect();
         drop(sleeping);
 
-        all.sort_by_key(|sleeping| std::cmp::Reverse(sleeping.above.len()));
-        drop(all);
+        for scope in all {
+            scope.remove();
+        }
     }
 
     /// Makes `chain` the active one, and hands back its leaf.
     fn stand(
         &self,
         chain: &'static [SegmentEntry<U>],
-        scopes: Vec<Rc<Scope>>,
+        scopes: Vec<Scope>,
         params: Vec<Box<dyn Any>>,
         again: Option<Again>,
-    ) -> Rc<Scope> {
-        let leaf = scopes.last().expect("chain is non-empty").clone();
+    ) -> Scope {
+        let leaf = *scopes.last().expect("chain is non-empty");
         *self.active.borrow_mut() = Some(ActiveChain {
             entries: chain,
             scopes: Rc::new(scopes),
@@ -1570,9 +1525,9 @@ impl<U: Ui> Router<U> {
     fn build(
         &self,
         chain: &'static [SegmentEntry<U>],
-        mut scopes: Vec<Rc<Scope>>,
+        mut scopes: Vec<Scope>,
         params: &[Box<dyn Any>],
-    ) -> Result<Vec<Rc<Scope>>, (anyhow::Error, Vec<Rc<Scope>>)> {
+    ) -> Result<Vec<Scope>, (anyhow::Error, Vec<Scope>)> {
         let standing = scopes.len();
 
         for (index, entry) in chain.iter().enumerate().skip(standing) {
@@ -1586,7 +1541,7 @@ impl<U: Ui> Router<U> {
                 continue;
             }
 
-            let scope = Rc::new(Scope::new());
+            let scope = self.parent_of(&scopes).child();
             if entry.cache_state
                 && let Some(cached) = self.state_cache.borrow_mut().take(cache_key(chain, index))
             {
@@ -1603,9 +1558,7 @@ impl<U: Ui> Router<U> {
             // root to this segment's immediate parent, never including
             // `scope` itself. `inherit()` walks it to find an ancestor that
             // already `install()`-ed the feature being asked for.
-            let ctx = self
-                .host
-                .context(scope.clone(), Rc::from(scopes.clone()));
+            let ctx = self.host.context(scope, Rc::from(scopes.clone()));
 
             if let Err(error) = (entry.install)(&ctx, captured) {
                 scopes.push(scope);
@@ -1621,24 +1574,21 @@ impl<U: Ui> Router<U> {
     }
 
     pub fn deactivate(&self) {
-        // Through `unwind` rather than by dropping the chain, so that shutting
-        // down takes the segments apart in the same direction a navigation
-        // does. This is the path a closing window takes, which is the one
-        // place where getting it wrong is hardest to notice.
         self.forget_sleeping();
-        if let Some(active) = self.active.borrow_mut().take() {
-            unwind(active.scopes, 0);
+        let active = self.active.borrow_mut().take();
+        if let Some(active) = active {
+            unwind(&active.scopes);
         }
         *self.prev_route.borrow_mut() = None;
     }
-    
+
     /// The scope of the segment at `cursor` in the active chain: 0 is the
     /// outermost layout, the last one the leaf.
-    pub fn scope_at(&self, cursor: usize) -> Option<Rc<Scope>> {
+    pub fn scope_at(&self, cursor: usize) -> Option<Scope> {
         self.active
             .borrow()
             .as_ref()
-            .and_then(|active| active.scopes.get(cursor).cloned())
+            .and_then(|active| active.scopes.get(cursor).copied())
     }
 
     /// The route the router is on, if it is the type asked for.
@@ -1706,15 +1656,15 @@ impl<U: Ui> Router<U> {
         self.active.borrow().as_ref().map(|active| active.entries)
     }
 
-    pub fn active_scopes(&self) -> Option<Rc<Vec<Rc<Scope>>>> {
+    pub fn active_scopes(&self) -> Option<Rc<Vec<Scope>>> {
         self.active
             .borrow()
             .as_ref()
             .map(|active| active.scopes.clone())
     }
 
-    pub fn active_scope(&self) -> Option<Rc<Scope>> {
-        self.active.borrow().as_ref().and_then(|a| a.scopes.last().cloned())
+    pub fn active_scope(&self) -> Option<Scope> {
+        self.active.borrow().as_ref().and_then(|a| a.scopes.last().copied())
     }
     
     /// The active chain, mounted.
@@ -1726,11 +1676,10 @@ impl<U: Ui> Router<U> {
     /// guard is dropped, so a navigation from inside the drawing waits for
     /// [`Router::settle`] instead of happening underneath it.
     ///
-    /// For an immediate-mode backend, where drawing borrows the chain: the
-    /// view holds the scopes alive, so tearing them down mid-frame drops
-    /// nothing and leaves the teardown to run later, outside in, when the
-    /// frame lets go. A retained backend builds its view and hands it over,
-    /// and has nothing to hold.
+    /// For an immediate-mode backend, where drawing reads the chain as it
+    /// goes: removing its scopes mid-frame would run every teardown under a
+    /// frame that is still reading them. A retained backend builds its view
+    /// and hands it over, and has nothing to hold.
     pub fn drawing(&self) -> Drawing<'_, U> {
         self.drawing.set(true);
 

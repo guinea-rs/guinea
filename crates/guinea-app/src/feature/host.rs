@@ -4,7 +4,7 @@ use guinea_core::SharedState;
 use guinea_core::actor::event_bus::EventBus;
 use guinea_core::actor::registry::DebugRegistry;
 use guinea_core::actor::UiThreadToken;
-use guinea_core::scope::Scope;
+use guinea_core::scope::{Scope, ScopeGuard};
 
 use super::FeatureInitContext;
 use crate::app::roots::{Registration, RootId};
@@ -18,6 +18,9 @@ use crate::app::roots::{Registration, RootId};
 /// with no notion of a route - needs them just the same. So the host lives
 /// here, and the router is one of its callers.
 pub struct FeatureHost {
+    /// The window's own scope, which every scope installed through this host
+    /// sits under. Removed when the host goes, before its registration does.
+    scope: ScopeGuard,
     token: UiThreadToken,
     /// One per window, shared by every feature installed through this host,
     /// so actors in different features can reach each other.
@@ -43,12 +46,18 @@ impl FeatureHost {
         let id = root.id().get();
 
         Self {
+            scope: Scope::root().guard(),
             token,
             event_bus: Rc::new(EventBus::for_root(id)),
             debug_registry: Rc::new(DebugRegistry::for_root(id)),
             services,
             root,
         }
+    }
+
+    /// The window's own scope: the root of every scope installed here.
+    pub fn scope(&self) -> Scope {
+        self.scope.scope()
     }
 
     pub fn token(&self) -> &UiThreadToken {
@@ -79,7 +88,7 @@ impl FeatureHost {
     /// The context a feature installs through. `ancestors` is what
     /// `FeatureInitContext::inherit` walks - root first, never including
     /// `scope` itself.
-    pub fn context(&self, scope: Rc<Scope>, ancestors: Rc<[Rc<Scope>]>) -> FeatureInitContext {
+    pub fn context(&self, scope: Scope, ancestors: Rc<[Scope]>) -> FeatureInitContext {
         FeatureInitContext {
             scope,
             ancestors,
@@ -91,16 +100,17 @@ impl FeatureHost {
         }
     }
 
-    /// Installs one feature into a scope of its own, with nothing above it.
+    /// Installs one feature into a scope of its own, right under the window's,
+    /// which goes when the guard does.
     ///
     /// The whole path for an application that has no routes: no chain, no
     /// `AppUri`, no backend.
     pub fn install(
         &self,
         install: impl Fn(&FeatureInitContext) -> anyhow::Result<()>,
-    ) -> anyhow::Result<Rc<Scope>> {
-        let scope = Rc::new(Scope::new());
-        let ctx = self.context(scope.clone(), Rc::from(Vec::new()));
+    ) -> anyhow::Result<ScopeGuard> {
+        let scope = self.scope().child().guard();
+        let ctx = self.context(*scope, Rc::from(Vec::new()));
         install(&ctx)?;
         Ok(scope)
     }

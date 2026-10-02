@@ -592,7 +592,7 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::actions().contains(&"Rename"), "{:?}", remote::actions());
 
-    let scopes = [h.segment().context().scope.clone()];
+    let scopes = [h.segment().context().scope];
 
     remote::act_in(&scopes, "Rename", r#""guinea""#).unwrap();
     h.settled();
@@ -601,7 +601,7 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
     assert!(remote::act_in(&scopes, "Rename", "42").is_err(), "a number is not a name");
     assert!(remote::act_in(&scopes, "Rename", "42").unwrap_err().contains("Rename"));
 
-    let elsewhere = [std::rc::Rc::new(guinea::core::scope::Scope::new())];
+    let elsewhere = [guinea::core::scope::Scope::root()];
     let refused = remote::act_in(&elsewhere, "Rename", r#""x""#).unwrap_err();
     assert!(refused.contains("nothing on the open page answers"), "{refused}");
 }
@@ -616,8 +616,8 @@ fn two_actions_of_one_name_each_reach_the_page_that_answers_it(h: &mut Harness) 
     let page = h.child();
     page.install::<titled::Titling>(&()).unwrap();
 
-    let layout = [h.segment().context().scope.clone()];
-    let both = [h.segment().context().scope.clone(), page.context().scope.clone()];
+    let layout = [h.segment().context().scope];
+    let both = [h.segment().context().scope, page.context().scope];
 
     remote::act_in(&both, "Rename", r#""page""#).unwrap();
     remote::act_in(&layout, "Rename", r#""layout""#).unwrap();
@@ -635,7 +635,7 @@ fn two_actions_of_one_name_in_one_scope_are_told_apart_by_path(h: &mut Harness) 
 
     h.install::<named::Naming>(&()).unwrap();
     h.install::<titled::Titling>(&()).unwrap();
-    let scopes = [h.segment().context().scope.clone()];
+    let scopes = [h.segment().context().scope];
 
     let refused = remote::act_in(&scopes, "Rename", r#""x""#).unwrap_err();
     assert!(refused.contains("send one by its path"), "{refused}");

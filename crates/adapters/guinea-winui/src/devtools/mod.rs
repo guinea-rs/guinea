@@ -8,7 +8,7 @@ mod debug_text;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use guinea_core::devtools::{Panel, PanelNode};
 use guinea_core::scope::Scope;
@@ -19,17 +19,12 @@ use crate::winui::WinUi;
 use debug_text::Value;
 
 struct Record {
-    scope: Weak<Scope>,
     renders: u64,
     view: Option<String>,
 }
 
 thread_local! {
-    static RECORDS: RefCell<HashMap<usize, Record>> = RefCell::new(HashMap::new());
-}
-
-fn key(scope: &Rc<Scope>) -> usize {
-    Rc::as_ptr(scope) as usize
+    static RECORDS: RefCell<HashMap<Scope, Record>> = RefCell::new(HashMap::new());
 }
 
 /// Notes that the segment `props` points at produced `view`, while devtools
@@ -39,16 +34,15 @@ pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
         return;
     }
 
-    let Some(scope) = props.scopes.get(props.cursor) else {
+    let Some(&scope) = props.scopes.get(props.cursor) else {
         return;
     };
     let text = format!("{view:?}");
 
     RECORDS.with(|records| {
         let mut records = records.borrow_mut();
-        records.retain(|_, record| record.scope.strong_count() > 0);
-        let record = records.entry(key(scope)).or_insert_with(|| Record {
-            scope: Rc::downgrade(scope),
+        records.retain(|scope, _| scope.is_alive());
+        let record = records.entry(scope).or_insert_with(|| Record {
             renders: 0,
             view: None,
         });
@@ -74,7 +68,7 @@ fn panel(router: &Router<WinUi>) -> Panel {
                     .iter()
                     .zip(scopes.iter())
                     .map(|(entry, scope)| {
-                        let record = records.get(&key(scope));
+                        let record = records.get(scope);
                         (
                             short((entry.type_name)()),
                             record.map_or(0, |record| record.renders),

@@ -5,7 +5,6 @@
 //! answered through the dialog it puts up, the way a user answers it.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
 
 use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
@@ -20,7 +19,7 @@ use windows_reactor::{ContentDialogResult, TextBlock, View};
 thread_local! {
     static SHOWN: RefCell<Vec<String>> = RefCell::default();
     static NAV: RefCell<Option<NavigateHandle<WinUi, Route>>> = RefCell::default();
-    static INSTALLED: RefCell<Option<Rc<Scope>>> = RefCell::default();
+    static INSTALLED: Cell<Option<Scope>> = Cell::default();
     static ENTERED: Cell<usize> = Cell::default();
 }
 
@@ -88,7 +87,7 @@ impl Page for Process {
     type Installs = Bound<Load>;
 
     fn install(ctx: &FeatureInitContext, _params: &ProcessParams) -> anyhow::Result<Bound<Load>> {
-        INSTALLED.with(|installed| *installed.borrow_mut() = Some(ctx.scope.clone()));
+        INSTALLED.set(Some(ctx.scope));
         Ok(ctx.state::<Load>().seed(Load::default()).plain())
     }
 
@@ -194,7 +193,7 @@ fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope() {
     settle(&mut pump);
     assert_eq!(last_shown(), "process 2 at 0%");
 
-    let installed = INSTALLED.with(|installed| installed.borrow().clone()).unwrap();
+    let installed = INSTALLED.get().unwrap();
     installed.push::<Load>(40);
     settle(&mut pump);
     assert_eq!(

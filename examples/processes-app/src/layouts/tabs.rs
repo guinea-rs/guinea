@@ -1,6 +1,6 @@
 use guinea::feature::FeatureInitContext;
 use guinea::winui::{Layout, LayoutCx, UseNavigate, UseRouteChange, Window, layout, window};
-use guinea_plugin_l10n::{Localization, ui::use_l10n};
+use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
 use windows_reactor::{
     Button, ChildrenControl, ContentControl, Orientation, StackPanel, TextBlock, View,
 };
@@ -28,7 +28,8 @@ impl Layout for TabsLayout {
         cx.use_route_change(|from, to| tracing::debug!(?from, to, "route"));
 
         let nav = cx.use_navigate::<Route>();
-        let l10n = use_l10n::<L10n, _>(cx);
+        let (language, switch) = cx.use_reducer::<Language<L10n>, _>();
+        let l10n = language.strings();
 
         let is_russian = l10n.tag() == "ru";
         let lang_button_label = if is_russian { "English" } else { "Русский" };
@@ -68,15 +69,13 @@ impl Layout for TabsLayout {
                 Button::new()
                     .on_click(second)
                     .content(TextBlock::new().text("Open window")),
-                // `L10n::load` refreshes every open window's `use_l10n`, not
-                // just this one - open a second window and flip the language
-                // here.
+                // The language is the application's: switching it here redraws
+                // every open window, not just this one - open a second window
+                // and flip the language here.
                 Button::new()
                     .on_click(move || {
                         let next = if is_russian { "en" } else { "ru" };
-                        if let Some(strings) = L10n::for_tag(next) {
-                            guinea_plugin_l10n::L10n::<L10n>::load(strings);
-                        }
+                        switch.emit(SwitchLanguage(next.into()));
                     })
                     .content(TextBlock::new().text(lang_button_label)),
             ));

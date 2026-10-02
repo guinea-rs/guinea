@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use guinea::feature::FeatureInitContext;
 use guinea::slint::{Layout, LayoutCx, ToSlint};
-use guinea_plugin_l10n::Localization;
+use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
 use slint::ComponentHandle;
 
 use processes_core::l10n::L10n;
@@ -27,15 +27,18 @@ impl Layout for TabsLayout {
         let model = root.global::<TabsModel>();
 
         let binding = cx.binding::<Tabs, _>();
+        let language = cx.binding::<Language<L10n>, _>();
         let refresh: Rc<dyn Fn()> = {
             let root = root.clone_strong();
             let binding = binding.clone();
+            let language = language.clone();
             Rc::new(move || {
                 let model = root.global::<TabsModel>();
-                let strings = L10n::current();
+                let language = language.get();
+                let strings = language.strings();
                 model.set_app_title(strings.app_title().to_slint());
-                model.set_language_label(language_label(&strings).to_slint());
-                model.set_status(status_line(&strings, &binding.peek()).to_slint());
+                model.set_language_label(language_label(strings).to_slint());
+                model.set_status(status_line(strings, &binding.peek()).to_slint());
             })
         };
 
@@ -44,13 +47,10 @@ impl Layout for TabsLayout {
             move |_| refresh()
         });
 
-        // The language is process-wide, not a reducer of this scope, so its
-        // subscription has no scope of its own to die with - `own` gives it
-        // this layout's.
-        cx.own(guinea_plugin_l10n::L10n::<L10n>::subscribe({
+        cx.bind::<Language<L10n>, _>({
             let refresh = refresh.clone();
             move |_| refresh()
-        }));
+        });
 
         let nav = cx.navigate::<Route>();
         let context_of = binding.clone();
@@ -65,15 +65,13 @@ impl Layout for TabsLayout {
             }
         });
 
-        model.on_toggle_language(|| {
-            let next = if L10n::current().tag() == "ru" {
+        model.on_toggle_language(move || {
+            let next = if language.peek().strings().tag() == "ru" {
                 "en"
             } else {
                 "ru"
             };
-            if let Some(strings) = L10n::for_tag(next) {
-                guinea_plugin_l10n::L10n::<L10n>::load(strings);
-            }
+            language.dispatch().emit(SwitchLanguage(next.into()));
         });
     }
 }

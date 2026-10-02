@@ -1,6 +1,6 @@
 use guinea::eframe::{Layout, LayoutCx};
 use guinea::feature::FeatureInitContext;
-use guinea_plugin_l10n::Localization;
+use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
 
 use processes_core::l10n::L10n;
 use processes_core::tabs::contracts::Tabs;
@@ -24,7 +24,8 @@ impl Layout for TabsLayout {
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
         let (state, _) = cx.state::<Tabs, _>();
-        let strings = L10n::current();
+        let (language, switch) = cx.state::<Language<L10n>, _>();
+        let strings = language.strings();
         let nav = cx.navigate::<Route>();
 
         // Which tab is current comes from the chain, not from a copy of the
@@ -58,8 +59,8 @@ impl Layout for TabsLayout {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(language_label(&strings)).clicked() {
-                    toggle_language(&strings);
+                if ui.button(language_label(strings)).clicked() {
+                    switch.emit(SwitchLanguage(next_language(strings).into()));
                 }
             });
         });
@@ -71,7 +72,7 @@ impl Layout for TabsLayout {
         ui.allocate_ui(room, |ui| page.draw(ui));
 
         ui.separator();
-        ui.label(status_line(&strings, &state));
+        ui.label(status_line(strings, &state));
     }
 }
 
@@ -83,11 +84,8 @@ fn language_label(strings: &L10n) -> &'static str {
     }
 }
 
-fn toggle_language(strings: &L10n) {
-    let next = if strings.tag() == "ru" { "en" } else { "ru" };
-    if let Some(strings) = L10n::for_tag(next) {
-        guinea_plugin_l10n::L10n::<L10n>::load(strings);
-    }
+fn next_language(strings: &L10n) -> &'static str {
+    if strings.tag() == "ru" { "en" } else { "ru" }
 }
 
 fn status_line(strings: &L10n, state: &Tabs) -> String {

@@ -6,7 +6,7 @@
 
 use guinea::feature::FeatureInitContext;
 use guinea::iced::{Element, Envelope, Layout, LayoutCx, UpdateCx, layout};
-use guinea_plugin_l10n::Localization;
+use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
 use iced::Length::Fill;
 use iced::widget::{button, column, container, row, space, text};
 
@@ -66,12 +66,16 @@ impl Layout for TabsLayout {
                     Tab::Draft => Route::Draft { context },
                 });
             }
-            Chrome::ToggleLanguage => toggle_language(&L10n::current()),
+            Chrome::ToggleLanguage => {
+                let (language, switch) = cx.state::<Language<L10n>, _>();
+                switch.emit(SwitchLanguage(next_language(language.strings()).into()));
+            }
         }
     }
 
     fn view<'a>(&'a self, cx: &LayoutCx<'a, Self>) -> Element<'a, Envelope> {
-        let strings = L10n::current();
+        let (language, _) = cx.state::<Language<L10n>, _>();
+        let strings = language.strings();
         let (tabs, _) = cx.state::<Tabs, _>();
 
         // Which tab is current comes from the chain, not from a copy of the
@@ -84,7 +88,7 @@ impl Layout for TabsLayout {
             tab("Login", Tab::Login, cx.child_is::<Login>()),
             tab("Draft", Tab::Draft, cx.child_is::<Draft>()),
             space().width(Fill),
-            button(text(language_label(&strings))).on_press(Chrome::ToggleLanguage),
+            button(text(language_label(strings))).on_press(Chrome::ToggleLanguage),
         ]
         .spacing(8)
         .padding(8);
@@ -92,7 +96,7 @@ impl Layout for TabsLayout {
         column![
             cx.mine(bar),
             container(cx.outlet()).height(Fill),
-            cx.mine(container(text(status_line(&strings, &tabs))).padding(8)),
+            cx.mine(container(text(status_line(strings, &tabs))).padding(8)),
         ]
         .into()
     }
@@ -116,11 +120,8 @@ fn language_label(strings: &L10n) -> &'static str {
     }
 }
 
-fn toggle_language(strings: &L10n) {
-    let next = if strings.tag() == "ru" { "en" } else { "ru" };
-    if let Some(strings) = L10n::for_tag(next) {
-        guinea_plugin_l10n::L10n::<L10n>::load(strings);
-    }
+fn next_language(strings: &L10n) -> &'static str {
+    if strings.tag() == "ru" { "en" } else { "ru" }
 }
 
 fn status_line(strings: &L10n, state: &Tabs) -> String {

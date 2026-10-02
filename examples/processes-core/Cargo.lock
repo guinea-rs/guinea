@@ -13,9 +13,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66c1f51eb47d463ee97491ddfceb5d5043d738b8d81f117e726340e0b6f6e5f0"
+checksum = "c4f882c35cdc57aece66d5cbeb306b1bd745aac21524e04ba89b2fd6c10840b5"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -45,9 +45,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c3040285466d4fb852a77136bee5cd108710f18d67f8f8b2d91b17a66a56019"
+checksum = "c7b28143f93821c2f3530e6a02e2976248741b35810a1aa4eba794e4726ef5f2"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -65,9 +65,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3b01581f0ac82d068b84ef3c7a7be4a7c63d1bfa4e324c5fa8fae469ac4666"
+checksum = "9ef46708b207c3102f9e86491e6efeb2027fc16f7a57ea8f31471a592a830264"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -79,9 +79,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.22.1"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a231e3615b976a5653ac08b04dff9acf01ffdd9e3869af9138b99fb5e9764603"
+checksum = "4929240e3dea1525cd04e8afbaf9fea94ef69492005043e5ed21232e0ff715cc"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -491,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -548,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -562,15 +562,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.18.9"
+version = "0.19.1"
 
 [[package]]
 name = "guinea-meta"
-version = "0.18.9"
+version = "0.19.1"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -579,8 +579,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.14.2"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
+version = "0.17.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.0#d95bb59bc0e058c26b315c2f209a7ef216ac5385"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -594,8 +594,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.14.2"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
+version = "0.17.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.0#d95bb59bc0e058c26b315c2f209a7ef216ac5385"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -606,8 +606,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.22.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
+version = "0.23.4"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.0#d95bb59bc0e058c26b315c2f209a7ef216ac5385"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.18.9"
+version = "0.19.1"
 dependencies = [
  "serde_json",
  "tracing",
@@ -649,8 +649,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.14.2"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.14.2#5d42b832d0e5410125aa787391befc8bf0e5f5ff"
+version = "0.17.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.0#d95bb59bc0e058c26b315c2f209a7ef216ac5385"
 dependencies = [
  "guinea-mark",
  "tracing",

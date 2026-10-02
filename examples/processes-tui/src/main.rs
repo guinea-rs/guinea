@@ -6,14 +6,15 @@ mod layouts;
 mod pages;
 mod routes;
 
-use guinea::app::GuineaApp;
+use guinea::app::{GuineaApp, app_services};
 use guinea::ratatui::{Flow, Tui, pressed, run};
 use guinea_router::router::Router;
 use ratatui::crossterm::event::{Event, KeyCode};
 use routes::Route;
 
 use guinea_core::scope::Scope;
-use guinea_plugin_l10n::Localization;
+use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
+use guinea_plugin_store::Store;
 use processes_core::l10n::L10n;
 use processes_core::processes::contracts::{Kill, Processes as Running};
 use processes_core::services::contracts::Services;
@@ -35,12 +36,9 @@ const LAST_ROUTE: &str = "route";
 /// Every failure ends here rather than propagating. A saved route outlives the
 /// build that wrote it, so one that no longer parses is an ordinary thing to
 /// find on the way in - the application starts where it always did.
-fn initial_route() -> Route {
-    guinea_plugin_store::amethystate::global_store()
-        .kv()
-        .get::<String>(LAST_ROUTE)
-        .ok()
-        .flatten()
+fn initial_route(store: Option<&Store>) -> Route {
+    store
+        .and_then(|store| store.kv().get::<String>(LAST_ROUTE).ok().flatten())
         .as_deref()
         .and_then(Route::restore)
         .unwrap_or(Route::Processes {
@@ -52,15 +50,12 @@ fn initial_route() -> Route {
 ///
 /// The router hands over a string and has no opinion about where it goes -
 /// this is the half that does.
-fn remember(route: &Route) {
+fn remember(store: &Store, route: &Route) {
     let Some(saved) = route.save() else {
         return;
     };
 
-    if let Err(error) = guinea_plugin_store::amethystate::global_store()
-        .kv()
-        .set(LAST_ROUTE, &saved)
-    {
+    if let Err(error) = store.kv().set(LAST_ROUTE, &saved) {
         tracing::warn!(%error, "the route could not be remembered");
     }
 }
@@ -93,7 +88,11 @@ fn main() -> anyhow::Result<()> {
         .plugin(guinea_plugin_l10n::L10nPlugin::<processes_core::l10n::L10n>::new("en"))
         .feature(startup::Startup);
 
-    run(app, initial_route, on_key)
+    run(
+        app,
+        || initial_route(app_services().get::<Store>().as_deref()),
+        on_key,
+    )
 }
 
 fn on_key(
@@ -129,31 +128,39 @@ fn on_key(
         KeyCode::Up => move_focus(router, -1),
         KeyCode::Down => move_focus(router, 1),
         KeyCode::Char('k') => kill_focused(router),
-        KeyCode::Char('l') => toggle_language(),
+        KeyCode::Char('l') => toggle_language(router),
         _ => {}
     }
 
     // One place rather than beside every `nav.to`: whatever the key did to the
     // route - including `back` - is where the next run should start.
-    if let Some(route) = router.current_route::<Route>() {
-        remember(&route);
+    if let (Some(route), Some(store)) = (
+        router.current_route::<Route>(),
+        app_services().get::<Store>(),
+    ) {
+        remember(&store, &route);
     }
 
     Flow::Continue
 }
 
-/// The language lives in the process, not in a window, so this reaches the
-/// WinUI front end too: flip it here and the next run of `processes-app`
-/// starts in the language the terminal left it in.
-fn toggle_language() {
-    let next = if L10n::current().tag() == "ru" {
+/// The language is the application's, not a window's, and the store keeps it,
+/// so this reaches the WinUI front end too: flip it here and the next run of
+/// `processes-app` starts in the language the terminal left it in.
+fn toggle_language(router: &Router<Tui>) {
+    let Some(owner) = router
+        .active_scope()
+        .and_then(|scope| scope.owner_of::<Language<L10n>>())
+    else {
+        return;
+    };
+    let language = owner.binding::<Language<L10n>>();
+    let next = if language.get().strings().tag() == "ru" {
         "en"
     } else {
         "ru"
     };
-    if let Some(strings) = L10n::for_tag(next) {
-        guinea_plugin_l10n::L10n::<L10n>::load(strings);
-    }
+    language.dispatch().emit(SwitchLanguage(next.into()));
 }
 
 fn move_focus(router: &Router<Tui>, delta: isize) {
@@ -197,28 +204,28 @@ mod tests {
 
     /// The two halves of `restorable` against a real store, since separately
     /// they both pass while agreeing about nothing.
-    ///
-    /// One test rather than three: the store is a process-wide global and may
-    /// be initialised once, so tests that each wanted their own would collide
-    /// in the one process `cargo test` gives them.
     #[test]
     fn a_saved_route_is_where_the_next_run_starts() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut app = TestApp::new();
         app.install(guinea_plugin_store::StorePlugin::at(dir.path().join("store")))
             .expect("the store plugin");
+        let store = app.require::<Store>().expect("the store");
 
         assert!(
-            matches!(initial_route(), Route::Processes { .. }),
+            matches!(initial_route(Some(&store)), Route::Processes { .. }),
             "nothing was saved yet, so the application starts where it always did"
         );
 
-        remember(&Route::Metrics {
-            context: "fedora".to_string(),
-        });
+        remember(
+            &store,
+            &Route::Metrics {
+                context: "fedora".to_string(),
+            },
+        );
 
         assert_eq!(
-            initial_route(),
+            initial_route(Some(&store)),
             Route::Metrics {
                 context: "fedora".to_string()
             }
@@ -226,11 +233,11 @@ mod tests {
 
         // A saved route outlives the build that wrote it, and one that no
         // longer exists is an ordinary thing to find on the way in.
-        guinea_plugin_store::amethystate::global_store()
+        store
             .kv()
             .set(LAST_ROUTE, &r#"{"route":"Removed","fields":{}}"#.to_string())
             .expect("set");
 
-        assert!(matches!(initial_route(), Route::Processes { .. }));
+        assert!(matches!(initial_route(Some(&store)), Route::Processes { .. }));
     }
 }

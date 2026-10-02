@@ -14,17 +14,17 @@ publish = false
 # builds under `--no-default-features` precisely because a terminal front end
 # has to link it too.
 guinea = { path = "../../crates/guinea", default-features = false }
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.2" }
-guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.2" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.17.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.17.0" }
 # For `RingSeries` only, which is plain data - the drawing half of the widget
 # crate stays behind its `winui` feature and is not pulled in here.
-guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.2", default-features = false }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.17.0", default-features = false }
 tokio = { version = "1", features = ["time"] }
 tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-guinea-plugin-l10n-build = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.14.2" }
+guinea-plugin-l10n-build = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.17.0" }
 
 # The plugins take guinea from crates.io; this takes it from the tree it sits
 # in, so both are the one guinea.

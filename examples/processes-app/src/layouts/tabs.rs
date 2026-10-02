@@ -1,6 +1,6 @@
-use guinea::feature::FeatureInitContext;
+use guinea::feature::{FeatureInitContext, Reads};
 use guinea::winui::{Layout, LayoutCx, UseNavigate, UseRouteChange, Window, layout, window};
-use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
+use guinea_plugin_l10n::{L10nAccess, Language, Localization, SwitchLanguage};
 use windows_reactor::{
     Button, ChildrenControl, ContentControl, Orientation, StackPanel, TextBlock, View,
 };
@@ -28,8 +28,8 @@ impl Layout for TabsLayout {
         cx.use_route_change(|from, to| tracing::debug!(?from, to, "route"));
 
         let nav = cx.use_navigate::<Route>();
-        let (language, switch) = cx.use_reducer::<Language<L10n>, _>();
-        let l10n = language.strings();
+        let l10n = cx.l10n::<L10n>();
+        let switch = cx.dispatch::<Language<L10n>, _>();
 
         let is_russian = l10n.tag() == "ru";
         let lang_button_label = if is_russian { "English" } else { "Русский" };

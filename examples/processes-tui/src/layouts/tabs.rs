@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use guinea_plugin_l10n::Language;
+use guinea_plugin_l10n::L10nAccess;
 use processes_core::l10n::L10n;
 use processes_core::tabs::contracts::Tabs;
 
@@ -26,8 +26,7 @@ impl Layout for TabsLayout {
 
     fn render(cx: &mut LayoutCx<'_, '_, Self>) {
         let (state, _) = cx.state::<Tabs, _>();
-        let (language, _) = cx.state::<Language<L10n>, _>();
-        let strings = language.strings();
+        let strings = cx.l10n::<L10n>();
 
         let rows = Rows::default()
             .direction(Direction::Vertical)

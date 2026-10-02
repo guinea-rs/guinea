@@ -345,6 +345,7 @@ mod tests {
         });
         let handled = enter_under(Some(send), || Point::Handle {
             actor: "ProcessActor",
+            actor_id: 1,
             message: "Kill",
         });
         let publish = mark(|| Point::Publish {

@@ -32,3 +32,8 @@ pub fn app_actors() -> Vec<ActorSnapshot> {
     snapshots.sort_by_key(|actor| actor.id);
     snapshots
 }
+
+/// The application-level actor `id`, read now; the others are not read.
+pub fn app_actor(id: usize) -> Option<ActorSnapshot> {
+    APP.with(|registry| registry.snapshot_of(id))
+}

@@ -627,6 +627,10 @@ impl<U: Ui> Drop for Router<U> {
         {
             unwind(active.scopes, 0);
         }
+
+        if self.listed.get() {
+            crate::devtools::unregister(self.root());
+        }
     }
 }
 

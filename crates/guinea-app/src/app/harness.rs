@@ -115,8 +115,8 @@ impl Harness {
             ancestors: Rc::from([]),
             root: root.id(),
             token: app.token.clone(),
-            event_bus: Rc::new(EventBus::new()),
-            debug_registry: Rc::new(DebugRegistry::new()),
+            event_bus: Rc::new(EventBus::for_root(root.id().get())),
+            debug_registry: Rc::new(DebugRegistry::for_root(root.id().get())),
             services: app.shared().clone(),
         };
 
@@ -367,6 +367,16 @@ impl<'h> Segment<'h> {
     /// The harness this segment belongs to.
     pub fn harness(&self) -> &'h Harness {
         self.harness
+    }
+}
+
+impl crate::services::Services for Segment<'_> {
+    fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        Segment::try_require(self)
+    }
+
+    fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
+        Segment::require(self)
     }
 }
 

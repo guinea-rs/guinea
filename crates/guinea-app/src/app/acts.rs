@@ -233,7 +233,7 @@ impl Step {
         match point {
             Point::Action { message } => Step::Action { message },
             Point::Send { actor, message } => Step::Send { actor, message },
-            Point::Handle { actor, message } => Step::Handle { actor, message },
+            Point::Handle { actor, message, .. } => Step::Handle { actor, message },
             Point::Spawn { actor, output, .. } => Step::Spawn { actor, output },
             Point::Settled { actor, output, .. } => Step::Settled { actor, output },
             Point::Cancelled { actor, output, .. } => Step::Cancelled { actor, output },

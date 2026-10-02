@@ -574,6 +574,33 @@ mod tests {
     }
 
     #[test]
+    fn a_handle_says_which_actor_handled_it() {
+        use crate::trace::Trace;
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        trace::observe(move |trace| {
+            if let Trace::Begin(record) = trace
+                && let Point::Handle { actor_id, .. } = record.point
+            {
+                sink.borrow_mut().push(actor_id);
+            }
+        });
+
+        let addr = Addr::new_scoped(
+            Chain {
+                log: Rc::new(RefCell::new(Vec::new())),
+            },
+            UiThreadToken::dangerously_create_token_unchecked(),
+        );
+        addr.send(First);
+        trace::stop_observing();
+
+        let id = addr.id() as u64;
+        assert_eq!(*seen.borrow(), [id, id]);
+    }
+
+    #[test]
     fn a_chain_of_sends_is_traced_back_to_the_action_that_started_it() {
         use crate::trace::{Cause, Record, Trace};
 

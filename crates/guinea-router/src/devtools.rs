@@ -6,7 +6,7 @@ use std::rc::{Rc, Weak};
 
 use guinea_app::app::roots::{self, RootId};
 use guinea_core::actor::registry::ActorSnapshot;
-use guinea_core::devtools::Panel;
+use guinea_core::devtools::{Change, Panel};
 use guinea_core::actor::shape::Declared;
 use guinea_core::scope::{DescribedState, Installed, Listener};
 
@@ -47,6 +47,8 @@ pub struct SegmentView {
 trait Inspected {
     fn view(&self) -> RouterView;
 
+    fn actor(&self, id: usize) -> Option<ActorSnapshot>;
+
     fn root_id(&self) -> RootId;
 
     /// The scopes of the active chain, from the outermost layout down.
@@ -60,6 +62,14 @@ thread_local! {
 pub(crate) fn register<U: Ui>(router: &Rc<Router<U>>) {
     let weak = Rc::downgrade(&(router.clone() as Rc<dyn Inspected>));
     ROUTERS.with(|routers| routers.borrow_mut().push(weak));
+
+    let root = router.root().get();
+    guinea_core::devtools::changed(|| Change::RouterOpened { root });
+}
+
+/// A listed router is going: what [`register`] said came, this says went.
+pub(crate) fn unregister(root: RootId) {
+    guinea_core::devtools::changed(|| Change::RouterClosed { root: root.get() });
 }
 
 fn alive() -> Vec<Rc<dyn Inspected>> {
@@ -74,6 +84,29 @@ fn alive() -> Vec<Rc<dyn Inspected>> {
 /// navigated.
 pub fn routers() -> Vec<RouterView> {
     alive().iter().map(|router| router.view()).collect()
+}
+
+/// The router of window `root`, as `RootId::get` numbers it; the others are
+/// not read.
+pub fn router(root: u64) -> Option<RouterView> {
+    find(root).map(|router| router.view())
+}
+
+fn find(root: u64) -> Option<Rc<dyn Inspected>> {
+    alive()
+        .into_iter()
+        .find(|router| router.root_id().get() == root)
+}
+
+/// The actor `id`, read now: one of window `root`'s, or of the application's
+/// for `None` - where [`Change::ActorAdded`] said it was.
+///
+/// [`Change::ActorAdded`]: guinea_core::devtools::Change::ActorAdded
+pub fn actor(root: Option<u64>, id: usize) -> Option<ActorSnapshot> {
+    match root {
+        Some(root) => find(root)?.actor(id),
+        None => guinea_app::app::actors::app_actor(id),
+    }
 }
 
 /// Sends the action registered as `action`, decoded from `json`, to the scope
@@ -136,6 +169,10 @@ impl<U: Ui> Inspected for Router<U> {
             panels: guinea_core::devtools::panels(root.get()),
             bus: self.host().event_bus().subscriptions(),
         }
+    }
+
+    fn actor(&self, id: usize) -> Option<ActorSnapshot> {
+        self.host().debug_registry().snapshot_of(id)
     }
 
     fn root_id(&self) -> RootId {

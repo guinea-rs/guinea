@@ -5,6 +5,7 @@ use crate::actor::event_bus::subscribe::{
 use crate::actor::invoke_on_ui;
 use crate::actor::short_type_name;
 use crate::actor::traits::Handler;
+use crate::devtools::{self, Change};
 use crate::trace::{self, Bus, Point};
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
@@ -62,6 +63,9 @@ pub struct EventBus {
     answerers: RefCell<HashMap<TypeId, (u64, &'static str)>>,
     next_id: Cell<u64>,
     kind: Bus,
+    /// The window it is the bus of, for [`Change`]; `None` for the global
+    /// one, and for one no window owns.
+    root: Option<u64>,
 }
 
 /// Whether a request published now would be answered.
@@ -97,6 +101,14 @@ impl EventBus {
         Self::of_kind(Bus::Window)
     }
 
+    /// The bus of window `root`, as `RootId::get` numbers it.
+    pub fn for_root(root: u64) -> Self {
+        Self {
+            root: Some(root),
+            ..Self::of_kind(Bus::Window)
+        }
+    }
+
     fn of_kind(kind: Bus) -> Self {
         Self {
             subscribers: RefCell::new(HashMap::new()),
@@ -104,7 +116,15 @@ impl EventBus {
             answerers: RefCell::new(HashMap::new()),
             next_id: Cell::new(0),
             kind,
+            root: None,
         }
+    }
+
+    fn changed(&self) {
+        devtools::changed(|| Change::Subscriptions {
+            bus: self.kind,
+            root: self.root,
+        });
     }
 
     pub fn kind(&self) -> Bus {
@@ -194,6 +214,7 @@ impl EventBus {
             .entry(event)
             .or_default()
             .push(Rc::from(subscriber));
+        self.changed();
 
         BusSubscription {
             bus: Rc::downgrade(self),
@@ -272,20 +293,24 @@ impl EventBus {
             }
         }
 
-        let mut subscribers = self.subscribers.borrow_mut();
-        let Some(list) = subscribers.get_mut(&id.event) else {
-            return;
+        let removed = {
+            let mut subscribers = self.subscribers.borrow_mut();
+            let Some(list) = subscribers.get_mut(&id.event) else {
+                return;
+            };
+
+            let before = list.len();
+            list.retain(|sub| sub.seq() != id.seq);
+            before - list.len()
         };
 
-        let before = list.len();
-        list.retain(|sub| sub.seq() != id.seq);
-        let removed = before - list.len();
-
-        if removed > 0
-            && let Some(count) = self.counts.borrow_mut().get_mut(&id.event)
-        {
+        if removed == 0 {
+            return;
+        }
+        if let Some(count) = self.counts.borrow_mut().get_mut(&id.event) {
             *count = count.saturating_sub(removed);
         }
+        self.changed();
     }
 }
 
@@ -365,6 +390,32 @@ mod tests {
     #[derive(Clone)]
     struct Pong;
     impl Event for Pong {}
+
+    #[test]
+    fn a_bus_tells_devtools_when_what_is_subscribed_to_it_changes() {
+        let bus = Rc::new(EventBus::for_root(3));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        let sink = seen.clone();
+        let reading = bus.clone();
+        devtools::watch(move |change| {
+            sink.borrow_mut().push((change.clone(), reading.subscriptions().len()));
+        });
+
+        let sub = bus.subscribe_fn(|_: Ping| {});
+        drop(sub);
+        devtools::stop_watching();
+
+        let changed = Change::Subscriptions {
+            bus: Bus::Window,
+            root: Some(3),
+        };
+        assert_eq!(
+            *seen.borrow(),
+            [(changed.clone(), 1), (changed, 0)],
+            "told after the change, with the bus free to read"
+        );
+    }
 
     #[test]
     fn dropping_the_handle_ends_the_subscription() {

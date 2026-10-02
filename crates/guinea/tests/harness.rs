@@ -783,6 +783,53 @@ fn a_segment_requires_what_the_harness_was_provided(h: &mut Harness) {
     assert!(h.segment().require::<reports::Limit>().is_err());
 }
 
+mod everywhere {
+    use super::*;
+    use guinea::Services;
+    use guinea::enter::EnterCx;
+
+    pub fn prefix<C: Services + ?Sized>(cx: &C) -> Option<&'static str> {
+        cx.try_require::<reports::Prefix>().map(|prefix| prefix.0)
+    }
+
+    thread_local! {
+        pub static FROM_A_PLUGIN: std::cell::Cell<Option<&'static str>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    pub struct Probe;
+
+    impl Plugin for Probe {
+        const ID: &'static str = "test.probe";
+
+        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+            FROM_A_PLUGIN.set(prefix(app));
+            Ok(())
+        }
+    }
+
+    pub fn from_a_guard(segment: &guinea::app::Segment<'_>) -> Option<&'static str> {
+        prefix(&EnterCx::new(&segment.context().services, "Route"))
+    }
+}
+
+#[guinea::test(iterations = 2)]
+fn one_extension_reaches_a_service_from_every_context(h: &mut Harness) {
+    h.provide(reports::Prefix("proc-"));
+    h.plugin(everywhere::Probe).unwrap();
+    let segment = h.child();
+
+    let found = [
+        everywhere::FROM_A_PLUGIN.get(),
+        everywhere::prefix(segment.context()),
+        everywhere::prefix(&segment),
+        everywhere::from_a_guard(&segment),
+    ];
+
+    assert_eq!(found, [Some("proc-"); 4]);
+    assert!(guinea::Services::require::<reports::Limit>(&segment).is_err());
+}
+
 #[guinea::test(iterations = 2)]
 fn a_setting_nobody_provided_is_its_default(h: &mut Harness) {
     h.child().install::<reports::Limited>(&()).unwrap();

@@ -30,9 +30,11 @@ pub enum Point {
         actor: &'static str,
         message: &'static str,
     },
-    /// An actor handled a message.
+    /// An actor handled a message. `actor_id` is the id the snapshot lists
+    /// it under, as on [`Point::Spawn`].
     Handle {
         actor: &'static str,
+        actor_id: u64,
         message: &'static str,
     },
     /// An actor started background work whose result will come back as
@@ -198,7 +200,7 @@ impl fmt::Display for Point {
         match self {
             Point::Action { message } => write!(f, "action {message}"),
             Point::Send { actor, message } => write!(f, "send {message} → {actor}"),
-            Point::Handle { actor, message } => write!(f, "{actor} handles {message}"),
+            Point::Handle { actor, message, .. } => write!(f, "{actor} handles {message}"),
             Point::Spawn { actor, output, .. } => write!(f, "{actor} starts work for {output}"),
             Point::Settled {
                 actor,

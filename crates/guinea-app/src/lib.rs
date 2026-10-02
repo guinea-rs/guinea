@@ -8,4 +8,5 @@
 pub mod app;
 pub mod feature;
 pub mod lifecycle_tracker;
+pub mod services;
 pub mod timers;

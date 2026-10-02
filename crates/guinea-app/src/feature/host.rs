@@ -39,12 +39,15 @@ impl FeatureHost {
     /// With `services` rather than the installed application's - for a
     /// harness, whose application is its own.
     pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
+        let root = Registration::open();
+        let id = root.id().get();
+
         Self {
             token,
-            event_bus: Rc::new(EventBus::new()),
-            debug_registry: Rc::new(DebugRegistry::new()),
+            event_bus: Rc::new(EventBus::for_root(id)),
+            debug_registry: Rc::new(DebugRegistry::for_root(id)),
             services,
-            root: Registration::open(),
+            root,
         }
     }
 
@@ -100,5 +103,73 @@ impl FeatureHost {
         let ctx = self.context(scope.clone(), Rc::from(Vec::new()));
         install(&ctx)?;
         Ok(scope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use guinea_core::actor::{Cx, Handler};
+    use guinea_core::devtools::{self, Change};
+    use guinea_core::trace::Bus;
+    use std::cell::RefCell;
+
+    #[derive(Debug)]
+    struct Counter;
+
+    struct Bump;
+
+    guinea_macros::actor! {
+        Counter {
+            handlers {
+                Bump
+            }
+        }
+    }
+
+    impl Handler<Bump> for Counter {
+        fn handle(&mut self, _: Bump, _cx: Cx<Self, Bump>) {}
+    }
+
+    #[derive(Clone)]
+    struct Ping;
+    impl guinea_core::actor::event_bus::Event for Ping {}
+
+    #[test]
+    fn what_changes_under_a_host_names_its_window() {
+        let host = FeatureHost::with_services(
+            UiThreadToken::dangerously_create_token_unchecked(),
+            SharedState::default(),
+        );
+        let root = Some(host.root().get());
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+
+        let scope = host
+            .install(|ctx| {
+                ctx.spawn_actor(Counter);
+                ctx.subscribe(|_: Ping| {});
+                Ok(())
+            })
+            .expect("installed");
+        drop(scope);
+        devtools::stop_watching();
+
+        let seen = seen.take();
+        let windows: Vec<(&str, Option<u64>)> = seen
+            .iter()
+            .filter_map(|change| match change {
+                Change::ActorAdded { root, .. } => Some(("actor", *root)),
+                Change::Subscriptions { bus: Bus::Window, root } => Some(("bus", *root)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            windows,
+            [("actor", root), ("bus", root), ("bus", root)],
+            "{seen:?}"
+        );
     }
 }

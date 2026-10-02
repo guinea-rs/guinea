@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use guinea_core::actor::invoke_on_ui;
+use guinea_core::devtools::{self, Change};
 use guinea_core::scope::Awake;
 
 /// How long between ticks.
@@ -136,9 +137,11 @@ struct Entry {
 
 thread_local! {
     static RUNNING: RefCell<HashMap<u64, Weak<RefCell<Entry>>>> = RefCell::new(HashMap::new());
+    static PENDING: RefCell<HashMap<u64, Box<dyn FnOnce()>>> = RefCell::new(HashMap::new());
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_PENDING: AtomicU64 = AtomicU64::new(1);
 
 /// What keeps a timer running; the context that set it up holds it.
 pub struct Ticking {
@@ -147,8 +150,15 @@ pub struct Ticking {
 
 impl Drop for Ticking {
     fn drop(&mut self) {
-        let id = self.entry.borrow().info.id;
+        let (id, traced) = {
+            let entry = self.entry.borrow();
+            (entry.info.id, entry.traced)
+        };
         RUNNING.with(|running| running.borrow_mut().remove(&id));
+
+        if traced {
+            devtools::changed(|| Change::TimerStopped { id });
+        }
     }
 }
 
@@ -222,7 +232,19 @@ impl Timer {
     /// Leaves no trace and does not show up in devtools: for tooling that
     /// watches the application and must not be seen in what it watches.
     pub fn untraced(self) -> Self {
-        self.change(|entry| entry.traced = false)
+        let Some(entry) = self.entry.upgrade() else {
+            return self;
+        };
+
+        let (id, was_traced) = {
+            let mut entry = entry.borrow_mut();
+            (entry.info.id, std::mem::replace(&mut entry.traced, false))
+        };
+        if was_traced {
+            devtools::changed(|| Change::TimerStopped { id });
+        }
+
+        self
     }
 
     pub fn id(&self) -> Option<u64> {
@@ -263,6 +285,7 @@ pub(crate) fn start(
     }));
 
     RUNNING.with(|running| running.borrow_mut().insert(id, Rc::downgrade(&entry)));
+    devtools::changed(|| Change::TimerStarted { id });
     wake_after(id, 0, first);
 
     let timer = Timer {
@@ -371,6 +394,26 @@ fn wake_after(id: u64, generation: u64, after: Option<Duration>) {
     });
 }
 
+/// Runs `run` once on the UI thread, `delay` from now: for gathering what
+/// happens in a burst into one go.
+///
+/// Not a timer - nothing lists it, nothing traces it - and nothing holds it:
+/// `run` should hold weakly whatever may be gone by the time it runs.
+pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
+    let id = NEXT_PENDING.fetch_add(1, Ordering::Relaxed);
+    PENDING.with(|pending| pending.borrow_mut().insert(id, Box::new(run)));
+
+    guinea_core::executor::spawn(async move {
+        tokio::time::sleep(delay).await;
+        invoke_on_ui(move || {
+            let run = PENDING.with(|pending| pending.borrow_mut().remove(&id));
+            if let Some(run) = run {
+                run();
+            }
+        });
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +449,78 @@ mod tests {
         );
 
         (ticking, timer, counter)
+    }
+
+    fn watched(run: impl FnOnce()) -> Vec<Change> {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+
+        run();
+        devtools::stop_watching();
+
+        seen.take()
+    }
+
+    #[test]
+    fn devtools_hear_when_a_timer_starts_and_when_it_stops() {
+        let _clock = clock();
+        let mut id = None;
+
+        let seen = watched(|| {
+            let (ticking, timer, _) = counting(30);
+            id = timer.id();
+            drop(ticking);
+        });
+
+        let id = id.expect("running");
+        assert_eq!(seen, [Change::TimerStarted { id }, Change::TimerStopped { id }]);
+    }
+
+    #[test]
+    fn an_untraced_timer_leaves_devtools_at_once_and_stops_unheard() {
+        let _clock = clock();
+        let mut id = None;
+
+        let seen = watched(|| {
+            let (ticking, timer, _) = counting(30);
+            id = timer.id();
+            let _timer = timer.untraced();
+            drop(ticking);
+        });
+
+        let id = id.expect("running");
+        assert_eq!(seen, [Change::TimerStarted { id }, Change::TimerStopped { id }]);
+    }
+
+    #[test]
+    fn after_runs_once_when_its_delay_is_up() {
+        let clock = clock();
+        let ran = Rc::new(std::cell::Cell::new(0));
+
+        let counter = ran.clone();
+        after(Duration::from_millis(16), move || counter.set(counter.get() + 1));
+
+        wait(&clock, 15);
+        assert_eq!(ran.get(), 0, "ran before its delay was up");
+
+        wait(&clock, 1);
+        assert_eq!(ran.get(), 1);
+
+        wait(&clock, 100);
+        assert_eq!(ran.get(), 1, "ran again");
+    }
+
+    #[test]
+    fn after_is_no_timer_devtools_hear_of() {
+        let clock = clock();
+
+        let seen = watched(|| {
+            after(Duration::from_millis(16), || {});
+            wait(&clock, 16);
+        });
+
+        assert_eq!(seen, []);
     }
 
     #[test]

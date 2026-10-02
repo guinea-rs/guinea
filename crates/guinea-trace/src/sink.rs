@@ -79,9 +79,11 @@ fn write(record: &Record) {
         Point::Send { actor, message } => {
             point!("guinea::send", record, actor = %actor, msg = %message)
         }
-        Point::Handle { actor, message } => {
-            point!("guinea::handle", record, actor = %actor, msg = %message)
-        }
+        Point::Handle {
+            actor,
+            actor_id,
+            message,
+        } => point!("guinea::handle", record, actor = %actor, actor_id, msg = %message),
         Point::Spawn {
             actor,
             actor_id,

@@ -57,7 +57,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::{Reaches, Segment};
+use guinea_app::feature::{Reaches, Reads, Segment};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{
@@ -311,6 +311,30 @@ impl<P: Segment> PageCx<'_, P> {
         P: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
+    }
+}
+
+impl<P: Segment> Reads for PageCx<'_, P> {
+    type Segment = P;
+
+    fn read<R, I>(&mut self) -> Feature<R>
+    where
+        R: Reducer + PartialEq,
+        P: Reaches<R, I>,
+    {
+        self.state::<R, I>()
+    }
+}
+
+impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
+    type Segment = L;
+
+    fn read<R, I>(&mut self) -> Feature<R>
+    where
+        R: Reducer + PartialEq,
+        L: Reaches<R, I>,
+    {
+        self.state::<R, I>()
     }
 }
 

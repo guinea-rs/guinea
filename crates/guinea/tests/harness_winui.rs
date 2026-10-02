@@ -1361,4 +1361,41 @@ mod application_exports {
 
         assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
     }
+
+    /// A plugin's shortcut, written once for every backend.
+    trait Speaks {
+        fn language(&mut self) -> &'static str;
+    }
+
+    impl<C: guinea::feature::Reads> Speaks for C {
+        fn language(&mut self) -> &'static str {
+            self.read::<Language, guinea::feature::FromApp>().0.0
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Polyglot;
+
+    #[page]
+    impl Page for Polyglot {
+        type Params = ();
+
+        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+            TextBlock::new().text(format!("speaks {}", cx.language())).into()
+        }
+    }
+
+    impl Segment for Polyglot {
+        type Installs = ();
+        type Above = ();
+    }
+
+    #[guinea::test(iterations = 2)]
+    fn a_shortcut_written_over_reads_reads_on_a_page(h: &mut Harness) {
+        h.feature(Localisation).unwrap();
+
+        let page = Mounted::<Polyglot>::mount(&h.segment(), ()).unwrap();
+
+        assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
+    }
 }

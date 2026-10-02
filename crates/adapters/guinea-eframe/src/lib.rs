@@ -22,7 +22,7 @@ use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Segment};
+use guinea_app::feature::{FeatureInitContext, Reaches, Reads, Segment};
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{
@@ -346,6 +346,18 @@ impl<P: Segment> PageCx<'_, P> {
     }
 }
 
+impl<P: Segment> Reads for PageCx<'_, P> {
+    type Segment = P;
+
+    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        P: Reaches<R, I>,
+    {
+        self.state::<R, I>()
+    }
+}
+
 impl<P> PageCx<'_, P> {
     pub fn ui(&mut self) -> &mut egui::Ui {
         self.ui
@@ -385,6 +397,18 @@ impl<L: Segment> LayoutCx<'_, L> {
         L: Reaches<R, I>,
     {
         self.props.binding::<R>()
+    }
+}
+
+impl<L: Segment> Reads for LayoutCx<'_, L> {
+    type Segment = L;
+
+    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        L: Reaches<R, I>,
+    {
+        self.state::<R, I>()
     }
 }
 

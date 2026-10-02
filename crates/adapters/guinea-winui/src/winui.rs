@@ -22,7 +22,7 @@ use std::rc::Rc;
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Reducer;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Segment};
+use guinea_app::feature::{FeatureInitContext, Reaches, Reads, Segment};
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps, Ui,
     single_entry_chain,
@@ -1688,6 +1688,18 @@ impl<P: Page + Segment> PageCx<'_, P> {
     }
 }
 
+impl<P: Page + Segment> Reads for PageCx<'_, P> {
+    type Segment = P;
+
+    fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        P: Reaches<R, I>,
+    {
+        self.use_reducer::<R, I>()
+    }
+}
+
 impl<P: Page> std::ops::Deref for PageCx<'_, P> {
     type Target = ViewContext<PageNode<P>>;
     fn deref(&self) -> &Self::Target {
@@ -1758,6 +1770,18 @@ impl<L: Layout + Segment> LayoutCx<'_, L> {
         L: Reaches<R, I>,
     {
         use_reducer::<R, _>(&self.props, self.cx)
+    }
+}
+
+impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
+    type Segment = L;
+
+    fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        L: Reaches<R, I>,
+    {
+        self.use_reducer::<R, I>()
     }
 }
 

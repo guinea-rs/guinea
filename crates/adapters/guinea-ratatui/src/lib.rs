@@ -20,7 +20,7 @@ mod run;
 pub use keys::pressed;
 pub use run::{Flow, run};
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Segment};
+use guinea_app::feature::{FeatureInitContext, Reaches, Reads, Segment};
 use guinea_core::scope::Reducer;
 use guinea_router::router::{Mount, SegmentEntry, SegmentProps, Ui, single_entry_chain};
 use ratatui::Frame;
@@ -263,6 +263,30 @@ impl<L: Segment> LayoutCx<'_, '_, L> {
     {
         let binding = self.props.binding::<R>();
         (binding.get(), binding.dispatch())
+    }
+}
+
+impl<P: Segment> Reads for PageCx<'_, '_, P> {
+    type Segment = P;
+
+    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        P: Reaches<R, I>,
+    {
+        self.state::<R, I>()
+    }
+}
+
+impl<L: Segment> Reads for LayoutCx<'_, '_, L> {
+    type Segment = L;
+
+    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+        L: Reaches<R, I>,
+    {
+        self.state::<R, I>()
     }
 }
 

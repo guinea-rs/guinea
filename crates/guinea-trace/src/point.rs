@@ -75,6 +75,17 @@ pub enum Point {
         output: &'static str,
         source: u64,
     },
+    /// A source is making its next item, which will come as `output`: what
+    /// its stream does meanwhile is recorded under this. A root, as
+    /// [`Point::Arrived`] is; `source` is the id of the [`Point::Source`].
+    /// Open from when the source is asked for the item until it has it, runs
+    /// dry or is dropped.
+    Pull {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
+        source: u64,
+    },
     /// A source ended: it ran dry, or `gone` - the actor that opened it is
     /// gone and the source was dropped where it last awaited.
     Closed {
@@ -159,6 +170,7 @@ impl Point {
             Point::Cancelled { .. } => "cancelled",
             Point::Source { .. } => "source",
             Point::Arrived { .. } => "arrived",
+            Point::Pull { .. } => "pull",
             Point::Closed { .. } => "closed",
             Point::Publish { .. } => "publish",
             Point::Deliver { .. } => "deliver",
@@ -222,6 +234,9 @@ impl fmt::Display for Point {
             ),
             Point::Source { actor, output, .. } => write!(f, "{actor} opens a source of {output}"),
             Point::Arrived { actor, output, .. } => write!(f, "{output} arrives at {actor}"),
+            Point::Pull { actor, output, .. } => {
+                write!(f, "{actor}'s source makes the next {output}")
+            }
             Point::Closed {
                 actor,
                 output,

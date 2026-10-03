@@ -290,7 +290,7 @@ pub fn mark_anywhere(point: impl FnOnce() -> Point + Send + 'static) {
 
 /// Opens `point` from any thread, with the id [`trace::reserve`] gave, the way
 /// [`mark_anywhere`] marks one.
-fn begin_anywhere(
+pub(crate) fn begin_anywhere(
     id: trace::Cause,
     parent: Option<trace::Cause>,
     point: impl FnOnce() -> Point + Send + 'static,
@@ -306,7 +306,7 @@ fn begin_anywhere(
 }
 
 /// Closes, from any thread, what [`begin_anywhere`] opened.
-fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
+pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
     if trace::is_observed() || !trace::is_observed_anywhere() {
         trace::end(id, took);
         return;

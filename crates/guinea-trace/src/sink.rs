@@ -143,6 +143,19 @@ fn write(record: &Record) {
             output = %output,
             source
         ),
+        Point::Pull {
+            actor,
+            actor_id,
+            output,
+            source,
+        } => point!(
+            "guinea::pull",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output,
+            source
+        ),
         Point::Closed {
             actor,
             actor_id,

@@ -454,10 +454,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
 
     let subscriptions = subscribes.iter().map(|msg| {
         quote! {
-            <#msg as #gc::actor::event_bus::builder::EventSubscription<#self_ty>>::subscribe_into(
-                addr.clone(),
-                tracker,
-            );
+            <#msg as #gc::actor::traits::EventSubscription<#self_ty>>::subscribe_into(addr);
         }
     });
 
@@ -525,13 +522,10 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
             #[allow(non_camel_case_types)]
             pub struct #bus_marker;
 
-            impl #impl_generics #gc::actor::event_bus::builder::EventSubscription<#self_ty>
+            impl #impl_generics #gc::actor::traits::EventSubscription<#self_ty>
                 for #bus_marker #where_clause
             {
-                fn subscribe_into(
-                    addr: #gc::actor::Addr<#self_ty>,
-                    tracker: &impl #gc::lifecycle_tracker::LifecycleTracker,
-                ) {
+                fn subscribe_into(addr: &#gc::actor::Addr<#self_ty>) {
                     #(#subscriptions)*
                 }
             }

@@ -331,7 +331,7 @@ mod tests {
             }
         }
 
-        let addr = Addr::new_scoped(EchoActor, UiThreadToken::dangerously_create_token_unchecked());
+        let addr = Addr::new(EchoActor, UiThreadToken::dangerously_create_token_unchecked());
         let _sub = GlobalEventBus::instance().subscribe::<EchoActor, RpcRequest<Echo>>(addr);
 
         let handle = tokio::spawn(AsyncBus::request::<Echo>(Echo(21), StdDuration::from_secs(1)));
@@ -410,9 +410,9 @@ mod tests {
         let token = UiThreadToken::dangerously_create_token_unchecked();
         let bus = Rc::new(EventBus::new());
         let _service =
-            bus.subscribe::<Service, RpcRequest<Question>>(Addr::new_scoped(Service, token.clone()));
+            bus.subscribe::<Service, RpcRequest<Question>>(Addr::new(Service, token.clone()));
         let _monitor =
-            bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new_scoped(Monitor, token));
+            bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new(Monitor, token));
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         }
 
         let scope = ScopeTree::new();
-        let addr = Addr::new_scoped(Worker, UiThreadToken::dangerously_create_token_unchecked());
+        let addr = Addr::new(Worker, UiThreadToken::dangerously_create_token_unchecked());
         addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
         let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
         scope.sleep();
@@ -587,7 +587,7 @@ mod tests {
         }
 
         let addr =
-            Addr::new_scoped(MathActor, UiThreadToken::dangerously_create_token_unchecked());
+            Addr::new(MathActor, UiThreadToken::dangerously_create_token_unchecked());
         let _sub_double =
             GlobalEventBus::instance().subscribe::<MathActor, RpcRequest<Double>>(addr.clone());
         let _sub_add = GlobalEventBus::instance()
@@ -693,8 +693,8 @@ mod tests {
                 .any(|message| message.contains("RPC cycle detected"))
         };
 
-        let addr_a = Addr::new_scoped(ActorA, UiThreadToken::dangerously_create_token_unchecked());
-        let addr_b = Addr::new_scoped(ActorB, UiThreadToken::dangerously_create_token_unchecked());
+        let addr_a = Addr::new(ActorA, UiThreadToken::dangerously_create_token_unchecked());
+        let addr_b = Addr::new(ActorB, UiThreadToken::dangerously_create_token_unchecked());
         let _sub_a = GlobalEventBus::instance().subscribe::<ActorA, RpcRequest<ReqA>>(addr_a);
         let _sub_b = GlobalEventBus::instance().subscribe::<ActorB, RpcRequest<ReqB>>(addr_b);
 
@@ -783,7 +783,7 @@ mod tests {
         // queue on an interval.
         let ui_thread = std::thread::spawn(move || {
             let addr =
-                Addr::new_scoped(AddActor, UiThreadToken::dangerously_create_token_unchecked());
+                Addr::new(AddActor, UiThreadToken::dangerously_create_token_unchecked());
             let _sub = GlobalEventBus::instance().subscribe::<AddActor, RpcRequest<Add>>(addr);
             ready_tx.send(()).unwrap();
             while stop_rx.try_recv().is_err() {

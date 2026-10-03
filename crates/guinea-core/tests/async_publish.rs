@@ -56,7 +56,7 @@ fn an_event_published_off_the_ui_thread_reaches_the_ui_thread_s_subscribers() {
         hearing.borrow_mut().push(n);
     });
 
-    let addr = Addr::new_managed_scoped(
+    let addr = Addr::new_managed(
         Refresher,
         UiThreadToken::dangerously_create_token_unchecked(),
     );

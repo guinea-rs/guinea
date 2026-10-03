@@ -1,13 +1,11 @@
 use crate::actor::cancel::Cancel;
 use crate::actor::envelope::{Envelope, FnEnvelope, MessageEnvelope};
-use crate::actor::event_bus::builder::EventSubscription;
 use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::shape::name;
-use crate::actor::traits::Handler;
+use crate::actor::traits::{EventSubscription, Handler};
 use crate::actor::{Cx, UiThreadToken};
 use crate::actor::{ManagedActor, short_type_name};
-use crate::lifecycle_tracker::LifecycleTracker;
 use crate::scope::Scope;
 use crate::trace::{self, Bus, Cause, Point};
 use std::any::Any;
@@ -72,38 +70,15 @@ impl<A: 'static> Clone for Addr<A> {
     }
 }
 
-/// Keeps what an actor subscribed to on the actor itself.
-struct Held(Rc<RefCell<Vec<BusSubscription>>>);
-
-impl LifecycleTracker for Held {
-    fn track_loop<T: 'static>(&self, _handle: T) {}
-    fn track_actor<A: 'static>(&self, _addr: &Addr<A>) {}
-
-    fn track_sub(&self, subscription: BusSubscription) {
-        self.0.borrow_mut().push(subscription);
-    }
-}
-
 impl<A: 'static> Addr<A> {
-    pub fn new_managed(state: A, token: UiThreadToken, tracker: &impl LifecycleTracker) -> Self
+    /// An actor `actor!` declared. What its manifest subscribes to is held by
+    /// the actor, and ends when it is disposed.
+    pub fn new_managed(state: A, token: UiThreadToken) -> Self
     where
         A: ManagedActor,
     {
-        let addr = Self::new(state, token, tracker);
-
-        A::Bus::subscribe_into(addr.clone(), tracker);
-
-        addr
-    }
-
-    /// An actor a scope owns. What its manifest subscribes to is held by the
-    /// actor, and ends when the scope disposes it.
-    pub fn new_managed_scoped(state: A, token: UiThreadToken) -> Self
-    where
-        A: ManagedActor,
-    {
-        let addr = Self::new(state, token, &crate::lifecycle_tracker::NullTracker);
-        A::Bus::subscribe_into(addr.clone(), &Held(addr.subscriptions.clone()));
+        let addr = Self::new(state, token);
+        A::Bus::subscribe_into(&addr);
         addr
     }
 
@@ -157,11 +132,7 @@ impl<A: 'static> Addr<A> {
             .is_some_and(|home| !home.scope.is_awake())
     }
 
-    pub fn new_scoped(state: A, token: UiThreadToken) -> Self {
-        Self::new(state, token, &crate::lifecycle_tracker::NullTracker)
-    }
-
-    pub fn new(state: A, guard: UiThreadToken, tracker: &impl LifecycleTracker) -> Self {
+    pub fn new(state: A, guard: UiThreadToken) -> Self {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let addr = Self {
             id,
@@ -180,7 +151,6 @@ impl<A: 'static> Addr<A> {
             reg.borrow_mut().insert(id, Box::new(addr_clone));
         });
 
-        tracker.track_actor(&addr);
         addr
     }
 
@@ -350,11 +320,40 @@ mod tests {
     #[test]
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
         let scope = crate::scope::ScopeTree::new();
-        let addr = Addr::new_scoped((), UiThreadToken::dangerously_create_token_unchecked());
+        let addr = Addr::new((), UiThreadToken::dangerously_create_token_unchecked());
         addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
 
         scope.remove();
 
         assert!(addr.is_asleep(), "a removed scope read as awake");
+    }
+
+    #[derive(Clone)]
+    struct Heard;
+
+    impl Event for Heard {}
+
+    #[derive(Debug)]
+    struct Listening;
+
+    guinea_macros::actor! {
+        Listening {
+            handlers { Heard }
+            subscribes { Heard }
+        }
+    }
+
+    impl Handler<Heard> for Listening {
+        fn handle(&mut self, _: Heard, _cx: Cx<Self, Heard>) {}
+    }
+
+    #[test]
+    fn a_managed_actor_hears_its_manifest_until_it_is_disposed() {
+        let addr = Addr::new_managed(Listening, UiThreadToken::dangerously_create_token_unchecked());
+        assert_eq!(GlobalEventBus::count_subscribers::<Heard>(), 1);
+
+        addr.dispose();
+
+        assert_eq!(GlobalEventBus::count_subscribers::<Heard>(), 0);
     }
 }

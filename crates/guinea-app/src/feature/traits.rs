@@ -373,7 +373,7 @@ impl ScopeContext {
         bus: Option<&Rc<EventBus>>,
         actor: A,
     ) -> Addr<A> {
-        let addr = Addr::new_managed_scoped(actor, self.token.clone());
+        let addr = Addr::new_managed(actor, self.token.clone());
         addr.live_in(self.scope, bus);
         self.scope.hold_actor(&addr, self.scope.current_feature(), None);
         self.scope.own(addr.clone());

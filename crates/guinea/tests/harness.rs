@@ -1138,7 +1138,7 @@ mod supervising {
 
     #[handler]
     fn found(this: &mut Supervisor, found: Found) {
-        let agent = Addr::new_scoped(Agent, UiThreadToken::dangerously_create_token_unchecked());
+        let agent = Addr::new(Agent, UiThreadToken::dangerously_create_token_unchecked());
         agent.send(Ping);
         agent.dispose();
 

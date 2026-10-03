@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn send_from_a_handler_is_drained_by_the_same_queue() {
         let log = Rc::new(RefCell::new(Vec::new()));
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Chain { log: log.clone() },
             UiThreadToken::dangerously_create_token_unchecked(),
         );
@@ -585,7 +585,7 @@ mod tests {
             }
         });
 
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
@@ -610,7 +610,7 @@ mod tests {
             }
         });
 
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn disposing_an_actor_cancels_what_it_spawned() {
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
@@ -672,7 +672,7 @@ mod tests {
         });
 
         let log = Rc::new(RefCell::new(Vec::new()));
-        let addr = Addr::new_managed_scoped(
+        let addr = Addr::new_managed(
             Chain { log: log.clone() },
             UiThreadToken::dangerously_create_token_unchecked(),
         );
@@ -696,7 +696,7 @@ mod tests {
 
     #[tokio::test]
     async fn work_that_listens_for_the_token_is_left_to_wind_itself_down() {
-        let addr = Addr::new_managed_scoped(
+        let addr = Addr::new_managed(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
@@ -728,7 +728,7 @@ mod tests {
     #[test]
     fn detach_keeps_the_address() {
         let log = Rc::new(RefCell::new(Vec::new()));
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Chain { log },
             UiThreadToken::dangerously_create_token_unchecked(),
         );

@@ -70,7 +70,7 @@ fn a_source_that_never_waits_still_stops_with_its_actor() {
     let entered = runtime.enter();
 
     let pulled = Arc::new(AtomicUsize::new(0));
-    let addr = Addr::new_managed_scoped(
+    let addr = Addr::new_managed(
         Puller,
         UiThreadToken::dangerously_create_token_unchecked(),
     );

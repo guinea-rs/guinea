@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn a_closure_is_the_port_and_the_spy_records_what_went_through_it() {
         let spy = PortSpy::<Ui>::new();
-        let addr = Addr::new_scoped(
+        let addr = Addr::new(
             Service {
                 port: spy.sender(),
             },

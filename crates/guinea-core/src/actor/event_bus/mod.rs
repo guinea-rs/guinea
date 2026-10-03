@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub mod builder;
 pub mod rpc;
 pub mod subscribe;
 pub use rpc::{AsyncBus, RpcCall, RpcRequest, RpcResponse};

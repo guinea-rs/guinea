@@ -1,5 +1,6 @@
-use crate::actor::Cx;
-use crate::actor::event_bus::builder::EventSubscription;
+use crate::actor::event_bus::subscribe::Event;
+use crate::actor::{Addr, Cx};
+use crate::trace::Bus;
 
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
@@ -22,6 +23,26 @@ pub trait ManagedActor: Sized + 'static {
     type Flow;
     /// What `actor!` declared, for devtools.
     const SHAPE: crate::actor::shape::Shape = crate::actor::shape::Shape::UNKNOWN;
+}
+
+/// What an actor's manifest subscribes to on the global bus. `actor!` writes
+/// it; the subscriptions are the actor's, and end when it is disposed.
+pub trait EventSubscription<A> {
+    fn subscribe_into(addr: &Addr<A>);
+}
+
+impl<A, M> EventSubscription<A> for M
+where
+    M: Event,
+    A: Handler<M> + 'static,
+{
+    fn subscribe_into(addr: &Addr<A>) {
+        addr.subscribe_on::<M>(Bus::Global);
+    }
+}
+
+impl<A> EventSubscription<A> for () {
+    fn subscribe_into(_: &Addr<A>) {}
 }
 
 pub trait AllowedSignal<M: 'static> {}

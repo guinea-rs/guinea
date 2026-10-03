@@ -141,7 +141,7 @@ impl crate::actor::Handler<Tick> for Ticker {
 }
 
 fn ticker() -> Addr<Ticker> {
-    Addr::new_managed_scoped(
+    Addr::new_managed(
         Ticker(0),
         crate::actor::UiThreadToken::dangerously_create_token_unchecked(),
     )
@@ -333,7 +333,7 @@ async fn removing_the_store_aborts_owned_tasks() {
 #[test]
 fn own_actor_disposes_the_registry_entry_on_removal() {
     let token = crate::actor::UiThreadToken::dangerously_create_token_unchecked();
-    let addr = Addr::new_scoped((), token);
+    let addr = Addr::new((), token);
     let counter = addr.strong_count_ptr();
 
     let store = ScopeTree::new();

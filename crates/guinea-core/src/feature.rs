@@ -272,7 +272,7 @@ impl<'a, R: Reducer> Claim<'a, R> {
         F: FnOnce(Push<R>) -> A,
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
-        let actor = Addr::new_managed_scoped(build(Push::new(self.scope)), self.token.clone());
+        let actor = Addr::new_managed(build(Push::new(self.scope)), self.token.clone());
         actor.live_in(self.scope, self.bus);
         A::serve(&actor, self.scope);
         self.scope.hold_actor(

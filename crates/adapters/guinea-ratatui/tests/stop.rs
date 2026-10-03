@@ -63,7 +63,7 @@ fn a_plugin_that_stops_the_application_ends_run_quietly() {
 
     let ran = guinea_ratatui::run(
         app,
-        || -> Route { panic!("nothing is opened after a stop") },
+        |_: &_| -> Route { panic!("nothing is opened after a stop") },
         |_, _, _| Flow::Exit,
     );
 

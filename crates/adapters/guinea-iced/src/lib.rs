@@ -30,7 +30,7 @@
 //!
 //!     fn observes(cx: &Observing<'_, Msg>) { cx.on::<ProcessesReducer>(list_replaced); }
 //!     fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) { .. }
-//!     fn view(&self, cx: &PageCx<'_, Self>) -> Element<'_, Msg> { .. }
+//!     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> { .. }
 //! }
 //! ```
 
@@ -161,13 +161,15 @@ pub trait Page: Default + Sized + 'static {
 
     /// The only place the node changes.
     ///
-    /// Effects are messages to actors - `cx.state::<R>().1.emit(..)` - not
+    /// Effects are messages to actors - `cx.read::<R, _>().1.emit(..)` - not
     /// values returned from here. That is the trade this framework makes
     /// against `Task`: an effect that crosses a node boundary is an actor's
     /// job, and one that does not is a state change.
     fn update(&mut self, message: Self::Message, cx: &mut UpdateCx<'_, Self>);
 
-    fn view(&self, cx: &PageCx<'_, Self>) -> Element<'_, Self::Message>;
+    /// `cx` is `&mut` for reading through [`Reads`], which every backend
+    /// shares and one of them reads through hooks.
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message>;
 }
 
 /// A branch: an Elm node that also decides where its child goes.
@@ -218,7 +220,7 @@ pub trait Layout: Default + Sized + 'static {
     /// design refuses. So the seam is drawn once, here: `cx.mine(..)` seals
     /// the layout's own widgets, `cx.outlet()` hands over the child's already
     /// sealed, and both sides are then the same type.
-    fn view<'a>(&'a self, cx: &LayoutCx<'a, Self>) -> Element<'a, Envelope>;
+    fn view<'a>(&'a self, cx: &mut LayoutCx<'a, Self>) -> Element<'a, Envelope>;
 }
 
 /// Where a node says what it watches.
@@ -305,7 +307,7 @@ impl<P: Segment> PageCx<'_, P> {
     ///
     /// The `_` is [`Reaches`]'s index, which says which of several impls
     /// applied. Rust has no partial turbofish, so it has to be written.
-    pub fn state<R, I>(&self) -> Feature<R>
+    pub fn read<R, I>(&mut self) -> Feature<R>
     where
         R: Reducer + Clone,
         P: Reaches<R, I>,
@@ -322,7 +324,7 @@ impl<P: Segment> Reads for PageCx<'_, P> {
         R: Reducer + PartialEq,
         P: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> Dispatch
@@ -342,7 +344,7 @@ impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
         R: Reducer + PartialEq,
         L: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> Dispatch
@@ -363,8 +365,8 @@ pub struct LayoutCx<'a, L: Layout> {
 }
 
 impl<'a, L: Layout> LayoutCx<'a, L> {
-    /// See [`PageCx::state`].
-    pub fn state<R, I>(&self) -> Feature<R>
+    /// See [`PageCx::read`].
+    pub fn read<R, I>(&mut self) -> Feature<R>
     where
         R: Reducer + Clone,
         L: Reaches<R, I>,
@@ -414,8 +416,8 @@ impl<S: Segment> UpdateCx<'_, S> {
     /// answer arrives as an update to `R`, and from there as a message of this
     /// node's own if it said it was watching.
     ///
-    /// See [`PageCx::state`] for what settles which feature answers.
-    pub fn state<R, I>(&self) -> Feature<R>
+    /// See [`PageCx::read`] for what settles which feature answers.
+    pub fn read<R, I>(&self) -> Feature<R>
     where
         R: Reducer + Clone,
         S: Reaches<R, I>,
@@ -464,13 +466,13 @@ impl<P: Page> Mount<Iced> for MountPage<P> {
             return iced::widget::text("").into();
         };
 
-        let cx = PageCx {
+        let mut cx = PageCx {
             props,
             page: PhantomData,
             borrow: PhantomData,
         };
         let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
-        page.view(&cx)
+        page.view(&mut cx)
             .map(move |message| Envelope::new(cursor, deliver_page::<P>, Box::new(message)))
     }
 }
@@ -482,13 +484,13 @@ impl<L: Layout> Mount<Iced> for MountLayout<L> {
             return iced::widget::text("").into();
         };
 
-        let cx = LayoutCx {
+        let mut cx = LayoutCx {
             props,
             nodes,
             layout: PhantomData,
         };
         let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
-        layout.view(&cx)
+        layout.view(&mut cx)
     }
 }
 

@@ -92,7 +92,7 @@ impl Page for Home {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (count, dispatch) = cx.use_reducer::<Count, _>();
+        let (count, dispatch) = cx.read::<Count, _>();
 
         StackPanel::new()
             .children((
@@ -112,7 +112,7 @@ routes! {
 }
 
 fn main() -> anyhow::Result<()> {
-    run(GuineaApp::new(), Window::new().title("Counter"), || {
+    run(GuineaApp::new(), Window::new().title("Counter"), |_| {
         Route::Home {}
     })
 }

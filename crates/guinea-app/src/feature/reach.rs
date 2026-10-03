@@ -35,7 +35,7 @@ pub trait Segment: 'static {
 /// in the tail matches" are two impls that rustc cannot see are exclusive.
 /// Carrying the position in the type keeps them apart.
 ///
-/// It leaks one character into the call site - `cx.state::<R, _>()` - because
+/// It leaks one character into the call site - `cx.read::<R, _>()` - because
 /// Rust has no partial turbofish.
 pub struct Here;
 pub struct There<I>(PhantomData<I>);

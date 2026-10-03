@@ -65,7 +65,7 @@ mod routing {
         }
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-            let (state, _dispatch) = cx.use_reducer::<Listing, _>();
+            let (state, _dispatch) = cx.read::<Listing, _>();
             assert_eq!(state.seeded_from, "ubuntu");
             windows_reactor::View::empty()
         }
@@ -208,7 +208,7 @@ mod routing {
     //
     // What it guarded is now split in two, and both halves are still covered:
     // that a subscription is taken and dropped with the component is the
-    // adapter's `use_reducer`, and that a push reaches subscribers at all is
+    // adapter's `read`, and that a push reaches subscribers at all is
     // `guinea-core`'s own tests.
 
     #[test]

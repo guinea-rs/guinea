@@ -166,7 +166,7 @@ impl Layout for TabsLayout {
 ## Доступ к состоянию
 
 ```rust
-let (state, dispatch) = cx.state::<Processes>();
+let (state, dispatch) = cx.read::<Processes, _>();
 
 state.items;
 dispatch.emit(Kill(pid));
@@ -188,11 +188,14 @@ dispatch.emit(Kill(pid));
 `Reducer` требует `Clone`.
 
 Отличается только то, когда адаптер читает: immediate-режим — каждый кадр,
-retained — по подписке, мемоизация — сравнивая снимки по равенству.
+retained — по подписке, мемоизация — сравнивая снимки по равенству. Имя же
+одно на всех бэкендах — `read`, у страницы, layout'а и `update`. `state` —
+другое действие: им фича заявляет редьюсер, и чтение под тем же именем
+путало бы одно с другим.
 
 ## Резолв
 
-`cx.state::<R>()` находит ближайший скоуп, чья фича экспортирует `R`. Поскольку
+`cx.read::<R, _>()` находит ближайший скоуп, чья фича экспортирует `R`. Поскольку
 `routes!` знает предков каждого листа на этапе компиляции, сегмент объявляет
 `Installs`, а фича — `Exports`, этот обход сводится к константному индексу
 вместо нынешнего перебора, а промах становится ошибкой сборки:
@@ -224,8 +227,10 @@ app.export::<Language<L10n>>()?;
 `cx.read::<Language<L10n>, FromApp>()`. Экспорт того, что никто не заявил, —
 ошибка, а не тихий `Default`.
 
-Читают через `Reads` — один трейт для страницы и layout'а на WinUI, eframe,
-iced и ratatui:
+`read` — метод каждого контекста, и он же — `Reads`, один трейт для страницы и
+layout'а на WinUI, eframe, iced и ratatui: через него код пишется один раз на
+все бэкенды. Контекст отдаётся `&mut`, потому что WinUI читает хуками; iced
+поэтому тоже отдаёт `view` `&mut`.
 
 - `read::<R, I>()` — снимок и `Dispatch`; сегмент перерисуется, когда `R`
   изменится (подпиской или потому, что рисует каждый кадр);
@@ -250,15 +255,18 @@ Slint под `Reads` не подпадает: он собирает вид од�
 
 ```rust
 pub trait L10nAccess {
-    fn l10n<S: Localization>(&mut self) -> Rc<Language<S>>;
+    fn l10n<S: Localization + PartialEq>(&mut self) -> S;
 }
 
 impl<C: Reads> L10nAccess for C {
-    fn l10n<S: Localization>(&mut self) -> Rc<Language<S>> {
-        self.read::<Language<S>, FromApp>().0
+    fn l10n<S: Localization + PartialEq>(&mut self) -> S {
+        self.read::<Language<S>, FromApp>().0.strings().clone()
     }
 }
 ```
+
+Стартовый маршрут — тоже место, где спрашивают плагины: `run` отдаёт
+замыканию `initial` контекст приложения, `|cx| restore(cx.try_require::<Store>())`.
 
 ## Как от всего этого отказаться
 
@@ -277,7 +285,7 @@ impl Page for Scratch {
 }
 ```
 
-Цепочка, где встретился `Loose`, резолвит `cx.state::<R>()` в рантайме, с
+Цепочка, где встретился `Loose`, резолвит `cx.read::<R, _>()` в рантайме, с
 сегодняшней паникой при промахе. Гарантия деградирует ровно в том звене, где нет
 знания, и не дальше: строгий layout над ленивой страницей свои проверки
 сохраняет.

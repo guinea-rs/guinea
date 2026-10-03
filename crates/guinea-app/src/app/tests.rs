@@ -360,6 +360,18 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     assert_eq!(taken(), vec!["opened", "closed"]);
 }
 
+#[test]
+fn an_installed_application_hands_out_what_its_plugins_provided() {
+    let runtime = super::GuineaApp::new()
+        .plugin(Settings)
+        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .expect("install");
+
+    let store = runtime.context().try_require::<Store>().map(|store| store.0);
+
+    assert_eq!(store, Some("db"));
+}
+
 mod exports {
     use guinea_core::actor::UiThreadToken;
     use guinea_core::scope::{Reducer, Scope};

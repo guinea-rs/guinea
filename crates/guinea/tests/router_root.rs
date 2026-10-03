@@ -96,7 +96,7 @@ impl Page for Process {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (load, _) = cx.use_reducer::<Load, _>();
+        let (load, _) = cx.read::<Load, _>();
         shown(cx, format!("process {} at {}%", self.pid, load.percent))
     }
 }

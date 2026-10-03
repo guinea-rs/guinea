@@ -135,8 +135,8 @@ impl Page for Both {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (_, recent) = cx.state::<List<Recent>, _>();
-        let (_, archived) = cx.state::<List<Archived>, _>();
+        let (_, recent) = cx.read::<List<Recent>, _>();
+        let (_, archived) = cx.read::<List<Archived>, _>();
 
         recent.emit(Refresh);
         archived.emit(Refresh);

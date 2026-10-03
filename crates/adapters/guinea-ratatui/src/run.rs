@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::ScopeContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use ratatui::crossterm::cursor::Show;
@@ -46,8 +47,13 @@ const TICK: Duration = Duration::from_millis(50);
 /// `initial` is a closure rather than a value because where an application
 /// starts is often something only the installed plugins know - a route saved
 /// by the last run, read out of the store the store plugin just provided.
-/// Called once, after `install`, before the first frame.
-pub fn run<R, F>(app: GuineaApp, initial: impl FnOnce() -> R, mut on_event: F) -> anyhow::Result<()>
+/// Called once, after `install`, before the first frame, with the
+/// application's context to ask them through.
+pub fn run<R, F>(
+    app: GuineaApp,
+    initial: impl FnOnce(&ScopeContext) -> R,
+    mut on_event: F,
+) -> anyhow::Result<()>
 where
     R: RouteChain<Tui> + Clone + PartialEq + 'static,
     F: FnMut(&Event, &NavigateHandle<Tui, R>, &Router<Tui>) -> Flow,
@@ -59,13 +65,14 @@ where
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    match app.install(token.clone()) {
-        Ok(runtime) => install_runtime(runtime),
+    let runtime = match app.install(token.clone()) {
+        Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
-    }
+    };
+    let initial = initial(&runtime.context());
+    install_runtime(runtime);
 
-    let initial = initial();
     let router = Rc::new(Router::<Tui>::new(token));
     let route = Rc::new(RefCell::new(initial.clone()));
     let nav = NavigateHandle::new(router.clone(), {

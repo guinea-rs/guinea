@@ -225,9 +225,9 @@ impl<'b, P> PageCx<'_, 'b, P> {
 impl<P: Segment> PageCx<'_, '_, P> {
     /// The reducer's state and actions.
     ///
-    /// No subscription, unlike the reactor's `use_reducer`: a terminal redraws
-    /// the whole frame on its own schedule, so there is nothing to invalidate -
-    /// the next pass reads the state again.
+    /// No subscription, unlike the reactor's: a terminal redraws the whole
+    /// frame on its own schedule, so there is nothing to invalidate - the next
+    /// pass reads the state again.
     ///
     /// Which feature answers is settled at build time: this page installed it,
     /// or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
@@ -236,14 +236,20 @@ impl<P: Segment> PageCx<'_, '_, P> {
     ///
     /// The state comes shared, not copied: reading it every frame costs a
     /// count, and a change made mid-frame goes to a copy.
-    pub fn state<R, I>(&self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         P: Reaches<R, I>,
     {
-        let binding = self.props.binding::<R>();
-        (binding.get(), binding.dispatch())
+        feature_of::<R>(&self.props)
     }
+}
+
+fn feature_of<R: Reducer>(
+    props: &SegmentProps<Tui>,
+) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch) {
+    let binding = props.binding::<R>();
+    (binding.get(), binding.dispatch())
 }
 
 /// What a layout's view is handed. Same as a page's, plus the child.
@@ -255,14 +261,13 @@ pub struct LayoutCx<'a, 'b, L> {
 }
 
 impl<L: Segment> LayoutCx<'_, '_, L> {
-    /// See [`PageCx::state`].
-    pub fn state<R, I>(&self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    /// See [`PageCx::read`].
+    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         L: Reaches<R, I>,
     {
-        let binding = self.props.binding::<R>();
-        (binding.get(), binding.dispatch())
+        feature_of::<R>(&self.props)
     }
 }
 
@@ -274,7 +279,7 @@ impl<P: Segment> Reads for PageCx<'_, '_, P> {
         R: Reducer + PartialEq,
         P: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
@@ -294,7 +299,7 @@ impl<L: Segment> Reads for LayoutCx<'_, '_, L> {
         R: Reducer + PartialEq,
         L: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch

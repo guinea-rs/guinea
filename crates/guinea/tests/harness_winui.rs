@@ -120,7 +120,7 @@ impl Page for SearchPage {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (results, dispatch) = cx.use_reducer::<Results, _>();
+        let (results, dispatch) = cx.read::<Results, _>();
         let typed = self.typed.clone();
 
         StackPanel::new().children((
@@ -749,7 +749,7 @@ impl Page for SamplesPage {
     fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (samples, _) = cx.use_reducer::<polling::Samples, _>();
+        let (samples, _) = cx.read::<polling::Samples, _>();
         TextBlock::new().text(format!("samples: {}", samples.taken)).into()
     }
 }
@@ -1069,7 +1069,7 @@ mod navigating {
                 AppRoute::Draft {} => "at draft",
                 AppRoute::KeptList {} => "at kept list",
             };
-            let (ticks, _) = cx.use_reducer::<frame_clock::FrameTicks, _>();
+            let (ticks, _) = cx.read::<frame_clock::FrameTicks, _>();
             let nav = cx.navigate::<AppRoute>();
 
             StackPanel::new()
@@ -1116,7 +1116,7 @@ mod navigating {
         type Params = ListParams;
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (ticks, _) = cx.use_reducer::<list_clock::ListTicks, _>();
+            let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
             TextBlock::new().text(format!("list ticks: {}", ticks.0)).into()
         }
     }
@@ -1188,7 +1188,7 @@ mod navigating {
         type Params = KeptListParams;
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (ticks, _) = cx.use_reducer::<list_clock::ListTicks, _>();
+            let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
             TextBlock::new().text(format!("kept ticks: {}", ticks.0)).into()
         }
     }
@@ -1347,7 +1347,7 @@ mod application_exports {
         type Params = ();
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (language, _) = cx.use_reducer::<Language, _>();
+            let (language, _) = cx.read::<Language, _>();
             TextBlock::new().text(format!("speaks {}", language.0)).into()
         }
     }

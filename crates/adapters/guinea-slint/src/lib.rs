@@ -298,13 +298,15 @@ impl<P: Segment> PageCx<P> {
         self.at.binding::<R>()
     }
 
-    /// A snapshot of the reducer's state.
-    pub fn read<R, I>(&self) -> Rc<R>
+    /// A snapshot of the reducer's state, and what may be asked of the
+    /// feature that owns it. Read once: what stays in step is [`Self::bind`].
+    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         P: Reaches<R, I>,
     {
-        self.binding::<R, I>().get()
+        let binding = self.binding::<R, I>();
+        (binding.get(), binding.dispatch())
     }
 
     /// What may be asked of the actor driving `R`.
@@ -401,12 +403,14 @@ impl<L: Segment> LayoutCx<L> {
         self.at.binding::<R>()
     }
 
-    pub fn read<R, I>(&self) -> Rc<R>
+    /// See [`PageCx::read`].
+    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         L: Reaches<R, I>,
     {
-        self.binding::<R, I>().get()
+        let binding = self.binding::<R, I>();
+        (binding.get(), binding.dispatch())
     }
 
     /// What may be asked of the actor driving `R`.

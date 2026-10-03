@@ -56,7 +56,7 @@ impl Ui for WinUi {
 /// - [`update`](Page::update) is the only place the page's own state changes,
 ///   one [`Message`](Page::Message) at a time.
 /// - [`view`](Page::view) draws that state. It reads what features publish
-///   with [`use_reducer`](PageCx::use_reducer), turns a widget's event into a
+///   with [`read`](PageCx::read), turns a widget's event into a
 ///   message with [`on`](PageCx::on), and asks a feature for something with
 ///   `emit` on the dispatch it was handed.
 ///
@@ -148,7 +148,7 @@ impl Ui for WinUi {
 ///     }
 ///
 ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-///         let (count, dispatch) = cx.use_reducer::<Count, _>();
+///         let (count, dispatch) = cx.read::<Count, _>();
 ///         let step = self.step;
 ///
 ///         StackPanel::new()
@@ -326,7 +326,7 @@ pub trait Page: Default + Sized + 'static {
     ///     }
     ///
     ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-    ///         let (listing, _) = cx.use_reducer::<Listing, _>();
+    ///         let (listing, _) = cx.read::<Listing, _>();
     ///         TextBlock::new().text(listing.0.clone()).into()
     ///     }
     /// }
@@ -430,11 +430,11 @@ pub trait Page: Default + Sized + 'static {
 
     /// The only place the node changes.
     ///
-    /// Effects are actions emitted to features - `cx.state::<R, _>().1.emit(..)` -
+    /// Effects are actions emitted to features - `cx.read::<R, _>().1.emit(..)` -
     /// rather than values returned from here: an effect that crosses a segment
     /// boundary is a domain's job, and one that does not is a state change.
     ///
-    /// [`UpdateCx::state`] reads what the page may read, as the view does, but
+    /// [`UpdateCx::read`] reads what the page may read, as the view does, but
     /// without subscribing: `update` is a moment, and the view that follows
     /// reads again.
     ///
@@ -492,14 +492,14 @@ pub trait Page: Default + Sized + 'static {
     ///         match message {
     ///             Msg::Typed(text) => self.query = text,
     ///             Msg::Submitted => {
-    ///                 let (_, search) = cx.state::<Results, _>();
+    ///                 let (_, search) = cx.read::<Results, _>();
     ///                 search.emit(Search(self.query.clone()));
     ///             }
     ///         }
     ///     }
     ///
     ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-    ///         let (results, _) = cx.use_reducer::<Results, _>();
+    ///         let (results, _) = cx.read::<Results, _>();
     ///         TextBlock::new().text(results.0.clone()).into()
     ///     }
     /// }
@@ -510,7 +510,7 @@ pub trait Page: Default + Sized + 'static {
     /// Draws the page from its own state and from what it may read.
     ///
     /// Called again whenever the node changes and whenever a reducer it read
-    /// with [`use_reducer`](PageCx::use_reducer) does, so it holds nothing: a
+    /// with [`read`](PageCx::read) does, so it holds nothing: a
     /// value it needs later is either the node's or a reducer's.
     ///
     /// Three ways out of a view, and each is a callback handed to a widget:
@@ -628,7 +628,7 @@ pub trait Page: Default + Sized + 'static {
 ///         // Installed by the shell above, and readable here because `Chrome`
 ///         // exports it. A page outside the shell asking for it does not
 ///         // compile.
-///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+///         let (sidebar, _) = cx.read::<Sidebar, _>();
 ///         let width = if sidebar.open { "narrow" } else { "wide" };
 ///
 ///         TextBlock::new().text(format!("home, {width}")).into()
@@ -658,15 +658,15 @@ pub trait Page: Default + Sized + 'static {
 ///     fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
 ///         match message {
 ///             ShellMsg::Toggle => {
-///                 let (sidebar, dispatch) = cx.state::<Sidebar, _>();
+///                 let (sidebar, dispatch) = cx.read::<Sidebar, _>();
 ///                 dispatch.emit(SetOpen(!sidebar.open));
 ///             }
 ///         }
 ///     }
 ///
 ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
-///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
-///         let (title, _) = cx.use_reducer::<Title, _>();
+///         let (sidebar, _) = cx.read::<Sidebar, _>();
+///         let (title, _) = cx.read::<Title, _>();
 ///
 ///         let tab = if cx.child_is::<Home>() {
 ///             "> Home"
@@ -745,7 +745,7 @@ pub trait Page: Default + Sized + 'static {
 /// #     }
 /// #
 ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-///         let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+///         let (sidebar, _) = cx.read::<Sidebar, _>();
 ///         TextBlock::new().text(format!("{}", sidebar.open)).into()
 ///     }
 /// }
@@ -1315,7 +1315,7 @@ impl<S: Segment> UpdateCx<'_, S> {
     ///
     /// No subscription: `update` is a moment, not a view, and the segment is
     /// already publishing again because of the message that got here.
-    pub fn state<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         S: Reaches<R, I>,
@@ -1679,7 +1679,7 @@ impl<P: Page + Segment> PageCx<'_, P> {
     /// or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
     /// index, which says which of several impls applied - Rust has no partial
     /// turbofish, so it has to be written.
-    pub fn use_reducer<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
         P: Reaches<R, I>,
@@ -1696,7 +1696,7 @@ impl<P: Page + Segment> Reads for PageCx<'_, P> {
         R: Reducer + PartialEq,
         P: Reaches<R, I>,
     {
-        self.use_reducer::<R, I>()
+        use_reducer::<R, _>(&self.props, self.cx)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
@@ -1771,8 +1771,8 @@ impl<L: Layout> LayoutCx<'_, L> {
 }
 
 impl<L: Layout + Segment> LayoutCx<'_, L> {
-    /// See [`PageCx::use_reducer`].
-    pub fn use_reducer<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    /// See [`PageCx::read`].
+    pub fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
         L: Reaches<R, I>,
@@ -1789,7 +1789,7 @@ impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
         R: Reducer + PartialEq,
         L: Reaches<R, I>,
     {
-        self.use_reducer::<R, I>()
+        use_reducer::<R, _>(&self.props, self.cx)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch

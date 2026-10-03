@@ -50,7 +50,7 @@ impl Layout for Shell {
         self.hits += 1;
     }
 
-    fn view<'a>(&'a self, cx: &LayoutCx<'a, Self>) -> Element<'a, Envelope> {
+    fn view<'a>(&'a self, cx: &mut LayoutCx<'a, Self>) -> Element<'a, Envelope> {
         cx.outlet()
     }
 }
@@ -106,7 +106,7 @@ impl Page for Leaf {
         }
     }
 
-    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, LeafMsg> {
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, LeafMsg> {
         iced::widget::text("").into()
     }
 }
@@ -119,7 +119,7 @@ struct Other;
 
 #[page]
 impl Page for Other {
-    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Self::Message> {
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
         iced::widget::text("").into()
     }
 }
@@ -134,7 +134,7 @@ impl Page for Draft {
         Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing"))
     }
 
-    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Self::Message> {
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
         iced::widget::text("").into()
     }
 }
@@ -316,6 +316,75 @@ fn a_page_kept_once_is_asked_again_the_next_time() {
     );
     mounted.router.answer(true);
     assert_eq!(mounted.router.current_route::<Place>(), Some(Place::Other));
+}
+
+#[derive(Clone, Default, Debug, PartialEq)]
+struct Shown(u32);
+
+impl Reducer for Shown {
+    type Update = u32;
+
+    fn reduce(&mut self, to: u32) {
+        self.0 = to;
+    }
+}
+
+impl guinea_app::feature::AppExport for Shown {}
+
+struct Showing;
+
+impl guinea_app::app::AppFeature for Showing {
+    fn install(self, app: &mut guinea_app::app::FeatureBuilder) -> anyhow::Result<()> {
+        app.state::<Shown>().seed(Shown(7)).plain();
+        app.export::<Shown>()?;
+        Ok(())
+    }
+}
+
+thread_local! {
+    static SEEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// A plugin's shortcut, written once for every backend.
+trait Sees {
+    fn shown(&mut self) -> u32;
+}
+
+impl<C: guinea_app::feature::Reads> Sees for C {
+    fn shown(&mut self) -> u32 {
+        self.read::<Shown, guinea_app::feature::FromApp>().0.0
+    }
+}
+
+#[derive(Default)]
+struct Reader;
+
+#[page]
+impl Page for Reader {
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
+        SEEN.set(Some(cx.shown()));
+        iced::widget::text("").into()
+    }
+}
+
+impl guinea_app::feature::Segment for Reader {
+    type Installs = ();
+    type Above = ();
+}
+
+const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Reader>()];
+
+#[test]
+fn a_shortcut_written_over_reads_reads_in_a_view() {
+    let _runtime = guinea_app::app::GuineaApp::new()
+        .feature(Showing)
+        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .expect("install");
+    let mounted = Mounted::at(&WITH_READER);
+
+    drop(mounted.router.render(&mounted.nodes));
+
+    assert_eq!(SEEN.get(), Some(7));
 }
 
 #[test]

@@ -202,7 +202,7 @@ impl<S: Segment> HeadlessCx<S> {
     ///
     ///     fn view(cx: &mut HeadlessCx<Self>) {
     ///         // `Chrome` claimed `Hidden` and exported nothing.
-    ///         let _ = cx.state::<Hidden, _>();
+    ///         let _ = cx.read::<Hidden, _>();
     ///     }
     /// }
     ///
@@ -211,7 +211,7 @@ impl<S: Segment> HeadlessCx<S> {
     ///     type Above = (Shell, ());
     /// }
     /// ```
-    pub fn state<R, I>(&self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         S: Reaches<R, I>,
@@ -289,7 +289,7 @@ mod tests {
         }
 
         fn view(cx: &mut HeadlessCx<Self>) {
-            let (counter, _) = cx.state::<Counter, _>();
+            let (counter, _) = cx.read::<Counter, _>();
             assert_eq!(counter.installs, 1);
         }
     }

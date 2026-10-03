@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::ScopeContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{AppProxy, Component, ComponentContext, View, ViewContext, WindowVisuals};
@@ -58,11 +59,12 @@ where
 /// Installs `app`, opens a window at `initial`, and runs until the last
 /// window closes.
 ///
-/// `initial` runs after the plugins are installed, so it can ask them.
+/// `initial` runs after the plugins are installed, and is handed the
+/// application's context to ask them through.
 pub fn run<R>(
     app: GuineaApp,
     window: Window,
-    initial: impl FnOnce() -> R + 'static,
+    initial: impl FnOnce(&ScopeContext) -> R + 'static,
 ) -> anyhow::Result<()>
 where
     R: RouteChain<WinUi> + Clone + PartialEq + 'static,
@@ -76,16 +78,18 @@ where
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        match app.install(token) {
-            Ok(runtime) => install_runtime(runtime),
+        let runtime = match app.install(token) {
+            Ok(runtime) => runtime,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);
                 return Err(windows_core::Error::new(E_FAIL, "installing the application"));
             }
-        }
+        };
+        let context = runtime.context();
+        install_runtime(runtime);
         let installed = Installed;
 
-        cx.open_window(self::window(window, initial()))?;
+        cx.open_window(self::window(window, initial(&context)))?;
         Ok(installed)
     });
 

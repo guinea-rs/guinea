@@ -3,11 +3,20 @@ use std::cell::RefCell;
 use guinea_core::SharedState;
 
 use super::builder::FeatureBuilder;
+use crate::feature::ScopeContext;
 
 /// An installed application: everything the recipe built, plus the hooks that
 /// outlive installation. Held on the UI thread until the process exits.
 pub struct AppRuntime {
     pub(crate) builder: FeatureBuilder,
+}
+
+impl AppRuntime {
+    /// The application's own context: its scope, and what its plugins
+    /// provided. What a backend hands the closure that picks the first route.
+    pub fn context(&self) -> ScopeContext {
+        ScopeContext::clone(&self.builder)
+    }
 }
 
 thread_local! {

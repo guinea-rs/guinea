@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::ScopeContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 
@@ -27,12 +28,13 @@ pub const MAIN: &str = "main";
 /// A closure rather than a value because where an application starts is often
 /// something only the installed plugins know - a route saved by the last run,
 /// read out of the store the store plugin just provided. Called once, after
-/// `install`, before the first frame.
+/// `install`, before the first frame, with the application's context to ask
+/// them through.
 pub fn run<R>(
     app: GuineaApp,
     title: &str,
     options: eframe::NativeOptions,
-    initial: impl FnOnce() -> R,
+    initial: impl FnOnce(&ScopeContext) -> R,
 ) -> anyhow::Result<()>
 where
     R: RouteChain<Egui> + Clone + PartialEq + 'static,
@@ -44,13 +46,14 @@ where
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    match app.install(token.clone()) {
-        Ok(runtime) => install_runtime(runtime),
+    let runtime = match app.install(token.clone()) {
+        Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
-    }
+    };
+    let initial = initial(&runtime.context());
+    install_runtime(runtime);
 
-    let initial = initial();
     let router = Rc::new(Router::<Egui>::new(token));
     guinea_app::app::roots::set_label(router.root(), MAIN);
 

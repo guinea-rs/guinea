@@ -884,6 +884,14 @@ pub struct Router<U: Ui> {
     listed: std::cell::Cell<bool>,
 }
 
+/// What the application's plugins provided, for code that has a router and
+/// no context - a terminal's key handler.
+impl<U: Ui> guinea_app::services::Services for Router<U> {
+    fn try_require<T: Send + Sync + 'static>(&self) -> Option<std::sync::Arc<T>> {
+        self.host.services().get::<T>()
+    }
+}
+
 impl<U: Ui> Router<U> {
     pub fn new(token: guinea_core::actor::UiThreadToken) -> Self {
         Self::with_host(FeatureHost::new(token))

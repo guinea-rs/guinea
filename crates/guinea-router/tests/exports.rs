@@ -104,7 +104,7 @@ impl Page for Reader {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (shown, _) = cx.state::<Shown, _>();
+        let (shown, _) = cx.read::<Shown, _>();
         assert_eq!(shown.0, 7);
     }
 }
@@ -124,7 +124,7 @@ impl Page for Owner {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (hidden, _) = cx.state::<Hidden, _>();
+        let (hidden, _) = cx.read::<Hidden, _>();
         assert_eq!(hidden.0, 1, "its own, not the layout's 9");
     }
 }
@@ -301,9 +301,9 @@ impl Page for Beneath {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        assert_eq!(cx.state::<Slot<1>, _>().0.0, 1);
-        assert_eq!(cx.state::<Slot<13>, _>().0.0, 13);
-        assert_eq!(cx.state::<Slot<3>, _>().0.0, 3);
+        assert_eq!(cx.read::<Slot<1>, _>().0.0, 1);
+        assert_eq!(cx.read::<Slot<13>, _>().0.0, 13);
+        assert_eq!(cx.read::<Slot<3>, _>().0.0, 3);
     }
 }
 

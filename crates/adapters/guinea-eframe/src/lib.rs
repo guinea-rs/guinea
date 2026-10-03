@@ -304,6 +304,13 @@ pub struct PageCx<'a, P> {
     page: std::marker::PhantomData<fn() -> P>,
 }
 
+fn feature_of<R: Reducer>(
+    props: &SegmentProps<Egui>,
+) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch) {
+    let binding = props.binding::<R>();
+    (binding.get(), binding.dispatch())
+}
+
 impl<P: Segment> PageCx<'_, P> {
     /// The reducer's state and actions.
     ///
@@ -319,13 +326,12 @@ impl<P: Segment> PageCx<'_, P> {
     ///
     /// The state comes shared, not copied: reading it every frame costs a
     /// count, and a change made mid-frame goes to a copy.
-    pub fn state<R, I>(&self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         P: Reaches<R, I>,
     {
-        let binding = self.props.binding::<R>();
-        (binding.get(), binding.dispatch())
+        feature_of::<R>(&self.props)
     }
 
     /// The reducer's binding: its state, and a push straight into it.
@@ -336,7 +342,7 @@ impl<P: Segment> PageCx<'_, P> {
     /// story.
     ///
     /// State a feature drives is not this: pushing into it goes behind the
-    /// back of whatever answers for it. Use [`PageCx::state`] and emit.
+    /// back of whatever answers for it. Use [`PageCx::read`] and emit.
     pub fn binding<R, I>(&self) -> ReducerBinding<R>
     where
         R: Reducer,
@@ -354,7 +360,7 @@ impl<P: Segment> Reads for PageCx<'_, P> {
         R: Reducer + PartialEq,
         P: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
@@ -388,14 +394,13 @@ pub struct LayoutCx<'a, L> {
 }
 
 impl<L: Segment> LayoutCx<'_, L> {
-    /// See [`PageCx::state`].
-    pub fn state<R, I>(&self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    /// See [`PageCx::read`].
+    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
         L: Reaches<R, I>,
     {
-        let binding = self.props.binding::<R>();
-        (binding.get(), binding.dispatch())
+        feature_of::<R>(&self.props)
     }
 
     /// See [`PageCx::binding`].
@@ -416,7 +421,7 @@ impl<L: Segment> Reads for LayoutCx<'_, L> {
         R: Reducer + PartialEq,
         L: Reaches<R, I>,
     {
-        self.state::<R, I>()
+        feature_of::<R>(&self.props)
     }
 
     fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch

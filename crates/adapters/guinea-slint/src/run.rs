@@ -12,6 +12,7 @@ use std::sync::Arc;
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::ScopeContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
@@ -30,7 +31,8 @@ pub const MAIN: &str = "main";
 /// `initial` is a closure rather than a value because where an application
 /// starts is often something only the installed plugins know - a route saved
 /// by the last run, read out of the store the store plugin just provided.
-/// Called once, after `install`, before the first frame.
+/// Called once, after `install`, before the first frame, with the
+/// application's context to ask them through.
 ///
 /// ```ignore
 /// guinea_slint::run(app, AppWindow::new()?, initial_route, |window, route| {
@@ -44,7 +46,7 @@ pub const MAIN: &str = "main";
 pub fn run<R, W, S>(
     app: GuineaApp,
     window: W,
-    initial: impl FnOnce() -> R,
+    initial: impl FnOnce(&ScopeContext) -> R,
     show: S,
 ) -> anyhow::Result<()>
 where
@@ -68,11 +70,13 @@ where
     // Genuinely this thread: it owns the window, and nothing else touches the
     // router or the scopes.
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    match app.install(token.clone()) {
-        Ok(runtime) => install_runtime(runtime),
+    let runtime = match app.install(token.clone()) {
+        Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
-    }
+    };
+    let context = runtime.context();
+    install_runtime(runtime);
 
     let router = Rc::new(Router::<Slint>::new(token));
 
@@ -88,7 +92,7 @@ where
     restore(&shell, root_id);
     let _watching = windows::watch(shell.clone());
 
-    let initial = initial();
+    let initial = initial(&context);
     let window = Rc::new(window);
     let show = Rc::new(show);
     let route = Rc::new(RefCell::new(initial.clone()));

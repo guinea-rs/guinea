@@ -87,7 +87,7 @@ mod whole {
         }
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (count, dispatch) = cx.use_reducer::<Count, _>();
+            let (count, dispatch) = cx.read::<Count, _>();
             let step = self.step;
 
             StackPanel::new()
@@ -217,7 +217,7 @@ mod installing {
         }
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (listing, _) = cx.use_reducer::<Listing, _>();
+            let (listing, _) = cx.read::<Listing, _>();
             TextBlock::new().text(listing.0.clone()).into()
         }
     }
@@ -400,14 +400,14 @@ mod asking_a_feature {
             match message {
                 Msg::Typed(text) => self.query = text,
                 Msg::Submitted => {
-                    let (_, search) = cx.state::<Results, _>();
+                    let (_, search) = cx.read::<Results, _>();
                     search.emit(Search(self.query.clone()));
                 }
             }
         }
 
         fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-            let (results, _) = cx.use_reducer::<Results, _>();
+            let (results, _) = cx.read::<Results, _>();
             TextBlock::new().text(results.0.clone()).into()
         }
     }
@@ -556,7 +556,7 @@ mod shell {
             // Installed by the shell above, and readable here because `Chrome`
             // exports it. A page outside the shell asking for it does not
             // compile.
-            let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
+            let (sidebar, _) = cx.read::<Sidebar, _>();
             let width = if sidebar.open { "narrow" } else { "wide" };
 
             TextBlock::new().text(format!("home, {width}")).into()
@@ -586,15 +586,15 @@ mod shell {
         fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
             match message {
                 ShellMsg::Toggle => {
-                    let (sidebar, dispatch) = cx.state::<Sidebar, _>();
+                    let (sidebar, dispatch) = cx.read::<Sidebar, _>();
                     dispatch.emit(SetOpen(!sidebar.open));
                 }
             }
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
-            let (sidebar, _) = cx.use_reducer::<Sidebar, _>();
-            let (title, _) = cx.use_reducer::<Title, _>();
+            let (sidebar, _) = cx.read::<Sidebar, _>();
+            let (title, _) = cx.read::<Title, _>();
 
             let tab = if cx.child_is::<Home>() {
                 "> Home"

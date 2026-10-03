@@ -53,7 +53,10 @@ jobs:
         run: cargo test --workspace
 
       - name: Package and build what is about to be published
-        run: cargo package --workspace --exclude xtask
+        run: >
+          cargo package --workspace --exclude xtask
+          --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
+          --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"
 
   publish:
     needs: test

@@ -13,8 +13,12 @@ use guinea::winui::*;
 use guinea_core::feature::Bound;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_macros::routes;
-use windows_reactor::test::{Command, EventId, NodeId, Pump, RecordingRuntime};
-use windows_reactor::{ContentDialogResult, TextBlock, View};
+use windows_reactor::{
+    ComponentHost, ContentDialogResult, ObjectId, RecordingAdapter, RelationId, TextBlock, View,
+    component,
+};
+
+type Host = ComponentHost<RecordingAdapter>;
 
 thread_local! {
     static SHOWN: RefCell<Vec<String>> = RefCell::default();
@@ -76,7 +80,7 @@ impl Page for Unreachable {
         anyhow::bail!("the agent is not reachable")
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         shown(cx, "unreachable".to_string())
     }
 }
@@ -95,7 +99,7 @@ impl Page for Process {
         Self { pid: params.pid }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (load, _) = cx.read::<Load, _>();
         shown(cx, format!("process {} at {}%", self.pid, load.percent))
     }
@@ -109,7 +113,7 @@ impl Page for Editor {
         Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         shown(cx, "editor".to_string())
     }
 }
@@ -118,12 +122,12 @@ impl Page for Editor {
 impl Page for Guarded {
     type Params = GuardedParams;
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         shown(cx, "guarded".to_string())
     }
 }
 
-fn shown<P: Page>(cx: &mut PageCx<'_, P>, text: String) -> View {
+fn shown<P: Page>(cx: &mut PageCx<'_, '_, P>, text: String) -> View {
     NAV.with(|nav| *nav.borrow_mut() = Some(cx.use_navigate::<Route>()));
     SHOWN.with(|shown| shown.borrow_mut().push(text.clone()));
     TextBlock::new().text(text).into()
@@ -138,49 +142,42 @@ fn go(route: Route) {
     nav.to(route);
 }
 
-fn mount(initial: Route) -> Pump<RecordingRuntime> {
-    let mut pump = Pump::new(RecordingRuntime::default());
-    pump.mount_view(View::component::<RouterRoot<Route>>(initial))
+fn mount(initial: Route) -> Host {
+    let mut adapter = RecordingAdapter::new();
+    adapter.record_batches(true);
+
+    let mut host = Host::mount(adapter, [component::<RouterRoot<Route>>("root", initial)])
         .expect("the route tree mounts");
-    settle(&mut pump);
-    pump
+    settle(&mut host);
+    host
 }
 
-fn settle(pump: &mut Pump<RecordingRuntime>) {
-    loop {
-        let events = pump.dispatch_events().expect("delivering events");
-        let turns = pump.dispatch_components(64).expect("running components");
-        if events + turns == 0 {
-            return;
-        }
-    }
+fn settle(host: &mut Host) {
+    while host.drain(64).expect("running components").dispatched > 0 {}
 }
 
-fn dialog(pump: &Pump<RecordingRuntime>) -> NodeId {
-    pump.runtime()
-        .commands()
-        .iter()
-        .flatten()
-        .find_map(|command| match command {
-            Command::Create { node, kind } if format!("{kind:?}") == "ContentDialog" => Some(*node),
-            _ => None,
-        })
+fn dialog(host: &Host) -> ObjectId {
+    let graph = host.runtime().graph();
+    let root = graph
+        .children(graph.root().expect("mounted"), RelationId::Children)
+        .and_then(|children| children.first().copied())
+        .expect("the root draws");
+
+    host.adapter()
+        .content_dialog(root)
+        .map(|(dialog, _)| dialog)
         .expect("the root keeps a dialog for a guard's question")
 }
 
-fn answer(pump: &mut Pump<RecordingRuntime>, result: ContentDialogResult) {
-    let dialog = dialog(pump);
-    let revision = pump
-        .event_revision(dialog, EventId::ContentDialogClosed)
-        .expect("the dialog listens for its own closing");
-    pump.runtime_mut()
-        .complete_content_dialog(dialog, revision, result);
-    settle(pump);
+fn answer(host: &mut Host, result: ContentDialogResult) {
+    let dialog = dialog(host);
+    assert!(host.test_adapter_mut().complete_content_dialog(dialog, result));
+    settle(host);
 }
 
-fn asking(pump: &Pump<RecordingRuntime>) -> bool {
-    pump.runtime()
-        .content_dialog(dialog(pump))
+fn asking(host: &Host) -> bool {
+    host.adapter()
+        .content_dialog_state(dialog(host))
         .is_some_and(|dialog| dialog.desired_open)
 }
 
@@ -245,15 +242,15 @@ fn a_navigation_asks_its_guards_once() {
 
 #[test]
 fn a_first_route_that_fails_to_install_is_shown_not_a_panic() {
-    let pump = mount(Route::Unreachable {});
+    let host = mount(Route::Unreachable {});
 
     assert!(SHOWN.with(|shown| shown.borrow().is_empty()));
-    let said = pump
-        .runtime()
-        .commands()
+    let said = host
+        .adapter()
+        .batches()
         .iter()
         .flatten()
-        .any(|command| format!("{command:?}").contains("the agent is not reachable"));
+        .any(|mutation| format!("{mutation:?}").contains("the agent is not reachable"));
     assert!(said, "the window says why it is empty");
 }
 

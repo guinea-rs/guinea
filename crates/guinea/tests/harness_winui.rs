@@ -10,9 +10,8 @@ use guinea::prelude::*;
 use guinea::winui::harness::{Mounted, PropertyId, PropertyValue};
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
 use windows_reactor::{
-    Border, Button, Callback, CheckBox, ChildrenControl, ContentControl, Flyout, FlyoutExt,
-    ItemsRepeater, PointerEventInfo, RadioButton, StackPanel, TextBlock, ToggleSwitch, View,
-    VirtualSource,
+    Border, Button, Callback, CheckBox, Flyout, FlyoutExt, ItemsRepeater, PointerEventInfo,
+    RadioButton, StackPanel, TextBlock, ToggleSwitch, View, VirtualSource, provide,
 };
 
 const CATALOGUE: [&str; 6] = ["guinea", "guinea-app", "gui", "gum", "gulp", "gust"];
@@ -119,7 +118,7 @@ impl Page for SearchPage {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (results, dispatch) = cx.read::<Results, _>();
         let typed = self.typed.clone();
 
@@ -193,7 +192,7 @@ impl Page for CataloguePage {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let open = cx.on(Browsing::Opened);
 
         let items = VirtualSource::new(
@@ -288,7 +287,7 @@ impl Page for RowsPage {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let shade = cx.use_context(shade());
         let select = cx.on(Rowing::Selected);
         let toggle = cx.on(Rowing::Toggled);
@@ -376,7 +375,7 @@ impl Page for GripPage {
     fn update(&mut self, message: Gripping, _cx: &mut UpdateCx<'_, Self>) {
         match message {
             Gripping::Down(info) => {
-                if info.is_left_button_pressed && info.capture_succeeded {
+                if info.is_left_button_pressed && info.capture_succeeded == Some(true) {
                     self.start = Some(info.window_y);
                 }
             }
@@ -404,7 +403,7 @@ impl Page for GripPage {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let lost = cx.on(|()| Gripping::Lost);
 
         Border::new()
@@ -468,7 +467,7 @@ fn a_drag_whose_capture_is_lost_is_cancelled(h: &mut Harness) {
 #[guinea::test(iterations = 2)]
 fn a_click_bubbles_through_every_listener_and_stops_at_a_button(h: &mut Harness) {
     let mut page =
-        Mounted::<RowsPage>::mount_with(h.segment(),(), |page| View::provide(shade(), "dark", page))
+        Mounted::<RowsPage>::mount_with(h.segment(),(), |page| provide(shade(), "dark", page))
             .unwrap();
     assert!(
         page.find_text("dark: selected None toggled None removed None").is_some(),
@@ -533,7 +532,7 @@ impl Page for SwitchesPage {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         StackPanel::new()
             .children((
                 ToggleSwitch::new()
@@ -543,11 +542,11 @@ impl Page for SwitchesPage {
                 CheckBox::new()
                     .mark(Marks::Check)
                     .is_checked(self.checked)
-                    .on_is_checked_changed(cx.on(Switching::Checked)),
+                    .on_is_checked_changed(cx.on(|checked| Switching::Checked(checked == Some(true)))),
                 RadioButton::new()
                     .mark(Marks::Radio)
                     .is_checked(self.picked)
-                    .on_checked(cx.on(Switching::Picked)),
+                    .on_checked(cx.on(|picked| Switching::Picked(picked == Some(true)))),
                 TextBlock::new().text(format!(
                     "on {} checked {} picked {}",
                     self.on, self.checked, self.picked
@@ -610,14 +609,14 @@ impl Page for ChartsPage {
         self.disk = disk;
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         StackPanel::new()
             .children((
                 Button::new().mark(Marks::Charts).content("…").flyout_with(Flyout::rich(
                     CheckBox::new()
                         .mark(Marks::ShowDisk)
                         .is_checked(self.disk)
-                        .on_is_checked_changed(cx.on(ShowDisk)),
+                        .on_is_checked_changed(cx.on(|checked| ShowDisk(checked == Some(true)))),
                 )),
                 TextBlock::new().text(format!("disk {}", self.disk)),
             ))
@@ -655,18 +654,18 @@ fn a_list_says_how_long_it_is_and_its_items_what_they_hold(h: &mut Harness) {
 
     let unmarked = items[2].find_text("gui").unwrap().at;
     assert_eq!(
-        page.at(unmarked).property(PropertyId::TextBlockText),
-        Some(&PropertyValue::Str("gui".into()))
+        page.at(unmarked).property(PropertyId::Text),
+        Some(&PropertyValue::String("gui".into()))
     );
 
     let first = page.item(0).find(Marks::Remove).unwrap();
     let second = page.item(1).find(Marks::Remove).unwrap();
     assert_eq!(
-        page.property(first, PropertyId::ButtonIsEnabled),
+        page.property(first, PropertyId::IsEnabled),
         Some(&PropertyValue::Bool(false))
     );
     assert_ne!(
-        page.property(second, PropertyId::ButtonIsEnabled),
+        page.property(second, PropertyId::IsEnabled),
         Some(&PropertyValue::Bool(false))
     );
 }
@@ -748,7 +747,7 @@ impl Page for SamplesPage {
 
     fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (samples, _) = cx.read::<polling::Samples, _>();
         TextBlock::new().text(format!("samples: {}", samples.taken)).into()
     }
@@ -793,14 +792,16 @@ mod routed {
     use super::*;
     use guinea::winui::harness::Outlet;
     use guinea::winui::{Layout, LayoutCx, UseRoute, layout};
-    use windows_reactor::{NavigationView, NavigationViewItem};
+    use std::rc::Rc;
+
+    use windows_reactor::{NavigationView, NavigationViewItem, keyed};
 
     #[derive(Default)]
     pub struct One;
 
     #[page]
     impl Page for One {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("one").into()
         }
     }
@@ -810,7 +811,7 @@ mod routed {
 
     #[page]
     impl Page for Two {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("two").into()
         }
     }
@@ -828,7 +829,7 @@ mod routed {
             Ok(())
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let here = match cx.use_route::<TabRoute>() {
                 TabRoute::One {} => "at one",
                 TabRoute::Two {} => "at two",
@@ -874,7 +875,7 @@ mod routed {
 
     #[page]
     impl Page for Home {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("home").into()
         }
     }
@@ -884,7 +885,7 @@ mod routed {
 
     #[page]
     impl Page for Settings {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("settings").into()
         }
     }
@@ -903,16 +904,19 @@ mod routed {
             Ok(())
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<PaneRoute>();
 
             NavigationView::new()
-                .menu_items([("home", NavigationViewItem::new().tag("home").content("Home"))])
-                .footer_menu_items([(
+                .keyed_menu_items([keyed(
+                    "home",
+                    NavigationViewItem::new().tag("home").content("Home"),
+                )])
+                .keyed_footer_menu_items([keyed(
                     "settings",
                     NavigationViewItem::new().tag("settings").content("Settings"),
                 )])
-                .on_selected_tag_changed(move |tag: Option<String>| match tag.as_deref() {
+                .on_selected_tag_changed(move |tag: Option<Rc<str>>| match tag.as_deref() {
                     Some("home") => nav.to(PaneRoute::Home {}),
                     Some("settings") => nav.to(PaneRoute::Settings {}),
                     _ => {}
@@ -1078,7 +1082,7 @@ mod navigating {
             ctx.install(&())
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let here = match cx.use_route::<AppRoute>() {
                 AppRoute::List {} => "at list",
                 AppRoute::Other {} => "at other",
@@ -1119,7 +1123,7 @@ mod navigating {
             ctx.install(&())
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             cx.outlet()
         }
     }
@@ -1131,7 +1135,7 @@ mod navigating {
     impl Page for List {
         type Params = ListParams;
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
             TextBlock::new().text(format!("list ticks: {}", ticks.0)).into()
         }
@@ -1153,7 +1157,7 @@ mod navigating {
             Self { greeting }
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text(format!("other says {}", self.greeting)).into()
         }
     }
@@ -1169,7 +1173,7 @@ mod navigating {
             Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("draft").into()
         }
     }
@@ -1191,7 +1195,7 @@ mod navigating {
             ctx.install(&())
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             cx.outlet()
         }
     }
@@ -1203,7 +1207,7 @@ mod navigating {
     impl Page for KeptList {
         type Params = KeptListParams;
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
             TextBlock::new().text(format!("kept ticks: {}", ticks.0)).into()
         }
@@ -1362,7 +1366,7 @@ mod application_exports {
     impl Page for Greeting {
         type Params = ();
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (language, _) = cx.read::<Language, _>();
             TextBlock::new().text(format!("speaks {}", language.0)).into()
         }
@@ -1400,7 +1404,7 @@ mod application_exports {
     impl Page for Polyglot {
         type Params = ();
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text(format!("speaks {}", cx.language())).into()
         }
     }
@@ -1426,7 +1430,7 @@ mod application_exports {
     impl Page for Switcher {
         type Params = ();
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let speak = guinea::feature::Reads::dispatch::<Language, guinea::feature::FromApp>(cx);
             Button::new()
                 .mark(Marks::Speak)

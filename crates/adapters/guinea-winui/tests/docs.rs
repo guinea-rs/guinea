@@ -14,7 +14,7 @@ mod only_a_view {
 
     #[page]
     impl Page for About {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("guinea").into()
         }
     }
@@ -28,7 +28,7 @@ mod whole {
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
-    use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+    use windows_reactor::{Button, StackPanel, TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Count(pub u32);
@@ -86,7 +86,7 @@ mod whole {
             }
         }
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (count, dispatch) = cx.read::<Count, _>();
             let step = self.step;
 
@@ -146,7 +146,7 @@ mod cached {
         // empty until the next refresh arrives.
         const CACHE_STATE_IN_MEMORY: bool = true;
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("processes").into()
         }
     }
@@ -216,7 +216,7 @@ mod installing {
             Ok((processes, selection))
         }
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (listing, _) = cx.read::<Listing, _>();
             TextBlock::new().text(listing.0.clone()).into()
         }
@@ -276,7 +276,7 @@ mod keeping_the_capture {
             Self { pid: params.pid }
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new()
                 .text(format!("process {}", self.pid))
                 .into()
@@ -326,7 +326,7 @@ mod minding_the_page {
             }
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text(self.text.clone()).into()
         }
     }
@@ -406,7 +406,7 @@ mod asking_a_feature {
             }
         }
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (results, _) = cx.read::<Results, _>();
             TextBlock::new().text(results.0.clone()).into()
         }
@@ -439,16 +439,18 @@ mod answering_a_widget {
     //@hide
     use guinea_app::feature::Segment;
     //@unhide
+    use std::rc::Rc;
+
     use guinea_winui::{Page, PageCx, UpdateCx, page};
-    use windows_reactor::{ChildrenControl, StackPanel, TextBlock, TextBox, View};
+    use windows_reactor::{StackPanel, TextBlock, TextBox, View};
 
     #[derive(Default)]
     pub struct Greeting {
-        name: String,
+        name: Rc<str>,
     }
 
     pub enum Msg {
-        Named(String),
+        Named(Rc<str>),
     }
 
     #[page]
@@ -461,12 +463,10 @@ mod answering_a_widget {
             }
         }
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             StackPanel::new()
                 .children((
-                    TextBox::new()
-                        .text(self.name.clone())
-                        .on_text_changed(cx.on(Msg::Named)),
+                    TextBox::new(&self.name).on_text_changed(cx.on(Msg::Named)),
                     TextBlock::new().text(format!("hello, {}", self.name)),
                 ))
                 .into()
@@ -508,7 +508,7 @@ mod shell {
     use guinea_winui::{
         FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
     };
-    use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+    use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Sidebar {
@@ -552,7 +552,7 @@ mod shell {
 
     #[page]
     impl Page for Home {
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             // Installed by the shell above, and readable here because `Chrome`
             // exports it. A page outside the shell asking for it does not
             // compile.
@@ -592,7 +592,7 @@ mod shell {
             }
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let (sidebar, _) = cx.read::<Sidebar, _>();
             let (title, _) = cx.read::<Title, _>();
 
@@ -601,10 +601,9 @@ mod shell {
             } else {
                 "Home"
             };
-            let side: View = if sidebar.open {
-                TextBlock::new().text(tab).into()
-            } else {
-                View::empty()
+            let side = match sidebar.open {
+                true => Border::new().content(TextBlock::new().text(tab)),
+                false => Border::new(),
             };
 
             StackPanel::new()
@@ -725,7 +724,7 @@ mod per_context {
             ctx.install::<Connection>(&params.context)
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             cx.outlet()
         }
     }
@@ -815,7 +814,7 @@ mod layout_installing {
             Ok((ctx.install(&())?, ctx.install(&())?, title.plain()))
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             cx.outlet()
         }
     }
@@ -845,7 +844,7 @@ mod minding_the_layout {
             }
         }
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             cx.outlet()
         }
     }
@@ -864,7 +863,7 @@ mod minding_the_layout {
 mod tab_strip {
     //@show a tab strip
     use guinea_winui::{Layout, LayoutCx, Page, PageCx, layout, page};
-    use windows_reactor::{ChildrenControl, StackPanel, TextBlock, View};
+    use windows_reactor::{StackPanel, TextBlock, View};
     //@hide
 
     #[derive(Default)]
@@ -872,7 +871,7 @@ mod tab_strip {
 
     #[page]
     impl Page for Processes {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("processes").into()
         }
     }
@@ -882,7 +881,7 @@ mod tab_strip {
 
     #[page]
     impl Page for Services {
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("services").into()
         }
     }
@@ -895,7 +894,7 @@ mod tab_strip {
     impl Layout for Tabs {
         type Params = ();
 
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let tab = |name: &str, current: bool| {
                 TextBlock::new().text(if current {
                     format!("[{name}]")

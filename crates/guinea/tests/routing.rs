@@ -64,10 +64,10 @@ mod routing {
             install_processes(ctx, params)
         }
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
             let (state, _dispatch) = cx.read::<Listing, _>();
             assert_eq!(state.seeded_from, "ubuntu");
-            windows_reactor::View::empty()
+            windows_reactor::Grid::new().into()
         }
     }
 
@@ -97,8 +97,8 @@ mod routing {
             Ok(())
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-            windows_reactor::View::empty()
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+            windows_reactor::Grid::new().into()
         }
     }
 
@@ -268,7 +268,7 @@ mod routing {
             ctx.scope.push::<Tabs>(count + 1);
             Ok(())
         }
-        fn view(&self, cx: &mut LayoutCx<'_, Self>) -> windows_reactor::View {
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> windows_reactor::View {
             cx.outlet()
         }
     }
@@ -279,9 +279,9 @@ mod routing {
     impl Page for ServicesLeaf {
         type Params = ();
 
-        fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
             let _ = cx;
-            windows_reactor::View::empty()
+            windows_reactor::Grid::new().into()
         }
     }
 
@@ -440,9 +440,9 @@ mod routing {
         impl Page for Services {
             type Params = ServicesParams;
 
-            fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
+            fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
                 let _ = cx;
-                windows_reactor::View::empty()
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -455,9 +455,9 @@ mod routing {
         impl Page for DerivedProcesses {
             type Params = DerivedProcessesParams;
 
-            fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
+            fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
                 let _ = cx;
-                windows_reactor::View::empty()
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -470,7 +470,7 @@ mod routing {
         impl Layout for DerivedTab {
             type Params = DerivedTabParams;
 
-            fn view(&self, cx: &mut LayoutCx<'_, Self>) -> windows_reactor::View {
+            fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> windows_reactor::View {
                 cx.outlet()
             }
         }
@@ -537,9 +537,9 @@ mod routing {
         impl Page for Home {
             type Params = HomeParams;
 
-            fn view(&self, cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
+            fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
                 let _ = cx;
-                windows_reactor::View::empty()
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -562,8 +562,8 @@ mod routing {
         impl Page for Inner {
             type Params = InnerParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -573,8 +573,8 @@ mod routing {
         impl Page for Shared {
             type Params = SharedParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -629,8 +629,8 @@ mod routing {
         impl Page for Settings {
             type Params = SettingsParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -640,8 +640,8 @@ mod routing {
         impl Page for Host {
             type Params = HostParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -676,8 +676,8 @@ mod routing {
         impl Page for ById {
             type Params = ByIdParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -687,8 +687,8 @@ mod routing {
         impl Page for ByName {
             type Params = ByNameParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -793,8 +793,8 @@ mod routing {
                 Ok(())
             }
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -804,8 +804,8 @@ mod routing {
         impl Page for OtherPage {
             type Params = OtherPageParams;
 
-            fn view(&self, _cx: &mut PageCx<'_, Self>) -> windows_reactor::View {
-                windows_reactor::View::empty()
+            fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
+                windows_reactor::Grid::new().into()
             }
         }
 
@@ -815,7 +815,7 @@ mod routing {
         impl Layout for ProbeLayout {
             type Params = ProbeLayoutParams;
 
-            fn view(&self, cx: &mut LayoutCx<'_, Self>) -> windows_reactor::View {
+            fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> windows_reactor::View {
                 cx.outlet()
             }
         }

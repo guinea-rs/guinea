@@ -8,9 +8,11 @@ use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
 use guinea_app::feature::ScopeContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{RouteChain, Router};
-use windows_reactor::{AppProxy, Component, ComponentContext, View, ViewContext, WindowVisuals};
+use windows_reactor::{
+    AppProxy, Border, Component, ComponentContext, View, ViewContext, WindowVisuals,
+};
 
-use crate::winui::{RouterRoot, WinUi};
+use crate::winui::{RouterRoot, Shown, WinUi};
 
 /// The label this backend gives its first window, matching the other four.
 pub const MAIN: &str = "main";
@@ -89,7 +91,7 @@ where
         install_runtime(runtime);
         let installed = Installed;
 
-        cx.open_window(self::window(window, initial(&context)))?;
+        cx.open_component_window::<Shown>(self::window(window, initial(&context)))?;
         Ok(installed)
     });
 
@@ -181,7 +183,9 @@ where
             cx.window_visuals(WindowVisuals::new().client_size(width, height));
         }
 
-        View::component::<RouterRoot<R>>(input.initial.clone())
+        Border::new()
+            .content(View::component::<RouterRoot<R>>(input.initial.clone()))
+            .into()
     }
 
     fn update(&mut self, _message: (), _cx: &ComponentContext<Self>) {}

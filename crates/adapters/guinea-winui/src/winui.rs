@@ -28,8 +28,8 @@ use guinea_router::router::{
     single_entry_chain,
 };
 use windows_reactor::{
-    AutomationExt, Border, Callback, ChildrenControl, Component, ComponentContext, ContentControl,
-    ContentDialog, ContentDialogResult, Grid, TextBlock, View, ViewContext,
+    Border, Callback, Component, ComponentContext, ContentDialog, ContentDialogExt,
+    ContentDialogResult, Grid, TextBlock, View, ViewContext, provide,
 };
 
 /// windows-reactor as a [`Ui`].
@@ -75,7 +75,7 @@ impl Ui for WinUi {
 ///
 /// #[page]
 /// impl Page for About {
-///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         TextBlock::new().text("guinea").into()
 ///     }
 /// }
@@ -89,7 +89,7 @@ impl Ui for WinUi {
 /// <!-- shown: a whole page -->
 /// ```rust,ignore
 /// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
-/// use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+/// use windows_reactor::{Button, StackPanel, TextBlock, View};
 ///
 /// #[derive(Default, Clone, PartialEq, Debug)]
 /// pub struct Count(pub u32);
@@ -147,7 +147,7 @@ impl Ui for WinUi {
 ///         }
 ///     }
 ///
-///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         let (count, dispatch) = cx.read::<Count, _>();
 ///         let step = self.step;
 ///
@@ -212,7 +212,7 @@ pub trait Page: Default + Sized + 'static {
     ///     // empty until the next refresh arrives.
     ///     const CACHE_STATE_IN_MEMORY: bool = true;
     ///
-    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         TextBlock::new().text("processes").into()
     ///     }
     /// }
@@ -325,7 +325,7 @@ pub trait Page: Default + Sized + 'static {
     ///         Ok((processes, selection))
     ///     }
     ///
-    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         let (listing, _) = cx.read::<Listing, _>();
     ///         TextBlock::new().text(listing.0.clone()).into()
     ///     }
@@ -366,7 +366,7 @@ pub trait Page: Default + Sized + 'static {
     ///         Self { pid: params.pid }
     ///     }
     ///
-    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         TextBlock::new()
     ///             .text(format!("process {}", self.pid))
     ///             .into()
@@ -409,7 +409,7 @@ pub trait Page: Default + Sized + 'static {
     ///         }
     ///     }
     ///
-    ///     fn view(&self, _cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         TextBlock::new().text(self.text.clone()).into()
     ///     }
     /// }
@@ -498,7 +498,7 @@ pub trait Page: Default + Sized + 'static {
     ///         }
     ///     }
     ///
-    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         let (results, _) = cx.read::<Results, _>();
     ///         TextBlock::new().text(results.0.clone()).into()
     ///     }
@@ -520,16 +520,18 @@ pub trait Page: Default + Sized + 'static {
     ///
     /// <!-- shown: a page that answers a widget -->
     /// ```rust,ignore
+    /// use std::rc::Rc;
+    ///
     /// use guinea_winui::{Page, PageCx, UpdateCx, page};
-    /// use windows_reactor::{ChildrenControl, StackPanel, TextBlock, TextBox, View};
+    /// use windows_reactor::{StackPanel, TextBlock, TextBox, View};
     ///
     /// #[derive(Default)]
     /// pub struct Greeting {
-    ///     name: String,
+    ///     name: Rc<str>,
     /// }
     ///
     /// pub enum Msg {
-    ///     Named(String),
+    ///     Named(Rc<str>),
     /// }
     ///
     /// #[page]
@@ -542,12 +544,10 @@ pub trait Page: Default + Sized + 'static {
     ///         }
     ///     }
     ///
-    ///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         StackPanel::new()
     ///             .children((
-    ///                 TextBox::new()
-    ///                     .text(self.name.clone())
-    ///                     .on_text_changed(cx.on(Msg::Named)),
+    ///                 TextBox::new(&self.name).on_text_changed(cx.on(Msg::Named)),
     ///                 TextBlock::new().text(format!("hello, {}", self.name)),
     ///             ))
     ///             .into()
@@ -555,7 +555,7 @@ pub trait Page: Default + Sized + 'static {
     /// }
     /// ```
     /// <!-- /shown -->
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View;
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View;
 }
 
 /// A branch: an Elm node that also decides where its child goes.
@@ -580,7 +580,7 @@ pub trait Page: Default + Sized + 'static {
 /// use guinea_winui::{
 ///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
 /// };
-/// use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+/// use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 ///
 /// #[derive(Default, Clone, PartialEq, Debug)]
 /// pub struct Sidebar {
@@ -624,7 +624,7 @@ pub trait Page: Default + Sized + 'static {
 ///
 /// #[page]
 /// impl Page for Home {
-///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         // Installed by the shell above, and readable here because `Chrome`
 ///         // exports it. A page outside the shell asking for it does not
 ///         // compile.
@@ -664,7 +664,7 @@ pub trait Page: Default + Sized + 'static {
 ///         }
 ///     }
 ///
-///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
 ///         let (sidebar, _) = cx.read::<Sidebar, _>();
 ///         let (title, _) = cx.read::<Title, _>();
 ///
@@ -673,10 +673,9 @@ pub trait Page: Default + Sized + 'static {
 ///         } else {
 ///             "Home"
 ///         };
-///         let side: View = if sidebar.open {
-///             TextBlock::new().text(tab).into()
-///         } else {
-///             View::empty()
+///         let side = match sidebar.open {
+///             true => Border::new().content(TextBlock::new().text(tab)),
+///             false => Border::new(),
 ///         };
 ///
 ///         StackPanel::new()
@@ -744,7 +743,7 @@ pub trait Page: Default + Sized + 'static {
 /// #         match message {}
 /// #     }
 /// #
-///     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         let (sidebar, _) = cx.read::<Sidebar, _>();
 ///         TextBlock::new().text(format!("{}", sidebar.open)).into()
 ///     }
@@ -797,7 +796,7 @@ pub trait Layout: Default + Sized + 'static {
     ///         ctx.install::<Connection>(&params.context)
     ///     }
     ///
-    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
     ///         cx.outlet()
     ///     }
     /// }
@@ -849,7 +848,7 @@ pub trait Layout: Default + Sized + 'static {
     ///         Ok((ctx.install(&())?, ctx.install(&())?, title.plain()))
     ///     }
     ///
-    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
     ///         cx.outlet()
     ///     }
     /// }
@@ -897,7 +896,7 @@ pub trait Layout: Default + Sized + 'static {
     ///         }
     ///     }
     ///
-    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
     ///         cx.outlet()
     ///     }
     /// }
@@ -934,7 +933,7 @@ pub trait Layout: Default + Sized + 'static {
     /// <!-- shown: a tab strip -->
     /// ```rust,ignore
     /// use guinea_winui::{Layout, LayoutCx, Page, PageCx, layout, page};
-    /// use windows_reactor::{ChildrenControl, StackPanel, TextBlock, View};
+    /// use windows_reactor::{StackPanel, TextBlock, View};
     ///
     /// #[derive(Default)]
     /// pub struct Tabs;
@@ -943,7 +942,7 @@ pub trait Layout: Default + Sized + 'static {
     /// impl Layout for Tabs {
     ///     type Params = ();
     ///
-    ///     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
     ///         let tab = |name: &str, current: bool| {
     ///             TextBlock::new().text(if current {
     ///                 format!("[{name}]")
@@ -963,7 +962,7 @@ pub trait Layout: Default + Sized + 'static {
     /// }
     /// ```
     /// <!-- /shown -->
-    fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View;
+    fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View;
 }
 
 pub const fn segment_entry<P: Page>() -> SegmentEntry<WinUi> {
@@ -1272,8 +1271,26 @@ fn marked<S>(view: View) -> View {
 }
 
 fn open<C: Component>(cx: &ComponentContext<C>, window: View) {
-    if !cx.open_window(window) {
+    if !cx.open_window::<Shown>(window) {
         tracing::warn!("no active publication; the window was not opened");
+    }
+}
+
+/// A window whose content is a view already built: the reactor opens windows
+/// as components, and guinea hands it views. Held in a border, because a
+/// component's view has to start with an element of its own.
+pub(crate) struct Shown;
+
+impl Component for Shown {
+    type Input = View;
+    type Message = ();
+
+    fn create(_input: &View, _cx: &ComponentContext<Self>) -> Self {
+        Self
+    }
+
+    fn view(&self, input: &View, _cx: &mut ViewContext<Self>) -> View {
+        Border::new().content(input.clone()).into()
     }
 }
 
@@ -1289,7 +1306,7 @@ impl Refresher {
     pub fn of<C: Refreshable>(cx: &ViewContext<C>) -> Self {
         let sender = cx.sender();
         Self(Rc::new(move || {
-            sender.send(C::refresh());
+            let _gone = !sender.send(C::refresh());
         }))
     }
 
@@ -1476,7 +1493,7 @@ where
 
         let sender = cx.sender();
         let question = router.on_question(move || {
-            sender.send(Routed::Asked);
+            let _gone = !sender.send(Routed::Asked);
         });
 
         let failure = router.navigate(initial.clone()).err().map(|error| {
@@ -1511,34 +1528,37 @@ where
         let nav = NavigateHandle::new(
             self.router.clone(),
             RouteSink::new(move |route: R| {
-                sender.send(Routed::Arrived(route));
+                let _gone = !sender.send(Routed::Arrived(route));
             }),
         );
 
         #[cfg(feature = "harness")]
         crate::harness::remember_nav(&nav);
 
-        let tree = match (self.router.active_chain(), &self.failure) {
+        let tree: View = match (self.router.active_chain(), &self.failure) {
             (Some(_), _) => self.router.render(&()),
             (None, Some(failure)) => TextBlock::new().text(failure.clone()).into(),
-            (None, None) => View::empty(),
+            (None, None) => Grid::new().into(),
         };
-        let tree = Grid::new().children((tree, question(&self.router)));
-        let tree = View::provide(
+        let tree = provide(
             router_context(),
             Some(RouterHandle(self.router.clone())),
             tree,
         );
-        let tree = View::provide(route_context::<R>(), Some(self.route.clone()), tree);
-        View::provide(nav_context::<R>(), Some(nav), tree)
+        let tree = provide(route_context::<R>(), Some(self.route.clone()), tree);
+        let tree = provide(nav_context::<R>(), Some(nav), tree);
+
+        Grid::new()
+            .children((tree,))
+            .content_dialog(question(&self.router))
     }
 }
 
 /// The question a guard is waiting on, as a dialog whose buttons answer it.
 ///
-/// Always in the tree and shown only while there is a question, so the
-/// route's own tree keeps its place beside it whether one is asked or not.
-fn question(router: &Rc<Router<WinUi>>) -> View {
+/// Always attached to the root and shown only while there is a question, so
+/// the route's own tree keeps its place whether one is asked or not.
+fn question(router: &Rc<Router<WinUi>>) -> ContentDialog {
     let pending = router.pending();
     let open = pending.is_some();
     let ask = pending.unwrap_or_else(|| guinea_core::guard::Ask::new("", "", ""));
@@ -1565,7 +1585,7 @@ pub trait UseRouteChange {
     fn use_route_change(&mut self, hook: impl Fn(Option<&str>, &str) + 'static);
 }
 
-impl<C: Component> UseRouteChange for ViewContext<C> {
+impl<C: Component> UseRouteChange for ViewContext<'_, C> {
     fn use_route_change(&mut self, hook: impl Fn(Option<&str>, &str) + 'static) {
         let router = self.use_context(router_context()).unwrap_or_else(|| {
             panic!(
@@ -1587,7 +1607,7 @@ pub trait UseNavigate {
         R: RouteChain<WinUi> + Clone + PartialEq + 'static;
 }
 
-impl<C: Component> UseNavigate for ViewContext<C> {
+impl<C: Component> UseNavigate for ViewContext<'_, C> {
     fn use_navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
     where
         R: RouteChain<WinUi> + Clone + PartialEq + 'static,
@@ -1608,7 +1628,7 @@ pub trait UseRoute {
         R: Clone + PartialEq + 'static;
 }
 
-impl<C: Component> UseRoute for ViewContext<C> {
+impl<C: Component> UseRoute for ViewContext<'_, C> {
     fn use_route<R>(&mut self) -> R
     where
         R: Clone + PartialEq + 'static,
@@ -1628,13 +1648,13 @@ impl<C: Component> UseRoute for ViewContext<C> {
 /// Carries the page type, not because rendering needs it, but because reading
 /// does: what a segment may read is a fact about where it sits, and this is
 /// where that fact enters the signature.
-pub struct PageCx<'a, P: Page> {
+pub struct PageCx<'a, 'v, P: Page> {
     props: SegmentProps<WinUi>,
-    cx: &'a mut ViewContext<PageNode<P>>,
+    cx: &'a mut ViewContext<'v, PageNode<P>>,
     page: PhantomData<fn() -> P>,
 }
 
-impl<P: Page> PageCx<'_, P> {
+impl<P: Page> PageCx<'_, '_, P> {
     /// Seals a widget's event as one of this page's own messages.
     ///
     /// The seam, and the whole reason a parent never names a child's message
@@ -1656,8 +1676,10 @@ impl<P: Page> PageCx<'_, P> {
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {
-            if let Some(window) = window.borrow_mut().take() {
-                sender.send(Signal::OpenWindow(window));
+            if let Some(window) = window.borrow_mut().take()
+                && !sender.send(Signal::OpenWindow(window))
+            {
+                tracing::warn!("the segment asking for a window is gone; not opened");
             }
         })
     }
@@ -1671,7 +1693,7 @@ impl<P: Page> PageCx<'_, P> {
     }
 }
 
-impl<P: Page + Segment> PageCx<'_, P> {
+impl<P: Page + Segment> PageCx<'_, '_, P> {
     /// Reads a reducer's state, and asks this segment to publish again when it
     /// changes.
     ///
@@ -1688,7 +1710,7 @@ impl<P: Page + Segment> PageCx<'_, P> {
     }
 }
 
-impl<P: Page + Segment> Reads for PageCx<'_, P> {
+impl<P: Page + Segment> Reads for PageCx<'_, '_, P> {
     type Segment = P;
 
     fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
@@ -1708,26 +1730,26 @@ impl<P: Page + Segment> Reads for PageCx<'_, P> {
     }
 }
 
-impl<P: Page> std::ops::Deref for PageCx<'_, P> {
-    type Target = ViewContext<PageNode<P>>;
+impl<'v, P: Page> std::ops::Deref for PageCx<'_, 'v, P> {
+    type Target = ViewContext<'v, PageNode<P>>;
     fn deref(&self) -> &Self::Target {
         self.cx
     }
 }
 
-impl<P: Page> std::ops::DerefMut for PageCx<'_, P> {
+impl<P: Page> std::ops::DerefMut for PageCx<'_, '_, P> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.cx
     }
 }
 
-pub struct LayoutCx<'a, L: Layout> {
+pub struct LayoutCx<'a, 'v, L: Layout> {
     props: SegmentProps<WinUi>,
-    cx: &'a mut ViewContext<LayoutNode<L>>,
+    cx: &'a mut ViewContext<'v, LayoutNode<L>>,
     layout: PhantomData<fn() -> L>,
 }
 
-impl<L: Layout> LayoutCx<'_, L> {
+impl<L: Layout> LayoutCx<'_, '_, L> {
     /// See [`PageCx::on`].
     pub fn on<T>(&self, message: impl Fn(T) -> L::Message + 'static) -> Callback<T>
     where
@@ -1755,8 +1777,10 @@ impl<L: Layout> LayoutCx<'_, L> {
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {
-            if let Some(window) = window.borrow_mut().take() {
-                sender.send(Signal::OpenWindow(window));
+            if let Some(window) = window.borrow_mut().take()
+                && !sender.send(Signal::OpenWindow(window))
+            {
+                tracing::warn!("the segment asking for a window is gone; not opened");
             }
         })
     }
@@ -1770,7 +1794,7 @@ impl<L: Layout> LayoutCx<'_, L> {
     }
 }
 
-impl<L: Layout + Segment> LayoutCx<'_, L> {
+impl<L: Layout + Segment> LayoutCx<'_, '_, L> {
     /// See [`PageCx::read`].
     pub fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
@@ -1781,7 +1805,7 @@ impl<L: Layout + Segment> LayoutCx<'_, L> {
     }
 }
 
-impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
+impl<L: Layout + Segment> Reads for LayoutCx<'_, '_, L> {
     type Segment = L;
 
     fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
@@ -1801,14 +1825,14 @@ impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
     }
 }
 
-impl<L: Layout> std::ops::Deref for LayoutCx<'_, L> {
-    type Target = ViewContext<LayoutNode<L>>;
+impl<'v, L: Layout> std::ops::Deref for LayoutCx<'_, 'v, L> {
+    type Target = ViewContext<'v, LayoutNode<L>>;
     fn deref(&self) -> &Self::Target {
         self.cx
     }
 }
 
-impl<L: Layout> std::ops::DerefMut for LayoutCx<'_, L> {
+impl<L: Layout> std::ops::DerefMut for LayoutCx<'_, '_, L> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.cx
     }

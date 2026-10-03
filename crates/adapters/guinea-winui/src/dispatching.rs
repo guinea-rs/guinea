@@ -9,7 +9,11 @@ impl UiDispatcher for Proxy {
     fn init(&self) {}
 
     fn dispatch(&self, task: UiTask) {
-        if let Err(error) = self.0.dispatch(move |_| task()) {
+        let run = move |_: &windows_reactor::AppContext| {
+            task();
+            Ok(())
+        };
+        if let Err(error) = self.0.dispatch(run) {
             tracing::debug!(%error, "the UI thread no longer takes work; dropped");
         }
     }

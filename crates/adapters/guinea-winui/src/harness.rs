@@ -23,131 +23,58 @@ use guinea_core::scope::Scope;
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
 };
-use windows_reactor::test::{
-    Command, EventId, EventPayload, Pump, QueuedEvent, RealizedContainer, RecordingRuntime,
-    SelectionChange, SlotId,
+use windows_reactor::{
+    Border, ComponentHost, ComponentNode, ContentDialogResult, EventDispatch, EventId, EventPayload, EventValue,
+    Mutation, ObjectType, Observation, PointerEventInfo, Property, RealizationRequest,
+    RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange, View,
+    component,
 };
-use windows_reactor::{Border, ContentDialogResult, PointerEventInfo, View};
 
-pub use windows_reactor::test::{NodeId, PropertyId, PropertyValue};
+pub use windows_reactor::{ObjectId as NodeId, PropertyId, PropertyValue};
 
 use crate::mark::MarkExt;
 use crate::winui::{
-    Layout, LayoutNode, Page, PageNode, RouterRoot, Signal, WinUi, install_layout, install_page,
-    layout_entry, nav_context, route_context, segment_entry,
+    Layout, LayoutNode, Page, PageNode, RouterRoot, Shown, Signal, WinUi, install_layout,
+    install_page, layout_entry, nav_context, route_context, segment_entry,
 };
 
-/// How many component turns one pass may run before it looks again.
+/// How many messages one pass may run before it looks again.
 const TURNS: usize = 64;
 
-/// Every control's `IsEnabled`: the reactor names it per control.
-const ENABLED: &[PropertyId] = &[
-    PropertyId::AppBarButtonIsEnabled,
-    PropertyId::AutoSuggestBoxIsEnabled,
-    PropertyId::ButtonIsEnabled,
-    PropertyId::CalendarDatePickerIsEnabled,
-    PropertyId::CalendarViewIsEnabled,
-    PropertyId::CheckBoxIsEnabled,
-    PropertyId::ColorPickerIsEnabled,
-    PropertyId::ComboBoxIsEnabled,
-    PropertyId::DatePickerIsEnabled,
-    PropertyId::DropDownButtonIsEnabled,
-    PropertyId::HyperlinkButtonIsEnabled,
-    PropertyId::ListBoxIsEnabled,
-    PropertyId::NavigationViewIsEnabled,
-    PropertyId::NumberBoxIsEnabled,
-    PropertyId::PasswordBoxIsEnabled,
-    PropertyId::ProgressBarIsEnabled,
-    PropertyId::ProgressRingIsEnabled,
-    PropertyId::RadioButtonIsEnabled,
-    PropertyId::RepeatButtonIsEnabled,
-    PropertyId::RichEditBoxIsEnabled,
-    PropertyId::SliderIsEnabled,
-    PropertyId::SplitButtonIsEnabled,
-    PropertyId::TextBoxIsEnabled,
-    PropertyId::TimePickerIsEnabled,
-    PropertyId::ToggleButtonIsEnabled,
-    PropertyId::ToggleSwitchIsEnabled,
-];
+/// What the host calls the one component it mounts.
+const ROOT: &str = "mounted";
 
-/// Every named place a control holds a child besides its plain children - a
-/// `NavigationView`'s menu items and content, an `Expander`'s header. The
-/// reactor keeps its own list of which control has which private, so the
-/// tree is walked through all of them - a `NavigationView`'s pane before its
-/// content, the way it reads on screen.
-const SLOTS: &[SlotId] = &[
-    SlotId::TextBoxHeader,
-    SlotId::AutoSuggestBoxHeader,
-    SlotId::PasswordBoxHeader,
-    SlotId::NumberBoxHeader,
-    SlotId::SliderHeader,
-    SlotId::TitleBarContent,
-    SlotId::TitleBarRightHeader,
-    SlotId::NavigationViewHeader,
-    SlotId::NavigationViewPaneCustomContent,
-    SlotId::NavigationViewMenuItems,
-    SlotId::NavigationViewFooterMenuItems,
-    SlotId::NavigationViewPaneFooter,
-    SlotId::NavigationViewContent,
-    SlotId::NavigationViewItemIcon,
-    SlotId::NavigationViewItemContent,
-    SlotId::NavigationViewItemMenuItems,
-    SlotId::SplitViewPane,
-    SlotId::SplitViewContent,
-    SlotId::ToggleSwitchHeader,
-    SlotId::ToggleSwitchOnContent,
-    SlotId::ToggleSwitchOffContent,
-    SlotId::RadioButtonsHeader,
-    SlotId::ListBoxItems,
-    SlotId::ExpanderHeader,
-    SlotId::ExpanderContent,
-    SlotId::ComboBoxHeader,
-    SlotId::PivotItems,
-    SlotId::FlipViewItems,
-    SlotId::SelectorBarItems,
-    SlotId::SelectorBarItemIcon,
-    SlotId::TabViewTabItems,
-    SlotId::CommandBarPrimaryCommands,
-    SlotId::CommandBarSecondaryCommands,
-    SlotId::AppBarButtonIcon,
-    SlotId::MenuBarItems,
-    SlotId::DatePickerHeader,
-    SlotId::TimePickerHeader,
-    SlotId::CalendarDatePickerHeader,
-    SlotId::ListViewItems,
-    SlotId::GridViewItems,
-    SlotId::RichEditBoxHeader,
-    SlotId::ViewboxChild,
+/// Every place a control holds a child, in the order they read on screen - a
+/// `NavigationView`'s pane before its content, a header before what it heads.
+const RELATIONS: &[RelationId] = &[
+    RelationId::Child,
+    RelationId::Children,
+    RelationId::Header,
+    RelationId::RightHeader,
+    RelationId::PaneCustomContent,
+    RelationId::MenuItems,
+    RelationId::FooterMenuItems,
+    RelationId::PaneFooter,
+    RelationId::Pane,
+    RelationId::Icon,
+    RelationId::Content,
+    RelationId::OnContent,
+    RelationId::OffContent,
+    RelationId::Items,
+    RelationId::TabItems,
+    RelationId::PrimaryCommands,
+    RelationId::SecondaryCommands,
+    RelationId::Roots,
 ];
 
 /// The controls a click turns over, by kind: the event that says so, the
 /// state it turns, and whether a click turns it back. A radio button does
 /// not: a click only ever checks it.
-const FLIPS: &[(&str, EventId, PropertyId, bool)] = &[
-    (
-        "ToggleSwitch",
-        EventId::ToggleSwitchToggled,
-        PropertyId::ToggleSwitchIsOn,
-        true,
-    ),
-    (
-        "CheckBox",
-        EventId::CheckBoxIsCheckedChanged,
-        PropertyId::CheckBoxIsChecked,
-        true,
-    ),
-    (
-        "ToggleButton",
-        EventId::ToggleButtonIsCheckedChanged,
-        PropertyId::ToggleButtonIsChecked,
-        true,
-    ),
-    (
-        "RadioButton",
-        EventId::RadioButtonChecked,
-        PropertyId::RadioButtonIsChecked,
-        false,
-    ),
+const FLIPS: &[(ObjectType, EventId, PropertyId, bool)] = &[
+    (ObjectType::ToggleSwitch, EventId::Toggled, PropertyId::IsOn, true),
+    (ObjectType::CheckBox, EventId::IsCheckedChanged, PropertyId::IsChecked, true),
+    (ObjectType::ToggleButton, EventId::IsCheckedChanged, PropertyId::IsChecked, true),
+    (ObjectType::RadioButton, EventId::Checked, PropertyId::IsChecked, false),
 ];
 
 type Sender<M> = Rc<dyn Fn(Signal<M>) -> bool>;
@@ -240,6 +167,15 @@ impl Mount<WinUi> for MountOutlet {
 const OUTLET: SegmentEntry<WinUi> =
     SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, &MountOutlet, false);
 
+/// A host with no window for `root`, recording every batch it applies - a
+/// list says how long it is only in the batch that sets its source.
+fn host(root: ComponentNode) -> Result<ComponentHost<RecordingAdapter>, String> {
+    let mut adapter = RecordingAdapter::new();
+    adapter.record_batches(true);
+
+    ComponentHost::mount(adapter, [root]).map_err(|refused| format!("{refused:?}"))
+}
+
 /// A drag with the left button, for [`Mounted::drag`]: down on an element,
 /// moved by `dx`, `dy` in even steps, and up.
 ///
@@ -317,7 +253,8 @@ impl Drag {
 
     fn pressed(&self, captures: bool) -> PointerEventInfo {
         PointerEventInfo {
-            capture_succeeded: captures,
+            capture_succeeded: Some(captures),
+            is_captured: captures,
             ..self.at(0, true)
         }
     }
@@ -438,7 +375,9 @@ impl Node {
 /// A layout draws an [`Outlet`] where the page below it would go.
 pub struct Mounted<'h, S> {
     harness: &'h Harness,
-    pump: Pump<RecordingRuntime>,
+    host: ComponentHost<RecordingAdapter>,
+    /// How many of the batches the adapter recorded have been read.
+    read: usize,
     /// The items brought into view so far, by list and index.
     realized: HashMap<(NodeId, usize), NodeId>,
     /// How many items each list holds, as it last said.
@@ -448,8 +387,6 @@ pub struct Mounted<'h, S> {
     navigated: Option<Box<dyn Any>>,
     /// The router, when the whole route tree is [mounted](Self::routed).
     router: Option<Rc<Router<WinUi>>>,
-    /// The root's dialog for a guard's question, found as it was created.
-    dialog: Option<NodeId>,
     kind: PhantomData<S>,
     /// The segment it is mounted into, kept for as long as it is: dropped
     /// after the page, the way leaving a page tears down its scope.
@@ -479,7 +416,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// [`mount`](Self::mount), with the view handed to `wrap` first - for
     /// what a layout above it would give it, such as a context:
-    /// `|page| View::provide(&SCHEME, scheme, page)`.
+    /// `|page| provide(&SCHEME, scheme, page)`.
     pub fn mount_with<K>(
         segment: Segment<'h>,
         params: <S as Mountable<K>>::Params,
@@ -503,21 +440,17 @@ impl<'h, S: 'static> Mounted<'h, S> {
             cursor: depth - 1,
         };
 
-        let mut runtime = RecordingRuntime::default();
-        runtime.record_commands(true);
-
-        let mut pump = Pump::new(runtime);
-        pump.mount_view(wrap(S::component(props)))
-            .map_err(|refused| anyhow::anyhow!("mounting {}: {refused:?}", std::any::type_name::<S>()))?;
+        let host = host(component::<Shown>(ROOT, wrap(S::component(props))))
+            .map_err(|refused| anyhow::anyhow!("mounting {}: {refused}", std::any::type_name::<S>()))?;
 
         let mut mounted = Self {
             harness: segment.harness(),
-            pump,
+            host,
+            read: 0,
             realized: HashMap::new(),
             counts: HashMap::new(),
             navigated: None,
             router: None,
-            dialog: None,
             kind: PhantomData,
             segment,
         };
@@ -547,8 +480,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }));
 
         let mut mounted = Self::mount_with(segment, params, |view| {
-            let view = View::provide(route_context::<R>(), Some(route), view);
-            View::provide(nav_context::<R>(), Some(nav), view)
+            let view = windows_reactor::provide(route_context::<R>(), Some(route), view);
+            windows_reactor::provide(nav_context::<R>(), Some(nav), view)
         })?;
         mounted.navigated = Some(Box::new(navigated));
 
@@ -570,14 +503,17 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// Answers the guard's question the way the dialog's buttons do: `true`
     /// for the one that lets the navigation go on.
     pub fn answer(&mut self, confirm: bool) -> Act<'h> {
-        let dialog = self
-            .dialog
-            .expect("a route tree mounted with `routed` keeps a dialog for a guard's question");
         assert!(
             self.question().is_some(),
             "no guard is asking anything:\n{:#?}",
             self.tree()
         );
+        let (dialog, open) = self
+            .host
+            .adapter()
+            .content_dialog(self.page_root())
+            .expect("a route tree mounted with `routed` keeps a dialog for a guard's question");
+        assert!(open, "a guard is asking, but its dialog is not shown");
 
         let result = match confirm {
             true => ContentDialogResult::Primary,
@@ -586,13 +522,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         let harness = self.harness;
         let act = harness.record("answer", || {
-            let revision = self
-                .pump
-                .event_revision(dialog, EventId::ContentDialogClosed)
-                .expect("the dialog listens for its own closing");
-            self.pump
-                .runtime_mut()
-                .complete_content_dialog(dialog, revision, result);
+            let answered = self
+                .host
+                .test_adapter_mut()
+                .complete_content_dialog(dialog, result);
+            assert!(answered, "the dialog was not waiting for an answer");
             self.turn();
         });
         self.settle();
@@ -670,12 +604,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// The first element, depth first, that carries `mark`.
     pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
-        self.first(self.root()?, PropertyId::AutomationId, mark.name())
+        self.first_marked(self.root()?, mark.name())
     }
 
     /// The first element, depth first, that shows `text`.
     pub fn find_text(&self, text: &str) -> Option<NodeId> {
-        self.first(self.root()?, PropertyId::TextBlockText, text)
+        self.first_showing(self.root()?, text)
     }
 
     /// The part of the page that carries `mark`, to find and click in.
@@ -733,7 +667,32 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// What `node` has for `property`, if it was ever set.
     pub fn property(&self, node: NodeId, property: PropertyId) -> Option<&PropertyValue> {
-        self.pump.runtime().node(node)?.property(property)
+        self.graph()
+            .properties(node)?
+            .iter()
+            .find(|set| set.id == property)
+            .map(|set| &set.value)
+    }
+
+    fn graph(&self) -> &RetainedGraph {
+        self.host.runtime().graph()
+    }
+
+    /// What `node` calls when `event` happens, if it listens for it.
+    fn listener(&self, node: NodeId, event: EventId) -> Option<EventValue> {
+        self.graph()
+            .events(node)?
+            .iter()
+            .find(|listening| listening.id == event)
+            .map(|listening| listening.value.clone())
+    }
+
+    /// Raises `event` on `node` the way the control would, if it listens.
+    fn raise(&mut self, node: NodeId, event: EventId, payload: EventPayload) {
+        if let Some(listener) = self.listener(node, event) {
+            self.host
+                .queue_event(EventDispatch::new(node, event, listener, payload));
+        }
     }
 
     /// The part of the page from `node` down - one found in a [`Node`], say,
@@ -758,27 +717,19 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// Reads what the lists said of their length since the last look.
     fn note_counts(&mut self) {
-        let said: Vec<(NodeId, usize)> = self
-            .pump
-            .runtime()
-            .commands()
+        let batches = self.host.adapter().batches();
+        let said: Vec<(NodeId, usize)> = batches[self.read..]
             .iter()
             .flatten()
-            .filter_map(|command| match command {
-                Command::CreateVirtualCollection {
-                    node, item_count, ..
-                }
-                | Command::ResetVirtualCollection {
-                    node, item_count, ..
-                } => Some((*node, *item_count)),
+            .filter_map(|mutation| match mutation {
+                Mutation::SetVirtualSource {
+                    object, item_count, ..
+                } => Some((*object, *item_count)),
                 _ => None,
             })
             .collect();
+        self.read = batches.len();
         self.counts.extend(said);
-
-        let runtime = self.pump.runtime_mut();
-        runtime.record_commands(false);
-        runtime.record_commands(true);
     }
 
     fn first_item(&mut self, under: NodeId, test: impl Fn(&Node) -> bool) -> NodeId {
@@ -807,12 +758,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     fn marked(&self, under: NodeId, mark: &impl Mark) -> NodeId {
         let name = mark.name();
-        self.first(under, PropertyId::AutomationId, name)
+        self.first_marked(under, name)
             .unwrap_or_else(|| panic!("nothing here is marked {name:?}:\n{:#?}", self.node(under)))
     }
 
     fn showing(&self, under: NodeId, text: &str) -> NodeId {
-        self.first(under, PropertyId::TextBlockText, text)
+        self.first_showing(under, text)
             .unwrap_or_else(|| panic!("nothing here shows {text:?}:\n{:#?}", self.node(under)))
     }
 
@@ -820,33 +771,37 @@ impl<'h, S: 'static> Mounted<'h, S> {
     fn realize(&mut self, under: NodeId, index: usize) -> NodeId {
         let list = self.list_of(under);
 
-        let children = |mounted: &Self| -> Vec<NodeId> {
-            mounted
-                .pump
-                .runtime()
-                .node(list)
-                .map(|recorded| recorded.children().to_vec())
-                .unwrap_or_default()
-        };
-
         if let Some(item) = self.realized.get(&(list, index))
-            && children(self).contains(item)
+            && self.graph().kind(*item).is_some()
         {
             return *item;
         }
 
-        let before = children(self);
-        self.pump
-            .runtime_mut()
-            .queue_realize(list, RealizedContainer(index as u64 + 1), index);
-        self.pump
-            .process_realizations()
-            .expect("bringing an item into view");
+        let source_revision = self
+            .graph()
+            .virtual_source_revision(list)
+            .expect("a list has a source");
+        let from = self.host.adapter().batches().len();
+        self.host.queue_realization(RealizationRequest::Realize {
+            collection: list,
+            container: RealizedContainer(index as u64 + 1),
+            index,
+            source_revision,
+        });
         self.settle();
 
-        let item = children(self)
-            .into_iter()
-            .find(|child| !before.contains(child))
+        let item = self.host.adapter().batches()[from..]
+            .iter()
+            .flatten()
+            .find_map(|mutation| match mutation {
+                Mutation::Realize {
+                    parent,
+                    index: at,
+                    child,
+                    ..
+                } if *parent == list && *at == index => Some(*child),
+                _ => None,
+            })
             .unwrap_or_else(|| panic!("the list has no item {index}"));
         self.realized.insert((list, index), item);
 
@@ -857,7 +812,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let mut unseen = vec![under];
 
         while let Some(node) = unseen.pop() {
-            if self.pump.runtime().source_revision(node).is_some() {
+            if self.graph().virtual_source_revision(node).is_some() {
                 return Some(node);
             }
 
@@ -867,30 +822,34 @@ impl<'h, S: 'static> Mounted<'h, S> {
         None
     }
 
-    /// What `node` holds, in order: its children, then what sits in each of
-    /// its slots, then its flyout's content - closed or open, as an
-    /// `Expander`'s content is walked folded or not.
+    /// What `node` holds, in order: what sits in each place it holds a child,
+    /// items brought into view among them, then its flyout's content -
+    /// closed or open, as an `Expander`'s content is walked folded or not.
     fn below(&self, node: NodeId) -> Vec<NodeId> {
-        let runtime = self.pump.runtime();
-        let Some(recorded) = runtime.node(node) else {
+        let graph = self.graph();
+        let adapter = self.host.adapter();
+        if graph.kind(node).is_none() {
             return Vec::new();
-        };
-
-        let mut below = recorded.children().to_vec();
-        for slot in SLOTS {
-            below.extend(recorded.slot(*slot));
-            below.extend_from_slice(recorded.slot_children(*slot));
         }
-        below.extend(runtime.flyout(node).map(|(content, _)| content));
+
+        let mut below = Vec::new();
+        for relation in RELATIONS {
+            below.extend(graph.child(node, *relation));
+            if let Some(children) = adapter.children(node, *relation) {
+                below.extend_from_slice(children);
+            }
+        }
+        below.extend(adapter.flyout(node).map(|(content, _)| content));
 
         below
     }
 
-    fn kind(&self, node: NodeId) -> String {
-        self.pump
-            .runtime()
-            .node(node)
-            .and_then(|recorded| recorded.kind())
+    fn kind(&self, node: NodeId) -> Option<ObjectType> {
+        self.graph().kind(node)
+    }
+
+    fn kind_name(&self, node: NodeId) -> String {
+        self.kind(node)
             .map(|kind| format!("{kind:?}"))
             .unwrap_or_else(|| "?".to_string())
     }
@@ -899,10 +858,10 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// state it turns and what it turns it to: the opposite of what it shows
     /// now, or on for one that does not turn back.
     fn flip(&self, node: NodeId) -> Option<(NodeId, EventId, PropertyId, bool)> {
-        let kind = self.kind(node);
+        let kind = self.kind(node)?;
         let (_, event, state, turns_back) = FLIPS.iter().find(|(flips, ..)| *flips == kind)?;
 
-        let now = matches!(self.property(node, *state), Some(PropertyValue::Bool(true)));
+        let now = bool_of(self.property(node, *state)) == Some(true);
 
         Some((node, *event, *state, !(*turns_back && now)))
     }
@@ -912,7 +871,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     fn select(&mut self, item: NodeId, parents: &HashMap<NodeId, NodeId>) {
         let mut above = parents.get(&item).copied();
         while let Some(node) = above {
-            if self.kind(node) == "NavigationView" {
+            if self.kind(node) == Some(ObjectType::NavigationView) {
                 break;
             }
             above = parents.get(&node).copied();
@@ -921,23 +880,16 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let view = above.unwrap_or_else(|| {
             panic!("a NavigationViewItem outside a NavigationView:\n{:#?}", self.node(item))
         });
-        let Some(revision) = self
-            .pump
-            .event_revision(view, EventId::NavigationViewSelectionChanged)
-        else {
-            return;
-        };
 
-        let tag = text_of(self.property(item, PropertyId::NavigationViewItemTag));
-        self.pump.queue_event(QueuedEvent::new(
+        let tag = text_of(self.property(item, PropertyId::Tag));
+        self.raise(
             view,
-            EventId::NavigationViewSelectionChanged,
-            revision,
-            EventPayload::SelectionChange(SelectionChange {
+            EventId::SelectionChanged,
+            EventPayload::Selection(SelectionChange {
                 item: Some(item),
-                tag,
+                value: tag.map(Into::into),
             }),
-        ));
+        );
     }
 
     /// A click as WinUI routes one: the pointer bubbles up from `found`
@@ -962,19 +914,15 @@ impl<'h, S: 'static> Mounted<'h, S> {
                 flipped = Some(flip);
                 break;
             }
-            if self.pump.event_revision(node, EventId::ButtonClick).is_some() {
+            if self.listener(node, EventId::Click).is_some() {
                 button = Some(node);
                 break;
             }
-            if self.kind(node) == "NavigationViewItem" {
+            if self.kind(node) == Some(ObjectType::NavigationViewItem) {
                 item = Some(node);
                 break;
             }
-            if self
-                .pump
-                .event_revision(node, EventId::BorderPointerReleased)
-                .is_some()
-            {
+            if self.listener(node, EventId::PointerReleased).is_some() {
                 bubbled.push(node);
             }
             at = parents.get(&node).copied();
@@ -990,38 +938,19 @@ impl<'h, S: 'static> Mounted<'h, S> {
             ..Default::default()
         };
         for node in &bubbled {
-            self.pointer(*node, EventId::BorderPointerPressed, pressed);
+            self.pointer(*node, EventId::PointerPressed, pressed);
         }
         for node in &bubbled {
-            self.pointer(*node, EventId::BorderPointerReleased, PointerEventInfo::default());
+            self.pointer(*node, EventId::PointerReleased, PointerEventInfo::default());
         }
         if let Some(item) = item {
             self.select(item, &parents);
         }
         if let Some((control, event, state, to)) = flipped {
-            self.pump
-                .runtime_mut()
-                .record_property_observation(control, state, PropertyValue::Bool(to))
-                .expect("the control a click reached is in the tree");
-
-            if let Some(revision) = self.pump.event_revision(control, event) {
-                self.pump.queue_event(QueuedEvent::new(
-                    control,
-                    event,
-                    revision,
-                    EventPayload::Bool(to),
-                ));
-            }
+            self.turn_over(control, event, state, to);
         }
-        if let Some(button) = button
-            && let Some(revision) = self.pump.event_revision(button, EventId::ButtonClick)
-        {
-            self.pump.queue_event(QueuedEvent::new(
-                button,
-                EventId::ButtonClick,
-                revision,
-                EventPayload::Unit,
-            ));
+        if let Some(button) = button {
+            self.raise(button, EventId::Click, EventPayload::Unit);
         }
 
         let harness = self.harness;
@@ -1051,15 +980,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         assert!(
             path.iter()
-                .any(|node| self.pump.event_revision(*node, EventId::BorderPointerPressed).is_some()),
+                .any(|node| self.listener(*node, EventId::PointerPressed).is_some()),
             "{label:?} is on the page, but nothing at or above it listens for the pointer going down"
         );
 
         let captured = path.iter().position(|node| {
-            matches!(
-                self.property(*node, PropertyId::BorderCapturePointerOnPress),
-                Some(PropertyValue::Bool(true))
-            )
+            bool_of(self.property(*node, PropertyId::CapturePointerOnPress)) == Some(true)
         });
         let held = path[captured.unwrap_or(0)..].to_vec();
         let capture = captured.map(|at| path[at]);
@@ -1068,32 +994,23 @@ impl<'h, S: 'static> Mounted<'h, S> {
         harness.record(name, || {
             for node in &path {
                 let pressed = drag.pressed(Some(*node) == capture);
-                self.pointer(*node, EventId::BorderPointerPressed, pressed);
+                self.pointer(*node, EventId::PointerPressed, pressed);
             }
             self.turn();
 
             for step in 1..=drag.steps {
                 for node in &held {
-                    self.pointer(*node, EventId::BorderPointerMoved, drag.moved(step));
+                    self.pointer(*node, EventId::PointerMoved, drag.moved(step));
                 }
                 self.turn();
             }
 
-            if let Some(capture) = capture
-                && let Some(revision) = self
-                    .pump
-                    .event_revision(capture, EventId::BorderPointerCaptureLost)
-            {
-                self.pump.queue_event(QueuedEvent::new(
-                    capture,
-                    EventId::BorderPointerCaptureLost,
-                    revision,
-                    EventPayload::Unit,
-                ));
+            if let Some(capture) = capture {
+                self.pointer(capture, EventId::PointerCaptureLost, drag.released());
             }
             if !drag.lost {
                 for node in &held {
-                    self.pointer(*node, EventId::BorderPointerReleased, drag.released());
+                    self.pointer(*node, EventId::PointerReleased, drag.released());
                 }
             }
             self.turn();
@@ -1124,20 +1041,42 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// Whether `node` is a control set to disabled - which takes no input, and
     /// neither does anything inside it.
     fn disabled(&self, node: NodeId) -> bool {
-        ENABLED
-            .iter()
-            .any(|id| matches!(self.property(node, *id), Some(PropertyValue::Bool(false))))
+        bool_of(self.property(node, PropertyId::IsEnabled)) == Some(false)
     }
 
+    /// The pointer `event` on `node`, carried the way the element listens
+    /// for it: with the pointer's state, or with nothing.
     fn pointer(&mut self, node: NodeId, event: EventId, info: PointerEventInfo) {
-        if let Some(revision) = self.pump.event_revision(node, event) {
-            self.pump.queue_event(QueuedEvent::new(
-                node,
-                event,
-                revision,
-                EventPayload::PointerEventInfo(info),
-            ));
-        }
+        let payload = match self.listener(node, event) {
+            Some(EventValue::Unit(_)) => EventPayload::Unit,
+            _ => EventPayload::PointerEventInfo(info),
+        };
+        self.raise(node, event, payload);
+    }
+
+    /// Turns `control` over to `to` the way WinUI does: the state changes on
+    /// the control, and the event that says so comes with it.
+    fn turn_over(&mut self, control: NodeId, event: EventId, state: PropertyId, to: bool) {
+        let value = match self.property(control, state) {
+            Some(PropertyValue::OptionalBool(_)) => PropertyValue::OptionalBool(Some(to)),
+            _ => PropertyValue::Bool(to),
+        };
+        let observation = Observation::SetProperty {
+            object: control,
+            property: Property { id: state, value },
+        };
+
+        let dispatch = self.listener(control, event).map(|listener| {
+            let payload = match listener {
+                EventValue::OptionalBool(_) => EventPayload::OptionalBool(Some(to)),
+                _ => EventPayload::Bool(to),
+            };
+            EventDispatch::new(control, event, listener, payload)
+        });
+
+        self.host
+            .test_adapter_mut()
+            .queue_native_event(Some(observation), dispatch);
     }
 
     /// Runs everything until nothing is left: the harness's work, then what
@@ -1152,10 +1091,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
     }
 
-    /// The outermost element the page drew: what the window holds.
+    /// The outermost element the page drew: what the border it is shown in
+    /// holds.
     fn root(&self) -> Option<NodeId> {
-        let window = self.pump.window()?;
-        self.pump.runtime().node(window)?.children().first().copied()
+        let graph = self.graph();
+        let shown = *graph.children(graph.root()?, RelationId::Children)?.first()?;
+        graph.child(shown, RelationId::Content)
     }
 
     fn page_root(&self) -> NodeId {
@@ -1167,13 +1108,11 @@ impl<'h, S: 'static> Mounted<'h, S> {
         self.node(self.page_root())
     }
 
-    fn first(&self, under: NodeId, property: PropertyId, value: &str) -> Option<NodeId> {
+    fn first(&self, under: NodeId, test: impl Fn(NodeId) -> bool) -> Option<NodeId> {
         let mut unseen = vec![under];
 
         while let Some(node) = unseen.pop() {
-            let recorded = self.pump.runtime().node(node)?;
-
-            if text_of(recorded.property(property)).as_deref() == Some(value) {
+            if test(node) {
                 return Some(node);
             }
 
@@ -1183,25 +1122,33 @@ impl<'h, S: 'static> Mounted<'h, S> {
         None
     }
 
-    fn node(&self, id: NodeId) -> Node {
-        let Some(recorded) = self.pump.runtime().node(id) else {
-            return Node {
-                at: id,
-                kind: "?".to_string(),
-                text: None,
-                id: None,
-                children: Vec::new(),
-            };
-        };
+    fn first_marked(&self, under: NodeId, name: &str) -> Option<NodeId> {
+        self.first(under, |node| self.mark_of(node).as_deref() == Some(name))
+    }
 
+    fn first_showing(&self, under: NodeId, text: &str) -> Option<NodeId> {
+        self.first(under, |node| self.text(node).as_deref() == Some(text))
+    }
+
+    /// What a text block shows - a text box's text is what was typed into
+    /// it, not something on the page to find.
+    fn text(&self, node: NodeId) -> Option<String> {
+        match self.kind(node)? {
+            ObjectType::TextBlock => text_of(self.property(node, PropertyId::Text)),
+            _ => None,
+        }
+    }
+
+    fn mark_of(&self, node: NodeId) -> Option<String> {
+        text_of(self.property(node, PropertyId::AutomationId))
+    }
+
+    fn node(&self, id: NodeId) -> Node {
         Node {
             at: id,
-            kind: recorded
-                .kind()
-                .map(|kind| format!("{kind:?}"))
-                .unwrap_or_else(|| "?".to_string()),
-            text: text_of(recorded.property(PropertyId::TextBlockText)),
-            id: text_of(recorded.property(PropertyId::AutomationId)),
+            kind: self.kind_name(id),
+            text: self.text(id),
+            id: self.mark_of(id),
             children: self
                 .below(id)
                 .into_iter()
@@ -1227,13 +1174,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// One pass of what the window would do between frames: deliver the
     /// events waiting for the page, then let its components update and draw.
     fn turn(&mut self) -> usize {
-        let events = self.pump.dispatch_events().expect("delivering events to the page");
-        let turns = self
-            .pump
-            .dispatch_components(TURNS)
-            .expect("running the page's components");
+        let drained = self
+            .host
+            .drain(TURNS)
+            .unwrap_or_else(|error| panic!("running the page's components: {error:?}"));
 
-        events + turns
+        drained.dispatched + drained.dropped
     }
 }
 
@@ -1262,39 +1208,28 @@ where
         let services = harness.segment().context().services.clone();
         ROUTED_SERVICES.with(|routed| *routed.borrow_mut() = Some(services));
 
-        let mut runtime = RecordingRuntime::default();
-        runtime.record_commands(true);
-        let mut pump = Pump::new(runtime);
-        let built = pump.mount_view(View::component::<RouterRoot<R>>(initial));
+        let built = host(component::<Shown>(
+            ROOT,
+            View::component::<RouterRoot<R>>(initial),
+        ));
 
         ROUTED_SERVICES.with(|routed| routed.borrow_mut().take());
-        built.map_err(|refused| {
-            anyhow::anyhow!("mounting the {} tree: {refused:?}", std::any::type_name::<R>())
+        let host = built.map_err(|refused| {
+            anyhow::anyhow!("mounting the {} tree: {refused}", std::any::type_name::<R>())
         })?;
 
         let router = ROUTER
             .with(|kept| kept.borrow_mut().take())
             .expect("the root builds its router as it is created");
-        let dialog = pump
-            .runtime()
-            .commands()
-            .iter()
-            .flatten()
-            .find_map(|command| match command {
-                Command::Create { node, kind } if format!("{kind:?}") == "ContentDialog" => {
-                    Some(*node)
-                }
-                _ => None,
-            });
 
         let mut mounted = Self {
             harness,
-            pump,
+            host,
+            read: 0,
             realized: HashMap::new(),
             counts: HashMap::new(),
             navigated: None,
             router: Some(router),
-            dialog,
             kind: PhantomData,
             segment: harness.segment(),
         };
@@ -1394,11 +1329,11 @@ impl<'h, S: 'static> Within<'_, 'h, S> {
     }
 
     pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
-        self.mounted.first(self.root, PropertyId::AutomationId, mark.name())
+        self.mounted.first_marked(self.root, mark.name())
     }
 
     pub fn find_text(&self, text: &str) -> Option<NodeId> {
-        self.mounted.first(self.root, PropertyId::TextBlockText, text)
+        self.mounted.first_showing(self.root, text)
     }
 
     /// Clicks what carries `mark` in this part - see [`Mounted::click`].
@@ -1436,7 +1371,15 @@ impl<'h, S: 'static> Within<'_, 'h, S> {
 
 fn text_of(value: Option<&PropertyValue>) -> Option<String> {
     match value? {
-        PropertyValue::Str(text) => Some(text.to_string()),
+        PropertyValue::String(text) => Some(text.to_string()),
+        _ => None,
+    }
+}
+
+fn bool_of(value: Option<&PropertyValue>) -> Option<bool> {
+    match value? {
+        PropertyValue::Bool(on) => Some(*on),
+        PropertyValue::OptionalBool(on) => *on,
         _ => None,
     }
 }

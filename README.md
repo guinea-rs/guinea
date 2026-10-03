@@ -35,7 +35,7 @@ makes the opinion cheap to follow.
 ```rust
 use guinea::prelude::*;
 use guinea::winui::{Page, PageCx, Window, page, run};
-use guinea::winui::reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+use guinea::winui::reactor::{Button, StackPanel, TextBlock, View};
 
 /// The state.
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -91,7 +91,7 @@ impl Page for Home {
         ctx.install(&())
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (count, dispatch) = cx.read::<Count, _>();
 
         StackPanel::new()

@@ -1,47 +1,58 @@
 ## windows-reactor
 
-Windows Reactor is a declarative WinUI 3 library for Rust. A `Component` owns state, receives
-parent-owned input, handles typed messages, and returns a `View`. Reactor reconciles each new view
-with the native UI tree and applies the required WinUI changes.
+Windows Reactor is a typed declarative UI library for building native WinUI 3 applications in
+Rust. Components own Rust state, describe the current view, and receive typed messages from
+controls.
 
 * [Getting
   started](https://github.com/microsoft/windows-rs/blob/master/docs/crates/windows-reactor.md)
 
-Add Reactor:
+Start by adding the following to your Cargo.toml file:
 
 ```toml
-[dependencies]
-windows-reactor = "0.100"
+[dependencies.windows-reactor]
+version = "0.100"
 ```
-
-This counter shows the Component/View model:
 
 ```rust,no_run
 use windows_reactor::*;
 
+#[derive(Clone, Copy)]
+enum Message {
+    Increment,
+    Reset,
+}
+
 struct Counter {
-    count: u32,
+    count: i32,
 }
 
 impl Component for Counter {
     type Input = ();
-    type Message = ();
+    type Message = Message;
 
     fn create(_input: &(), _context: &ComponentContext<Self>) -> Self {
         Self { count: 0 }
     }
 
-    fn update(&mut self, _message: (), _context: &ComponentContext<Self>) {
-        self.count += 1;
+    fn update(&mut self, message: Message, _context: &ComponentContext<Self>) {
+        match message {
+            Message::Increment => self.count += 1,
+            Message::Reset => self.count = 0,
+        }
     }
 
     fn view(&self, _input: &(), context: &mut ViewContext<Self>) -> View {
         let content = StackPanel::new().spacing(8.0).children((
-            TextBlock::new().text(format!("Count: {}", self.count)),
+            format!("Count: {}", self.count),
             Button::new()
-                .on_click(context.forward())
+                .on_click(context.message(Message::Increment))
                 .content("Increment"),
+            Button::new()
+                .on_click(context.message(Message::Reset))
+                .content("Reset"),
         ));
+
         context.window_frame("Counter", content)
     }
 }
@@ -51,4 +62,6 @@ fn main() {
 }
 ```
 
-Applications whose resources outlive any one window can use `App::run_with`.
+Ordinary unpackaged applications use an installed Windows App SDK framework package. For a
+self-contained application, add `windows-reactor-setup` as a build dependency and call
+`windows_reactor_setup::as_self_contained()` from `build.rs`.

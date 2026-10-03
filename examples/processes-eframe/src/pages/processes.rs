@@ -17,7 +17,7 @@ impl Page for Processes {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (state, dispatch) = cx.state::<Running, _>();
+        let (state, dispatch) = cx.read::<Running, _>();
 
         egui::ScrollArea::vertical().show(cx.ui(), |ui| {
             for (index, item) in state.items.iter().enumerate() {

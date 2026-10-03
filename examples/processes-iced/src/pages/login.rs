@@ -47,7 +47,7 @@ impl Page for Login {
         }
     }
 
-    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Msg> {
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> {
         let form = match &self.signed_in {
             Some(user) => column![
                 text(format!("Signed in as {user}")).size(18),

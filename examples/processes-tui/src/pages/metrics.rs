@@ -21,7 +21,7 @@ impl Page for Metrics {
     }
 
     fn render(cx: &mut PageCx<'_, '_, Self>) {
-        let (state, _) = cx.state::<Sampling, _>();
+        let (state, _) = cx.read::<Sampling, _>();
 
         let rows = Rows::default()
             .direction(Direction::Vertical)

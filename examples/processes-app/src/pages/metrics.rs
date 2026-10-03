@@ -57,7 +57,7 @@ impl Page for Metrics {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (state, _) = cx.use_reducer::<Sampling, _>();
+        let (state, _) = cx.read::<Sampling, _>();
 
         self.chart.publish(
             vec![

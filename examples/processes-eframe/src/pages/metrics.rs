@@ -20,7 +20,7 @@ impl Page for Metrics {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (state, _) = cx.state::<Sampling, _>();
+        let (state, _) = cx.read::<Sampling, _>();
         let cpu = values(&state.cpu);
         let memory = values(&state.memory);
 

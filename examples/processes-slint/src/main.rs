@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         .plugin(guinea_plugin_window_state::WindowStatePlugin::new())
         .feature(startup::Startup);
 
-    run(app, AppWindow::new()?, initial_route, |window, route| {
+    run(app, AppWindow::new()?, |_| initial_route(), |window, route| {
         window.set_route(route_id(route))
     })
 }

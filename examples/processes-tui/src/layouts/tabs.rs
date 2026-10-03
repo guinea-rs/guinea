@@ -25,7 +25,7 @@ impl Layout for TabsLayout {
     }
 
     fn render(cx: &mut LayoutCx<'_, '_, Self>) {
-        let (state, _) = cx.state::<Tabs, _>();
+        let (state, _) = cx.read::<Tabs, _>();
         let strings = cx.l10n::<L10n>();
 
         let rows = Rows::default()

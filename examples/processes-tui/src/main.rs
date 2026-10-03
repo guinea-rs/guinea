@@ -6,7 +6,8 @@ mod layouts;
 mod pages;
 mod routes;
 
-use guinea::app::{GuineaApp, app_services};
+use guinea::app::GuineaApp;
+use guinea::services::Services as _;
 use guinea::ratatui::{Flow, Tui, pressed, run};
 use guinea_router::router::Router;
 use ratatui::crossterm::event::{Event, KeyCode};
@@ -90,7 +91,7 @@ fn main() -> anyhow::Result<()> {
 
     run(
         app,
-        || initial_route(app_services().get::<Store>().as_deref()),
+        |cx| initial_route(cx.try_require::<Store>().as_deref()),
         on_key,
     )
 }
@@ -136,7 +137,7 @@ fn on_key(
     // route - including `back` - is where the next run should start.
     if let (Some(route), Some(store)) = (
         router.current_route::<Route>(),
-        app_services().get::<Store>(),
+        router.try_require::<Store>(),
     ) {
         remember(&store, &route);
     }

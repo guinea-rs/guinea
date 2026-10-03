@@ -38,8 +38,8 @@ impl Page for Processes {
     }
 
     fn render(cx: &mut PageCx<'_, '_, Self>) {
-        let (state, _) = cx.state::<Running, _>();
-        let (cursor, _) = cx.state::<Cursor, _>();
+        let (state, _) = cx.read::<Running, _>();
+        let (cursor, _) = cx.read::<Cursor, _>();
         let area = cx.area();
 
         let focused = cursor.row;

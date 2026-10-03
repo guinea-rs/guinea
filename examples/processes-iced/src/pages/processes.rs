@@ -67,7 +67,7 @@ impl Page for Processes {
             // actor's. The page says what it wants and goes back to drawing;
             // what came of it arrives as an update to the reducer.
             Msg::KillSelected => {
-                let (processes, dispatch) = cx.state::<Running, _>();
+                let (processes, dispatch) = cx.read::<Running, _>();
                 if let Some(pid) = pid_at(&processes.items, self.row) {
                     dispatch.emit(Kill(pid));
                 }
@@ -77,8 +77,8 @@ impl Page for Processes {
         }
     }
 
-    fn view(&self, cx: &PageCx<'_, Self>) -> Element<'_, Msg> {
-        let (processes, _) = cx.state::<Running, _>();
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> {
+        let (processes, _) = cx.read::<Running, _>();
 
         let rows = processes
             .items

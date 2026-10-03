@@ -68,7 +68,7 @@ impl Page for Draft {
         }
     }
 
-    fn view(&self, _cx: &PageCx<'_, Self>) -> Element<'_, Msg> {
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> {
         let dirty = !self.written().is_empty();
 
         column![

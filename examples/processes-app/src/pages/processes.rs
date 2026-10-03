@@ -68,7 +68,7 @@ impl Page for Processes {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (state, dispatch) = cx.use_reducer::<Running, _>();
+        let (state, dispatch) = cx.read::<Running, _>();
 
         let rows: Vec<Row> = state
             .items

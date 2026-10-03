@@ -31,8 +31,8 @@ impl Page for Metrics {
         ctx.install::<MetricsFeature>(&())
     }
 
-    fn view(&self, cx: &PageCx<'_, Self>) -> Element<'_, Quiet> {
-        let (metrics, _) = cx.state::<Sampling, _>();
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Quiet> {
+        let (metrics, _) = cx.read::<Sampling, _>();
         let cpu = values(&metrics.cpu);
         let memory = values(&metrics.memory);
 

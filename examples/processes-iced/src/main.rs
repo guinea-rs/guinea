@@ -52,6 +52,6 @@ fn main() -> anyhow::Result<()> {
         app,
         "guinea · processes (iced)",
         iced::window::Settings::default(),
-        initial_route,
+        |_| initial_route(),
     )
 }

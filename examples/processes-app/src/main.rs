@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
         Window::new()
             .title(guinea::app_meta!().window_title)
             .client_size(420.0, 420.0),
-        initial_route,
+        |_| initial_route(),
     )
 }
 

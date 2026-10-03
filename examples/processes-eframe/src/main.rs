@@ -52,6 +52,6 @@ fn main() -> anyhow::Result<()> {
         app,
         "guinea · processes (egui)",
         eframe::NativeOptions::default(),
-        initial_route,
+        |_| initial_route(),
     )
 }

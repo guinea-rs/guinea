@@ -28,8 +28,8 @@ impl Page for Services {
         ctx.install::<ServicesFeature>(&())
     }
 
-    fn view(&self, cx: &PageCx<'_, Self>) -> Element<'_, Self::Message> {
-        let (services, _) = cx.state::<Running, _>();
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
+        let (services, _) = cx.read::<Running, _>();
 
         let rows = services
             .items

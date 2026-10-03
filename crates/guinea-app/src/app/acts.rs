@@ -295,6 +295,7 @@ impl Step {
                 fields: fields.clone(),
             },
             Point::Note(note) => Step::Note(note.clone()),
+            point => Step::Note(point.to_string()),
         }
     }
 }

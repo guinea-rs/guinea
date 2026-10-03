@@ -21,7 +21,40 @@ pub enum StoreOp {
 /// An observable point, with what identifies it.
 ///
 /// Names are short type names: `processes::Kill`, not a crate path.
+///
+/// New kinds of point come in patch releases, so a match on it outside this
+/// crate needs an arm for the ones it doesn't know yet:
+///
+/// ```compile_fail
+/// use guinea_trace::Point;
+///
+/// fn known(point: &Point) -> bool {
+///     match point {
+///         Point::Action { .. }
+///         | Point::Send { .. }
+///         | Point::Handle { .. }
+///         | Point::Spawn { .. }
+///         | Point::Settled { .. }
+///         | Point::Cancelled { .. }
+///         | Point::Source { .. }
+///         | Point::Arrived { .. }
+///         | Point::Pull { .. }
+///         | Point::Closed { .. }
+///         | Point::Publish { .. }
+///         | Point::Deliver { .. }
+///         | Point::Push { .. }
+///         | Point::Navigate { .. }
+///         | Point::Tick { .. }
+///         | Point::Store { .. }
+///         | Point::Render { .. }
+///         | Point::Log { .. }
+///         | Point::Span { .. }
+///         | Point::Note(_) => true,
+///     }
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Point {
     /// The UI asked a feature for something.
     Action { message: &'static str },

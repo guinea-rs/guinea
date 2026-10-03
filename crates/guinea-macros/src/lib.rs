@@ -472,7 +472,9 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// An `async fn` runs off the UI thread. It takes the actor's
 /// `AsyncContext` instead of the actor - the actor itself stays on the UI
 /// thread - and ends with the actor: dropped at its next await once the actor
-/// is gone, unless it listens for that itself.
+/// is gone, unless it listens for that itself. Work that needs the actor's
+/// state is a plain handler that reads it and hands the rest to `spawn_bg`,
+/// as above: the state is read when the message comes, on the UI thread.
 ///
 /// <!-- shown: an async handler -->
 /// ```rust,ignore
@@ -507,7 +509,10 @@ pub fn remote(item: TokenStream) -> TokenStream {
 ///
 /// A return type makes the handler an answer to `AsyncBus::request`: the
 /// value it returns is the reply, sent exactly once, by the generated code and
-/// nothing else. That holds for both the plain and the `async` form.
+/// nothing else. That holds for both the plain and the `async` form. A plain
+/// handler whose answer needs background work returns `Reply<T>`: it reads
+/// what it needs from the actor and answers with `Reply::later(..)`, or with
+/// `Reply::now(..)` when there is nothing to wait for.
 #[proc_macro_attribute]
 pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);

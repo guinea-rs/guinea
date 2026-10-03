@@ -76,27 +76,70 @@ impl<Req: RpcCall> RpcRequest<Req> {
     }
 }
 
-/// The type-level half of the request/response contract: `handle_rpc`
-/// returns `Req::Response` directly instead of taking a `RpcRequest<Req>`
-/// and being trusted to call `.reply(...)` somewhere inside its body.
-/// There is no way to compile a `RpcHandler` impl that forgets to reply,
-/// replies twice, or replies with the wrong type - the blanket
-/// `Handler<RpcRequest<Req>>` impl below is the only caller of
-/// `AsyncBus::reply`, and it always calls it exactly once, after
-/// `handle_rpc` returns.
+/// What a request is answered with: a value now, or the value work in the
+/// background comes to.
 ///
-/// Implement this instead of `Handler<RpcRequest<Req>>` directly whenever
-/// the reply is available synchronously from within the handler. If the
-/// reply depends on async work (an RPC to a remote agent, `spawn_bg`,
-/// etc.), implement `Handler<RpcRequest<Req>>` by hand instead and call
-/// `msg.reply(...)` once the async work completes - the two are mutually
-/// exclusive for a given `Req` (implementing both would conflict on the
-/// same `Handler<RpcRequest<Req>>` impl).
+/// A handler that answers later reads what it needs from its actor first,
+/// on the UI thread, and hands the rest to the background:
+///
+/// ```ignore
+/// #[handler]
+/// fn act(this: &mut Actions, Act(action): Act) -> Reply<Outcome> {
+///     let Some(transport) = this.transport.clone() else {
+///         return Reply::now(Outcome::NotConnected);
+///     };
+///     Reply::later(async move { transport.act(action).await })
+/// }
+/// ```
+///
+/// A handler that returns the reply itself answers now; `Reply` is for
+/// the one that may not.
+pub struct Reply<T>(Answer<T>);
+
+enum Answer<T> {
+    Now(T),
+    Later(std::pin::Pin<Box<dyn Future<Output = T> + Send>>),
+}
+
+impl<T> Reply<T> {
+    pub fn now(value: T) -> Self {
+        Self(Answer::Now(value))
+    }
+
+    /// Answers with what `work` comes to, run in the background. It is not
+    /// cut short when the actor goes: somebody is waiting for the value.
+    pub fn later(work: impl Future<Output = T> + Send + 'static) -> Self {
+        Self(Answer::Later(Box::pin(work)))
+    }
+}
+
+impl<T> From<T> for Reply<T> {
+    fn from(value: T) -> Self {
+        Self::now(value)
+    }
+}
+
+impl<T: Clone + Send + 'static> Reply<T> {
+    fn send(self, correlation_id: Uuid, chain: Vec<TypeId>) {
+        match self.0 {
+            Answer::Now(value) => AsyncBus::reply(correlation_id, value),
+            Answer::Later(work) => AsyncBus::spawn_reply(correlation_id, chain, work),
+        }
+    }
+}
+
+/// The type-level half of the request/response contract: `handle_rpc`
+/// returns the reply instead of taking a `RpcRequest<Req>` and being
+/// trusted to call `.reply(...)` somewhere inside its body. There is no way
+/// to compile a `RpcHandler` impl that forgets to reply, replies twice, or
+/// replies with the wrong type - the blanket `Handler<RpcRequest<Req>>`
+/// impl below is the only thing that replies, exactly once, with what
+/// `handle_rpc` returned: at once, or when its [`Reply::later`] is done.
 pub trait RpcHandler<Req: RpcCall>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<crate::actor::shape::Declared> = None;
 
-    fn handle_rpc(&mut self, req: Req, cx: Cx<Self, Req>) -> Req::Response
+    fn handle_rpc(&mut self, req: Req, cx: Cx<Self, Req>) -> Reply<Req::Response>
     where
         Self: Sized;
 }
@@ -111,8 +154,8 @@ where
     const ANSWERS: bool = true;
 
     fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
-        let response = self.handle_rpc(msg.payload, cx.handling());
-        AsyncBus::reply(msg.correlation_id, response);
+        self.handle_rpc(msg.payload, cx.handling())
+            .send(msg.correlation_id, msg.chain);
     }
 }
 
@@ -326,8 +369,8 @@ mod tests {
 
         struct EchoActor;
         impl RpcHandler<Echo> for EchoActor {
-            fn handle_rpc(&mut self, Echo(n): Echo, _cx: Cx<Self, Echo>) -> Echoed {
-                Echoed(n * 2)
+            fn handle_rpc(&mut self, Echo(n): Echo, _cx: Cx<Self, Echo>) -> Reply<Echoed> {
+                Reply::now(Echoed(n * 2))
             }
         }
 
@@ -397,13 +440,13 @@ mod tests {
         struct Service;
         struct Monitor;
         impl RpcHandler<Question> for Service {
-            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Answer {
-                Answer
+            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Reply<Answer> {
+                Reply::now(Answer)
             }
         }
         impl RpcHandler<Question> for Monitor {
-            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Answer {
-                Answer
+            fn handle_rpc(&mut self, _: Question, _cx: Cx<Self, Question>) -> Reply<Answer> {
+                Reply::now(Answer)
             }
         }
 
@@ -471,8 +514,8 @@ mod tests {
 
         struct Worker;
         impl RpcHandler<Work> for Worker {
-            fn handle_rpc(&mut self, _: Work, _cx: Cx<Self, Work>) -> Done {
-                Done
+            fn handle_rpc(&mut self, _: Work, _cx: Cx<Self, Work>) -> Reply<Done> {
+                Reply::now(Done)
             }
         }
 
@@ -753,8 +796,8 @@ mod tests {
 
         struct AddActor;
         impl RpcHandler<Add> for AddActor {
-            fn handle_rpc(&mut self, Add(a, b): Add, _cx: Cx<Self, Add>) -> Sum {
-                Sum(a + b)
+            fn handle_rpc(&mut self, Add(a, b): Add, _cx: Cx<Self, Add>) -> Reply<Sum> {
+                Reply::now(Sum(a + b))
             }
         }
 

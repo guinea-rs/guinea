@@ -115,10 +115,9 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
         }
 
         // Sync RPC handler - `RpcHandler<#msg_ty>`'s blanket `Handler<RpcRequest<#msg_ty>>`
-        // impl (in guinea-core) calls `AsyncBus::reply` right after this
-        // returns, so the value just needs to flow back out as an
-        // expression.
-        (false, Some(ret_ty)) => {
+        // impl (in guinea-core) replies with what this returns: the reply
+        // itself, or a `Reply` that may come later.
+        (false, Some(_)) => {
             if !(2..=3).contains(&inputs.len()) {
                 return Err(Error::new(
                     item.sig.span(),
@@ -131,8 +130,14 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::event_bus::rpc::RpcHandler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle_rpc(&mut self, msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) -> #ret_ty {
-                        #fn_name(self, msg #passed_cx)
+                    fn handle_rpc(
+                        &mut self,
+                        msg: #msg_ty,
+                        #cx: #gc::actor::Cx<Self, #msg_ty>,
+                    ) -> #gc::actor::event_bus::rpc::Reply<
+                        <#msg_ty as #gc::actor::event_bus::rpc::RpcCall>::Response,
+                    > {
+                        ::core::convert::Into::into(#fn_name(self, msg #passed_cx))
                     }
                 }
             }

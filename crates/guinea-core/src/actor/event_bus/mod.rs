@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub mod rpc;
 pub mod subscribe;
-pub use rpc::{AsyncBus, RpcCall, RpcRequest, RpcResponse};
+pub use rpc::{AsyncBus, Reply, RpcCall, RpcRequest, RpcResponse};
 pub use subscribe::Event;
 
 #[cfg(feature = "test-utils")]

@@ -8,7 +8,6 @@ use crate::trace::{self, Cause, Point};
 use futures_core::Stream;
 use std::marker::PhantomData;
 use std::time::Instant;
-use tokio::sync::oneshot;
 
 /// What a handler may do besides change its actor: send on, publish, start
 /// background work.
@@ -516,34 +515,6 @@ impl<A: 'static> AsyncContext<A> {
         A::Signals: AllowedSignal<M>,
     {
         bus.publish(msg);
-    }
-
-    /// What `f` makes of the actor, on the UI thread - and `None` when there
-    /// is no actor left to ask.
-    ///
-    /// Gone is an ordinary answer here, not a failure: background work
-    /// outlives a teardown often enough, and the alternative was a panic on
-    /// a thread nobody is watching.
-    pub async fn apply<R, F>(&self, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut A, &Cx<A>) -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-        let id = self.actor_id;
-        let cause = trace::current();
-
-        invoke_on_ui(move || {
-            let _resumed = trace::resume(cause);
-            if let Some(addr) = registered::<A>(id) {
-                addr.apply(move |actor, ctx| {
-                    let result = f(actor, ctx);
-                    let _ = tx.send(result);
-                });
-            }
-        });
-
-        rx.await.ok()
     }
 
     pub fn send<M>(&self, msg: M)

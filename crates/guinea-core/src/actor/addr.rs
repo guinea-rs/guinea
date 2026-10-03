@@ -1,17 +1,16 @@
 use crate::actor::cancel::Cancel;
-use crate::actor::envelope::{Envelope, FnEnvelope, MessageEnvelope};
+use crate::actor::envelope::{Envelope, MessageEnvelope};
 use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::shape::name;
 use crate::actor::traits::{EventSubscription, Handler};
-use crate::actor::{Cx, UiThreadToken};
+use crate::actor::UiThreadToken;
 use crate::actor::{ManagedActor, short_type_name};
 use crate::scope::Scope;
 use crate::trace::{self, Bus, Cause, Point};
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
-use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -152,48 +151,6 @@ impl<A: 'static> Addr<A> {
         });
 
         addr
-    }
-
-    pub fn apply<F>(&self, f: F)
-    where
-        F: FnOnce(&mut A, &Cx<A>) + Send + 'static,
-    {
-        self.queue.borrow_mut().push_back(Box::new(FnEnvelope {
-            func: Some(f),
-            cause: trace::current(),
-            phantom: PhantomData,
-        }));
-
-        self.process_queue();
-    }
-
-    pub fn handler<M>(&self, msg: M) -> impl Fn() + 'static
-    where
-        M: Clone + 'static,
-        A: Handler<M>,
-    {
-        let addr = self.clone();
-        move || addr.do_send(msg.clone())
-    }
-
-    pub fn handler_with<M, T, F>(&self, f: F) -> impl Fn(T) + 'static
-    where
-        F: Fn(T) -> M + 'static,
-        M: 'static,
-        A: Handler<M>,
-    {
-        let addr = self.clone();
-        move |arg| addr.do_send(f(arg))
-    }
-
-    pub fn handler_with2<M, T1, T2, F>(&self, f: F) -> impl Fn(T1, T2) + 'static
-    where
-        F: Fn(T1, T2) -> M + 'static,
-        M: 'static,
-        A: Handler<M>,
-    {
-        let addr = self.clone();
-        move |arg1, arg2| addr.do_send(f(arg1, arg2))
     }
 
     pub fn send<M>(&self, msg: M)
@@ -344,7 +301,7 @@ mod tests {
     }
 
     impl Handler<Heard> for Listening {
-        fn handle(&mut self, _: Heard, _cx: Cx<Self, Heard>) {}
+        fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {}
     }
 
     #[test]

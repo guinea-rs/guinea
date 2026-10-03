@@ -19,8 +19,15 @@ struct Refreshed(u32);
 
 struct Refresh;
 
-#[derive(Debug)]
-struct Refresher;
+struct Refresher {
+    handed: Arc<Mutex<Option<AsyncContext<Refresher>>>>,
+}
+
+impl std::fmt::Debug for Refresher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Refresher")
+    }
+}
 
 guinea_macros::actor! {
     Refresher {
@@ -30,7 +37,9 @@ guinea_macros::actor! {
 }
 
 impl Handler<Refresh> for Refresher {
-    fn handle(&mut self, _: Refresh, _cx: Cx<Self, Refresh>) {}
+    fn handle(&mut self, _: Refresh, cx: Cx<Self, Refresh>) {
+        *self.handed.lock().unwrap() = Some(cx.async_ctx());
+    }
 }
 
 /// The UI thread is the test's own: what is dispatched comes back to it
@@ -56,14 +65,15 @@ fn an_event_published_off_the_ui_thread_reaches_the_ui_thread_s_subscribers() {
         hearing.borrow_mut().push(n);
     });
 
+    let handed: Arc<Mutex<Option<AsyncContext<Refresher>>>> = Arc::default();
     let addr = Addr::new_managed(
-        Refresher,
+        Refresher {
+            handed: handed.clone(),
+        },
         UiThreadToken::dangerously_create_token_unchecked(),
     );
-    let handed: Arc<Mutex<Option<AsyncContext<Refresher>>>> = Arc::default();
-    let taking = handed.clone();
-    addr.apply(move |_, cx| *taking.lock().unwrap() = Some(cx.async_ctx()));
-    let ctx = handed.lock().unwrap().take().expect("apply ran on this thread");
+    addr.send(Refresh);
+    let ctx = handed.lock().unwrap().take().expect("the handler ran on this thread");
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

@@ -70,6 +70,46 @@ mod answering {
     //@show-end
 }
 
+mod answering_later {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    pub struct Processes {
+        protected: Vec<u32>,
+    }
+
+    actor! {
+        Processes {
+            handlers { RpcRequest<Kill> }
+        }
+    }
+
+    #[handler]
+    fn kill(this: &mut Processes, Kill(pid): Kill) -> Reply<Outcome> {
+        let protected = this.protected.contains(&pid);
+
+        Reply::later(async move {
+            guinea::core::executor::yield_now().await;
+
+            match protected {
+                true => Outcome::Denied,
+                false => Outcome::Done,
+            }
+        })
+    }
+
+    feature! {
+        pub Killing {}
+    }
+
+    #[installs]
+    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+        let processes = cx.spawn(Processes { protected: vec![4] });
+        processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        Ok(Killing)
+    }
+}
+
 mod asking {
     use super::*;
 
@@ -162,6 +202,15 @@ fn asked(h: &Harness, pid: u32) -> Option<String> {
 #[guinea::test(iterations = 4)]
 fn the_answer_comes_back_to_whoever_asked(h: &mut Harness) {
     h.install::<answering::Killing>(&()).unwrap();
+    h.install::<asking::Asking>(&()).unwrap();
+
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+}
+
+#[guinea::test(iterations = 4)]
+fn an_answer_given_later_comes_back_to_whoever_asked(h: &mut Harness) {
+    h.install::<answering_later::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
     assert_eq!(asked(h, 7).as_deref(), Some("Done"));

@@ -1,6 +1,6 @@
-use guinea::feature::{FeatureInitContext, Reads};
+use guinea::feature::FeatureInitContext;
 use guinea::winui::{Layout, LayoutCx, UseNavigate, UseRouteChange, Window, layout, window};
-use guinea_plugin_l10n::{L10nAccess, Language, Localization, SwitchLanguage};
+use guinea_plugin_l10n::{L10nAccess, Localization};
 use windows_reactor::{
     Button, ChildrenControl, ContentControl, Orientation, StackPanel, TextBlock, View,
 };
@@ -29,7 +29,7 @@ impl Layout for TabsLayout {
 
         let nav = cx.use_navigate::<Route>();
         let l10n = cx.l10n::<L10n>();
-        let switch = cx.dispatch::<Language<L10n>, _>();
+        let switch = cx.language_switch::<L10n>();
 
         let is_russian = l10n.tag() == "ru";
         let lang_button_label = if is_russian { "English" } else { "Русский" };
@@ -75,7 +75,7 @@ impl Layout for TabsLayout {
                 Button::new()
                     .on_click(move || {
                         let next = if is_russian { "en" } else { "ru" };
-                        switch.emit(SwitchLanguage(next.into()));
+                        switch.to(next);
                     })
                     .content(TextBlock::new().text(lang_button_label)),
             ));

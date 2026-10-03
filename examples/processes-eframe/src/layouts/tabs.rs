@@ -1,6 +1,6 @@
 use guinea::eframe::{Layout, LayoutCx};
-use guinea::feature::{FeatureInitContext, Reads};
-use guinea_plugin_l10n::{L10nAccess, Language, Localization, SwitchLanguage};
+use guinea::feature::FeatureInitContext;
+use guinea_plugin_l10n::{L10nAccess, Localization};
 
 use processes_core::l10n::L10n;
 use processes_core::tabs::contracts::Tabs;
@@ -25,7 +25,7 @@ impl Layout for TabsLayout {
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
         let (state, _) = cx.state::<Tabs, _>();
         let strings = &cx.l10n::<L10n>();
-        let switch = cx.dispatch::<Language<L10n>, _>();
+        let switch = cx.language_switch::<L10n>();
         let nav = cx.navigate::<Route>();
 
         // Which tab is current comes from the chain, not from a copy of the
@@ -60,7 +60,7 @@ impl Layout for TabsLayout {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(language_label(strings)).clicked() {
-                    switch.emit(SwitchLanguage(next_language(strings).into()));
+                    switch.to(next_language(strings));
                 }
             });
         });

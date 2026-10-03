@@ -579,8 +579,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.17.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.1#43b8ca4194423208aef31e4c5cbc88a917a62a23"
+version = "0.17.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.2#5e85a1e2c044a0d927dd738f29ffa33f94f4eccc"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -594,8 +594,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.17.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.1#43b8ca4194423208aef31e4c5cbc88a917a62a23"
+version = "0.17.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.2#5e85a1e2c044a0d927dd738f29ffa33f94f4eccc"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -607,7 +607,7 @@ dependencies = [
 [[package]]
 name = "guinea-plugin-store"
 version = "0.23.4"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.1#43b8ca4194423208aef31e4c5cbc88a917a62a23"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.2#5e85a1e2c044a0d927dd738f29ffa33f94f4eccc"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -649,8 +649,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.17.1"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.1#43b8ca4194423208aef31e4c5cbc88a917a62a23"
+version = "0.17.2"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.17.2#5e85a1e2c044a0d927dd738f29ffa33f94f4eccc"
 dependencies = [
  "guinea-mark",
  "tracing",

@@ -120,7 +120,7 @@ mod whole {
     fn adds_the_step_it_was_told() {
         guinea_app::app::check(4, |h| {
             let mut page =
-                guinea_winui::harness::Mounted::<CounterPage>::mount(&h.segment(), ()).unwrap();
+                guinea_winui::harness::Mounted::<CounterPage>::mount(h.segment(), ()).unwrap();
 
             page.click_text("Bigger").settle();
             page.click_text("Add").settle();
@@ -236,7 +236,7 @@ mod installing {
                 context: "ubuntu".into(),
             };
             let mut page =
-                guinea_winui::harness::Mounted::<ProcessesPage>::mount(&h.segment(), params)
+                guinea_winui::harness::Mounted::<ProcessesPage>::mount(h.segment(), params)
                     .unwrap();
             page.settle();
             assert!(
@@ -294,7 +294,7 @@ mod keeping_the_capture {
     fn shows_the_pid_it_was_reached_with() {
         guinea_app::app::check(2, |h| {
             let page = guinea_winui::harness::Mounted::<ProcessPage>::mount(
-                &h.segment(),
+                h.segment(),
                 ProcessParams { pid: 42 },
             )
             .unwrap();
@@ -423,7 +423,7 @@ mod asking_a_feature {
     fn submitting_asks_for_what_was_typed() {
         guinea_app::app::check(2, |h| {
             let mut page =
-                guinea_winui::harness::Mounted::<SearchPage>::mount(&h.segment(), ()).unwrap();
+                guinea_winui::harness::Mounted::<SearchPage>::mount(h.segment(), ()).unwrap();
             page.send(Msg::Typed("gu".into()));
             page.send(Msg::Submitted);
             page.settle();
@@ -484,7 +484,7 @@ mod answering_a_widget {
     fn greets_whoever_was_typed() {
         guinea_app::app::check(2, |h| {
             let mut page =
-                guinea_winui::harness::Mounted::<Greeting>::mount(&h.segment(), ()).unwrap();
+                guinea_winui::harness::Mounted::<Greeting>::mount(h.segment(), ()).unwrap();
             page.send(Msg::Named("guinea".into()));
             page.settle();
             assert!(
@@ -638,7 +638,7 @@ mod shell {
         use guinea_winui::harness::{Mounted, Outlet};
 
         guinea_app::app::check(4, |h| {
-            let mut shell = Mounted::<Shell>::mount(&h.segment(), ()).unwrap();
+            let mut shell = Mounted::<Shell>::mount(h.segment(), ()).unwrap();
 
             assert!(shell.find_text("guinea").is_some(), "{:#?}", shell.tree());
             assert!(shell.find_text("Home").is_some(), "{:#?}", shell.tree());
@@ -658,10 +658,10 @@ mod shell {
         use guinea_winui::harness::Mounted;
 
         guinea_app::app::check(4, |h| {
-            let mut shell = Mounted::<Shell>::mount(&h.segment(), ()).unwrap();
+            let mut shell = Mounted::<Shell>::mount(h.segment(), ()).unwrap();
 
             let below = h.child();
-            let mut home = Mounted::<Home>::mount(&below, ()).unwrap();
+            let mut home = Mounted::<Home>::mount(below, ()).unwrap();
             assert!(home.find_text("home, narrow").is_some(), "{:#?}", home.tree());
 
             shell.click_text("Menu").settle();

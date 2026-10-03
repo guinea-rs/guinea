@@ -92,7 +92,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(feature = "harness")]
 #[guinea::test(iterations = 4)]
 fn a_click_on_add_counts(h: &mut guinea::app::Harness) {
-    let mut page = guinea::winui::harness::Mounted::<Home>::mount(&h.segment(), ()).unwrap();
+    let mut page = guinea::winui::harness::Mounted::<Home>::mount(h.segment(), ()).unwrap();
 
     page.click_text("Add").settle();
     page.settle();

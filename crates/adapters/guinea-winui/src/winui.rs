@@ -178,7 +178,7 @@ impl Ui for WinUi {
 /// fn adds_the_step_it_was_told() {
 ///     guinea_app::app::check(4, |h| {
 ///         let mut page =
-///             guinea_winui::harness::Mounted::<CounterPage>::mount(&h.segment(), ()).unwrap();
+///             guinea_winui::harness::Mounted::<CounterPage>::mount(h.segment(), ()).unwrap();
 ///
 ///         page.click_text("Bigger").settle();
 ///         page.click_text("Add").settle();

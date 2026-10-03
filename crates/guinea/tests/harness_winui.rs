@@ -143,7 +143,7 @@ impl Segment for SearchPage {
 
 #[guinea::test(iterations = 30)]
 fn typing_and_clicking_search_draws_what_it_found(h: &mut Harness) {
-    let mut page = Mounted::<SearchPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<SearchPage>::mount(h.segment(),()).unwrap();
     assert!(page.find_text("found 0 for \"\"").is_some(), "{:#?}", page.tree());
 
     page.send(Typing::Typed("guinea".into()));
@@ -159,7 +159,7 @@ fn typing_and_clicking_search_draws_what_it_found(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn the_tree_a_page_draws_is_data(h: &mut Harness) {
-    let mut page = Mounted::<SearchPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<SearchPage>::mount(h.segment(),()).unwrap();
     page.send(Typing::Typed("gu".into()));
     page.click(Marks::Search);
     page.settle();
@@ -232,7 +232,7 @@ impl Segment for CataloguePage {
 
 #[guinea::test(iterations = 4)]
 fn the_same_mark_in_every_item_is_found_within_the_item(h: &mut Harness) {
-    let mut page = Mounted::<CataloguePage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<CataloguePage>::mount(h.segment(),()).unwrap();
     assert!(page.find(Marks::Open).is_none(), "no item is built before it is in view");
 
     page.item(3).click(Marks::Open);
@@ -442,7 +442,7 @@ impl Segment for GripPage {
 fn a_drag_follows_the_window_and_drops_on_release(h: &mut Harness) {
     use guinea::winui::harness::Drag;
 
-    let mut page = Mounted::<GripPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<GripPage>::mount(h.segment(),()).unwrap();
 
     page.drag(Marks::Grip, Drag::by(0.0, 30.0).from(2.0, 5.0).window_from(10.0, 100.0))
         .settle();
@@ -456,7 +456,7 @@ fn a_drag_follows_the_window_and_drops_on_release(h: &mut Harness) {
 fn a_drag_whose_capture_is_lost_is_cancelled(h: &mut Harness) {
     use guinea::winui::harness::Drag;
 
-    let mut page = Mounted::<GripPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<GripPage>::mount(h.segment(),()).unwrap();
 
     page.drag(Marks::Grip, Drag::by(0.0, 30.0).steps(2).lost()).settle();
     page.settle();
@@ -468,7 +468,7 @@ fn a_drag_whose_capture_is_lost_is_cancelled(h: &mut Harness) {
 #[guinea::test(iterations = 2)]
 fn a_click_bubbles_through_every_listener_and_stops_at_a_button(h: &mut Harness) {
     let mut page =
-        Mounted::<RowsPage>::mount_with(&h.segment(), (), |page| View::provide(shade(), "dark", page))
+        Mounted::<RowsPage>::mount_with(h.segment(),(), |page| View::provide(shade(), "dark", page))
             .unwrap();
     assert!(
         page.find_text("dark: selected None toggled None removed None").is_some(),
@@ -496,7 +496,7 @@ fn a_click_bubbles_through_every_listener_and_stops_at_a_button(h: &mut Harness)
 #[guinea::test(iterations = 1)]
 #[should_panic(expected = "\"Remove\" cannot be clicked: it is inside a disabled Button")]
 fn a_disabled_button_does_not_take_the_click(h: &mut Harness) {
-    let mut page = Mounted::<RowsPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<RowsPage>::mount(h.segment(),()).unwrap();
     page.item(0).click(Marks::Remove);
 }
 
@@ -564,7 +564,7 @@ impl Segment for SwitchesPage {
 
 #[guinea::test(iterations = 2)]
 fn a_click_turns_a_switch_a_check_box_and_a_radio_button_over(h: &mut Harness) {
-    let mut page = Mounted::<SwitchesPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<SwitchesPage>::mount(h.segment(),()).unwrap();
 
     page.click(Marks::Switch).settle();
     page.click(Marks::Check).settle();
@@ -632,7 +632,7 @@ impl Segment for ChartsPage {
 
 #[guinea::test(iterations = 2)]
 fn a_click_reaches_a_control_inside_a_button_s_flyout(h: &mut Harness) {
-    let mut page = Mounted::<ChartsPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<ChartsPage>::mount(h.segment(),()).unwrap();
     assert!(page.find(Marks::ShowDisk).is_some(), "{:#?}", page.tree());
 
     page.click(Marks::ShowDisk).settle();
@@ -646,7 +646,7 @@ fn a_click_reaches_a_control_inside_a_button_s_flyout(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_list_says_how_long_it_is_and_its_items_what_they_hold(h: &mut Harness) {
-    let mut page = Mounted::<RowsPage>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<RowsPage>::mount(h.segment(),()).unwrap();
     assert_eq!(page.item_count(), CATALOGUE.len());
 
     let items = page.items();
@@ -764,12 +764,28 @@ fn a_page_redraws_when_the_segment_above_it_changes(h: &mut Harness) {
     h.install::<polling::Polling>(&()).unwrap();
 
     let below = h.child();
-    let mut page = Mounted::<SamplesPage>::mount(&below, ()).unwrap();
+    let mut page = Mounted::<SamplesPage>::mount(below, ()).unwrap();
     assert!(page.find_text("samples: 0").is_some(), "{:#?}", page.tree());
 
     h.advance(std::time::Duration::from_millis(300));
     page.settle();
 
+    assert!(page.find_text("samples: 3").is_some(), "{:#?}", page.tree());
+}
+
+fn samples_below(h: &Harness) -> Mounted<'_, SamplesPage> {
+    Mounted::mount(h.child(), ()).unwrap()
+}
+
+#[guinea::test(iterations = 4)]
+fn a_page_keeps_the_segment_it_was_mounted_into(h: &mut Harness) {
+    h.install::<polling::Polling>(&()).unwrap();
+    let mut page = samples_below(h);
+
+    h.advance(std::time::Duration::from_millis(300));
+    let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| page.settle()));
+
+    assert!(settled.is_ok(), "the page's segment was torn down under it");
     assert!(page.find_text("samples: 3").is_some(), "{:#?}", page.tree());
 }
 
@@ -842,7 +858,7 @@ mod routed {
 
     #[guinea::test(iterations = 4)]
     fn a_layout_mounted_at_a_route_reads_it_and_records_where_it_asks_to_go(h: &mut Harness) {
-        let mut tabs = Mounted::<Tabs>::mount_at(&h.segment(), (), TabRoute::One {}).unwrap();
+        let mut tabs = Mounted::<Tabs>::mount_at(h.segment(),(), TabRoute::One {}).unwrap();
         assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
         assert!(tabs.find(Outlet).is_some(), "{:#?}", tabs.tree());
 
@@ -917,7 +933,7 @@ mod routed {
 
     #[guinea::test(iterations = 4)]
     fn a_navigation_view_is_walked_and_its_items_select_themselves(h: &mut Harness) {
-        let mut pane = Mounted::<Pane>::mount_at(&h.segment(), (), PaneRoute::Home {}).unwrap();
+        let mut pane = Mounted::<Pane>::mount_at(h.segment(),(), PaneRoute::Home {}).unwrap();
 
         assert!(pane.find(Outlet).is_some(), "{:#?}", pane.tree());
         assert!(pane.find_text("Home").is_some(), "{:#?}", pane.tree());
@@ -1361,7 +1377,7 @@ mod application_exports {
     fn a_page_reads_what_the_application_exports(h: &mut Harness) {
         h.feature(Localisation).unwrap();
 
-        let page = Mounted::<Greeting>::mount(&h.segment(), ()).unwrap();
+        let page = Mounted::<Greeting>::mount(h.segment(),()).unwrap();
 
         assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
     }
@@ -1398,7 +1414,7 @@ mod application_exports {
     fn a_shortcut_written_over_reads_reads_on_a_page(h: &mut Harness) {
         h.feature(Localisation).unwrap();
 
-        let page = Mounted::<Polyglot>::mount(&h.segment(), ()).unwrap();
+        let page = Mounted::<Polyglot>::mount(h.segment(),()).unwrap();
 
         assert!(page.find_text("speaks en").is_some(), "{:#?}", page.tree());
     }
@@ -1429,10 +1445,10 @@ mod application_exports {
     fn a_page_asks_what_the_application_exports_without_reading_it(h: &mut Harness) {
         h.feature(Localisation).unwrap();
 
-        let mut switcher = Mounted::<Switcher>::mount(&h.segment(), ()).unwrap();
+        let mut switcher = Mounted::<Switcher>::mount(h.segment(),()).unwrap();
         switcher.click(Marks::Speak).settle();
 
-        let page = Mounted::<Greeting>::mount(&h.segment(), ()).unwrap();
+        let page = Mounted::<Greeting>::mount(h.segment(),()).unwrap();
         assert!(page.find_text("speaks ru").is_some(), "{:#?}", page.tree());
     }
 }

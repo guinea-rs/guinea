@@ -165,7 +165,16 @@ impl<U: Ui> SegmentProps<U> {
     /// this segment. So it panics rather than silently treating the current
     /// scope as the owner.
     pub fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
-        let owner = self.scopes[self.cursor].owner_of::<R>().unwrap_or_else(|| {
+        let here = self.scopes[self.cursor];
+        let owner = here.owner_of::<R>().unwrap_or_else(|| {
+            if !here.is_alive() {
+                panic!(
+                    "reading {} in {here:?}, which was torn down: whatever owned that segment \
+                     let go of it while its page still renders",
+                    std::any::type_name::<R>()
+                );
+            }
+
             panic!(
                 "reading {} here found no scope that owns it: this segment did not claim \
                  it, and no ancestor exported it. Either this route never installs the \

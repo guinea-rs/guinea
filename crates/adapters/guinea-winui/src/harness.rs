@@ -450,7 +450,10 @@ pub struct Mounted<'h, S> {
     router: Option<Rc<Router<WinUi>>>,
     /// The root's dialog for a guard's question, found as it was created.
     dialog: Option<NodeId>,
-    segment: PhantomData<S>,
+    kind: PhantomData<S>,
+    /// The segment it is mounted into, kept for as long as it is: dropped
+    /// after the page, the way leaving a page tears down its scope.
+    segment: Segment<'h>,
 }
 
 impl<S> Drop for Mounted<'_, S> {
@@ -465,7 +468,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// Installs `S` into `segment` - what it `Installs`, and the node it
     /// starts as - and mounts it, the way a navigation to it would.
     pub fn mount<K>(
-        segment: &Segment<'h>,
+        segment: Segment<'h>,
         params: <S as Mountable<K>>::Params,
     ) -> anyhow::Result<Self>
     where
@@ -478,7 +481,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// what a layout above it would give it, such as a context:
     /// `|page| View::provide(&SCHEME, scheme, page)`.
     pub fn mount_with<K>(
-        segment: &Segment<'h>,
+        segment: Segment<'h>,
         params: <S as Mountable<K>>::Params,
         wrap: impl FnOnce(View) -> View,
     ) -> anyhow::Result<Self>
@@ -515,7 +518,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
             navigated: None,
             router: None,
             dialog: None,
-            segment: PhantomData,
+            kind: PhantomData,
+            segment,
         };
         mounted.settle();
 
@@ -527,7 +531,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// it was asked to go is kept for [`navigated`](Self::navigated), and the
     /// route `use_route` returns stays `route`.
     pub fn mount_at<K, R>(
-        segment: &Segment<'h>,
+        segment: Segment<'h>,
         params: <S as Mountable<K>>::Params,
         route: R,
     ) -> anyhow::Result<Self>
@@ -549,6 +553,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
         mounted.navigated = Some(Box::new(navigated));
 
         Ok(mounted)
+    }
+
+    /// The segment it is mounted into: to install more there, or to read
+    /// what a page there reads.
+    pub fn segment(&self) -> &Segment<'h> {
+        &self.segment
     }
 
     /// The question a guard is asking, if one is: what the dialog the root
@@ -1285,7 +1295,8 @@ where
             navigated: None,
             router: Some(router),
             dialog,
-            segment: PhantomData,
+            kind: PhantomData,
+            segment: harness.segment(),
         };
         mounted.settle();
 

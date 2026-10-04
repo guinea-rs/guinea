@@ -1,6 +1,6 @@
 use guinea::feature::FeatureInitContext;
 use guinea::winui::{Page, PageCx, page};
-use windows_reactor::{ChildrenControl, Orientation, StackPanel, TextBlock, View};
+use windows_reactor::{Orientation, StackPanel, TextBlock, View, keyed};
 
 use processes_core::services::contracts::Services as Running;
 
@@ -17,23 +17,21 @@ impl Page for Services {
         ctx.install(&())
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (state, _dispatch) = cx.read::<Running>();
 
-        let rows: Vec<(String, View)> = state
+        let rows = state
             .items
             .iter()
-            .map(|row| (row.clone(), TextBlock::new().text(row.clone()).into()))
-            .collect();
+            .map(|row| keyed(row.clone(), TextBlock::new().text(row.clone())));
 
         StackPanel::new()
             .orientation(Orientation::Vertical)
             .spacing(16.0)
             .children((
                 TextBlock::new().text("Services"),
-                StackPanel::new()
-                    .spacing(6.0)
-                    .children((View::keyed_fragment(rows),)),
+                StackPanel::new().spacing(6.0).keyed_children(rows),
             ))
+            .into()
     }
 }

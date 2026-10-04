@@ -9,9 +9,7 @@
 use guinea::feature::FeatureInitContext;
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
 use guinea_widgets::table::{ColumnSpec, ColumnWidths, Resized, table};
-use windows_reactor::{
-    Button, ChildrenControl, ContentControl, Orientation, StackPanel, TextBlock, View,
-};
+use windows_reactor::{Button, Orientation, StackPanel, TextBlock, View};
 
 use processes_core::processes::contracts::{Kill, Processes as Running};
 
@@ -67,7 +65,7 @@ impl Page for Processes {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (state, dispatch) = cx.read::<Running>();
 
         let rows: Vec<Row> = state
@@ -92,6 +90,7 @@ impl Page for Processes {
                         .mark(Marks::Kill)
                         .on_click(move || dispatch.emit(Kill(pid)))
                         .content(TextBlock::new().text("Kill"))
+                        .into()
                 }
             }),
         ];
@@ -107,6 +106,7 @@ impl Page for Processes {
                     .selection(self.selected, cx.on(Msg::Selected))
                     .build(),
             ))
+            .into()
     }
 }
 

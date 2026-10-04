@@ -24,7 +24,7 @@ impl Page for Metrics {
     fn bind(cx: PageCx<Self>) {
         let root = cx.root::<AppWindow>();
 
-        cx.bind_to::<Sampling, _, _>(&root, |root, state| {
+        cx.bind_to::<Sampling, _>(&root, |root, state| {
             let model = root.global::<MetricsModel>();
             let history = values(&state.cpu);
 

@@ -14,9 +14,9 @@ guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
 guinea-router = { path = "../../crates/guinea-router" }
 processes-core = { path = "../processes-core" }
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.19.0" }
-guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.19.0" }
-guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.19.0", default-features = false }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0" }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0", default-features = false }
 ratatui = "0.30"
 anyhow = "1.0"
 inventory = "0.3"

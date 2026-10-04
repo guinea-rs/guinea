@@ -24,7 +24,7 @@ impl Page for Processes {
 
         // Set once: the model reads the reducer's state and converts the rows
         // Slint actually asks for, so a refresh costs nothing here.
-        model.set_items(cx.rows::<Running, _, _>(|state| &state.items));
+        model.set_items(cx.rows::<Running, _>(|state| &state.items));
 
         // Read at click time rather than captured: the actor refreshes the
         // list, and the row under the button may not be the row that was there

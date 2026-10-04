@@ -10,10 +10,7 @@ use guinea::winui::{Page, PageCx, UpdateCx, page};
 use guinea_widgets::chart::{Chart, HoverInfo, Interpolation, LineChartOptions, Series};
 use guinea_widgets::color::{hex, hex_alpha};
 use windows_canvas::ColorF;
-use windows_reactor::{
-    Border, ChildrenControl, ContentControl, LayoutControl, Orientation, StackPanel, TextBlock,
-    View,
-};
+use windows_reactor::{Border, Orientation, StackPanel, TextBlock, View};
 
 use processes_core::metrics::contracts::Metrics as Sampling;
 
@@ -56,7 +53,7 @@ impl Page for Metrics {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (state, _) = cx.read::<Sampling>();
 
         self.chart.publish(
@@ -107,5 +104,6 @@ impl Page for Metrics {
                 TextBlock::new().text(readout),
                 chart,
             ))
+            .into()
     }
 }

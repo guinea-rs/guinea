@@ -23,6 +23,6 @@ impl Page for Services {
     fn bind(cx: PageCx<Self>) {
         cx.root::<AppWindow>()
             .global::<ServicesModel>()
-            .set_items(cx.rows::<Running, _, _>(|state| &state.items));
+            .set_items(cx.rows::<Running, _>(|state| &state.items));
     }
 }

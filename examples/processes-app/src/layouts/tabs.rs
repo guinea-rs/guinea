@@ -1,9 +1,7 @@
 use guinea::feature::FeatureInitContext;
 use guinea::winui::{Layout, LayoutCx, UseNavigate, UseRouteChange, Window, layout, window};
 use guinea_plugin_l10n::{L10nAccess, Localization};
-use windows_reactor::{
-    Button, ChildrenControl, ContentControl, Orientation, StackPanel, TextBlock, View,
-};
+use windows_reactor::{Button, Orientation, StackPanel, TextBlock, View};
 
 use crate::routes::Route;
 use processes_core::l10n::L10n;
@@ -23,7 +21,7 @@ impl Layout for TabsLayout {
         ctx.install(params.context.as_str())
     }
 
-    fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let (tabs, _) = cx.read::<Tabs>();
         cx.use_route_change(|from, to| tracing::debug!(?from, to, "route"));
 
@@ -97,5 +95,6 @@ impl Layout for TabsLayout {
                 TextBlock::new().text(toast),
                 cx.outlet(),
             ))
+            .into()
     }
 }

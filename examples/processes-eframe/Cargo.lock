@@ -113,7 +113,7 @@ dependencies = [
  "accesskit_consumer 0.35.0",
  "hashbrown 0.16.1",
  "static_assertions",
- "windows 0.62.2",
+ "windows",
  "windows-core 0.62.2",
 ]
 
@@ -2151,7 +2151,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.20",
- "windows 0.62.2",
+ "windows",
 ]
 
 [[package]]
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2223,8 +2223,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2263,15 +2263,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.21.0"
+version = "0.23.0"
 
 [[package]]
 name = "guinea-meta"
-version = "0.21.0"
+version = "0.23.0"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -2280,8 +2280,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-devtools"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "anyhow",
  "capnp",
@@ -2293,12 +2293,13 @@ dependencies = [
  "guinea-plugin-single-instance",
  "ogurpchik",
  "tracing",
+ "windows-link 0.100.0",
 ]
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -2312,8 +2313,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -2324,8 +2325,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2334,8 +2335,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.23.6"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.10"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2346,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2356,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2368,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -2377,8 +2378,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.19.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.19.0#59ebb1f0c5ea1fa6e585dbcc99ae8a2947d758b4"
+version = "0.23.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.23.0#4f028f75a47d9be90da0bf6d4dbdeb0b5418449c"
 dependencies = [
  "guinea-mark",
  "tracing",
@@ -3466,8 +3467,8 @@ dependencies = [
 
 [[package]]
 name = "ogurpchik"
-version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.7.1#3386e6224e0386a94c67e2265e9bf3aaa65ff2e0"
+version = "0.7.2"
+source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.7.2#934911742ffe1468a09878f8bd0fe7e515104ce7"
 dependencies = [
  "base64",
  "binrw",
@@ -3489,7 +3490,7 @@ dependencies = [
  "uuid",
  "widestring",
  "winapi",
- "windows 0.100.0",
+ "windows-core 0.100.0",
  "winreg",
 ]
 
@@ -5409,7 +5410,7 @@ dependencies = [
  "web-sys",
  "wgpu-naga-bridge",
  "wgpu-types",
- "windows 0.62.2",
+ "windows",
  "windows-core 0.62.2",
  "windows-result 0.4.1",
 ]
@@ -5483,23 +5484,10 @@ version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580"
 dependencies = [
- "windows-collections 0.3.2",
+ "windows-collections",
  "windows-core 0.62.2",
- "windows-future 0.3.2",
- "windows-numerics 0.3.1",
-]
-
-[[package]]
-name = "windows"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-collections 0.100.0",
- "windows-core 0.100.0",
- "windows-future 0.100.0",
- "windows-numerics 0.100.0",
- "windows-reference",
- "windows-time",
+ "windows-future",
+ "windows-numerics",
 ]
 
 [[package]]
@@ -5509,14 +5497,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610"
 dependencies = [
  "windows-core 0.62.2",
-]
-
-[[package]]
-name = "windows-collections"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-core 0.100.0",
 ]
 
 [[package]]
@@ -5535,7 +5515,8 @@ dependencies = [
 [[package]]
 name = "windows-core"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803590c6856f51d15fa2e9fabe4f4703122c8737f72ef2741b4ac09d4c2192f5"
 dependencies = [
  "windows-implement 0.100.0",
  "windows-interface 0.100.0",
@@ -5552,17 +5533,7 @@ checksum = "e1d6f90251fe18a279739e78025bd6ddc52a7e22f921070ccdc67dde84c605cb"
 dependencies = [
  "windows-core 0.62.2",
  "windows-link 0.2.1",
- "windows-threading 0.2.1",
-]
-
-[[package]]
-name = "windows-future"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-core 0.100.0",
- "windows-link 0.100.0",
- "windows-threading 0.100.0",
+ "windows-threading",
 ]
 
 [[package]]
@@ -5579,7 +5550,8 @@ dependencies = [
 [[package]]
 name = "windows-implement"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc1bc82e5a1b1a4d7255861b07881a0407b552f50a4d8543c0c7276fa96f6e8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5600,7 +5572,8 @@ dependencies = [
 [[package]]
 name = "windows-interface"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3f7005c3b757b9b82c2f40c0e71094ff1080adddaf3e8b6ce99b545d3c48796"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5622,7 +5595,8 @@ checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 [[package]]
 name = "windows-link"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b39de7c7fe78858b0144c50c3fc000bab3be17d5e9b85b1053871693c7f7415"
 
 [[package]]
 name = "windows-numerics"
@@ -5632,23 +5606,6 @@ checksum = "6e2e40844ac143cdb44aead537bbf727de9b044e107a0f1220392177d15b0f26"
 dependencies = [
  "windows-core 0.62.2",
  "windows-link 0.2.1",
-]
-
-[[package]]
-name = "windows-numerics"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-core 0.100.0",
-]
-
-[[package]]
-name = "windows-reference"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-core 0.100.0",
- "windows-time",
 ]
 
 [[package]]
@@ -5672,7 +5629,8 @@ dependencies = [
 [[package]]
 name = "windows-result"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44873a1ef61c85d5e2991db91fe656cfcf0731097e00dff1ac860f1cb3b752a0"
 dependencies = [
  "windows-link 0.100.0",
 ]
@@ -5689,7 +5647,8 @@ dependencies = [
 [[package]]
 name = "windows-strings"
 version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a70b590c684f1d2854f74999896f7c0558f1bdde62f599088599e20ea1d2f60"
 dependencies = [
  "windows-link 0.100.0",
 ]
@@ -5770,22 +5729,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
 dependencies = [
  "windows-link 0.2.1",
-]
-
-[[package]]
-name = "windows-threading"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-link 0.100.0",
-]
-
-[[package]]
-name = "windows-time"
-version = "0.100.0"
-source = "git+https://github.com/microsoft/windows-rs?rev=c14074c45#c14074c45476d2c49eaad890609489e5f37ecd01"
-dependencies = [
- "windows-core 0.100.0",
 ]
 
 [[package]]

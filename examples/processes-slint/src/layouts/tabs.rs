@@ -42,12 +42,12 @@ impl Layout for TabsLayout {
             })
         };
 
-        cx.bind::<Tabs, _>({
+        cx.bind::<Tabs>({
             let refresh = refresh.clone();
             move |_| refresh()
         });
 
-        cx.bind::<Language<L10n>, _>({
+        cx.bind::<Language<L10n>>({
             let refresh = refresh.clone();
             move |_| refresh()
         });

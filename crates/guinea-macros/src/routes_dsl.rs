@@ -635,6 +635,47 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         quote! { #enum_ident::#ident { .. } => &#const_name }
     });
 
+    let leaves_name = format_ident!("__routes_leaves_{}", enum_ident);
+    let leaf_chains = variant_idents.iter().map(|ident| {
+        let const_name = format_ident!("__routes_chain_{}_{}", enum_ident, ident);
+        quote! { &#const_name }
+    });
+
+    // A leaf is reached from a layout above it when that layout carries every
+    // field the leaf does: a menu has nothing else to build the route from.
+    let reached_arms = leaves.iter().zip(&variant_idents).enumerate().flat_map(|(index, (leaf, ident))| {
+        let layouts = &layouts;
+        let layout_params_idents = &layout_params_idents;
+        let enum_ident = &enum_ident;
+        leaf.ancestors.iter().enumerate().filter_map(move |(at, ancestor)| {
+            let position = layouts
+                .iter()
+                .position(|layout| same_type(&layout.ty, ancestor))
+                .expect("every ancestor of a leaf is a layout of this tree");
+            let carried = &layouts[position].fields;
+            let reachable = leaf.fields.iter().all(|field| {
+                field.identity
+                    && carried
+                        .iter()
+                        .any(|other| other.name == field.name && same_type(&other.ty, &field.ty))
+            });
+            if !reachable {
+                return None;
+            }
+
+            let params = &layout_params_idents[position];
+            let taken = leaf.fields.iter().map(|field| {
+                let name = &field.name;
+                quote! { #name: params.#name.clone() }
+            });
+            Some(quote! {
+                (#index, #at) => params
+                    .downcast_ref::<#params>()
+                    .map(|params| #enum_ident::#ident { #(#taken),* })
+            })
+        })
+    }).collect::<Vec<_>>();
+
     let tree_name = format_ident!("__routes_tree_{}", enum_ident);
     let tree_chains = leaves.iter().zip(&variant_idents).flat_map(|(leaf, ident)| {
         let tree = &enum_ident;
@@ -732,6 +773,9 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         #[allow(non_upper_case_globals)]
         const #tree_name: &[&[#router::SegmentEntry<#backend_ty>]] = &[#(#tree_chains),*];
 
+        #[allow(non_upper_case_globals)]
+        const #leaves_name: &[&[#router::SegmentEntry<#backend_ty>]] = &[#(#leaf_chains),*];
+
         impl #router::RouteChain<#backend_ty> for #enum_ident {
             fn chain(&self) -> &'static [#router::SegmentEntry<#backend_ty>] {
                 match self {
@@ -767,6 +811,22 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
             fn tree() -> &'static [&'static [#router::SegmentEntry<#backend_ty>]] {
                 #tree_name
+            }
+
+            fn leaves() -> &'static [&'static [#router::SegmentEntry<#backend_ty>]] {
+                #leaves_name
+            }
+
+            #[allow(unused_variables)]
+            fn reached_from(
+                leaf: usize,
+                at: usize,
+                params: &dyn ::std::any::Any,
+            ) -> ::core::option::Option<Self> {
+                match (leaf, at) {
+                    #(#reached_arms,)*
+                    _ => ::core::option::Option::None,
+                }
             }
         }
 

@@ -423,6 +423,35 @@ pub trait RouteChain<U: Ui> {
     {
         &[]
     }
+
+    /// Each route's chain, in the order `routes!` declared them.
+    fn leaves() -> &'static [&'static [SegmentEntry<U>]]
+    where
+        Self: Sized,
+    {
+        &[]
+    }
+
+    /// The route to leaf `leaf` of [`leaves`](Self::leaves), made from what
+    /// the layout at `at` of its chain was installed with - `None` when the
+    /// leaf carries more than that layout does.
+    fn reached_from(_leaf: usize, _at: usize, _params: &dyn Any) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        None
+    }
+}
+
+/// One child of a layout, as a menu offers it: the route that reaches it from
+/// here, and whether it is the one showing.
+///
+/// A child layout is reached through its first page, and is current while any
+/// page under it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChildRoute<R> {
+    pub route: R,
+    pub current: bool,
 }
 
 /// The application a route tree names.
@@ -1741,6 +1770,53 @@ impl<U: Ui> Router<U> {
             unwind(&active.scopes);
         }
         *self.prev_route.borrow_mut() = None;
+    }
+
+    /// The children of the layout at `cursor` of the active chain, each as
+    /// the route that reaches it with what that layout was installed with.
+    /// A child that needs more than that is not offered: it is reached from
+    /// inside, not from a menu.
+    pub fn child_routes<R: RouteChain<U>>(&self, cursor: usize) -> Vec<ChildRoute<R>> {
+        let active = self.active.borrow();
+        let Some(active) = active.as_ref() else {
+            return Vec::new();
+        };
+        let Some(carried) = active.params.get(cursor) else {
+            return Vec::new();
+        };
+
+        let here = &active.entries[..=cursor];
+        let under_here = |leaf: &[SegmentEntry<U>]| {
+            leaf.len() > cursor + 1
+                && leaf[..=cursor]
+                    .iter()
+                    .zip(here)
+                    .all(|(theirs, ours)| (theirs.type_id)() == (ours.type_id)())
+        };
+        let showing = active.entries.get(cursor + 1).map(|entry| (entry.type_id)());
+
+        let mut offered: Vec<TypeId> = Vec::new();
+        let mut children = Vec::new();
+        for (index, leaf) in R::leaves().iter().enumerate() {
+            if !under_here(leaf) {
+                continue;
+            }
+
+            let child = (leaf[cursor + 1].type_id)();
+            if offered.contains(&child) {
+                continue;
+            }
+            let Some(route) = R::reached_from(index, cursor, &**carried) else {
+                continue;
+            };
+
+            offered.push(child);
+            children.push(ChildRoute {
+                route,
+                current: showing == Some(child),
+            });
+        }
+        children
     }
 
     /// The scope of the segment at `cursor` in the active chain: 0 is the

@@ -1836,6 +1836,22 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     pub fn fill<S: Slot>(&mut self, view: View) {
         crate::slots::fill::<S>(&self.props, view);
     }
+
+    /// This layout's children in `routes!`, each as the route that reaches it
+    /// from here, and which one is showing - what a menu is built from.
+    ///
+    /// Labels belong in an exhaustive `match` on `R` in the view, so a page
+    /// added to the tree and left out of the menu does not compile. A child
+    /// that needs more than this layout carries is not offered.
+    pub fn child_routes<R>(&mut self) -> Vec<guinea_router::router::ChildRoute<R>>
+    where
+        R: RouteChain<WinUi> + 'static,
+    {
+        match self.cx.use_context(router_context()) {
+            Some(router) => router.0.child_routes::<R>(self.props.cursor),
+            None => Vec::new(),
+        }
+    }
 }
 
 impl<L: Layout> LayoutCx<'_, '_, L> {

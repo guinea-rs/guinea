@@ -291,7 +291,8 @@ impl Layout for MainWindow {
     type Message = ColorScheme;
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let on_scheme = cx.on(|scheme| scheme);
+        let drawn = self.scheme;
+        let on_scheme = cx.on_some(move |scheme| (scheme != drawn).then_some(scheme));
         cx.on_color_scheme(on_scheme);
 
         let (settings, _) = cx.read::<SettingsState>();
@@ -339,6 +340,12 @@ impl Page for SidebarCharts {
     }
 }
 ```
+
+`MainWindow` отбрасывает схему, которую уже показывает, через `on_some`:
+реактор сообщает текущую схему при каждой публикации окна (с #5000), а любое
+сообщение сегменту его перерисовывает, так что `cx.on(|scheme| scheme)`
+крутил бы `MainWindow` и всё под ним по кругу. `None` из `on_some` ничего
+не шлёт и ничего не перерисовывает.
 
 `Connecting` устроен так же: ставит `AgentLinkFeature`, читает
 `AgentLinkState` и заполняет `Overlay` заставкой или ничем.

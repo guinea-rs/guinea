@@ -9,7 +9,7 @@ use guinea::prelude::*;
 use guinea::observability::trace::Point;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{Layout, LayoutCx, Page, PageCx, layout, page};
-use windows_reactor::{StackPanel, TextBlock, View};
+use windows_reactor::{Button, StackPanel, TextBlock, View};
 
 #[guinea::slot]
 pub struct Footer;
@@ -188,12 +188,32 @@ impl Page for Services {
     }
 }
 
+/// Told something it already shows, and sends nothing for it.
+#[derive(Default)]
+pub struct Quiet;
+
+#[page]
+impl Page for Quiet {
+    type Params = QuietParams;
+    type Message = ();
+
+    fn update(&mut self, _message: (), _cx: &mut guinea::winui::UpdateCx<'_, Self>) {}
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        Button::new()
+            .on_click(cx.on_some(|()| None))
+            .content(TextBlock::new().text("same again"))
+            .into()
+    }
+}
+
 guinea::routes! {
     Route {
         layout(Shell) {
             part(Status) => Footer
             page(Processes) { }
             page(Services) { }
+            page(Quiet) { }
         }
     }
 }
@@ -249,6 +269,21 @@ fn a_navigation_drawn_a_drain_later_has_what_it_drew_in_its_chain(h: &mut Harnes
     assert!(app.find_text("processes").is_some(), "{:#?}", app.tree());
     assert!(
         act.chain().has(rendered("Processes")),
+        "{:#?}",
+        act.chain().points()
+    );
+}
+
+#[guinea::test(iterations = 4)]
+fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
+    let mut app = Mounted::routed(h, Route::Quiet {}).unwrap();
+    app.settle();
+
+    let act = app.click_text("same again");
+    app.settle();
+
+    assert!(
+        !act.chain().has(rendered("Quiet")),
         "{:#?}",
         act.chain().points()
     );

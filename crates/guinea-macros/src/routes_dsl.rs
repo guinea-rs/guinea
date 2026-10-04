@@ -211,8 +211,9 @@ fn params_struct(name: &Ident, fields: &[guinea_route_dsl::Field]) -> TokenStrea
 
     if fields.is_empty() {
         return quote! {
-            #[derive(Clone, Debug, Default, PartialEq)]
-            pub struct #name {}
+            /// Nothing captured: `()`, which is also what a segment that
+            /// declares no `Params` is handed.
+            pub type #name = ();
         };
     }
 
@@ -365,24 +366,33 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
                     .position(|layout| same_type(&layout.ty, ancestor))
                     .expect("every ancestor of a leaf is a layout of this tree");
                 let params = &layout_params_idents[position];
-                let taken = layouts[position]
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        let name = &field.name;
-                        quote! { #name: #name.clone() }
-                    });
+                let carried = &layouts[position].fields;
+                let made = match carried.is_empty() {
+                    true => quote!(()),
+                    false => {
+                        let taken = carried.iter().map(|field| {
+                            let name = &field.name;
+                            quote! { #name: #name.clone() }
+                        });
+                        quote!(#params { #(#taken),* })
+                    }
+                };
 
                 quote! {
-                    ::std::boxed::Box::new(#params { #(#taken),* })
+                    ::std::boxed::Box::new(#made)
                         as ::std::boxed::Box<dyn ::std::any::Any>
                 }
             });
 
+            let made = match names.is_empty() {
+                true => quote!(()),
+                false => quote!(#params { #(#names: #names.clone()),* }),
+            };
+
             quote! {
                 #enum_ident::#ident { #(#names),* } => vec![
                     #(#ancestors,)*
-                    ::std::boxed::Box::new(#params { #(#names: #names.clone()),* })
+                    ::std::boxed::Box::new(#made)
                         as ::std::boxed::Box<dyn ::std::any::Any>
                 ]
             }

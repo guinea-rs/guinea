@@ -323,6 +323,9 @@ enum Route { Processes { context: String }, ... }
 struct ProcessesParams { context: String }
 impl Page for Processes { type Params = ProcessesParams; }
 
+type HomeParams = ();   // a page that captures nothing: `Params` may be left out
+
+
 impl Route {
     fn identity(&self) -> RouteIdentity;
     fn link(&self) -> Option<String>;

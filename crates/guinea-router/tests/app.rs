@@ -183,7 +183,10 @@ fn navigating_in_an_application_built_without_it_panics_naming_it() {
         Ok(_) => None,
     };
     assert!(
-        message.as_deref().is_some_and(|it| it.contains("application::<App>()")),
+        message.as_deref().is_some_and(|it| {
+            it.contains("GuineaApp::new().application::<App>()")
+                && it.contains("install_application::<App>()")
+        }),
         "got {message:?}, from {:?}",
         outcome.as_ref().map(|_| ())
     );

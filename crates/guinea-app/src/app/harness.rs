@@ -17,7 +17,7 @@ use crate::observability::Observed;
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::host::AppHost;
-use super::plugin::{AppFeature, Plugin};
+use super::plugin::{AppFeature, Application, Plugin};
 use super::roots::Registration;
 use super::runtime;
 
@@ -145,6 +145,28 @@ impl Harness {
     /// see [`FeatureHost::under`](crate::feature::FeatureHost::under).
     pub fn application(&self) -> ScopeContext {
         ScopeContext::clone(&self.app)
+    }
+
+    /// Installs `A` into the application around the harness, as
+    /// [`GuineaApp::application`](super::GuineaApp::application) does: a
+    /// route tree that hangs from `app(A)` can be mounted.
+    pub fn install_application<A: Application>(&mut self) -> anyhow::Result<&mut Self> {
+        self.install_application_with(A::install)
+    }
+
+    /// Installs `A` with the test's own function instead of `A`'s, and marks
+    /// it installed. The function returns `A`, so each line `app!` lists is
+    /// installed - the real thing, or a stand-in through
+    /// [`feature_as`](FeatureBuilder::feature_as) and
+    /// [`plugin_as`](super::PluginBuilder::plugin_as) - and what `A` installs besides
+    /// is the test's to leave out.
+    pub fn install_application_with<A: Application>(
+        &mut self,
+        install: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<A>,
+    ) -> anyhow::Result<&mut Self> {
+        install(&mut self.app)?;
+        self.app.scope.mark_feature_installed::<A>();
+        Ok(self)
     }
 
     /// Installs a plugin into the application around the harness. What it

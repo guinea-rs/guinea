@@ -483,7 +483,8 @@ fn installed_for<U: Ui>(route: &impl RouteChain<U>, app: Option<Scope>) {
     assert!(
         installed,
         "the route tree reads from the application `{0}`, but it was not installed - \
-         build the application with `GuineaApp::new().application::<{0}>()`",
+         build the application with `GuineaApp::new().application::<{0}>()`, or under a \
+         harness, `h.install_application::<{0}>()` or `h.install_application_with(..)`",
         item.name
     );
 }

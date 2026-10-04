@@ -55,6 +55,16 @@ impl PluginBuilder {
         Ok(Installed::new())
     }
 
+    /// [`FeatureBuilder::feature_as`], for a plugin.
+    pub fn plugin_as<T, P>(&mut self, stand_in: P) -> anyhow::Result<Installed<T>>
+    where
+        T: Plugin,
+        P: Plugin<Exports = T::Exports>,
+    {
+        self.install_plugin(Box::new(stand_in))?;
+        Ok(Installed::new())
+    }
+
     pub fn provide<T: Send + Sync + 'static>(&self, value: T) -> &Self {
         self.provide_arc(Arc::new(value))
     }
@@ -153,6 +163,18 @@ impl FeatureBuilder {
 
     pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<Installed<F>> {
         self.install_feature(Box::new(feature))?;
+        Ok(Installed::new())
+    }
+
+    /// Installs `stand_in` where the application lists `T`: a test's fake,
+    /// which exports exactly what `T` does, so every page reads the same
+    /// reducers from it.
+    pub fn feature_as<T, F>(&mut self, stand_in: F) -> anyhow::Result<Installed<T>>
+    where
+        T: AppFeature,
+        F: AppFeature<Exports = T::Exports>,
+    {
+        self.install_feature(Box::new(stand_in))?;
         Ok(Installed::new())
     }
 

@@ -535,7 +535,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
     // the other: `Installs` here, `Exports` on each feature.
     let feature = feature_path(&guinea);
 
-    // The application `app = ..` names is the outermost segment of every
+    // The application the tree hangs from is the outermost segment of every
     // chain.
     let app_tail = match &tree.app {
         Some(app) => quote! { (#app, ()) },

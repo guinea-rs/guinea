@@ -46,7 +46,7 @@ impl<T> Installed<T> {
 /// The application as one item: what it installs, and the features and
 /// plugins whose exports its pages read.
 ///
-/// The top segment of every route tree that names it with `app = ..`. Its
+/// The top segment of every route tree that hangs from it with `app(..)`. Its
 /// `Installs` lists what pages read, and `install` returns one [`Installed`]
 /// for each, so the two cannot disagree. What pages do not read - devtools, a
 /// store - is installed in `install` and left out of the list.

@@ -2,8 +2,9 @@
 //!
 //! `app!` declares what the application installs for pages to read, and
 //! `#[installs]` is the function that installs it - the same pair a feature
-//! is. A tree names it with `app = ..`, which makes it the top segment of
-//! every chain; navigating is where an application built without it finds out.
+//! is. A tree hangs from it, `app(App) { .. }`, which makes it the top segment
+//! of every chain; navigating is where an application built without it finds
+//! out.
 
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -135,10 +136,11 @@ impl Page for Reader {
 
 routes! {
     backend = guinea_router::headless::Headless,
-    app = App,
     Route {
-        layout(Shell) {
-            page(Reader)
+        app(App) {
+            layout(Shell) {
+                page(Reader)
+            }
         }
     }
 }

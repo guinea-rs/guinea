@@ -87,7 +87,7 @@ impl GuineaApp {
         self
     }
 
-    /// Installs `A`, the application a route tree names with `app = ..`.
+    /// Installs `A`, the application a route tree hangs from with `app(A)`.
     pub fn application<A: Application>(mut self) -> Self {
         self.registrations.push(Box::new(|app| {
             A::install(app)?;

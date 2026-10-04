@@ -11,7 +11,7 @@
 //! The counterpart of `feature!`. The type it makes holds one `Installed` per
 //! line, in the order listed, so the only way to have one is to have installed
 //! each of them - `#[installs]` writes the function that does. It is also the
-//! top segment of every route tree that names it with `app = ..`, with the
+//! top segment of every route tree that hangs from it with `app(..)`, with the
 //! list as its `Installs`.
 
 use proc_macro::TokenStream as TokenStream1;

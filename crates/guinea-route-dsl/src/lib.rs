@@ -163,8 +163,8 @@ pub struct RouteTree {
     pub name: Ident,
     /// `backend = path::To::Backend`, when the declaration named one.
     pub backend: Option<syn::Type>,
-    /// `app = App`: the application whose exports these pages read, the top
-    /// segment of every chain.
+    /// `app(App) { .. }`: the application whose exports these pages read, the
+    /// root the whole tree hangs from and the top segment of every chain.
     pub app: Option<syn::Type>,
     pub nodes: Vec<Node>,
 }
@@ -245,12 +245,13 @@ pub fn parse(input: TokenStream) -> RouteTree {
     let mut slice: Tokens = &tokens;
 
     let mut backend = None;
-    let mut app = None;
     while let Some((key, ty)) = parse_setting(&mut slice) {
         match key.to_string().as_str() {
             "backend" => backend = Some(ty),
-            "app" => app = Some(ty),
-            _ => panic!("routes!: unknown setting `{key} = ..`; a route tree takes `backend` and `app`"),
+            "app" => panic!(
+                "routes!: `app = ..` - the application is the root of the tree: `Route {{ app(App) {{ .. }} }}`"
+            ),
+            _ => panic!("routes!: unknown setting `{key} = ..`; a route tree takes `backend`"),
         }
     }
 
@@ -262,7 +263,19 @@ pub fn parse(input: TokenStream) -> RouteTree {
         .unwrap_or_else(|_| panic!("routes! expects a `{{ ... }}` body after `{name}`"));
 
     let mut body_slice: Tokens = &body_tokens;
-    let nodes = parse_nodes(&mut body_slice).expect("failed to parse routes! body");
+    let (app, nodes) = match parse_app(&mut body_slice) {
+        Some((app, children)) => {
+            if let Ok(beside) = parse_node.parse_next(&mut body_slice) {
+                panic!(
+                    "routes!: `app({})` holds the whole tree; `{}` belongs inside it",
+                    spelled(&app),
+                    described(&beside)
+                );
+            }
+            (Some(app), children)
+        }
+        None => (None, parse_nodes(&mut body_slice).expect("failed to parse routes! body")),
+    };
 
     RouteTree {
         name,
@@ -678,7 +691,7 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
 
     let brace_tokens = group_inner(Delimiter::Brace).parse_next(input)?;
     let mut brace_slice: Tokens = &brace_tokens;
-    let children = parse_nodes(&mut brace_slice)?;
+    let children = parse_children(&mut brace_slice, &format!("layout({})", spelled(&ty)))?;
     Ok(Node::Layout {
         ty,
         guards,
@@ -836,6 +849,45 @@ fn parse_link<'i>(input: &mut Tokens<'i>) -> Option<String> {
     Some(literal)
 }
 
+fn parse_app(input: &mut Tokens) -> Option<(syn::Type, Vec<Node>)> {
+    match input.first() {
+        Some(TokenTree::Ident(word)) if word == "app" => {}
+        _ => return None,
+    }
+
+    let mut slice: Tokens = &input[1..];
+    let paren = group_inner(Delimiter::Parenthesis).parse_next(&mut slice).ok()?;
+    let ty = sole_type(paren, |ty| format!("routes!: `app({}, ..)` - an application is one type", spelled(ty))).ok()?;
+    let brace = group_inner(Delimiter::Brace).parse_next(&mut slice).ok()?;
+    let mut inner: Tokens = &brace;
+    let parent = format!("app({})", spelled(&ty));
+    let children = parse_children(&mut inner, &parent).expect("failed to parse routes! body");
+
+    *input = slice;
+    Some((ty, children))
+}
+
+fn parse_children<'i>(input: &mut Tokens<'i>, parent: &str) -> ModalResult<Vec<Node>> {
+    let mut nodes = Vec::new();
+    while !input.is_empty() {
+        if let Some((app, _)) = parse_app(input) {
+            panic!(
+                "routes!: `app({})` is the root of the tree, not a child of `{parent}`",
+                spelled(&app)
+            );
+        }
+        nodes.push(parse_node.parse_next(input)?);
+    }
+    Ok(nodes)
+}
+
+fn described(node: &Node) -> String {
+    match node {
+        Node::Layout { ty, .. } => format!("layout({})", spelled(ty)),
+        Node::Page { ty, .. } => format!("page({})", spelled(ty)),
+    }
+}
+
 fn parse_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
     alt((parse_layout_node, parse_page_node)).parse_next(input)
 }
@@ -858,9 +910,8 @@ fn segment<'i>(input: &mut &'i str) -> ModalResult<Segment> {
 
 /// A setting before the tree, `key = Type,`, if one is there.
 ///
-/// Each is one type, because that is what an application knows: the backend
-/// it mounts on - `backend = guinea_ratatui::Tui` - and the application whose
-/// exports its pages read - `app = App`.
+/// One type: the backend the tree mounts on - `backend = guinea_ratatui::Tui`.
+/// The application is not a setting; the tree hangs from it.
 fn parse_setting(slice: &mut Tokens) -> Option<(Ident, syn::Type)> {
     let tokens = *slice;
     let key = match (tokens.first(), tokens.get(1)) {
@@ -1321,22 +1372,48 @@ mod tests {
     }
 
     #[test]
-    fn a_tree_names_its_application_beside_its_backend_in_either_order() {
-        for source in [
-            "routes! { backend = guinea::winui::WinUi, app = apps::App<Strings, u8>, Route { page(A) } }",
-            "routes! { app = apps::App<Strings, u8>, backend = guinea::winui::WinUi, Route { page(A) } }",
-        ] {
-            let tree = find_in_source(source).expect("a route tree");
+    fn a_tree_hangs_from_its_application() {
+        let tree = find_in_source(
+            "routes! { backend = guinea::winui::WinUi, Route { app(apps::App<Strings, u8>) { \
+             layout(Shell) { page(A) } page(B) } } }",
+        )
+        .expect("a route tree");
 
-            assert_eq!(tree.app.as_ref().map(spelled).as_deref(), Some("apps::App<Strings,u8>"));
-            assert_eq!(tree.backend.as_ref().map(spelled).as_deref(), Some("guinea::winui::WinUi"));
-            assert_eq!(tree.leaves().len(), 1);
-        }
+        assert_eq!(tree.app.as_ref().map(spelled).as_deref(), Some("apps::App<Strings,u8>"));
+        assert_eq!(tree.backend.as_ref().map(spelled).as_deref(), Some("guinea::winui::WinUi"));
+
+        let leaves: Vec<(String, Vec<String>)> = tree
+            .leaves()
+            .iter()
+            .map(|leaf| (spelled(&leaf.ty), leaf.ancestors.iter().map(spelled).collect()))
+            .collect();
+        assert_eq!(
+            leaves,
+            [("A".to_string(), vec!["Shell".to_string()]), ("B".to_string(), vec![])]
+        );
     }
 
     #[test]
     fn a_tree_without_an_application_names_none() {
         assert!(tree_of("page(A)").app.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "the application is the root of the tree: `Route { app(App) { .. } }`")]
+    fn an_application_is_not_a_setting() {
+        find_in_source("routes! { app = App, Route { page(A) } }");
+    }
+
+    #[test]
+    #[should_panic(expected = "routes!: `app(App)` holds the whole tree; `page(B)` belongs inside it")]
+    fn nothing_stands_beside_the_application() {
+        tree_of("app(App) { page(A) } page(B)");
+    }
+
+    #[test]
+    #[should_panic(expected = "routes!: `app(App)` is the root of the tree, not a child of `layout(Shell)`")]
+    fn an_application_under_a_layout_is_refused() {
+        tree_of("layout(Shell) { app(App) { page(A) } }");
     }
 
     #[test]

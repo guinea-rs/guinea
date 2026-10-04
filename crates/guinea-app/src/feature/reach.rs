@@ -123,7 +123,7 @@ tuple!(
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot read `{R}` from here",
     label = "no feature in reach exports it",
-    note = "a segment reads what it installed itself and what a segment above it listed in `Exports` - for what the application exports, list its feature or plugin in `installs` of `app!`, and name the application in `routes!` with `app = ..`"
+    note = "a segment reads what it installed itself and what a segment above it listed in `Exports` - for what the application exports, list its feature or plugin in `installs` of `app!`, and hang the tree in `routes!` from it with `app(..) {{ .. }}`"
 )]
 pub trait Reaches<R, I> {}
 

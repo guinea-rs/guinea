@@ -326,8 +326,8 @@ pub trait RouteChain<U: Ui> {
         &[]
     }
 
-    /// The application this tree's pages read from - `app = ..` in
-    /// `routes!`.
+    /// The application this tree's pages read from - `app(..)` at the root
+    /// of `routes!`.
     fn application(&self) -> Option<AppItem> {
         None
     }

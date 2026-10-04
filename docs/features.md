@@ -261,12 +261,15 @@ fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
 у фичи и `Installs` у сегмента. Что страницы не читают (devtools, хранилище,
 single-instance), ставится в той же функции и в список не попадает.
 
-Дерево маршрутов называет приложение рядом с бэкендом, а `main` его ставит:
+Дерево маршрутов растёт из приложения, а `main` его ставит:
 
 ```rust
 routes! {
-    app = App,
-    Route { layout(Shell) { .. } }
+    Route {
+        app(App) {
+            layout(Shell) { .. }
+        }
+    }
 }
 
 run(GuineaApp::new().application::<App>(), window, |_| Route::Home {})

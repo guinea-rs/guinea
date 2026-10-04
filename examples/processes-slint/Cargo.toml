@@ -18,11 +18,11 @@ guinea = { path = "../../crates/guinea", default-features = false, features = [
 guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
 processes-core = { path = "../processes-core" }
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0" }
-guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0" }
-guinea-plugin-window-state = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.24.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.24.0" }
+guinea-plugin-window-state = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.24.0" }
 # For `RingSeries` only, which is plain data.
-guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.23.0", default-features = false }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.24.0", default-features = false }
 # With a backend and a renderer, unlike the adapter: picking those is the
 # application's job. Named rather than left to `default`, which pulls in both
 # femtovg and the software renderer and decides between them at startup.

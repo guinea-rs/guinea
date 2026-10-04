@@ -61,8 +61,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # The vendored reactor and canvas are published in the same run as the
+      # rest, so between a bump and the tag crates.io does not have them yet:
+      # packaged against crates/vendor, as publish.yml does.
       - name: Package what publish would
-        run: cargo package --workspace --exclude xtask --no-verify
+        run: >
+          cargo package --workspace --exclude xtask --no-verify
+          --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
+          --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"
 
   examples:
     runs-on: windows-latest

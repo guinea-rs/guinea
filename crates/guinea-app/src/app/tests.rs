@@ -404,6 +404,7 @@ mod exports {
 
     use super::super::Harness;
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder, builder};
+    use crate::app::{Application, Installed};
 
     #[derive(Clone, Debug, Default)]
     struct Language(&'static str);
@@ -507,6 +508,34 @@ mod exports {
         let page = harness.child();
 
         assert_eq!(language(page.context().scope), Some("de"));
+    }
+
+    struct Speaking(Installed<Localisation>);
+
+    impl crate::feature::Segment for Speaking {
+        type Installs = (Localisation,);
+        type Above = ();
+    }
+
+    impl Application for Speaking {
+        fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self> {
+            Ok(Speaking(app.feature(Localisation)?))
+        }
+    }
+
+    #[test]
+    fn an_application_installs_what_it_returns_and_counts_as_installed() {
+        let token = UiThreadToken::dangerously_create_token_unchecked();
+        let runtime = super::super::GuineaApp::new()
+            .application::<Speaking>()
+            .install(token)
+            .expect("install");
+        crate::app::install_runtime(runtime);
+
+        let app = crate::app::actors::app_scope().expect("an application");
+
+        assert!(app.has_feature::<Speaking>());
+        assert_eq!(language(app), Some("en"));
     }
 
     #[test]

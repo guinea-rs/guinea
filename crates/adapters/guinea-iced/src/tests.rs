@@ -341,7 +341,11 @@ impl guinea_app::app::Plugin for Showing {
     }
 }
 
-type App = guinea_app::feature::Application<Showing>;
+guinea_macros::app! {
+    App {
+        installs { Showing }
+    }
+}
 
 thread_local! {
     static SEEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };

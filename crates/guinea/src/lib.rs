@@ -215,7 +215,8 @@ pub use guinea_core::mark::Mark;
 #[allow(deprecated)]
 pub use guinea_core::rpc_bind;
 pub use guinea_macros::{
-    Event, Mark, Remote, Request, actor, feature, handler, installs, reducer, routes, segment,
+    Event, Mark, Remote, Request, actor, app, feature, handler, installs, reducer, routes,
+    segment,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -
@@ -234,7 +235,9 @@ pub use guinea_core::__private::anyhow;
 /// come from `guinea::backend`, or from the backend's module by name when
 /// there are several.
 pub mod prelude {
-    pub use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
+    pub use guinea_app::app::{
+        AppFeature, Application, FeatureBuilder, GuineaApp, Installed, Plugin, PluginBuilder,
+    };
     pub use guinea_app::feature::{Feature, FeatureInitContext, ScopeContext};
     pub use guinea_app::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, GlobalEventBus, Reply};
@@ -243,5 +246,5 @@ pub mod prelude {
     pub use guinea_core::trace::Bus;
     pub use guinea_core::__private::anyhow;
     pub use guinea_core::{Load, Reducer};
-    pub use guinea_macros::{Event, actor, feature, handler, installs, reducer, routes};
+    pub use guinea_macros::{Event, actor, app, feature, handler, installs, reducer, routes};
 }

@@ -9,7 +9,7 @@ use guinea_core::actor::{Addr, ManagedActor, UiThreadToken};
 use crate::feature::{AppFeatureDeinitContext, ScopeContext};
 
 use super::host::AppHost;
-use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Plugin};
+use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Installed, Plugin};
 use super::registry::{Admission, Registry, Unit};
 
 /// What a plugin may do during installation.
@@ -50,9 +50,9 @@ impl PluginBuilder {
         self.registry.borrow().plugin_ids()
     }
 
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {
         self.install_plugin(Box::new(plugin))?;
-        Ok(self)
+        Ok(Installed::new())
     }
 
     pub fn provide<T: Send + Sync + 'static>(&self, value: T) -> &Self {
@@ -151,9 +151,9 @@ impl FeatureBuilder {
         }
     }
 
-    pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<&mut Self> {
+    pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<Installed<F>> {
         self.install_feature(Box::new(feature))?;
-        Ok(self)
+        Ok(Installed::new())
     }
 
     fn install_feature(&mut self, feature: Box<dyn ErasedFeature>) -> anyhow::Result<()> {

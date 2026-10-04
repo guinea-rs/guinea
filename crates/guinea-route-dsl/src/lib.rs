@@ -156,24 +156,6 @@ pub struct LayoutParams {
     pub fields: Vec<Field>,
 }
 
-/// Whether a line of `app { .. }` names an application feature or a plugin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AppKind {
-    Feature,
-    Plugin,
-}
-
-/// One line of `app { .. }`: something the application installs whose
-/// exports the pages of this tree read.
-#[derive(Clone, Debug)]
-pub struct AppItem {
-    pub kind: AppKind,
-    pub ty: syn::Type,
-    /// The predicates of the `#[cfg(..)]` written over it, all of which have
-    /// to hold for it to be there.
-    pub cfg: Vec<TokenStream>,
-}
-
 /// A parsed `routes!` declaration.
 #[derive(Clone, Debug)]
 pub struct RouteTree {
@@ -181,9 +163,9 @@ pub struct RouteTree {
     pub name: Ident,
     /// `backend = path::To::Backend`, when the declaration named one.
     pub backend: Option<syn::Type>,
-    /// What the application installs for these pages to read, in the order
-    /// written.
-    pub app: Vec<AppItem>,
+    /// `app = App`: the application whose exports these pages read, the top
+    /// segment of every chain.
+    pub app: Option<syn::Type>,
     pub nodes: Vec<Node>,
 }
 
@@ -262,7 +244,15 @@ pub fn parse(input: TokenStream) -> RouteTree {
     let tokens: Vec<TokenTree> = input.into_iter().collect();
     let mut slice: Tokens = &tokens;
 
-    let backend = parse_backend(&mut slice);
+    let mut backend = None;
+    let mut app = None;
+    while let Some((key, ty)) = parse_setting(&mut slice) {
+        match key.to_string().as_str() {
+            "backend" => backend = Some(ty),
+            "app" => app = Some(ty),
+            _ => panic!("routes!: unknown setting `{key} = ..`; a route tree takes `backend` and `app`"),
+        }
+    }
 
     let name = any_ident
         .parse_next(&mut slice)
@@ -272,7 +262,6 @@ pub fn parse(input: TokenStream) -> RouteTree {
         .unwrap_or_else(|_| panic!("routes! expects a `{{ ... }}` body after `{name}`"));
 
     let mut body_slice: Tokens = &body_tokens;
-    let app = parse_app(&mut body_slice);
     let nodes = parse_nodes(&mut body_slice).expect("failed to parse routes! body");
 
     RouteTree {
@@ -281,77 +270,6 @@ pub fn parse(input: TokenStream) -> RouteTree {
         app,
         nodes,
     }
-}
-
-/// `app { feature(..) plugin(..) }`, if the body opens with it.
-///
-/// One per line rather than a comma list: the list grows with the
-/// application, and a `#[cfg(..)]` sits over its own line.
-fn parse_app(input: &mut Tokens) -> Vec<AppItem> {
-    let body = match *input {
-        [TokenTree::Ident(word), TokenTree::Group(body), ..]
-            if word == "app" && body.delimiter() == Delimiter::Brace =>
-        {
-            body.stream().into_iter().collect::<Vec<_>>()
-        }
-        _ => return Vec::new(),
-    };
-    *input = &input[2..];
-
-    let mut slice: Tokens = &body;
-    let mut items = Vec::new();
-    while !slice.is_empty() {
-        let cfg = parse_cfgs(&mut slice);
-
-        let kind = match slice.first() {
-            Some(TokenTree::Ident(word)) if word == "feature" => AppKind::Feature,
-            Some(TokenTree::Ident(word)) if word == "plugin" => AppKind::Plugin,
-            _ => panic!(
-                "routes!: `app {{ .. }}` lists `feature(..)` and `plugin(..)`, one per line"
-            ),
-        };
-        let word = if kind == AppKind::Feature { "feature" } else { "plugin" };
-        slice = &slice[1..];
-
-        let paren = group_inner(Delimiter::Parenthesis)
-            .parse_next(&mut slice)
-            .unwrap_or_else(|_| panic!("routes!: `{word}` in `app {{ .. }}` takes a type: `{word}(..)`"));
-        let ty = sole_type(paren, |ty| {
-            format!(
-                "routes!: `{word}({}, ..)` - one per line in `app {{ .. }}`",
-                spelled(ty)
-            )
-        })
-        .unwrap_or_else(|_| panic!("routes!: `{word}(..)` in `app {{ .. }}` is not a type"));
-
-        items.push(AppItem { kind, ty, cfg });
-    }
-    items
-}
-
-/// The `#[cfg(..)]` over a line of `app { .. }`, as their predicates.
-fn parse_cfgs(input: &mut Tokens) -> Vec<TokenStream> {
-    let mut cfgs = Vec::new();
-    while let [TokenTree::Punct(hash), TokenTree::Group(attr), ..] = *input {
-        if hash.as_char() != '#' || attr.delimiter() != Delimiter::Bracket {
-            break;
-        }
-
-        let attribute: Vec<TokenTree> = attr.stream().into_iter().collect();
-        match attribute.as_slice() {
-            [TokenTree::Ident(name), TokenTree::Group(predicate)]
-                if name == "cfg" && predicate.delimiter() == Delimiter::Parenthesis =>
-            {
-                cfgs.push(predicate.stream());
-            }
-            _ => panic!(
-                "routes!: only `#[cfg(..)]` goes over a line of `app {{ .. }}`, not `#[{}]`",
-                attr.stream()
-            ),
-        }
-        *input = &input[2..];
-    }
-    cfgs
 }
 
 /// Finds the first `routes! { ... }` in a source file's tokens.
@@ -938,37 +856,40 @@ fn segment<'i>(input: &mut &'i str) -> ModalResult<Segment> {
     .parse_next(input)
 }
 
-/// The backend a route tree mounts on.
+/// A setting before the tree, `key = Type,`, if one is there.
 ///
-/// Written as one type - `backend = guinea_ratatui::Tui` - because that is
-/// what an application knows.
-fn parse_backend(slice: &mut Tokens) -> Option<syn::Type> {
+/// Each is one type, because that is what an application knows: the backend
+/// it mounts on - `backend = guinea_ratatui::Tui` - and the application whose
+/// exports its pages read - `app = App`.
+fn parse_setting(slice: &mut Tokens) -> Option<(Ident, syn::Type)> {
     let tokens = *slice;
-    match tokens.first() {
-        Some(TokenTree::Ident(id)) if id == "backend" => {}
+    let key = match (tokens.first(), tokens.get(1)) {
+        (Some(TokenTree::Ident(key)), Some(TokenTree::Punct(p))) if p.as_char() == '=' => {
+            key.clone()
+        }
         _ => return None,
-    }
-    match tokens.get(1) {
-        Some(TokenTree::Punct(p)) if p.as_char() == '=' => {}
-        _ => panic!("routes! expects `backend = path::To::Backend,`"),
-    }
+    };
 
     let mut end = 2;
+    let mut depth = 0usize;
     while end < tokens.len() {
         match &tokens[end] {
-            TokenTree::Punct(p) if p.as_char() == ',' => break,
-            _ => end += 1,
+            TokenTree::Punct(p) if p.as_char() == '<' => depth += 1,
+            TokenTree::Punct(p) if p.as_char() == '>' => depth = depth.saturating_sub(1),
+            TokenTree::Punct(p) if p.as_char() == ',' && depth == 0 => break,
+            _ => {}
         }
+        end += 1;
     }
     if end == tokens.len() {
-        panic!("routes! expects `,` after the backend");
+        panic!("routes! expects `,` after `{key} = ..`");
     }
 
     let ty: syn::Type = syn::parse2(tokens[2..end].iter().cloned().collect())
-        .unwrap_or_else(|e| panic!("routes!: backend is not a type: {e}"));
+        .unwrap_or_else(|e| panic!("routes!: `{key}` is not a type: {e}"));
 
     *slice = &tokens[end + 1..];
-    Some(ty)
+    Some((key, ty))
 }
 
 #[cfg(test)]
@@ -1399,61 +1320,29 @@ mod tests {
         assert!(errors[0].contains("under Shell in one place and under the root in another"));
     }
 
-    fn app_of(tree: &RouteTree) -> Vec<String> {
-        tree.app
-            .iter()
-            .map(|item| {
-                let kind = match item.kind {
-                    AppKind::Feature => "feature",
-                    AppKind::Plugin => "plugin",
-                };
-                let cfg = item.cfg.iter().map(|cfg| cfg.to_string().replace(' ', ""));
-                let cfg: Vec<String> = cfg.collect();
-                format!("{}{kind}({})", cfg.join(""), spelled(&item.ty))
-            })
-            .collect()
+    #[test]
+    fn a_tree_names_its_application_beside_its_backend_in_either_order() {
+        for source in [
+            "routes! { backend = guinea::winui::WinUi, app = apps::App<Strings, u8>, Route { page(A) } }",
+            "routes! { app = apps::App<Strings, u8>, backend = guinea::winui::WinUi, Route { page(A) } }",
+        ] {
+            let tree = find_in_source(source).expect("a route tree");
+
+            assert_eq!(tree.app.as_ref().map(spelled).as_deref(), Some("apps::App<Strings,u8>"));
+            assert_eq!(tree.backend.as_ref().map(spelled).as_deref(), Some("guinea::winui::WinUi"));
+            assert_eq!(tree.leaves().len(), 1);
+        }
     }
 
     #[test]
-    fn an_app_block_lists_what_the_application_installs_in_order() {
-        let tree = tree_of(
-            r#"
-            app {
-                feature(ActivityFeature)
-                plugin(L10nPlugin<Strings>)
-                #[cfg(debug_assertions)]
-                plugin(DebugOverlay)
-            }
-            layout(Shell) { page(A) }
-            "#,
-        );
-
-        assert_eq!(
-            app_of(&tree),
-            [
-                "feature(ActivityFeature)",
-                "plugin(L10nPlugin<Strings>)",
-                "debug_assertionsplugin(DebugOverlay)",
-            ]
-        );
-        assert_eq!(tree.leaves().len(), 1, "the pages after it still read");
+    fn a_tree_without_an_application_names_none() {
+        assert!(tree_of("page(A)").app.is_none());
     }
 
     #[test]
-    fn a_tree_without_an_app_block_lists_nothing() {
-        assert!(tree_of("page(A)").app.is_empty());
-    }
-
-    #[test]
-    #[should_panic(expected = "`app { .. }` lists `feature(..)` and `plugin(..)`")]
-    fn something_else_in_the_app_block_is_refused() {
-        tree_of("app { layout(Shell) } page(A)");
-    }
-
-    #[test]
-    #[should_panic(expected = "only `#[cfg(..)]`")]
-    fn an_attribute_other_than_cfg_is_refused() {
-        tree_of("app { #[allow(dead_code)] feature(A) } page(B)");
+    #[should_panic(expected = "unknown setting `frontend = ..`")]
+    fn an_unknown_setting_is_refused() {
+        find_in_source("routes! { frontend = X, Route { page(A) } }");
     }
 
     #[test]

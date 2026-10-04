@@ -2,6 +2,7 @@ use proc_macro::TokenStream;
 use syn::{ItemFn, parse_macro_input};
 
 mod actor_dsl;
+mod app_dsl;
 mod elm;
 mod feature_dsl;
 mod handler;
@@ -31,6 +32,25 @@ pub fn feature(input: TokenStream) -> TokenStream {
     feature_dsl::feature_impl(input)
 }
 
+/// The application's manifest: its name, and the features and plugins whose
+/// exports its pages read.
+///
+/// ```ignore
+/// app! {
+///     pub App {
+///         installs { ActivityFeature, L10nPlugin<Strings>, #[cfg(debug_assertions)] Overlay }
+///     }
+/// }
+/// ```
+///
+/// It makes the application's type - one `Installed` per line, in the order
+/// listed - and the top segment a route tree names with `app = App`. What
+/// installs it is an [`installs`] function taking `&mut FeatureBuilder`.
+#[proc_macro]
+pub fn app(input: TokenStream) -> TokenStream {
+    app_dsl::app_impl(input)
+}
+
 /// The function that installs a feature: whatever it returns is the feature,
 /// its second argument is what it is installed with.
 ///
@@ -39,6 +59,17 @@ pub fn feature(input: TokenStream) -> TokenStream {
 /// fn tabs(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Tabs> {
 ///     let (tabs, _) = cx.state::<contracts::Tabs>().driven_by(|push| TabsActor::new(push));
 ///     Ok(Tabs(tabs))
+/// }
+/// ```
+///
+/// A function taking `&mut FeatureBuilder` installs the application `app!`
+/// declared instead:
+///
+/// ```ignore
+/// #[installs]
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
+///     app.plugin(DevToolsPlugin::new())?;
+///     Ok(App(app.feature(ActivityFeature)?, app.plugin(L10nPlugin::new("en"))?))
 /// }
 /// ```
 ///
@@ -213,10 +244,10 @@ pub fn actor(input: TokenStream) -> TokenStream {
 /// hand. Generates the enum itself, `link` and `deep_links` for the routes
 /// that agreed to have an address, and `RouteChain` (enum -> segment chain).
 ///
-/// An `app { feature(..) plugin(..) }` block, first in the body and one line
-/// each, lists what the application installs for these pages to read; a line
-/// may sit under `#[cfg(..)]`. Navigating panics when one of them is not
-/// installed.
+/// `app = App,` before the tree, beside `backend`, names the application
+/// `app!` declared: it is the top segment of every chain, so its pages read
+/// what it installs. Navigating panics when the application running is not
+/// that one.
 #[proc_macro]
 pub fn routes(input: TokenStream) -> TokenStream {
     routes_dsl::routes_impl(input)

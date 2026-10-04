@@ -1,7 +1,10 @@
 use std::any::TypeId;
+use std::marker::PhantomData;
 
 use guinea_core::feature::Exported;
 use guinea_core::scope::Scope;
+
+use crate::feature::Segment;
 
 use super::builder::{FeatureBuilder, PluginBuilder};
 
@@ -25,6 +28,33 @@ pub trait AppFeature: Send + 'static {
     type Exports: Exported;
 
     fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()>;
+}
+
+/// Proof that the application installed `T`, handed back by
+/// [`plugin`](PluginBuilder::plugin) and [`feature`](FeatureBuilder::feature).
+///
+/// An [`Application`] returns one per thing it lists, which is what keeps the
+/// list it declares and what it installed from drifting apart.
+pub struct Installed<T>(PhantomData<fn() -> T>);
+
+impl<T> Installed<T> {
+    pub(crate) fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+/// The application as one item: what it installs, and the features and
+/// plugins whose exports its pages read.
+///
+/// The top segment of every route tree that names it with `app = ..`. Its
+/// `Installs` lists what pages read, and `install` returns one [`Installed`]
+/// for each, so the two cannot disagree. What pages do not read - devtools, a
+/// store - is installed in `install` and left out of the list.
+///
+/// Written with `app!` for the type and `#[installs]` for the function, as a
+/// feature is.
+pub trait Application: Segment + Sized + Send + 'static {
+    fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self>;
 }
 
 /// Returned from [`Plugin::build`] or [`AppFeature::install`] to end the

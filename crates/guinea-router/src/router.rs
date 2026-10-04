@@ -326,35 +326,36 @@ pub trait RouteChain<U: Ui> {
         &[]
     }
 
-    /// What the application has to have installed for this tree's pages to
-    /// read what they read - the `app { .. }` block of `routes!`.
-    fn app(&self) -> &'static [AppItem] {
-        &[]
+    /// The application this tree's pages read from - `app = ..` in
+    /// `routes!`.
+    fn application(&self) -> Option<AppItem> {
+        None
     }
 }
 
-/// One line of the `app { .. }` block of `routes!`.
+/// The application a route tree names.
+#[derive(Clone, Copy)]
 pub struct AppItem {
     pub name: &'static str,
     /// Whether the application's scope has it installed.
     pub installed: fn(&Scope) -> bool,
 }
 
-/// Panics when the application did not install something `route`'s tree
-/// lists: its pages compiled against what it exports, and would read the
-/// reducer's `Default` for as long as the application runs.
+/// Panics when the application running is not the one `route`'s tree names:
+/// its pages compiled against what that one exports.
 fn installed_for<U: Ui>(route: &impl RouteChain<U>) {
-    let app = guinea_app::app::actors::app_scope();
+    let Some(item) = route.application() else {
+        return;
+    };
 
-    for item in route.app() {
-        let installed = app.as_ref().is_some_and(|scope| (item.installed)(scope));
-        assert!(
-            installed,
-            "`{}` is listed in `app {{ .. }}` of the route tree, but the application did not \
-             install it - add it where the application is built, before the first window opens",
-            item.name
-        );
-    }
+    let app = guinea_app::app::actors::app_scope();
+    let installed = app.as_ref().is_some_and(|scope| (item.installed)(scope));
+    assert!(
+        installed,
+        "the route tree reads from the application `{0}`, but it was not installed - \
+         build the application with `GuineaApp::new().application::<{0}>()`",
+        item.name
+    );
 }
 
 /// Where a navigation goes once the router has accepted it - a reconciler's

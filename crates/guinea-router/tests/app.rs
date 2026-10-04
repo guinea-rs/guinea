@@ -1,8 +1,9 @@
-//! What the application installs, as the pages of a route tree see it.
+//! The application, as the pages of a route tree see it.
 //!
-//! A tree lists in `app { .. }` the features and plugins whose exports its
-//! pages read. The list is what lets a read compile; navigating is where an
-//! application that did not install something on it finds out.
+//! `app!` declares what the application installs for pages to read, and
+//! `#[installs]` is the function that installs it - the same pair a feature
+//! is. A tree names it with `app = ..`, which makes it the top segment of
+//! every chain; navigating is where an application built without it finds out.
 
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -12,7 +13,7 @@ use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuild
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
-use guinea_macros::routes;
+use guinea_macros::{app, installs, routes};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
 use guinea_router::router::Router;
 
@@ -61,6 +62,35 @@ impl Plugin for Accents {
     }
 }
 
+struct Unread;
+
+impl Plugin for Unread {
+    const ID: &'static str = "test.unread";
+    type Exports = ();
+
+    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+app! {
+    App {
+        installs {
+            Localisation,
+            #[cfg(all())]
+            Accents,
+            #[cfg(any())]
+            NotEvenBuilt,
+        }
+    }
+}
+
+#[installs]
+fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
+    app.plugin(Unread)?;
+    Ok(App(app.feature(Localisation)?, app.plugin(Accents)?))
+}
+
 thread_local! {
     static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
@@ -105,14 +135,8 @@ impl Page for Reader {
 
 routes! {
     backend = guinea_router::headless::Headless,
+    app = App,
     Route {
-        app {
-            feature(Localisation)
-            #[cfg(all())]
-            plugin(Accents)
-            #[cfg(any())]
-            plugin(NotEvenBuilt)
-        }
         layout(Shell) {
             page(Reader)
         }
@@ -130,8 +154,8 @@ fn router(app: GuineaApp) -> Rc<Router<Headless>> {
 }
 
 #[test]
-fn a_page_and_its_layout_read_what_the_listed_application_installs() {
-    let router = router(GuineaApp::new().feature(Localisation).plugin(Accents));
+fn a_page_and_its_layout_read_what_the_application_installs() {
+    let router = router(GuineaApp::new().application::<App>());
 
     router.navigate(Route::Reader {}).expect("to the reader");
     router.render(&());
@@ -143,8 +167,8 @@ fn a_page_and_its_layout_read_what_the_listed_application_installs() {
 }
 
 #[test]
-fn navigating_without_something_the_tree_lists_panics_naming_it() {
-    let router = router(GuineaApp::new().plugin(Accents));
+fn navigating_in_an_application_built_without_it_panics_naming_it() {
+    let router = router(GuineaApp::new().feature(Localisation).plugin(Accents));
 
     let outcome = catch_unwind(AssertUnwindSafe(|| router.navigate(Route::Reader {}).map(|_| ())));
 
@@ -156,7 +180,7 @@ fn navigating_without_something_the_tree_lists_panics_naming_it() {
         Ok(_) => None,
     };
     assert!(
-        message.as_deref().is_some_and(|it| it.contains("feature(Localisation)")),
+        message.as_deref().is_some_and(|it| it.contains("application::<App>()")),
         "got {message:?}, from {:?}",
         outcome.as_ref().map(|_| ())
     );

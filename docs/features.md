@@ -233,29 +233,49 @@ impl Plugin for L10nPlugin<S> {
 
 Экспорт того, что никто не заявил, — ошибка установки, а не тихий `Default`.
 
-Дерево маршрутов перечисляет в блоке `app` то, что его страницы читают у
-приложения, по одному на строку:
+Само приложение пишется так же, как фича: манифест `app!` и функция
+`#[installs]`. Манифест перечисляет в `installs` то, что страницы читают у
+приложения; функция ставит всё и возвращает по `Installed` на каждую строку:
 
 ```rust
-routes! {
-    Route {
-        app {
-            feature(ActivityFeature)
-            plugin(L10nPlugin<Strings>)
-            #[cfg(debug_assertions)]
-            plugin(DebugOverlay)
-        }
-        layout(Shell) { .. }
+app! {
+    pub App {
+        installs { ActivityFeature, L10nPlugin<Strings>, #[cfg(debug_assertions)] Overlay }
     }
+}
+
+#[installs]
+fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
+    app.plugin(DevToolsPlugin::new())?;
+    Ok(App(
+        app.feature(ActivityFeature)?,
+        app.plugin(L10nPlugin::new("en"))?,
+        #[cfg(debug_assertions)]
+        app.plugin(Overlay)?,
+    ))
 }
 ```
 
-Приложение становится самым внешним сегментом каждой цепочки, и `R` читается
-как любой экспорт сверху: `cx.read::<Language<Strings>, _>()`. Плагины, чьё
-состояние страницы не читают (devtools, хранилище, single-instance), в блок не
-пишутся и ставятся как угодно. Если строка из блока не установлена, первая
-навигация паникует с её именем: это ошибка сборки приложения, и падает оно
-сразу.
+`Installed<T>` возвращают только `app.feature(..)` и `app.plugin(..)`, так
+что перечислить и не поставить не скомпилируется — тот же приём, что `Bound`
+у фичи и `Installs` у сегмента. Что страницы не читают (devtools, хранилище,
+single-instance), ставится в той же функции и в список не попадает.
+
+Дерево маршрутов называет приложение рядом с бэкендом, а `main` его ставит:
+
+```rust
+routes! {
+    app = App,
+    Route { layout(Shell) { .. } }
+}
+
+run(GuineaApp::new().application::<App>(), window, |_| Route::Home {})
+```
+
+`App` — самый внешний сегмент каждой цепочки, и `R` читается как любой
+экспорт сверху: `cx.read::<Language<Strings>, _>()`. Если приложение собрано
+без `App`, первая навигация паникует с его именем: это ошибка сборки
+приложения, и падает оно сразу.
 
 `read` — метод каждого контекста, и он же — `Reads`, один трейт для страницы и
 layout'а на WinUI, eframe, iced и ratatui: через него код пишется один раз на

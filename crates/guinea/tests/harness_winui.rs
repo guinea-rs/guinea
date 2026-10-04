@@ -1393,7 +1393,7 @@ mod navigating {
 }
 
 mod application_exports {
-    use guinea::feature::{Application, Reaches, Reads};
+    use guinea::feature::{Reaches, Reads};
 
     use super::*;
 
@@ -1420,7 +1420,11 @@ mod application_exports {
         }
     }
 
-    type App = Application<Localisation>;
+    app! {
+        pub App {
+            installs { Localisation }
+        }
+    }
 
     pub struct Speak(&'static str);
 

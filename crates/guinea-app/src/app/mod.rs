@@ -18,7 +18,7 @@ mod harness;
 pub use builder::{FeatureBuilder, PluginBuilder};
 pub use host::AppHost;
 pub use meta::AppMeta;
-pub use plugin::{AppFeature, Plugin, Stop};
+pub use plugin::{AppFeature, Application, Installed, Plugin, Stop};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use acts::{Chain, Shape, Step};
@@ -87,6 +87,16 @@ impl GuineaApp {
     pub fn feature<F: AppFeature>(mut self, feature: F) -> Self {
         self.registrations
             .push(Box::new(move |app| app.feature(feature).map(|_| ())));
+        self
+    }
+
+    /// Installs `A`, the application a route tree names with `app = ..`.
+    pub fn application<A: Application>(mut self) -> Self {
+        self.registrations.push(Box::new(|app| {
+            A::install(app)?;
+            app.scope.mark_feature_installed::<A>();
+            Ok(())
+        }));
         self
     }
 

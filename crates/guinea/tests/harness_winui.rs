@@ -1452,3 +1452,27 @@ mod application_exports {
         assert!(page.find_text("speaks ru").is_some(), "{:#?}", page.tree());
     }
 }
+
+/// A title bar with something in its left header, which the harness reads
+/// like any other child.
+#[derive(Default)]
+pub struct Titled;
+
+#[page]
+impl Page for Titled {
+    type Params = ();
+
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        windows_reactor::TitleBar::new()
+            .title("uniproc")
+            .left_header(TextBlock::new().text("left of the title"))
+            .into()
+    }
+}
+
+#[guinea::test(iterations = 2)]
+fn what_a_title_bar_holds_on_its_left_is_found(h: &mut Harness) {
+    let page = Mounted::<Titled>::mount(h.segment(), ()).unwrap();
+
+    assert!(page.find_text("left of the title").is_some(), "{:#?}", page.tree());
+}

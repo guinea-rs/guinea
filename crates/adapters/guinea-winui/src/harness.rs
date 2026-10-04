@@ -50,6 +50,7 @@ const ROOT: &str = "mounted";
 const RELATIONS: &[RelationId] = &[
     RelationId::Child,
     RelationId::Children,
+    RelationId::LeftHeader,
     RelationId::Header,
     RelationId::RightHeader,
     RelationId::PaneCustomContent,
@@ -57,7 +58,6 @@ const RELATIONS: &[RelationId] = &[
     RelationId::FooterMenuItems,
     RelationId::PaneFooter,
     RelationId::Pane,
-    RelationId::Icon,
     RelationId::Content,
     RelationId::OnContent,
     RelationId::OffContent,

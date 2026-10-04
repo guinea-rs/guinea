@@ -21,12 +21,17 @@ use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
 use crate::scope::Scope;
+use crate::trace::{self, Cause};
 
 /// One applied update, on its way to whoever is watching.
 struct Change {
     scope: Scope,
     cell: TypeId,
     update: Option<Box<dyn Any>>,
+    /// What was happening when the update was applied. The listeners run a
+    /// drain later, and what they set off - a redraw, most often - is still
+    /// its doing.
+    cause: Option<Cause>,
 }
 
 thread_local! {
@@ -79,6 +84,7 @@ pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
                 scope,
                 cell,
                 update,
+                cause: trace::current(),
             });
         }
 
@@ -133,7 +139,7 @@ pub fn drain() {
     let mut listeners = 0usize;
 
     'drained: while MARKED.with(|marked| !marked.borrow().is_empty()) {
-        let mut touched: Vec<(Scope, TypeId)> = Vec::new();
+        let mut touched: Vec<(Scope, TypeId, Option<Cause>)> = Vec::new();
 
         // State first, and until it stops moving: an observer turning someone
         // else's update into its own is how one piece of state follows another,
@@ -157,11 +163,15 @@ pub fn drain() {
                     continue;
                 }
 
-                if !touched.contains(&(change.scope, change.cell)) {
-                    touched.push((change.scope, change.cell));
+                let seen = touched
+                    .iter()
+                    .any(|&(scope, cell, _)| scope == change.scope && cell == change.cell);
+                if !seen {
+                    touched.push((change.scope, change.cell, change.cause));
                 }
 
                 let Some(update) = change.update else { continue };
+                let _under = trace::resume(change.cause);
                 for observer in change.scope.observers_of(change.cell) {
                     updates += 1;
                     observer(&*update);
@@ -171,11 +181,13 @@ pub fn drain() {
 
         cells += touched.len();
 
-        for (scope, cell) in touched {
+        for (scope, cell, cause) in touched {
             if !scope.is_alive() {
                 gone += 1;
                 continue;
             }
+
+            let _under = trace::resume(cause);
             for listener in scope.listeners_of(cell) {
                 listeners += 1;
                 listener();

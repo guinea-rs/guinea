@@ -10,6 +10,7 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use guinea_core::trace::Cause;
 use guinea_router::router::SegmentProps;
 use guinea_router::slot::Slot;
 use windows_reactor::{Border, Component, ComponentContext, LocalSender, View, ViewContext};
@@ -35,7 +36,7 @@ struct Fill {
 #[derive(Default)]
 struct Entry {
     fills: Vec<Fill>,
-    shown: Option<LocalSender<()>>,
+    shown: Option<LocalSender<Option<Cause>>>,
 }
 
 impl Entry {
@@ -45,7 +46,7 @@ impl Entry {
 
     fn tell(&self) {
         if let Some(shown) = &self.shown {
-            let _gone = !shown.send(());
+            let _gone = !shown.send(guinea_core::trace::current());
         }
     }
 }
@@ -213,13 +214,18 @@ pub(crate) struct Placeholder;
 
 impl Component for Placeholder {
     type Input = Shown;
-    type Message = ();
+    type Message = Option<Cause>;
 
     fn create(_input: &Shown, _cx: &ComponentContext<Self>) -> Self {
         Self
     }
 
+    fn update(&mut self, cause: Option<Cause>, _cx: &ComponentContext<Self>) {
+        crate::winui::handling(cause);
+    }
+
     fn view(&self, input: &Shown, cx: &mut ViewContext<Self>) -> View {
+        let _caused = crate::winui::caused(cx);
         let place = input.place;
         let sender = cx.sender();
 

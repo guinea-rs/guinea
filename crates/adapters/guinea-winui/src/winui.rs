@@ -21,6 +21,7 @@ use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Reducer;
+use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
 use guinea_router::router::{
@@ -1052,9 +1053,10 @@ pub fn page_chain<P: Page>() -> &'static [SegmentEntry<WinUi>] {
 pub enum Signal<M> {
     /// State this segment reads has changed; publish again.
     ///
-    /// It carries nothing, because the new state is read from the reducer
-    /// rather than delivered. The message only says *when*.
-    Refresh,
+    /// It carries no state, because the new state is read from the reducer
+    /// rather than delivered. The message says *when*, and what caused it, so
+    /// the redraw is traced to that.
+    Refresh(Option<Cause>),
     /// Open this as a window of its own. See [`crate::window`].
     ///
     /// A message rather than a call because the reactor accepts `open_window`
@@ -1075,13 +1077,13 @@ pub trait Refreshable: Component {
 
 impl<P: Page> Refreshable for PageNode<P> {
     fn refresh() -> Self::Message {
-        Signal::Refresh
+        Signal::Refresh(guinea_core::trace::current())
     }
 }
 
 impl<L: Layout> Refreshable for LayoutNode<L> {
     fn refresh() -> Self::Message {
-        Signal::Refresh
+        Signal::Refresh(guinea_core::trace::current())
     }
 }
 
@@ -1130,7 +1132,7 @@ impl<P: Page> Component for PageNode<P> {
             // segment for redrawing - the pump pushes the token onto its dirty
             // list when it dispatches, not when something is mutated - so a
             // refresh that touches no state still brings the view round.
-            Signal::Refresh => {}
+            Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
             Signal::Node(message) => self.page.borrow_mut().update(
                 message,
@@ -1148,6 +1150,7 @@ impl<P: Page> Component for PageNode<P> {
         if input.cursor == 0 {
             guinea_core::observability::profiling::frame_done();
         }
+        let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
@@ -1195,7 +1198,7 @@ impl<L: Layout> Component for LayoutNode<L> {
     fn update(&mut self, message: Signal<L::Message>, cx: &ComponentContext<Self>) {
         match message {
             // See `PageNode::update`.
-            Signal::Refresh => {}
+            Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
             Signal::Node(message) => self.layout.borrow_mut().update(
                 message,
@@ -1211,6 +1214,7 @@ impl<L: Layout> Component for LayoutNode<L> {
         if input.cursor == 0 {
             guinea_core::observability::profiling::frame_done();
         }
+        let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
@@ -1223,6 +1227,36 @@ impl<L: Layout> Component for LayoutNode<L> {
         crate::devtools::record(input, &view);
         marked::<L>(view)
     }
+}
+
+thread_local! {
+    static HANDLING: std::cell::Cell<Option<Cause>> = const { std::cell::Cell::new(None) };
+    static DRAWN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Notes what the message being handled was sent under.
+///
+/// The reactor draws a drain after the send, where nothing is current. What it
+/// draws for one message - the component it went to, and everything that
+/// component expands into - is drawn before the effects of that render
+/// commit, so the cause holds until [`caused`]'s effect clears it.
+pub(crate) fn handling(cause: Option<Cause>) {
+    HANDLING.set(cause);
+}
+
+/// Makes what this drawing is the doing of current for the guard's life: the
+/// message being handled, or whatever is current already.
+pub(crate) fn caused<C: Component>(cx: &mut ViewContext<C>) -> guinea_core::trace::Resumed {
+    let cause = HANDLING.get().or_else(guinea_core::trace::current);
+
+    let drawn = DRAWN.get().wrapping_add(1);
+    DRAWN.set(drawn);
+    cx.use_effect("guinea.caused", drawn, || {
+        HANDLING.set(None);
+        None
+    });
+
+    guinea_core::trace::resume(cause)
 }
 
 /// Withdraws what a segment filled, and the slots it placed, when it leaves
@@ -1480,8 +1514,9 @@ impl<R: PartialEq> PartialEq for Rooted<R> {
 /// What reaches a [`RouterRoot`].
 pub enum Routed<R> {
     /// The router is here now. `NavigateHandle` publishes through the sink
-    /// the root hands out, once the navigation has happened.
-    Arrived(R),
+    /// the root hands out, once the navigation has happened - with what set
+    /// it off, which the segments it draws are the doing of.
+    Arrived(R, Option<Cause>),
     /// A guard's question came or went. See [`Router::pending`].
     Asked,
 }
@@ -1538,17 +1573,22 @@ where
     /// navigation has already happened, guards and all.
     fn update(&mut self, message: Routed<R>, _cx: &ComponentContext<Self>) {
         match message {
-            Routed::Arrived(route) => self.route = route,
+            Routed::Arrived(route, cause) => {
+                handling(cause);
+                self.route = route;
+            }
             Routed::Asked => {}
         }
     }
 
     fn view(&self, _input: &Rooted<R>, cx: &mut ViewContext<Self>) -> View {
+        let _caused = caused(cx);
+
         let sender = cx.sender();
         let nav = NavigateHandle::new(
             self.router.clone(),
             RouteSink::new(move |route: R| {
-                let _gone = !sender.send(Routed::Arrived(route));
+                let _gone = !sender.send(Routed::Arrived(route, guinea_core::trace::current()));
             }),
         );
 

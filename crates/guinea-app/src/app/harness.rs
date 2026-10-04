@@ -205,6 +205,23 @@ impl Harness {
         }
     }
 
+    /// A segment over `scope`, which something else installed and owns: a
+    /// routed page, layout or part, for a test to read and drive what it
+    /// claimed. Dropping it leaves the scope where it is.
+    pub fn over(&self, scope: Scope) -> Segment<'_> {
+        Segment {
+            harness: self,
+            cx: FeatureInitContext {
+                scope_cx: ScopeContext {
+                    scope,
+                    ..self.segment.scope_cx.clone()
+                },
+                ..self.segment.clone()
+            },
+            _owned: None,
+        }
+    }
+
     fn root(&self) -> Segment<'_> {
         self.segment()
     }

@@ -238,7 +238,7 @@ impl Scope {
     }
 
     /// This scope and every scope under it, children first.
-    fn subtree(&self) -> Vec<Scope> {
+    pub fn subtree(&self) -> Vec<Scope> {
         self.read(|tree| {
             if tree.node(self.index, self.serial).is_none() {
                 return Vec::new();

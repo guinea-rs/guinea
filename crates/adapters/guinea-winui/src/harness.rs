@@ -17,8 +17,9 @@ use std::rc::Rc;
 
 use guinea_app::app::{Act, Harness, Segment};
 use guinea_app::feature::FeatureInitContext;
+use guinea_core::feature::Dispatch;
 use guinea_core::mark::Mark;
-use guinea_core::scope::Scope;
+use guinea_core::scope::{Reducer, Scope};
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
 };
@@ -1419,6 +1420,48 @@ where
     /// Whether the layout or page `T` is mounted now.
     pub fn is_mounted<T: 'static>(&self) -> bool {
         self.segments().contains(&std::any::type_name::<T>())
+    }
+
+    /// `S` as the mounted segment that claimed it holds it: a layout, a page
+    /// or a part, wherever it sits. What no mounted segment claims is read
+    /// the way [`Harness::state`] reads it.
+    ///
+    /// Panics when two mounted segments claim `S`: which one is meant is the
+    /// test's to say, through [`Harness::over`].
+    pub fn state<St: Reducer>(&self) -> Rc<St> {
+        self.owning::<St>().state::<St>()
+    }
+
+    /// What a page reading `S` is handed to act with, from the mounted
+    /// segment that claimed it. See [`state`](Self::state).
+    pub fn dispatch<St: Reducer>(&self) -> Dispatch {
+        self.owning::<St>().dispatch::<St>()
+    }
+
+    /// Acts on the feature that owns `S` in the mounted tree, and hands back
+    /// what the action set off. See [`state`](Self::state).
+    pub fn act<St: Reducer>(&self, action: impl Sized + 'static) -> Act<'h> {
+        self.owning::<St>().act::<St>(action)
+    }
+
+    /// The segment of the mounted tree that claimed `S`, or the harness's own.
+    fn owning<St: Reducer>(&self) -> Segment<'h> {
+        let mut mounted: Vec<Scope> = Vec::new();
+        for scope in self.routed_router().active_scopes().iter().flat_map(|scopes| scopes.iter()) {
+            mounted.push(*scope);
+            mounted.extend(scope.beside().iter().flat_map(Scope::subtree));
+        }
+
+        let claiming: Vec<Scope> = mounted.into_iter().filter(Scope::claims::<St>).collect();
+        match claiming.as_slice() {
+            [] => self.harness.segment(),
+            [one] => self.harness.over(*one),
+            many => panic!(
+                "{} is claimed by {} mounted segments - say which one with `Harness::over`",
+                std::any::type_name::<St>(),
+                many.len()
+            ),
+        }
     }
 }
 

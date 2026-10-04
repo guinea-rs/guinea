@@ -24,8 +24,9 @@ use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
 };
 use windows_reactor::{
-    Border, ComponentHost, ComponentNode, ContentDialogResult, EventDispatch, EventId, EventPayload, EventValue,
-    Mutation, ObjectType, Observation, PointerEventInfo, Property, RealizationRequest,
+    Border, Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
+    EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
+    Observation, PointerEventInfo, Property, RealizationRequest,
     RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange, View,
     component,
 };
@@ -387,6 +388,10 @@ pub struct Mounted<'h, S> {
     navigated: Option<Box<dyn Any>>,
     /// The router, when the whole route tree is [mounted](Self::routed).
     router: Option<Rc<Router<WinUi>>>,
+    /// The sizes the test laid marked elements out at, in the order given.
+    sizes: Vec<(&'static str, f64, f64)>,
+    /// The size each composition host was last told, by its observation.
+    told: HashMap<(NodeId, u64), (f64, f64)>,
     kind: PhantomData<S>,
     /// The segment it is mounted into, kept for as long as it is: dropped
     /// after the page, the way leaving a page tears down its scope.
@@ -451,6 +456,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
             counts: HashMap::new(),
             navigated: None,
             router: None,
+            sizes: Vec::new(),
+            told: HashMap::new(),
             kind: PhantomData,
             segment,
         };
@@ -600,6 +607,26 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let root = self.page_root();
         let found = self.marked(root, &mark);
         self.drag_at(found, drag, mark.name(), mark.name())
+    }
+
+    /// Lays the element marked `mark` out at `width` by `height`, at a scale
+    /// of 1. The harness has no layout of its own: without this, a
+    /// composition host - what a chart or any painted view draws on - never
+    /// hears a size, and a pointer over it maps to nothing.
+    ///
+    /// Every host at or under the element hears it as
+    /// `CompositionHostEvent::Metrics`, at once and again whenever it is
+    /// observed anew - a redraw that binds a new element keeps the size. A
+    /// later size for the same mark replaces this one.
+    pub fn size(&mut self, mark: impl Mark, width: f64, height: f64) {
+        let root = self.page_root();
+        self.marked(root, &mark);
+
+        let name = mark.name();
+        self.sizes.retain(|(sized, ..)| *sized != name);
+        self.sizes.push((name, width, height));
+
+        self.settle();
     }
 
     /// The first element, depth first, that carries `mark`.
@@ -1179,7 +1206,66 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .drain(TURNS)
             .unwrap_or_else(|error| panic!("running the page's components: {error:?}"));
 
-        drained.dispatched + drained.dropped
+        drained.dispatched + drained.dropped + self.measure()
+    }
+
+    /// Tells each composition host under a [sized](Self::size) element the
+    /// size it is at - once per size, and again when it is observed anew.
+    fn measure(&mut self) -> usize {
+        if self.sizes.is_empty() {
+            return 0;
+        }
+        let Some(root) = self.root() else {
+            return 0;
+        };
+
+        let mut hosts: Vec<((NodeId, u64), Callback<CompositionHostEvent>)> = Vec::new();
+        for request in self.host.adapter().imperatives() {
+            match request {
+                ImperativeRequest::ObserveCompositionHost {
+                    object,
+                    observation,
+                    callback,
+                } => hosts.push(((*object, *observation), callback.clone())),
+                ImperativeRequest::RevokeObservation {
+                    object,
+                    observation,
+                } => hosts.retain(|(observed, _)| *observed != (*object, *observation)),
+                _ => {}
+            }
+        }
+
+        let mut sized = HashMap::new();
+        for (name, width, height) in &self.sizes {
+            let Some(element) = self.first_marked(root, name) else {
+                continue;
+            };
+
+            let mut unseen = vec![element];
+            while let Some(node) = unseen.pop() {
+                sized.insert(node, (*width, *height));
+                unseen.extend(self.below(node));
+            }
+        }
+
+        let mut told = 0;
+        for (observed, callback) in hosts {
+            let Some(&(width, height)) = sized.get(&observed.0) else {
+                continue;
+            };
+            if self.told.insert(observed, (width, height)) == Some((width, height)) {
+                continue;
+            }
+
+            callback.call(CompositionHostEvent::Metrics {
+                width,
+                height,
+                scale: 1.0,
+            });
+            told += 1;
+        }
+
+        told
     }
 }
 
@@ -1230,6 +1316,8 @@ where
             counts: HashMap::new(),
             navigated: None,
             router: Some(router),
+            sizes: Vec::new(),
+            told: HashMap::new(),
             kind: PhantomData,
             segment: harness.segment(),
         };

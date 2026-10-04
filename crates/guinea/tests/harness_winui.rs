@@ -10,8 +10,9 @@ use guinea::prelude::*;
 use guinea::winui::harness::{Mounted, PropertyId, PropertyValue};
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
 use windows_reactor::{
-    Border, Button, Callback, CheckBox, Flyout, FlyoutExt, ItemsRepeater, PointerEventInfo,
-    RadioButton, StackPanel, TextBlock, ToggleSwitch, View, VirtualSource, provide,
+    Border, Button, Callback, CheckBox, CompositionHostEvent, ElementObservation, ElementRef,
+    Flyout, FlyoutExt, Grid, ItemsRepeater, PointerEventInfo, RadioButton, StackPanel, TextBlock,
+    ToggleSwitch, View, VirtualSource, provide,
 };
 
 const CATALOGUE: [&str; 6] = ["guinea", "guinea-app", "gui", "gum", "gulp", "gust"];
@@ -29,6 +30,7 @@ enum Marks {
     Charts,
     ShowDisk,
     Speak,
+    Plot,
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -721,6 +723,68 @@ mod polling {
         cx.every(std::time::Duration::from_millis(100), &sampler, || Sample);
         Ok(Polling(samples))
     }
+}
+
+thread_local! {
+    static MEASURED: std::cell::RefCell<Vec<(f64, f64)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Draws on a composition host, as a chart does, and learns its size from it.
+pub struct PlotPage {
+    host: ElementRef<Grid>,
+    _measured: ElementObservation,
+}
+
+impl Default for PlotPage {
+    fn default() -> Self {
+        let host = ElementRef::<Grid>::new();
+        let measured = host.observe_composition_host(|event| {
+            if let CompositionHostEvent::Metrics { width, height, .. } = event {
+                MEASURED.with(|seen| seen.borrow_mut().push((width, height)));
+            }
+        });
+
+        Self {
+            host,
+            _measured: measured,
+        }
+    }
+}
+
+#[page]
+impl Page for PlotPage {
+    type Params = ();
+    type Installs = ();
+    type Message = ();
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
+
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        Border::new()
+            .mark(Marks::Plot)
+            .content(Grid::new().element_ref(&self.host))
+            .into()
+    }
+}
+
+impl Segment for PlotPage {
+    type Installs = ();
+    type Above = ();
+}
+
+#[guinea::test(iterations = 2)]
+fn a_composition_host_hears_the_size_its_element_is_given(h: &mut Harness) {
+    MEASURED.with(|seen| seen.borrow_mut().clear());
+    let mut page = Mounted::<PlotPage>::mount(h.segment(), ()).unwrap();
+    assert!(MEASURED.with(|seen| seen.borrow().is_empty()), "no size before the test gives one");
+
+    page.size(Marks::Plot, 300.0, 120.0);
+
+    assert_eq!(MEASURED.with(|seen| seen.borrow().clone()), [(300.0, 120.0)]);
 }
 
 /// The segment above the page, as `routes!` would name it.

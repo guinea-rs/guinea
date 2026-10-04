@@ -570,7 +570,7 @@ mod exports {
 mod owners {
     use guinea_macros::{actor, handler};
 
-    use crate::observability::app_actors;
+    use crate::observability::{app_actors, app_scope, installed_plugins};
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
 
     pub struct Sweep;
@@ -641,5 +641,20 @@ mod owners {
         };
         assert_eq!(owner("Sweeper"), Some(Some(std::any::type_name::<Housekeeping>())));
         assert_eq!(owner("Loose"), Some(None), "a plugin is not a feature");
+    }
+
+    #[test]
+    fn a_harness_is_the_application_read_from_outside_while_it_lives() {
+        let mut harness = crate::app::Harness::new(0);
+        harness.feature(Housekeeping).unwrap();
+
+        assert_eq!(app_scope(), Some(harness.application().scope));
+        assert_eq!(installed_plugins(), ["test.tools"]);
+        assert_eq!(app_actors().len(), 2);
+
+        drop(harness);
+
+        assert_eq!(app_scope(), None);
+        assert_eq!(installed_plugins(), [""; 0]);
     }
 }

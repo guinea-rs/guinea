@@ -12,6 +12,7 @@ use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureInitContext, ScopeContext};
+use crate::observability::Observed;
 
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
@@ -29,13 +30,17 @@ use super::runtime;
 pub struct TestApp {
     token: UiThreadToken,
     builder: FeatureBuilder,
+    _observed: Observed,
 }
 
 impl TestApp {
     pub fn new() -> Self {
         let token = UiThreadToken::dangerously_create_token_unchecked();
+        let builder = FeatureBuilder::new(token.clone(), AppHost::new());
+
         Self {
-            builder: FeatureBuilder::new(token.clone(), AppHost::new()),
+            _observed: builder.observed(),
+            builder,
             token,
         }
     }

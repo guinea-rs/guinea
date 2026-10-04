@@ -4,7 +4,7 @@ mod meta;
 #[cfg(feature = "own-runtime")]
 mod runtime_host;
 mod plugin;
-mod registry;
+pub(crate) mod registry;
 pub mod roots;
 pub(crate) mod runtime;
 pub mod windows;
@@ -24,9 +24,7 @@ pub use acts::{Chain, Shape, Step};
 #[cfg(any(test, feature = "test-utils"))]
 pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
-pub use runtime::{
-    AppRuntime, app_services, install_runtime, installed_plugins, is_installed, shutdown_current,
-};
+pub use runtime::{AppRuntime, install_runtime, shutdown_current};
 
 use guinea_core::actor::UiThreadToken;
 
@@ -143,7 +141,10 @@ impl GuineaApp {
             hook(&mut builder);
         }
 
-        Ok(AppRuntime { builder })
+        Ok(AppRuntime {
+            _observed: builder.observed(),
+            builder,
+        })
     }
 }
 

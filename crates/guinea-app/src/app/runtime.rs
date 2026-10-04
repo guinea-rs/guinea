@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 
-use guinea_core::SharedState;
-
 use super::builder::FeatureBuilder;
 use crate::feature::ScopeContext;
+use crate::observability::Observed;
 
 /// An installed application: everything the recipe built, plus the hooks that
 /// outlive installation. Held on the UI thread until the process exits.
 pub struct AppRuntime {
     pub(crate) builder: FeatureBuilder,
+    pub(crate) _observed: Observed,
 }
 
 impl AppRuntime {
@@ -27,44 +27,6 @@ thread_local! {
 /// the backend adapter, after [`crate::app::App::install`].
 pub fn install_runtime(runtime: AppRuntime) {
     RUNTIME.with(|slot| *slot.borrow_mut() = Some(runtime));
-}
-
-/// Whether an application is already installed on this UI thread.
-///
-/// One application per thread, however many windows it opens: a second window
-/// renders its own root, and whatever that root does to bootstrap must be a
-/// no-op the second time.
-pub fn is_installed() -> bool {
-    RUNTIME.with(|slot| slot.borrow().is_some())
-}
-
-/// The services plugins provided during installation.
-///
-/// Empty when there is no installed application - a router built directly in a
-/// test, say. Callers get "nothing provided that" rather than a panic, which is
-/// the same answer they would get from an application that installed no
-/// plugins.
-pub fn app_services() -> SharedState {
-    RUNTIME.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|runtime| runtime.builder.services.clone())
-            .unwrap_or_default()
-    })
-}
-
-pub(crate) fn installed_scope() -> Option<guinea_core::scope::Scope> {
-    RUNTIME.with(|slot| slot.borrow().as_ref().map(|runtime| runtime.builder.scope))
-}
-
-/// The plugins the installed application was built with, by id.
-pub fn installed_plugins() -> Vec<&'static str> {
-    RUNTIME.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|runtime| runtime.builder.plugin_ids())
-            .unwrap_or_default()
-    })
 }
 
 /// Runs cleanups and reports actors that outlived them. Called from the

@@ -46,8 +46,8 @@ impl PluginBuilder {
         &self.host
     }
 
-    pub(crate) fn plugin_ids(&self) -> Vec<&'static str> {
-        self.registry.borrow().plugin_ids()
+    pub(crate) fn observed(&self) -> crate::observability::Observed {
+        crate::observability::Observed::new(self.cx.scope, self.registry.clone())
     }
 
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {

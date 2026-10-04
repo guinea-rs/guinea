@@ -96,7 +96,7 @@ impl eframe::App for Frontend {
     /// Before the drawing, and also while the window is hidden: an actor that
     /// finished work still gets its turn on this thread.
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        guinea_core::devtools::profiling::frame_done();
+        guinea_core::observability::profiling::frame_done();
         dispatcher::drain();
     }
 

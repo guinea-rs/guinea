@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use guinea_core::actor::invoke_on_ui;
-use guinea_core::devtools::{self, Change};
+use guinea_core::observability::changes::{self, Change};
 use guinea_core::scope::Awake;
 
 /// How long between ticks.
@@ -157,7 +157,7 @@ impl Drop for Ticking {
         RUNNING.with(|running| running.borrow_mut().remove(&id));
 
         if traced {
-            devtools::changed(|| Change::TimerStopped { id });
+            changes::changed(|| Change::TimerStopped { id });
         }
     }
 }
@@ -241,7 +241,7 @@ impl Timer {
             (entry.info.id, std::mem::replace(&mut entry.traced, false))
         };
         if was_traced {
-            devtools::changed(|| Change::TimerStopped { id });
+            changes::changed(|| Change::TimerStopped { id });
         }
 
         self
@@ -285,7 +285,7 @@ pub(crate) fn start(
     }));
 
     RUNNING.with(|running| running.borrow_mut().insert(id, Rc::downgrade(&entry)));
-    devtools::changed(|| Change::TimerStarted { id });
+    changes::changed(|| Change::TimerStarted { id });
     wake_after(id, 0, first);
 
     let timer = Timer {
@@ -454,10 +454,10 @@ mod tests {
     fn watched(run: impl FnOnce()) -> Vec<Change> {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
 
         run();
-        devtools::stop_watching();
+        changes::stop_watching();
 
         seen.take()
     }

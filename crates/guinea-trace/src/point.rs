@@ -154,7 +154,7 @@ pub enum Point {
         outside: bool,
     },
     /// A page or layout drew itself, and how long that took. Recorded only
-    /// for the frames worth looking at - see `devtools::rendering`.
+    /// for the frames worth looking at - see `observability::Rendering`.
     Render {
         segment: &'static str,
         took_us: u64,

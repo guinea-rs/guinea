@@ -147,20 +147,20 @@ fn ticker() -> Addr<Ticker> {
     )
 }
 
-fn watched(run: impl FnOnce()) -> Vec<crate::devtools::Change> {
+fn watched(run: impl FnOnce()) -> Vec<crate::observability::changes::Change> {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let sink = seen.clone();
-    crate::devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+    crate::observability::changes::watch(move |change| sink.borrow_mut().push(change.clone()));
 
     run();
-    crate::devtools::stop_watching();
+    crate::observability::changes::stop_watching();
 
     seen.take()
 }
 
 #[test]
 fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
-    use crate::devtools::Change;
+    use crate::observability::changes::Change;
 
     let window = ScopeTree::new();
     window.set_window(7);

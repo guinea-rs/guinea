@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use guinea_core::devtools::{Panel, PanelNode};
+use guinea_core::observability::panels::{Panel, PanelNode};
 use guinea_core::scope::Scope;
 use guinea_router::router::{Router, SegmentProps};
 use windows_reactor::View;
@@ -30,7 +30,7 @@ thread_local! {
 /// Notes that the segment `props` points at produced `view`, while devtools
 /// watch; otherwise does nothing, not even count.
 pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
-    if !guinea_core::devtools::is_observed() {
+    if !guinea_core::observability::is_observed() {
         return;
     }
 
@@ -52,9 +52,9 @@ pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
 }
 
 /// Offers the components panel for `router`'s root while the guard lives.
-pub(crate) fn offer(router: &Rc<Router<WinUi>>) -> guinea_core::devtools::PanelGuard {
+pub(crate) fn offer(router: &Rc<Router<WinUi>>) -> guinea_core::observability::panels::PanelGuard {
     let weak = Rc::downgrade(router);
-    guinea_core::devtools::contribute(router.root().get(), move || {
+    guinea_core::observability::panels::contribute(router.root().get(), move || {
         weak.upgrade().map(|router| panel(&router))
     })
 }

@@ -27,7 +27,7 @@ Left:
 
 ### The puffin profiler, half done
 
-Done: zones around every page's and layout's `render` (`devtools::Rendering`),
+Done: zones around every page's and layout's `render` (`observability::Rendering`),
 a frame boundary per backend, `Capability::Profiler`, `Command::Profiler`,
 `Report::Profiler`, and a `puffin_http` server the plugin starts on request.
 
@@ -441,7 +441,7 @@ reducers.
   `click_text`, for reading back what was drawn.
 - Driving a running application from devtools, and so from MCP, is in:
   `#[derive(guinea::Remote)]` with `#[remote(action)]` / `#[remote(event)]`
-  registers a type in `guinea_core::remote`; `guinea::devtools::act` sends it
+  registers a type in `guinea_core::remote`; `guinea::observability::act` sends it
   to the scope on the open page that answers it, page first and layouts
   after. The hub's `send_action` / `publish_event` wait for the answer and
   follow the cause through the trace until nothing under it runs and nothing

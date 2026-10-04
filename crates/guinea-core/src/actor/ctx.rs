@@ -81,12 +81,12 @@ impl Task {
     }
 
     /// Records the end of the task under its spawn, from whichever thread
-    /// polled it last: [`crate::devtools::mark_anywhere`] carries it to the
-    /// thread devtools watch.
+    /// polled it last: [`crate::observability::mark_anywhere`] carries it to
+    /// the thread being watched.
     fn ended(self, spawned: Cause, point: Point) {
         let _resumed = trace::resume(Some(spawned));
 
-        crate::devtools::mark_anywhere(move || point);
+        crate::observability::mark_anywhere(move || point);
     }
 }
 
@@ -140,7 +140,7 @@ impl Feed {
     /// item, runs dry or is dropped is recorded under it.
     fn pull(self, opened: Cause) -> Pulling {
         let id = trace::reserve();
-        crate::devtools::begin_anywhere(id, None, move || self.pulled(opened));
+        crate::observability::begin_anywhere(id, None, move || self.pulled(opened));
 
         Pulling {
             id,
@@ -158,7 +158,7 @@ impl Feed {
         };
         let _resumed = trace::resume(Some(opened));
 
-        crate::devtools::mark_anywhere(move || point);
+        crate::observability::mark_anywhere(move || point);
     }
 }
 
@@ -171,7 +171,7 @@ struct Pulling {
 
 impl Drop for Pulling {
     fn drop(&mut self) {
-        crate::devtools::end_anywhere(self.id, self.started.elapsed());
+        crate::observability::end_anywhere(self.id, self.started.elapsed());
     }
 }
 
@@ -591,12 +591,12 @@ mod tests {
     }
 
     #[test]
-    fn devtools_hear_which_actor_handled_a_message() {
-        use crate::devtools::{self, Change};
+    fn a_watcher_hears_which_actor_handled_a_message() {
+        use crate::observability::changes::{self, Change};
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        devtools::watch(move |change| {
+        changes::watch(move |change| {
             if let Change::ActorHandled { id } = change {
                 sink.borrow_mut().push(*id);
             }
@@ -609,7 +609,7 @@ mod tests {
             UiThreadToken::dangerously_create_token_unchecked(),
         );
         addr.send(First);
-        devtools::stop_watching();
+        changes::stop_watching();
 
         let id = addr.id();
         assert_eq!(*seen.borrow(), [id, id], "First, then the Second it sent");

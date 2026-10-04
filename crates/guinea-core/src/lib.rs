@@ -1,13 +1,13 @@
 pub mod actor;
 pub mod binding;
 pub mod feature;
-pub mod devtools;
 pub mod executor;
 pub mod guard;
 pub mod load;
 pub use guinea_mark as mark;
 pub mod remote;
 pub mod notify;
+pub mod observability;
 pub mod shared_state;
 pub mod scope;
 #[cfg(feature = "test-utils")]

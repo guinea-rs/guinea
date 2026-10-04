@@ -1,12 +1,12 @@
-//! The installed application's own scope, and the actors it holds rather than
-//! a window.
+//! The installed application, read from outside it: its own scope, and the
+//! actors it holds rather than a window.
 
 use guinea_core::actor::registry::ActorSnapshot;
 use guinea_core::scope::Scope;
 
 /// The scope of the application installed on this thread, while it is.
 pub fn app_scope() -> Option<Scope> {
-    super::runtime::installed_scope().filter(Scope::is_alive)
+    crate::app::runtime::installed_scope().filter(Scope::is_alive)
 }
 
 /// Every application-level actor on this thread, by id.

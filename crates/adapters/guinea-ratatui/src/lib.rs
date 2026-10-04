@@ -169,7 +169,7 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 impl<P: Page> Mount<Tui> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
         Node::new(move |frame, area| {
-            let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
+            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
             P::render(&mut PageCx {
                 frame,
                 area,
@@ -183,7 +183,7 @@ impl<P: Page> Mount<Tui> for MountPage<P> {
 impl<L: Layout> Mount<Tui> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
         Node::new(move |frame, area| {
-            let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
+            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
             L::render(&mut LayoutCx {
                 frame,
                 area,

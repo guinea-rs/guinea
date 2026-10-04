@@ -5,7 +5,7 @@ use crate::actor::event_bus::subscribe::{
 use crate::actor::invoke_on_ui;
 use crate::actor::short_type_name;
 use crate::actor::traits::Handler;
-use crate::devtools::{self, Change};
+use crate::observability::changes::{self, Change};
 use crate::trace::{self, Bus, Point};
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
@@ -120,7 +120,7 @@ impl EventBus {
     }
 
     fn changed(&self) {
-        devtools::changed(|| Change::Subscriptions {
+        changes::changed(|| Change::Subscriptions {
             bus: self.kind,
             root: self.root,
         });
@@ -391,19 +391,19 @@ mod tests {
     impl Event for Pong {}
 
     #[test]
-    fn a_bus_tells_devtools_when_what_is_subscribed_to_it_changes() {
+    fn a_bus_tells_a_watcher_when_what_is_subscribed_to_it_changes() {
         let bus = Rc::new(EventBus::for_root(3));
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let sink = seen.clone();
         let reading = bus.clone();
-        devtools::watch(move |change| {
+        changes::watch(move |change| {
             sink.borrow_mut().push((change.clone(), reading.subscriptions().len()));
         });
 
         let sub = bus.subscribe_fn(|_: Ping| {});
         drop(sub);
-        devtools::stop_watching();
+        changes::stop_watching();
 
         let changed = Change::Subscriptions {
             bus: Bus::Window,

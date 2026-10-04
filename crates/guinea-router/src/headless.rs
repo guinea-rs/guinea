@@ -228,7 +228,7 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 
 impl<P: Page> Mount<Headless> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Headless>, _nodes: &'a ()) {
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         P::view(&mut HeadlessCx {
             props,
             segment: std::marker::PhantomData,
@@ -238,7 +238,7 @@ impl<P: Page> Mount<Headless> for MountPage<P> {
 
 impl<L: Layout> Mount<Headless> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Headless>, _nodes: &'a ()) {
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         L::view(&mut HeadlessCx {
             props,
             segment: std::marker::PhantomData,

@@ -1,4 +1,3 @@
-pub mod actors;
 mod builder;
 mod host;
 mod meta;
@@ -7,7 +6,7 @@ mod runtime_host;
 mod plugin;
 mod registry;
 pub mod roots;
-mod runtime;
+pub(crate) mod runtime;
 pub mod windows;
 
 #[cfg(any(test, feature = "test-utils"))]

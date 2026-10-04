@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "info,guinea=debug,processes_core=debug".into()),
         )
         .with(guinea_core::trace::json(log))
-        .with(guinea_core::devtools::layer())
+        .with(guinea_core::observability::layer())
         .init();
 
     if let Some(dll) = std::env::var_os("GUINEA_XAML_TAP") {

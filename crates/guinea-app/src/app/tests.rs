@@ -548,7 +548,7 @@ mod exports {
             .expect("install");
         crate::app::install_runtime(runtime);
 
-        let app = crate::app::actors::app_scope().expect("an application");
+        let app = crate::observability::app_scope().expect("an application");
 
         assert!(app.has_feature::<Speaking>());
         assert_eq!(language(app), Some("en"));
@@ -570,7 +570,7 @@ mod exports {
 mod owners {
     use guinea_macros::{actor, handler};
 
-    use super::super::actors::app_actors;
+    use crate::observability::app_actors;
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
 
     pub struct Sweep;

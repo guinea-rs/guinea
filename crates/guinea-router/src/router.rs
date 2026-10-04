@@ -656,7 +656,7 @@ impl<U: Ui> Drop for Router<U> {
         }
 
         if self.listed.get() {
-            crate::devtools::unregister(self.root());
+            crate::observability::unregister(self.root());
         }
     }
 }
@@ -1080,7 +1080,7 @@ impl<U: Ui> Router<U> {
         R: RouteChain<U> + 'static,
     {
         if !self.listed.replace(true) {
-            crate::devtools::register(self);
+            crate::observability::register(self);
         }
         installed_for(&route, self.host.application().map(|app| app.scope));
 

@@ -471,7 +471,7 @@ impl<P: Page> Mount<Iced> for MountPage<P> {
             page: PhantomData,
             borrow: PhantomData,
         };
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         page.view(&mut cx)
             .map(move |message| Envelope::new(cursor, deliver_page::<P>, Box::new(message)))
     }
@@ -489,7 +489,7 @@ impl<L: Layout> Mount<Iced> for MountLayout<L> {
             nodes,
             layout: PhantomData,
         };
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         layout.view(&mut cx)
     }
 }

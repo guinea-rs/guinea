@@ -1,159 +1,21 @@
-//! What devtools read that is not a trace: panels a backend or a plugin
-//! offers, for a root or for the whole application.
+//! Watching a running application from outside it: the public surface a
+//! tool - devtools, a test, a logger - reads, and what a plugin offers it.
 //!
-//! What happened is in [`crate::trace`]; [`mark_anywhere`] is how something
-//! off the UI thread adds to it.
+//! - what happened, and why: [`trace`](crate::trace), with
+//!   [`mark_anywhere`] for something off the UI thread;
+//! - what came or went: [`changes`];
+//! - what a backend or a plugin knows about itself: [`panels`];
+//! - where a frame went: [`profiling`];
+//! - the application's own `tracing` events: [`layer`].
+
+pub mod changes;
+pub mod panels;
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
-use crate::actor::registry::Owner;
 use crate::trace::{self, Point};
 
 pub use crate::trace::is_observed;
-
-/// Something a backend knows about a window that the rest of guinea does not:
-/// its component tree, say. Devtools draw it without interpreting it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Panel {
-    pub id: &'static str,
-    pub title: &'static str,
-    pub nodes: Vec<PanelNode>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PanelNode {
-    pub label: String,
-    pub kind: String,
-    pub properties: Vec<(String, String)>,
-    pub children: Vec<PanelNode>,
-}
-
-type Provider = Rc<dyn Fn() -> Option<Panel>>;
-
-thread_local! {
-    static PANELS: RefCell<Vec<(u64, Option<u64>, Provider)>> = const { RefCell::new(Vec::new()) };
-    static NEXT_PANEL: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-fn offer(root: Option<u64>, provider: impl Fn() -> Option<Panel> + 'static) -> PanelGuard {
-    let id = NEXT_PANEL.with(|next| {
-        let id = next.get();
-        next.set(id + 1);
-        id
-    });
-    PANELS.with(|panels| panels.borrow_mut().push((id, root, Rc::new(provider))));
-    PanelGuard { id }
-}
-
-fn built(root: Option<u64>) -> Vec<Panel> {
-    let providers: Vec<Provider> = PANELS.with(|panels| {
-        panels
-            .borrow()
-            .iter()
-            .filter(|(_, owner, _)| *owner == root)
-            .map(|(_, _, provider)| provider.clone())
-            .collect()
-    });
-    providers.iter().filter_map(|provider| provider()).collect()
-}
-
-/// Offers a panel for the root numbered `root`, for as long as the guard
-/// lives. `provider` is asked only while devtools are reading.
-#[must_use = "the panel is withdrawn when the guard is dropped"]
-pub fn contribute(root: u64, provider: impl Fn() -> Option<Panel> + 'static) -> PanelGuard {
-    offer(Some(root), provider)
-}
-
-/// Offers a panel about the whole application rather than one window: what a
-/// plugin holds, say.
-#[must_use = "the panel is withdrawn when the guard is dropped"]
-pub fn contribute_to_app(provider: impl Fn() -> Option<Panel> + 'static) -> PanelGuard {
-    offer(None, provider)
-}
-
-/// Every panel offered for `root`, built now.
-pub fn panels(root: u64) -> Vec<Panel> {
-    built(Some(root))
-}
-
-/// Every panel offered for the application, built now.
-pub fn app_panels() -> Vec<Panel> {
-    built(None)
-}
-
-pub struct PanelGuard {
-    id: u64,
-}
-
-impl Drop for PanelGuard {
-    fn drop(&mut self) {
-        let id = self.id;
-        let _ = PANELS.try_with(|panels| panels.borrow_mut().retain(|(own, _, _)| *own != id));
-    }
-}
-
-/// Something devtools list came or went, so what they last read of it is
-/// stale. Says what to read again, not what it now reads.
-///
-/// `root` is the window a registry or a bus belongs to, as `RootId::get`
-/// numbers it; `None` for the application's own, or for one no window owns.
-#[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum Change {
-    ActorAdded {
-        root: Option<u64>,
-        id: usize,
-        type_name: &'static str,
-        owner: Owner,
-    },
-    ActorRemoved {
-        root: Option<u64>,
-        id: usize,
-    },
-    /// An actor handled a message, so its state may read differently now.
-    /// Where it lives is what [`Change::ActorAdded`] said.
-    ActorHandled { id: usize },
-    /// A timer devtools may see started; its id is the one the running
-    /// timers list it under.
-    TimerStarted { id: u64 },
-    /// A timer stopped, or stopped being one devtools may see.
-    TimerStopped { id: u64 },
-    /// Something subscribed to a bus, or stopped being.
-    Subscriptions { bus: trace::Bus, root: Option<u64> },
-    /// A window's router navigated for the first time.
-    RouterOpened { root: u64 },
-    RouterClosed { root: u64 },
-}
-
-type Watcher = Rc<dyn Fn(&Change)>;
-
-thread_local! {
-    static WATCHER: RefCell<Option<Watcher>> = const { RefCell::new(None) };
-}
-
-/// Hands every [`Change`] on this thread to `watcher`, replacing any watcher
-/// already set.
-///
-/// It is told synchronously, from wherever the change happened - a
-/// registration, a teardown - so it should note what to read again and read
-/// it later, not read it there.
-pub fn watch(watcher: impl Fn(&Change) + 'static) {
-    WATCHER.with(|slot| slot.borrow_mut().replace(Rc::new(watcher)));
-}
-
-pub fn stop_watching() {
-    WATCHER.with(|slot| slot.borrow_mut().take());
-}
-
-/// Tells the watcher, if there is one; `change` is not built otherwise.
-pub fn changed(change: impl FnOnce() -> Change) {
-    let Some(watcher) = WATCHER.try_with(|slot| slot.borrow().clone()).ok().flatten() else {
-        return;
-    };
-
-    watcher(&change());
-}
 
 /// How long a segment has to draw before it is worth a line in the trace.
 /// `GUINEA_TRACE_RENDER_MS` moves it; `0` records every frame.
@@ -336,7 +198,7 @@ pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
 ///
 /// tracing_subscriber::registry()
 ///     .with(tracing_subscriber::fmt::layer())
-///     .with(guinea_core::devtools::layer())
+///     .with(guinea_core::observability::layer())
 ///     .init();
 /// ```
 pub fn layer() -> LogLayer {
@@ -539,6 +401,10 @@ impl tracing::field::Visit for Text {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
+    use super::changes::{Change, changed};
+    use super::panels::{Panel, contribute, contribute_to_app, for_app, for_root};
     use super::*;
 
     fn test_panel() -> Option<Panel> {
@@ -552,12 +418,12 @@ mod tests {
     #[test]
     fn a_panel_is_offered_for_its_root_until_the_guard_goes() {
         let guard = contribute(7, test_panel);
-        assert_eq!(panels(7).len(), 1);
-        assert!(panels(8).is_empty());
-        assert!(app_panels().is_empty());
+        assert_eq!(for_root(7).len(), 1);
+        assert!(for_root(8).is_empty());
+        assert!(for_app().is_empty());
 
         drop(guard);
-        assert!(panels(7).is_empty());
+        assert!(for_root(7).is_empty());
     }
 
     #[cfg(not(feature = "test-utils"))]
@@ -809,10 +675,10 @@ mod tests {
     #[test]
     fn an_application_panel_belongs_to_no_root() {
         let guard = contribute_to_app(test_panel);
-        assert_eq!(app_panels().len(), 1);
-        assert!(panels(0).is_empty());
+        assert_eq!(for_app().len(), 1);
+        assert!(for_root(0).is_empty());
 
         drop(guard);
-        assert!(app_panels().is_empty());
+        assert!(for_app().is_empty());
     }
 }

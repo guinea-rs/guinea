@@ -1,6 +1,7 @@
 use crate::actor::Addr;
 use crate::actor::registry::{ActorSnapshot, Owner};
 use crate::actor::traits::ManagedActor;
+use crate::observability::changes::{self, Change};
 
 use super::{Scope, Teardown};
 
@@ -50,7 +51,7 @@ struct Unlisted {
 
 impl Teardown for Unlisted {
     fn teardown(self) {
-        crate::devtools::changed(|| crate::devtools::Change::ActorRemoved {
+        changes::changed(|| Change::ActorRemoved {
             root: self.root,
             id: self.id,
         });
@@ -104,7 +105,7 @@ impl Scope {
         drop(data);
 
         let root = self.window();
-        crate::devtools::changed(|| crate::devtools::Change::ActorAdded {
+        changes::changed(|| Change::ActorAdded {
             root,
             id,
             type_name,

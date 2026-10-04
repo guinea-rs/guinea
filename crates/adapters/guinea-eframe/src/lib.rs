@@ -259,7 +259,7 @@ impl<P: Page> Mount<Egui> for MountPage<P> {
         let at = props.scopes[props.cursor].key();
 
         Node::new(move |ui| {
-            let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
+            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
             with_mounted::<P, _>(at, |page| {
                 page.render(&mut PageCx {
                     ui,
@@ -276,7 +276,7 @@ impl<L: Layout> Mount<Egui> for MountLayout<L> {
         let at = props.scopes[props.cursor].key();
 
         Node::new(move |ui| {
-            let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
+            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
             with_mounted::<L, _>(at, |layout| {
                 layout.render(&mut LayoutCx {
                     ui,

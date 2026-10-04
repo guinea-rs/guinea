@@ -6,13 +6,14 @@ use std::rc::{Rc, Weak};
 
 use guinea_app::app::roots::{self, RootId};
 use guinea_core::actor::registry::ActorSnapshot;
-use guinea_core::devtools::{Change, Panel};
 use guinea_core::actor::shape::Declared;
+use guinea_core::observability::changes::{self, Change};
+use guinea_core::observability::panels::{self, Panel};
 use guinea_core::scope::{DescribedState, Installed, Listener};
 
 use crate::router::{Router, Ui};
 
-/// A router as devtools see it.
+/// A router as a tool reads it.
 pub struct RouterView {
     pub root: RootId,
     pub label: Option<String>,
@@ -64,12 +65,12 @@ pub(crate) fn register<U: Ui>(router: &Rc<Router<U>>) {
     ROUTERS.with(|routers| routers.borrow_mut().push(weak));
 
     let root = router.root().get();
-    guinea_core::devtools::changed(|| Change::RouterOpened { root });
+    changes::changed(|| Change::RouterOpened { root });
 }
 
 /// A listed router is going: what [`register`] said came, this says went.
 pub(crate) fn unregister(root: RootId) {
-    guinea_core::devtools::changed(|| Change::RouterClosed { root: root.get() });
+    changes::changed(|| Change::RouterClosed { root: root.get() });
 }
 
 fn alive() -> Vec<Rc<dyn Inspected>> {
@@ -101,11 +102,11 @@ fn find(root: u64) -> Option<Rc<dyn Inspected>> {
 /// The actor `id`, read now: one of window `root`'s, or of the application's
 /// for `None` - where [`Change::ActorAdded`] said it was.
 ///
-/// [`Change::ActorAdded`]: guinea_core::devtools::Change::ActorAdded
+/// [`Change::ActorAdded`]: guinea_core::observability::changes::Change::ActorAdded
 pub fn actor(root: Option<u64>, id: usize) -> Option<ActorSnapshot> {
     match root {
         Some(root) => find(root)?.actor(id),
-        None => guinea_app::app::actors::app_actor(id),
+        None => guinea_app::observability::app_actor(id),
     }
 }
 
@@ -166,7 +167,7 @@ impl<U: Ui> Inspected for Router<U> {
             forward: self.history_len().1,
             pending: self.pending().map(|ask| ask.text),
             actors,
-            panels: guinea_core::devtools::panels(root.get()),
+            panels: panels::for_root(root.get()),
             bus: self.host().event_bus().subscriptions(),
         }
     }

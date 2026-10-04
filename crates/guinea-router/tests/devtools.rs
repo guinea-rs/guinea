@@ -7,11 +7,11 @@ use guinea_app::feature::{FeatureHost, FeatureInitContext, Segment};
 use std::cell::RefCell;
 
 use guinea_core::actor::{Cx, Handler, UiThreadToken};
-use guinea_core::devtools::{self as watching, Change};
+use guinea_core::observability::changes::{self, Change};
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
-use guinea_router::devtools;
+use guinea_router::observability;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
 #[derive(Default, Clone, Debug)]
@@ -113,12 +113,12 @@ impl RouteChain<Headless> for Route {
 fn a_router_shows_up_once_it_has_navigated_and_goes_when_dropped() {
     let token = UiThreadToken::dangerously_create_token_unchecked();
     let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
-    let before = devtools::routers().len();
+    let before = observability::routers().len();
 
     router.navigate(Route { id: 7 }).expect("navigate");
     router.navigate(Route { id: 8 }).expect("navigate again");
 
-    let views = devtools::routers();
+    let views = observability::routers();
     assert_eq!(views.len(), before + 1, "registered once, not per navigation");
 
     let view = views.last().unwrap();
@@ -136,7 +136,7 @@ fn a_router_shows_up_once_it_has_navigated_and_goes_when_dropped() {
 
     drop(views);
     drop(router);
-    assert_eq!(devtools::routers().len(), before);
+    assert_eq!(observability::routers().len(), before);
 }
 
 #[test]
@@ -148,16 +148,16 @@ fn devtools_hear_a_router_open_and_close_and_read_it_alone() {
 
     let seen = Rc::new(RefCell::new(Vec::new()));
     let sink = seen.clone();
-    watching::watch(move |change| sink.borrow_mut().push(change.clone()));
+    changes::watch(move |change| sink.borrow_mut().push(change.clone()));
 
     router.navigate(Route { id: 1 }).expect("navigate");
     router.navigate(Route { id: 2 }).expect("navigate again");
-    let read = devtools::router(root).map(|view| view.route);
+    let read = observability::router(root).map(|view| view.route);
     drop(router);
-    watching::stop_watching();
+    changes::stop_watching();
 
     assert_eq!(read, Some(Some("Route { id: 2 }".to_string())));
-    assert!(devtools::router(root).is_none(), "read after it was gone");
+    assert!(observability::router(root).is_none(), "read after it was gone");
 
     let routers: Vec<Change> = seen
         .take()
@@ -183,18 +183,18 @@ fn one_actor_of_one_window_is_read_by_its_id() {
     router.navigate(Route { id: 1 }).expect("navigate");
     let root = router.root().get();
 
-    let listed = devtools::routers()
+    let listed = observability::routers()
         .into_iter()
         .find(|view| view.root.get() == root)
         .and_then(|view| view.actors.into_iter().find(|actor| actor.type_name.ends_with("Clock")))
         .map(|actor| actor.id);
-    let read = listed.and_then(|id| devtools::actor(Some(root), id)).map(|actor| actor.id);
+    let read = listed.and_then(|id| observability::actor(Some(root), id)).map(|actor| actor.id);
 
     assert!(listed.is_some(), "the clock was spawned");
     assert_eq!(read, listed);
-    assert!(devtools::actor(Some(root), usize::MAX).is_none());
+    assert!(observability::actor(Some(root), usize::MAX).is_none());
     assert!(
-        listed.and_then(|id| devtools::actor(None, id)).is_none(),
+        listed.and_then(|id| observability::actor(None, id)).is_none(),
         "the application's actors are not the window's"
     );
 }

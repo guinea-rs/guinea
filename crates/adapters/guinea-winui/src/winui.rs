@@ -1188,9 +1188,9 @@ impl<P: Page> Component for PageNode<P> {
         // The root segment starts the frame the profiler collects; the ones
         // under it draw inside the same one.
         if input.cursor == 0 {
-            guinea_core::devtools::profiling::frame_done();
+            guinea_core::observability::profiling::frame_done();
         }
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<P>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         let view = self.page.borrow().view(&mut PageCx {
             props: input.clone(),
             cx,
@@ -1248,9 +1248,9 @@ impl<L: Layout> Component for LayoutNode<L> {
 
     fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
         if input.cursor == 0 {
-            guinea_core::devtools::profiling::frame_done();
+            guinea_core::observability::profiling::frame_done();
         }
-        let _drawing = guinea_core::devtools::Rendering::of(std::any::type_name::<L>());
+        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         let view = self.layout.borrow().view(&mut LayoutCx {
             props: input.clone(),
             cx,
@@ -1265,7 +1265,7 @@ impl<L: Layout> Component for LayoutNode<L> {
 /// name, so the XAML tree shows where each page and layout begins.
 fn marked<S>(view: View) -> View {
     Border::new()
-        .automation_id(guinea_router::devtools::short(std::any::type_name::<S>()))
+        .automation_id(guinea_router::observability::short(std::any::type_name::<S>()))
         .content(view)
         .into()
 }
@@ -1487,7 +1487,7 @@ pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
     /// Why the first route is not standing, when it failed to install.
     failure: Option<String>,
     _question: guinea_router::router::RouteHookHandle,
-    _panel: guinea_core::devtools::PanelGuard,
+    _panel: guinea_core::observability::panels::PanelGuard,
 }
 
 /// What a [`RouterRoot`] is opened with: the application whose window it is,

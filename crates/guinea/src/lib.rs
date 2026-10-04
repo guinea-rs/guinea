@@ -27,7 +27,37 @@
 //! enables no backend, so a build for Linux with `ratatui` added has ratatui
 //! as its one backend.
 
-pub use guinea_router::{devtools, enter, headless, link, manifest, restore, router};
+pub use guinea_router::{enter, headless, link, manifest, restore, router};
+
+/// Watching a running application from outside it: what devtools, a test or
+/// a logger read, and what a plugin offers them.
+///
+/// - [`trace`](observability::trace) - what happened, and what caused it;
+/// - [`changes`](observability::changes) - what came or went;
+/// - [`panels`](observability::panels) - what a backend or a plugin knows
+///   about itself;
+/// - [`snapshot`](observability::snapshot) - what is open now, read when
+///   asked;
+/// - [`act`](observability::act) - sending an action from outside;
+/// - [`layer`](observability::layer) - the application's own `tracing`
+///   events, into the trace.
+pub mod observability {
+    pub use guinea_core::observability::{
+        LogLayer, Rendering, changes, is_observed, layer, mark_anywhere, panels, profiling,
+    };
+    pub use guinea_core::trace;
+    pub use guinea_router::observability::act;
+
+    /// What is open now: routers, the application, their actors - read when
+    /// asked, not kept.
+    pub mod snapshot {
+        pub use guinea_app::app::installed_plugins;
+        pub use guinea_app::observability::{app_actor, app_actors, app_scope};
+        pub use guinea_router::observability::{
+            RouterView, SegmentView, actor, router, routers, short,
+        };
+    }
+}
 
 #[cfg(all(feature = "winui", target_os = "windows"))]
 pub use guinea_winui as winui;

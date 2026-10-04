@@ -144,7 +144,7 @@ impl FeatureHost {
 mod tests {
     use super::*;
     use guinea_core::actor::{Cx, Handler};
-    use guinea_core::devtools::{self, Change};
+    use guinea_core::observability::changes::{self, Change};
     use guinea_core::trace::Bus;
     use std::cell::RefCell;
 
@@ -176,7 +176,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
 
         let scope = host
             .install(|ctx| {
@@ -186,7 +186,7 @@ mod tests {
             })
             .expect("installed");
         drop(scope);
-        devtools::stop_watching();
+        changes::stop_watching();
 
         let seen = seen.take();
         let windows: Vec<(&str, Option<u64>)> = seen

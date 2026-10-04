@@ -27,6 +27,7 @@ use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps, Ui,
     single_entry_chain,
 };
+use guinea_router::slot::Slot;
 use windows_reactor::{
     Border, Callback, Component, ComponentContext, ContentDialog, ContentDialogExt,
     ContentDialogResult, Grid, TextBlock, View, ViewContext, provide,
@@ -1129,11 +1130,14 @@ impl<P: Page> Component for PageNode<P> {
             guinea_core::observability::profiling::frame_done();
         }
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
+        leaves_its_fills(input, cx);
+        crate::slots::drawing(input);
         let view = self.page.borrow().view(&mut PageCx {
             props: input.clone(),
             cx,
             page: PhantomData,
         });
+        crate::slots::drawn(input);
         crate::devtools::record(input, &view);
         marked::<P>(view)
     }
@@ -1189,14 +1193,26 @@ impl<L: Layout> Component for LayoutNode<L> {
             guinea_core::observability::profiling::frame_done();
         }
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
+        leaves_its_fills(input, cx);
+        crate::slots::drawing(input);
         let view = self.layout.borrow().view(&mut LayoutCx {
             props: input.clone(),
             cx,
             layout: PhantomData,
         });
+        crate::slots::drawn(input);
         crate::devtools::record(input, &view);
         marked::<L>(view)
     }
+}
+
+/// Withdraws what a segment filled, and the slots it placed, when it leaves
+/// the screen or is installed again elsewhere.
+fn leaves_its_fills<C: Component>(props: &SegmentProps<WinUi>, cx: &mut ViewContext<C>) {
+    let filler = props.scopes[props.cursor].key();
+    cx.use_effect("guinea.fills", props.identity(), move || {
+        Some(Box::new(move || crate::slots::left(filler)) as Box<dyn FnOnce()>)
+    });
 }
 
 /// A segment's view inside a border whose `AutomationId` is the segment's
@@ -1677,6 +1693,19 @@ impl<P: Page> PageCx<'_, '_, P> {
     {
         self.cx.use_navigate::<R>()
     }
+
+    /// Shows `view` in the slot `S` the nearest layout above placed. See
+    /// [`LayoutCx::slot`].
+    ///
+    /// The innermost fill on the active chain wins. A fill is made again on
+    /// every draw, and one not made again is withdrawn, as is everything a
+    /// segment filled when it leaves. Callbacks in `view` belong to this
+    /// segment, so a toolbar button in the layout acts on the page.
+    ///
+    /// Filling a slot no layout above placed panics in a debug build.
+    pub fn fill<S: Slot>(&mut self, view: View) {
+        crate::slots::fill::<S>(&self.props, view);
+    }
 }
 
 impl<P: Page> PageCx<'_, '_, P> {
@@ -1772,6 +1801,21 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
         R: RouteChain<WinUi> + Clone + PartialEq + 'static,
     {
         self.cx.use_navigate::<R>()
+    }
+
+    /// Places the slot `S`: what the innermost segment below filled it with,
+    /// or nothing.
+    ///
+    /// Placing it is what declares it. The fill arrives a drain after the
+    /// segment that made it drew, and redraws the slot alone - not this
+    /// layout, and not the outlet.
+    pub fn slot<S: Slot>(&mut self) -> View {
+        crate::slots::place::<S>(&self.props)
+    }
+
+    /// See [`PageCx::fill`]. A layout fills a slot a layout above placed.
+    pub fn fill<S: Slot>(&mut self, view: View) {
+        crate::slots::fill::<S>(&self.props, view);
     }
 }
 

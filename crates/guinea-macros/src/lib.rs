@@ -176,6 +176,17 @@ pub fn segment(_attr: TokenStream, item: TokenStream) -> TokenStream {
     segment::segment_impl(item)
 }
 
+/// Declares a slot: a place in a layout's view that a segment below fills.
+///
+/// ```ignore
+/// #[slot]
+/// pub struct Toolbar;
+/// ```
+#[proc_macro_attribute]
+pub fn slot(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    routes_dsl::slot_impl(item)
+}
+
 /// Writes down what an `impl Page` for the iced backend left out.
 ///
 /// ```ignore

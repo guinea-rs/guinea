@@ -63,6 +63,20 @@ fn restore_path(guinea: &TokenStream) -> TokenStream {
     module_of_router(guinea, "restore")
 }
 
+pub(crate) fn slot_impl(item: TokenStream1) -> TokenStream1 {
+    let item = syn::parse_macro_input!(item as syn::ItemStruct);
+    let name = &item.ident;
+    let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
+    let slot = module_of_router(&guinea_crate_path(), "slot");
+
+    quote! {
+        #item
+
+        impl #impl_generics #slot::Slot for #name #type_generics #where_clause {}
+    }
+    .into()
+}
+
 fn module_of_router(guinea: &TokenStream, module: &str) -> TokenStream {
     let module = syn::Ident::new(module, proc_macro2::Span::call_site());
     match crate_name("guinea-router") {

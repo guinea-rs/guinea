@@ -16,6 +16,7 @@ mod dispatching;
 pub mod harness;
 mod mark;
 mod run;
+mod slots;
 mod winui;
 
 pub use guinea_app::feature::FeatureInitContext;

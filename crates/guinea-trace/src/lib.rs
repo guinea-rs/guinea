@@ -81,7 +81,9 @@ fn start() -> &'static (Instant, SystemTime) {
     START.get_or_init(|| (Instant::now(), SystemTime::now()))
 }
 
-fn now() -> Duration {
+/// Time since the moment [`Record::at`] counts from, on the same monotonic
+/// clock.
+pub fn now() -> Duration {
     start().0.elapsed()
 }
 
@@ -302,6 +304,27 @@ mod tests {
             Trace::Begin(record) | Trace::Mark(record) if record.id == id => Some(record.parent),
             _ => None,
         })?
+    }
+
+    #[test]
+    fn now_is_read_on_the_clock_a_record_is_stamped_with() {
+        let seen = collect();
+
+        mark(|| Point::Push { reducer: "Before" });
+        let between = now();
+        mark(|| Point::Push { reducer: "After" });
+        stop_observing();
+
+        let at: Vec<Duration> = seen
+            .borrow()
+            .iter()
+            .filter_map(|trace| match trace {
+                Trace::Mark(record) => Some(record.at),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(at.len(), 2, "{at:?}");
+        assert!(at[0] <= between && between <= at[1], "{at:?} around {between:?}");
     }
 
     /// Observing costs time, and it is spent inside whatever is open. Left

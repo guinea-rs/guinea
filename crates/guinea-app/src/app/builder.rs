@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::{Addr, ManagedActor, UiThreadToken};
-use crate::feature::{AppExport, AppFeatureDeinitContext, ScopeContext};
+use crate::feature::{AppFeatureDeinitContext, ScopeContext};
 
 use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Plugin};
@@ -16,8 +16,8 @@ use super::registry::{Admission, Registry, Unit};
 ///
 /// Everything a [`ScopeContext`] may do, in the application's own scope - the
 /// one every window sits under - plus what only the application has:
-/// installing other plugins, providing services, exporting state to every
-/// window, cleaning up at exit.
+/// installing other plugins, providing services, cleaning up at exit. What it
+/// lets every window read is its [`Exports`](Plugin::Exports).
 pub struct PluginBuilder {
     cx: ScopeContext,
     host: AppHost,
@@ -90,23 +90,6 @@ impl PluginBuilder {
         self.services.get::<T>()
     }
 
-    /// Lets every window read `R`, which this plugin or feature claimed with
-    /// [`state`](ScopeContext::state): a page reads it as it reads what a
-    /// layout above it exports. `R` says so in its type by being an
-    /// [`AppExport`], which is what lets a page's typed read name it.
-    pub fn export<R: AppExport>(&self) -> anyhow::Result<&Self> {
-        let reducer = std::any::type_name::<R>();
-        anyhow::ensure!(
-            self.scope.claims::<R>(),
-            "`{}` exports {reducer}, but nothing in the application claimed it - claim it \
-             with `app.state::<{reducer}>()` first",
-            self.registry.borrow().current()
-        );
-
-        self.scope.note_export::<R>();
-        Ok(self)
-    }
-
     /// Runs `f` when the application exits - after what was set up after it,
     /// and before what was set up before it.
     pub fn on_cleanup(
@@ -137,7 +120,7 @@ impl PluginBuilder {
     }
 
     fn install_plugin(&mut self, plugin: Box<dyn ErasedPlugin>) -> anyhow::Result<()> {
-        let (id, concrete) = (plugin.id(), plugin.concrete());
+        let (id, concrete, settle) = (plugin.id(), plugin.concrete(), plugin.settle());
 
         match self.registry.borrow().admit_plugin(id, concrete)? {
             Admission::AlreadyInstalled => return Ok(()),
@@ -148,6 +131,7 @@ impl PluginBuilder {
         self.scope.open_section(None, None);
         let outcome = plugin
             .build_boxed(self)
+            .and_then(|()| settle(self.scope, id))
             .with_context(|| format!("plugin `{id}` failed to build"));
         self.scope.close_section();
 
@@ -173,7 +157,7 @@ impl FeatureBuilder {
     }
 
     fn install_feature(&mut self, feature: Box<dyn ErasedFeature>) -> anyhow::Result<()> {
-        let (name, concrete) = (feature.name(), feature.concrete());
+        let (name, concrete, settle) = (feature.name(), feature.concrete(), feature.settle());
 
         match self.registry.borrow().admit_feature(concrete, name) {
             Admission::AlreadyInstalled => return Ok(()),
@@ -184,6 +168,7 @@ impl FeatureBuilder {
         self.scope.open_section(Some(name), None);
         let outcome = feature
             .install_boxed(self)
+            .and_then(|()| settle(self.scope, name))
             .with_context(|| format!("feature `{name}` failed to install"));
         self.scope.close_section();
 

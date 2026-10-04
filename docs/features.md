@@ -215,17 +215,47 @@ error: `MetricsReducer` доступен только условно
 
 ## Состояние приложения и шорткаты плагинов
 
-Приложение тоже владеет состоянием: фича приложения или плагин заявляет `R` и
-экспортирует его, а `R` помечен `AppExport`:
+Приложение тоже владеет состоянием, и устроено это так же, как у фичи
+сегмента: фича приложения или плагин заявляет `R` и перечисляет его в
+`Exports`:
 
 ```rust
-let language = app.state::<Language<L10n>>().seed(initial).plain();
-app.export::<Language<L10n>>()?;
+impl Plugin for L10nPlugin<S> {
+    const ID: &'static str = "l10n";
+    type Exports = (Language<S>,);
+
+    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        app.state::<Language<S>>().seed(self.initial).plain();
+        Ok(())
+    }
+}
 ```
 
-Тогда `R` читает любой сегмент любого окна, с индексом `FromApp`:
-`cx.read::<Language<L10n>, FromApp>()`. Экспорт того, что никто не заявил, —
-ошибка, а не тихий `Default`.
+Экспорт того, что никто не заявил, — ошибка установки, а не тихий `Default`.
+
+Дерево маршрутов перечисляет в блоке `app` то, что его страницы читают у
+приложения, по одному на строку:
+
+```rust
+routes! {
+    Route {
+        app {
+            feature(ActivityFeature)
+            plugin(L10nPlugin<Strings>)
+            #[cfg(debug_assertions)]
+            plugin(DebugOverlay)
+        }
+        layout(Shell) { .. }
+    }
+}
+```
+
+Приложение становится самым внешним сегментом каждой цепочки, и `R` читается
+как любой экспорт сверху: `cx.read::<Language<Strings>, _>()`. Плагины, чьё
+состояние страницы не читают (devtools, хранилище, single-instance), в блок не
+пишутся и ставятся как угодно. Если строка из блока не установлена, первая
+навигация паникует с её именем: это ошибка сборки приложения, и падает оно
+сразу.
 
 `read` — метод каждого контекста, и он же — `Reads`, один трейт для страницы и
 layout'а на WinUI, eframe, iced и ratatui: через него код пишется один раз на
@@ -245,24 +275,26 @@ Slint под `Reads` не подпадает: он собирает вид од�
 выше, кто `R` экспортирует. Один раз: изменения слышит `observe`.
 
 Плагин, у которого есть что читать, даёт шорткат, а не заставляет писать
-`read::<Language<L10n>, FromApp>().0.strings()` у каждого вызова. Соглашение:
+`read::<Language<L10n>, _>().0.strings()` у каждого вызова. Соглашение:
 
 - трейт называется `<Плагин>Access`: `L10nAccess`, `StoreAccess`;
 - он реализован для любого `C: Reads` (или `C: Services` — для того, что
   плагин даёт сервисом), один раз на все бэкенды;
-- методы названы по тому, что возвращают: `cx.l10n::<L10n>()`,
-  `cx.settings::<S>()`, — без `get_`, `use_` и `read_`.
+- методы названы по тому, что возвращают: `cx.l10n::<L10n, _>()`,
+  `cx.settings::<S, _>()`, — без `get_`, `use_` и `read_`. Второй параметр —
+  индекс `Reaches`, тот же `_`, что у `read`.
 
 ```rust
-pub trait L10nAccess {
-    fn l10n<S: Localization + PartialEq>(&mut self) -> S;
-}
-
-impl<C: Reads> L10nAccess for C {
-    fn l10n<S: Localization + PartialEq>(&mut self) -> S {
-        self.read::<Language<S>, FromApp>().0.strings().clone()
+pub trait L10nAccess: Reads {
+    fn l10n<S: Localization + PartialEq, I>(&mut self) -> S
+    where
+        Self::Segment: Reaches<Language<S>, I>,
+    {
+        self.read::<Language<S>, I>().0.strings().clone()
     }
 }
+
+impl<C: Reads> L10nAccess for C {}
 ```
 
 Стартовый маршрут — тоже место, где спрашивают плагины: `run` отдаёт

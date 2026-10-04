@@ -77,6 +77,7 @@ mod routing {
 
     impl guinea_app::app::Plugin for GreetingPlugin {
         const ID: &'static str = "test.greeting";
+        type Exports = ();
 
         fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
             app.provide(Greeting("hello"));

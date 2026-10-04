@@ -15,6 +15,7 @@ use guinea_core::feature::{Bound, Dispatch};
 use guinea_core::scope::Reducer;
 
 use super::traits::Feature;
+use crate::app::{AppFeature, Plugin};
 
 /// Where a segment sits in its route tree, written by `routes!`.
 ///
@@ -62,6 +63,24 @@ impl<F: Feature, R, I> Provides<R, (Here, I)> for F where F::Exports: Lists<R, I
 /// undeclared is exactly a claim nothing below can see, which is what the
 /// declaration is for.
 impl<R: Reducer> Provides<R, (There<Here>, Here)> for Bound<R> {}
+
+impl<F: AppFeature, R, I> Provides<R, (There<There<Here>>, I)> for F where F::Exports: Lists<R, I> {}
+
+impl<P: Plugin, R, I> Provides<R, (There<There<There<Here>>>, I)> for P where P::Exports: Lists<R, I> {}
+
+/// The application as a segment: one feature or plugin it installs, at the
+/// top of every chain, for the pages below to read what it exports.
+///
+/// `routes!` puts one above every segment for each line of its `app { .. }`
+/// block; `Application<()>` stands for a line its `#[cfg(..)]` turned off. A
+/// chain written by hand lists them itself, outermost last:
+/// `type Above = (Shell, (Application<Localisation>, ()))`.
+pub struct Application<T>(PhantomData<T>);
+
+impl<T: 'static> Segment for Application<T> {
+    type Installs = T;
+    type Above = ();
+}
 
 type P0 = Here;
 type P1 = There<P0>;
@@ -114,11 +133,11 @@ tuple!(
 );
 
 /// Proof that a segment may read `R`: it installed the feature that exports
-/// it, a segment above it did, or the application exports it.
+/// it, or a segment above it did - the application's own segment included.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot read `{R}` from here",
     label = "no feature in reach exports it",
-    note = "a segment reads what it installed itself, what a segment above it listed in `Exports`, and what the application exports - an `AppExport`"
+    note = "a segment reads what it installed itself and what a segment above it listed in `Exports` - for what the application exports, list its feature or plugin in the `app {{ .. }}` block of `routes!`"
 )]
 pub trait Reaches<R, I> {}
 
@@ -150,18 +169,6 @@ pub trait Reads {
         R: Reducer,
         Self::Segment: Reaches<R, I>;
 }
-
-/// A reducer the application claims and exports, which every segment of
-/// every window may read.
-///
-/// What `app.export::<R>()` asks of `R`: the export is what makes it there at
-/// run time, this is what lets a page name it at build time.
-pub trait AppExport: Reducer {}
-
-/// The index of a read the application answers.
-pub struct FromApp;
-
-impl<S: Segment, R: AppExport> Reaches<R, FromApp> for S {}
 
 // The ancestors are a cons list rather than a segment, so they walk their own
 // way.

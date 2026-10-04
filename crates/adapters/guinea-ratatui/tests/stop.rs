@@ -33,6 +33,7 @@ struct Opened(Arc<AtomicBool>);
 
 impl Plugin for Opened {
     const ID: &'static str = "test.opened";
+    type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.on_cleanup(move |_| {
@@ -47,6 +48,7 @@ struct SecondCopy;
 
 impl Plugin for SecondCopy {
     const ID: &'static str = "test.second-copy";
+    type Exports = ();
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         Err(Stop.into())

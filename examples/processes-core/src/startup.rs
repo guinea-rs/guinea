@@ -33,6 +33,8 @@ fn sweep(this: &mut Housekeeping, _: Sweep) {
 pub struct Startup;
 
 impl AppFeature for Startup {
+    type Exports = ();
+
     fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
         app.provide(StartedAt(Instant::now()));
         let started: Arc<StartedAt> = app.require()?;

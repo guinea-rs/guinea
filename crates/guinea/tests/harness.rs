@@ -403,6 +403,7 @@ mod reports {
 
     impl Plugin for Prefixing {
         const ID: &'static str = "test.prefixing";
+        type Exports = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             app.provide(Prefix("proc-"));
@@ -420,6 +421,7 @@ mod reports {
 
     impl Plugin for Global {
         const ID: &'static str = "test.global";
+        type Exports = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             if IN_PLACE.get() {
@@ -802,6 +804,7 @@ mod everywhere {
 
     impl Plugin for Probe {
         const ID: &'static str = "test.probe";
+        type Exports = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             FROM_A_PLUGIN.set(prefix(app));

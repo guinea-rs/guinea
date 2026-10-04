@@ -4,7 +4,5 @@ mod traits;
 
 pub use guinea_core::scope::{Reducer, Scope};
 pub use host::FeatureHost;
-pub use reach::{
-    AppExport, At, FromApp, Here, Lists, Provides, Reaches, Reads, Segment, There,
-};
+pub use reach::{Application, At, Here, Lists, Provides, Reaches, Reads, Segment, There};
 pub use traits::*;

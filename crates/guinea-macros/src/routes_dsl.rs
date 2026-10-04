@@ -3,7 +3,7 @@ use proc_macro2::{Ident, TokenStream};
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote, quote_spanned};
 
-use guinea_route_dsl::{Segment, parse_pattern, same_type, spelled, type_ident};
+use guinea_route_dsl::{AppKind, Segment, parse_pattern, same_type, spelled, type_ident};
 
 fn guinea_crate_path() -> proc_macro2::TokenStream {
     match crate_name("guinea") {
@@ -534,15 +534,71 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
     // The macro knows one half - who is above whom - and the author declares
     // the other: `Installs` here, `Exports` on each feature.
     let feature = feature_path(&guinea);
+
+    // The application is the outermost segment of every tree, one segment per
+    // line of `app { .. }`: a line under `#[cfg(..)]` has to be able to
+    // install nothing, and a tuple has no place for an attribute. An alias
+    // rather than a struct of its own, so the segment is exactly as visible
+    // as what the line names.
+    let app_segments: Vec<Ident> = (0..tree.app.len())
+        .map(|at| format_ident!("__{}App{}", enum_ident, at))
+        .collect();
+
+    let mut placements: Vec<TokenStream> = Vec::new();
+    for (item, segment) in tree.app.iter().zip(&app_segments) {
+        let ty = &item.ty;
+
+        if item.cfg.is_empty() {
+            placements.push(quote! {
+                #[allow(non_camel_case_types)]
+                type #segment = #feature::Application<#ty>;
+            });
+            continue;
+        }
+
+        let cfg = &item.cfg;
+        placements.push(quote! {
+            #[cfg(all(#(#cfg),*))]
+            #[allow(non_camel_case_types)]
+            type #segment = #feature::Application<#ty>;
+
+            #[cfg(not(all(#(#cfg),*)))]
+            #[allow(non_camel_case_types)]
+            type #segment = #feature::Application<()>;
+        });
+    }
+
+    let app_tail = app_segments.iter().rev().fold(quote!(()), |tail, segment| {
+        quote! { (#segment, #tail) }
+    });
     let above = |ancestors: &[syn::Type]| {
         // Innermost first, as a cons list, so the search reads the way the
         // runtime one used to walk.
-        ancestors.iter().rev().fold(quote!(()), |tail, ty| {
+        ancestors.iter().rev().fold(app_tail.clone(), |tail, ty| {
             quote! { (#ty, #tail) }
         })
     };
 
-    let mut placements: Vec<TokenStream> = Vec::new();
+    let app_const = format_ident!("__routes_app_{}", enum_ident);
+    let app_items = tree.app.iter().map(|item| {
+        let ty = &item.ty;
+        let name = match item.kind {
+            AppKind::Feature => format!("feature({})", spelled(ty)),
+            AppKind::Plugin => format!("plugin({})", spelled(ty)),
+        };
+        let cfg = (!item.cfg.is_empty()).then(|| {
+            let cfg = &item.cfg;
+            quote!(#[cfg(all(#(#cfg),*))])
+        });
+
+        quote! {
+            #cfg
+            #router::AppItem {
+                name: #name,
+                installed: #feature::Scope::has_feature::<#ty>,
+            }
+        }
+    });
     for leaf in &leaves {
         let ty = &leaf.ty;
         let above = above(&leaf.ancestors);
@@ -686,6 +742,9 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
         #(#placements)*
 
+        #[allow(non_upper_case_globals)]
+        const #app_const: &[#router::AppItem] = &[#(#app_items),*];
+
         impl #router::RouteChain<#backend_ty> for #enum_ident {
             fn chain(&self) -> &'static [#router::SegmentEntry<#backend_ty>] {
                 match self {
@@ -713,6 +772,10 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
                 match self {
                     #(#guard_arms),*
                 }
+            }
+
+            fn app(&self) -> &'static [#router::AppItem] {
+                #app_const
             }
         }
 

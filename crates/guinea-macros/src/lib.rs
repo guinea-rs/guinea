@@ -212,6 +212,11 @@ pub fn actor(input: TokenStream) -> TokenStream {
 /// generated variant, so there's one name per leaf, not two kept in sync by
 /// hand. Generates the enum itself, `link` and `deep_links` for the routes
 /// that agreed to have an address, and `RouteChain` (enum -> segment chain).
+///
+/// An `app { feature(..) plugin(..) }` block, first in the body and one line
+/// each, lists what the application installs for these pages to read; a line
+/// may sit under `#[cfg(..)]`. Navigating panics when one of them is not
+/// installed.
 #[proc_macro]
 pub fn routes(input: TokenStream) -> TokenStream {
     routes_dsl::routes_impl(input)

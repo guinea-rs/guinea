@@ -325,6 +325,36 @@ pub trait RouteChain<U: Ui> {
     fn guards(&self) -> &'static [&'static dyn EnterGuard] {
         &[]
     }
+
+    /// What the application has to have installed for this tree's pages to
+    /// read what they read - the `app { .. }` block of `routes!`.
+    fn app(&self) -> &'static [AppItem] {
+        &[]
+    }
+}
+
+/// One line of the `app { .. }` block of `routes!`.
+pub struct AppItem {
+    pub name: &'static str,
+    /// Whether the application's scope has it installed.
+    pub installed: fn(&Scope) -> bool,
+}
+
+/// Panics when the application did not install something `route`'s tree
+/// lists: its pages compiled against what it exports, and would read the
+/// reducer's `Default` for as long as the application runs.
+fn installed_for<U: Ui>(route: &impl RouteChain<U>) {
+    let app = guinea_app::app::actors::app_scope();
+
+    for item in route.app() {
+        let installed = app.as_ref().is_some_and(|scope| (item.installed)(scope));
+        assert!(
+            installed,
+            "`{}` is listed in `app {{ .. }}` of the route tree, but the application did not \
+             install it - add it where the application is built, before the first window opens",
+            item.name
+        );
+    }
 }
 
 /// Where a navigation goes once the router has accepted it - a reconciler's
@@ -1055,6 +1085,8 @@ impl<U: Ui> Router<U> {
         if !self.listed.replace(true) {
             crate::devtools::register(self);
         }
+        installed_for(&route);
+
         let _navigating = guinea_core::trace::enter(|| guinea_core::trace::Point::Navigate {
             root: guinea_app::app::roots::label(self.root())
                 .unwrap_or_else(|| self.root().to_string()),

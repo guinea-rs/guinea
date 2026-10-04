@@ -156,6 +156,24 @@ pub struct LayoutParams {
     pub fields: Vec<Field>,
 }
 
+/// Whether a line of `app { .. }` names an application feature or a plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AppKind {
+    Feature,
+    Plugin,
+}
+
+/// One line of `app { .. }`: something the application installs whose
+/// exports the pages of this tree read.
+#[derive(Clone, Debug)]
+pub struct AppItem {
+    pub kind: AppKind,
+    pub ty: syn::Type,
+    /// The predicates of the `#[cfg(..)]` written over it, all of which have
+    /// to hold for it to be there.
+    pub cfg: Vec<TokenStream>,
+}
+
 /// A parsed `routes!` declaration.
 #[derive(Clone, Debug)]
 pub struct RouteTree {
@@ -163,6 +181,9 @@ pub struct RouteTree {
     pub name: Ident,
     /// `backend = path::To::Backend`, when the declaration named one.
     pub backend: Option<syn::Type>,
+    /// What the application installs for these pages to read, in the order
+    /// written.
+    pub app: Vec<AppItem>,
     pub nodes: Vec<Node>,
 }
 
@@ -251,13 +272,86 @@ pub fn parse(input: TokenStream) -> RouteTree {
         .unwrap_or_else(|_| panic!("routes! expects a `{{ ... }}` body after `{name}`"));
 
     let mut body_slice: Tokens = &body_tokens;
+    let app = parse_app(&mut body_slice);
     let nodes = parse_nodes(&mut body_slice).expect("failed to parse routes! body");
 
     RouteTree {
         name,
         backend,
+        app,
         nodes,
     }
+}
+
+/// `app { feature(..) plugin(..) }`, if the body opens with it.
+///
+/// One per line rather than a comma list: the list grows with the
+/// application, and a `#[cfg(..)]` sits over its own line.
+fn parse_app(input: &mut Tokens) -> Vec<AppItem> {
+    let body = match *input {
+        [TokenTree::Ident(word), TokenTree::Group(body), ..]
+            if word == "app" && body.delimiter() == Delimiter::Brace =>
+        {
+            body.stream().into_iter().collect::<Vec<_>>()
+        }
+        _ => return Vec::new(),
+    };
+    *input = &input[2..];
+
+    let mut slice: Tokens = &body;
+    let mut items = Vec::new();
+    while !slice.is_empty() {
+        let cfg = parse_cfgs(&mut slice);
+
+        let kind = match slice.first() {
+            Some(TokenTree::Ident(word)) if word == "feature" => AppKind::Feature,
+            Some(TokenTree::Ident(word)) if word == "plugin" => AppKind::Plugin,
+            _ => panic!(
+                "routes!: `app {{ .. }}` lists `feature(..)` and `plugin(..)`, one per line"
+            ),
+        };
+        let word = if kind == AppKind::Feature { "feature" } else { "plugin" };
+        slice = &slice[1..];
+
+        let paren = group_inner(Delimiter::Parenthesis)
+            .parse_next(&mut slice)
+            .unwrap_or_else(|_| panic!("routes!: `{word}` in `app {{ .. }}` takes a type: `{word}(..)`"));
+        let ty = sole_type(paren, |ty| {
+            format!(
+                "routes!: `{word}({}, ..)` - one per line in `app {{ .. }}`",
+                spelled(ty)
+            )
+        })
+        .unwrap_or_else(|_| panic!("routes!: `{word}(..)` in `app {{ .. }}` is not a type"));
+
+        items.push(AppItem { kind, ty, cfg });
+    }
+    items
+}
+
+/// The `#[cfg(..)]` over a line of `app { .. }`, as their predicates.
+fn parse_cfgs(input: &mut Tokens) -> Vec<TokenStream> {
+    let mut cfgs = Vec::new();
+    while let [TokenTree::Punct(hash), TokenTree::Group(attr), ..] = *input {
+        if hash.as_char() != '#' || attr.delimiter() != Delimiter::Bracket {
+            break;
+        }
+
+        let attribute: Vec<TokenTree> = attr.stream().into_iter().collect();
+        match attribute.as_slice() {
+            [TokenTree::Ident(name), TokenTree::Group(predicate)]
+                if name == "cfg" && predicate.delimiter() == Delimiter::Parenthesis =>
+            {
+                cfgs.push(predicate.stream());
+            }
+            _ => panic!(
+                "routes!: only `#[cfg(..)]` goes over a line of `app {{ .. }}`, not `#[{}]`",
+                attr.stream()
+            ),
+        }
+        *input = &input[2..];
+    }
+    cfgs
 }
 
 /// Finds the first `routes! { ... }` in a source file's tokens.
@@ -1303,6 +1397,63 @@ mod tests {
         let errors = check_layouts(&tree);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("under Shell in one place and under the root in another"));
+    }
+
+    fn app_of(tree: &RouteTree) -> Vec<String> {
+        tree.app
+            .iter()
+            .map(|item| {
+                let kind = match item.kind {
+                    AppKind::Feature => "feature",
+                    AppKind::Plugin => "plugin",
+                };
+                let cfg = item.cfg.iter().map(|cfg| cfg.to_string().replace(' ', ""));
+                let cfg: Vec<String> = cfg.collect();
+                format!("{}{kind}({})", cfg.join(""), spelled(&item.ty))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_app_block_lists_what_the_application_installs_in_order() {
+        let tree = tree_of(
+            r#"
+            app {
+                feature(ActivityFeature)
+                plugin(L10nPlugin<Strings>)
+                #[cfg(debug_assertions)]
+                plugin(DebugOverlay)
+            }
+            layout(Shell) { page(A) }
+            "#,
+        );
+
+        assert_eq!(
+            app_of(&tree),
+            [
+                "feature(ActivityFeature)",
+                "plugin(L10nPlugin<Strings>)",
+                "debug_assertionsplugin(DebugOverlay)",
+            ]
+        );
+        assert_eq!(tree.leaves().len(), 1, "the pages after it still read");
+    }
+
+    #[test]
+    fn a_tree_without_an_app_block_lists_nothing() {
+        assert!(tree_of("page(A)").app.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "`app { .. }` lists `feature(..)` and `plugin(..)`")]
+    fn something_else_in_the_app_block_is_refused() {
+        tree_of("app { layout(Shell) } page(A)");
+    }
+
+    #[test]
+    #[should_panic(expected = "only `#[cfg(..)]`")]
+    fn an_attribute_other_than_cfg_is_refused() {
+        tree_of("app { #[allow(dead_code)] feature(A) } page(B)");
     }
 
     #[test]

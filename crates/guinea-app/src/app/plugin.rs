@@ -1,5 +1,8 @@
 use std::any::TypeId;
 
+use guinea_core::feature::Exported;
+use guinea_core::scope::Scope;
+
 use super::builder::{FeatureBuilder, PluginBuilder};
 
 /// Reusable, application-agnostic: the application knows the plugin, never the
@@ -8,11 +11,19 @@ pub trait Plugin: Send + 'static {
     /// Identity for diagnostics and for installing at most once.
     const ID: &'static str;
 
+    /// What every window may read of what it claims, as a feature's
+    /// [`Exports`](crate::feature::Feature::Exports): `()`, or a tuple.
+    type Exports: Exported;
+
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()>;
 }
 
 /// This application's own wiring; sees everything a plugin sees and more.
 pub trait AppFeature: Send + 'static {
+    /// What every window may read of what it claims - see
+    /// [`Plugin::Exports`].
+    type Exports: Exported;
+
     fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()>;
 }
 
@@ -36,9 +47,25 @@ impl std::fmt::Display for Stop {
 
 impl std::error::Error for Stop {}
 
+pub(crate) type Settle = fn(Scope, &'static str) -> anyhow::Result<()>;
+
+fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -> anyhow::Result<()> {
+    if let Some(reducer) = E::unclaimed(scope) {
+        anyhow::bail!(
+            "`{who}` exports {reducer}, but nothing in the application claimed it - \
+             claim it with `app.state::<{reducer}>()`, or take it out of `Exports`"
+        );
+    }
+
+    scope.mark_feature_installed::<U>();
+    E::mark(scope);
+    Ok(())
+}
+
 pub(crate) trait ErasedPlugin: Send {
     fn id(&self) -> &'static str;
     fn concrete(&self) -> TypeId;
+    fn settle(&self) -> Settle;
     fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()>;
 }
 
@@ -51,6 +78,10 @@ impl<P: Plugin> ErasedPlugin for P {
         TypeId::of::<P>()
     }
 
+    fn settle(&self) -> Settle {
+        settle::<P, P::Exports>
+    }
+
     fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()> {
         Plugin::build(*self, app)
     }
@@ -59,6 +90,7 @@ impl<P: Plugin> ErasedPlugin for P {
 pub(crate) trait ErasedFeature: Send {
     fn name(&self) -> &'static str;
     fn concrete(&self) -> TypeId;
+    fn settle(&self) -> Settle;
     fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()>;
 }
 
@@ -69,6 +101,10 @@ impl<F: AppFeature> ErasedFeature for F {
 
     fn concrete(&self) -> TypeId {
         TypeId::of::<F>()
+    }
+
+    fn settle(&self) -> Settle {
+        settle::<F, F::Exports>
     }
 
     fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()> {

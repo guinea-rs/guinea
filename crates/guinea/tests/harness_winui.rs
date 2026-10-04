@@ -1393,7 +1393,7 @@ mod navigating {
 }
 
 mod application_exports {
-    use guinea::feature::AppExport;
+    use guinea::feature::{Application, Reaches, Reads};
 
     use super::*;
 
@@ -1408,18 +1408,19 @@ mod application_exports {
         }
     }
 
-    impl AppExport for Language {}
-
-    struct Localisation;
+    pub struct Localisation;
 
     impl AppFeature for Localisation {
+        type Exports = (Language,);
+
         fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
             let language = app.state::<Language>().seed(Language("en")).plain();
-            app.export::<Language>()?;
             app.answers(move |Speak(to)| language.push(to));
             Ok(())
         }
     }
+
+    type App = Application<Localisation>;
 
     pub struct Speak(&'static str);
 
@@ -1438,7 +1439,7 @@ mod application_exports {
 
     impl Segment for Greeting {
         type Installs = ();
-        type Above = ();
+        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]
@@ -1451,15 +1452,16 @@ mod application_exports {
     }
 
     /// A plugin's shortcut, written once for every backend.
-    trait Speaks {
-        fn language(&mut self) -> &'static str;
-    }
-
-    impl<C: guinea::feature::Reads> Speaks for C {
-        fn language(&mut self) -> &'static str {
-            self.read::<Language, guinea::feature::FromApp>().0.0
+    trait Speaks: Reads {
+        fn language<I>(&mut self) -> &'static str
+        where
+            Self::Segment: Reaches<Language, I>,
+        {
+            self.read::<Language, I>().0.0
         }
     }
+
+    impl<C: Reads> Speaks for C {}
 
     #[derive(Default)]
     pub struct Polyglot;
@@ -1475,7 +1477,7 @@ mod application_exports {
 
     impl Segment for Polyglot {
         type Installs = ();
-        type Above = ();
+        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]
@@ -1495,7 +1497,7 @@ mod application_exports {
         type Params = ();
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let speak = guinea::feature::Reads::dispatch::<Language, guinea::feature::FromApp>(cx);
+            let speak = Reads::dispatch::<Language, _>(cx);
             Button::new()
                 .mark(Marks::Speak)
                 .on_click(move || speak.emit(Speak("ru")))
@@ -1506,7 +1508,7 @@ mod application_exports {
 
     impl Segment for Switcher {
         type Installs = ();
-        type Above = ();
+        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]

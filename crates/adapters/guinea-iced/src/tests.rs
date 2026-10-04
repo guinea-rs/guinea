@@ -329,32 +329,35 @@ impl Reducer for Shown {
     }
 }
 
-impl guinea_app::feature::AppExport for Shown {}
-
 struct Showing;
 
-impl guinea_app::app::AppFeature for Showing {
-    fn install(self, app: &mut guinea_app::app::FeatureBuilder) -> anyhow::Result<()> {
+impl guinea_app::app::Plugin for Showing {
+    const ID: &'static str = "showing";
+    type Exports = (Shown,);
+
+    fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
         app.state::<Shown>().seed(Shown(7)).plain();
-        app.export::<Shown>()?;
         Ok(())
     }
 }
+
+type App = guinea_app::feature::Application<Showing>;
 
 thread_local! {
     static SEEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
 }
 
 /// A plugin's shortcut, written once for every backend.
-trait Sees {
-    fn shown(&mut self) -> u32;
-}
-
-impl<C: guinea_app::feature::Reads> Sees for C {
-    fn shown(&mut self) -> u32 {
-        self.read::<Shown, guinea_app::feature::FromApp>().0.0
+trait Sees: guinea_app::feature::Reads {
+    fn shown<I>(&mut self) -> u32
+    where
+        Self::Segment: guinea_app::feature::Reaches<Shown, I>,
+    {
+        self.read::<Shown, I>().0.0
     }
 }
+
+impl<C: guinea_app::feature::Reads> Sees for C {}
 
 #[derive(Default)]
 struct Reader;
@@ -369,7 +372,7 @@ impl Page for Reader {
 
 impl guinea_app::feature::Segment for Reader {
     type Installs = ();
-    type Above = ();
+    type Above = (App, ());
 }
 
 const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Reader>()];
@@ -377,7 +380,7 @@ const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_e
 #[test]
 fn a_shortcut_written_over_reads_reads_in_a_view() {
     let _runtime = guinea_app::app::GuineaApp::new()
-        .feature(Showing)
+        .plugin(Showing)
         .install(UiThreadToken::dangerously_create_token_unchecked())
         .expect("install");
     let mounted = Mounted::at(&WITH_READER);

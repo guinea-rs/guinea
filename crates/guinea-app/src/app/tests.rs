@@ -27,6 +27,8 @@ fn builder() -> FeatureBuilder {
 
 struct Settings;
 impl Plugin for Settings {
+    type Exports = ();
+
     const ID: &'static str = "test.settings";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         trace("settings");
@@ -39,6 +41,8 @@ struct Store(&'static str);
 
 struct Updater;
 impl Plugin for Updater {
+    type Exports = ();
+
     const ID: &'static str = "test.updater";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.plugin(Settings)?;
@@ -50,6 +54,8 @@ impl Plugin for Updater {
 
 struct Left;
 impl Plugin for Left {
+    type Exports = ();
+
     const ID: &'static str = "test.left";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.plugin(Settings)?;
@@ -60,6 +66,8 @@ impl Plugin for Left {
 
 struct Colliding;
 impl Plugin for Colliding {
+    type Exports = ();
+
     const ID: &'static str = "test.settings";
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         Ok(())
@@ -70,6 +78,8 @@ struct CycleA;
 struct CycleB;
 
 impl Plugin for CycleA {
+    type Exports = ();
+
     const ID: &'static str = "test.cycle.a";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.plugin(CycleB)?;
@@ -78,6 +88,8 @@ impl Plugin for CycleA {
 }
 
 impl Plugin for CycleB {
+    type Exports = ();
+
     const ID: &'static str = "test.cycle.b";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.plugin(CycleA)?;
@@ -87,6 +99,8 @@ impl Plugin for CycleB {
 
 struct Orphan;
 impl Plugin for Orphan {
+    type Exports = ();
+
     const ID: &'static str = "test.orphan";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.require::<Store>()?;
@@ -96,6 +110,8 @@ impl Plugin for Orphan {
 
 struct Startup;
 impl AppFeature for Startup {
+    type Exports = ();
+
     fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
         trace("startup");
         app.plugin(Settings)?;
@@ -195,6 +211,8 @@ struct Greeting(&'static str);
 struct GreetingPlugin;
 
 impl Plugin for GreetingPlugin {
+    type Exports = ();
+
     const ID: &'static str = "test.greeting";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -243,6 +261,8 @@ impl guinea_core::actor::event_bus::Event for Ping {}
 struct NeedsMeta;
 
 impl Plugin for NeedsMeta {
+    type Exports = ();
+
     const ID: &'static str = "test.needs-meta";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -297,6 +317,8 @@ fn meta_declared_after_a_plugin_is_still_there_for_it() {
 struct Opened;
 
 impl Plugin for Opened {
+    type Exports = ();
+
     const ID: &'static str = "test.opened";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -312,6 +334,8 @@ impl Plugin for Opened {
 struct SecondCopy;
 
 impl Plugin for SecondCopy {
+    type Exports = ();
+
     const ID: &'static str = "test.second-copy";
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -322,6 +346,8 @@ impl Plugin for SecondCopy {
 struct Broken;
 
 impl Plugin for Broken {
+    type Exports = ();
+
     const ID: &'static str = "test.broken";
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -377,7 +403,7 @@ mod exports {
     use guinea_core::scope::{Reducer, Scope};
 
     use super::super::Harness;
-    use super::{AppFeature, FeatureBuilder, builder};
+    use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder, builder};
 
     #[derive(Clone, Debug, Default)]
     struct Language(&'static str);
@@ -390,14 +416,35 @@ mod exports {
         }
     }
 
-    impl crate::feature::AppExport for Language {}
-
     struct Localisation;
 
     impl AppFeature for Localisation {
+        type Exports = (Language,);
+
         fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
             app.state::<Language>().seed(Language("en")).plain();
-            app.export::<Language>()?;
+            Ok(())
+        }
+    }
+
+    struct Forgetful;
+
+    impl AppFeature for Forgetful {
+        type Exports = (Language,);
+
+        fn install(self, _app: &mut FeatureBuilder) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct Translations;
+
+    impl Plugin for Translations {
+        const ID: &'static str = "translations";
+        type Exports = (Language,);
+
+        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+            app.state::<Language>().seed(Language("de")).plain();
             Ok(())
         }
     }
@@ -453,10 +500,20 @@ mod exports {
     }
 
     #[test]
-    fn exporting_what_nothing_claimed_is_an_error_that_names_it() {
-        let app = builder();
+    fn a_page_reads_what_a_plugin_exports() {
+        let mut harness = Harness::new(0);
+        harness.plugin(Translations).unwrap();
 
-        let outcome = app.export::<Language>().map(|_| ());
+        let page = harness.child();
+
+        assert_eq!(language(page.context().scope), Some("de"));
+    }
+
+    #[test]
+    fn exporting_what_nothing_claimed_is_an_error_that_names_it() {
+        let mut app = builder();
+
+        let outcome = app.feature(Forgetful).map(|_| ());
 
         assert!(
             matches!(&outcome, Err(error) if format!("{error:#}").contains("Language")),
@@ -500,6 +557,8 @@ mod owners {
     struct Housekeeping;
 
     impl AppFeature for Housekeeping {
+        type Exports = ();
+
         fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
             app.plugin(Tools)?;
             app.spawn(Sweeper);
@@ -510,6 +569,8 @@ mod owners {
     struct Tools;
 
     impl Plugin for Tools {
+        type Exports = ();
+
         const ID: &'static str = "test.tools";
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {

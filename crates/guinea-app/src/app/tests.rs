@@ -227,13 +227,12 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
 
     let runtime = super::GuineaApp::new()
         .plugin(GreetingPlugin)
-        .install(token.clone())
+        .install(token)
         .expect("install");
-    crate::app::install_runtime(runtime);
 
     // No chain, no route, no backend: an application with a single window and
     // nothing to navigate between still gets a scope and its services.
-    let host = crate::feature::FeatureHost::new(token);
+    let host = crate::feature::FeatureHost::under(&runtime.context());
     let scope = host
         .install(|ctx| {
             assert_eq!(ctx.require::<Greeting>()?.0, "hello");
@@ -472,13 +471,30 @@ mod exports {
         let token = UiThreadToken::dangerously_create_token_unchecked();
         let runtime = super::super::GuineaApp::new()
             .feature(Localisation)
-            .install(token.clone())
+            .install(token)
             .expect("install");
-        crate::app::install_runtime(runtime);
 
-        let window = crate::feature::FeatureHost::new(token);
+        let window = crate::feature::FeatureHost::under(&runtime.context());
 
         assert_eq!(language(window.scope()), Some("en"));
+    }
+
+    #[test]
+    fn a_window_sits_under_the_application_it_was_opened_from_not_the_latest_one() {
+        let token = UiThreadToken::dangerously_create_token_unchecked();
+        let english = super::super::GuineaApp::new()
+            .feature(Localisation)
+            .install(token.clone())
+            .expect("install");
+        let _german = super::super::GuineaApp::new()
+            .plugin(Translations)
+            .install(token)
+            .expect("install");
+
+        let window = crate::feature::FeatureHost::under(&english.context());
+
+        assert_eq!(language(window.scope()), Some("en"));
+        assert_eq!(window.application().map(|app| app.scope), Some(english.context().scope));
     }
 
     #[test]
@@ -555,7 +571,7 @@ mod owners {
     use guinea_macros::{actor, handler};
 
     use super::super::actors::app_actors;
-    use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder, builder};
+    use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
 
     pub struct Sweep;
 
@@ -610,8 +626,12 @@ mod owners {
 
     #[test]
     fn an_application_actor_names_the_feature_that_spawned_it() {
-        let mut app = builder();
-        app.feature(Housekeeping).unwrap();
+        let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
+        let runtime = super::super::GuineaApp::new()
+            .feature(Housekeeping)
+            .install(token)
+            .expect("install");
+        crate::app::install_runtime(runtime);
 
         let owner = |name: &str| {
             app_actors()

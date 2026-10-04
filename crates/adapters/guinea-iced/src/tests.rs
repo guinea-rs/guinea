@@ -6,7 +6,7 @@
 
 use std::any::Any;
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
@@ -184,7 +184,11 @@ struct Mounted {
 impl Mounted {
     fn at(chain: &'static [SegmentEntry<Iced>]) -> Self {
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = std::rc::Rc::new(Router::<Iced>::new(token));
+        Self::hosted(chain, FeatureHost::detached(token))
+    }
+
+    fn hosted(chain: &'static [SegmentEntry<Iced>], host: FeatureHost) -> Self {
+        let router = std::rc::Rc::new(Router::<Iced>::new(host));
         let mut mounted = Mounted {
             router,
             nodes: Nodes::default(),
@@ -383,11 +387,11 @@ const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_e
 
 #[test]
 fn a_shortcut_written_over_reads_reads_in_a_view() {
-    let _runtime = guinea_app::app::GuineaApp::new()
+    let runtime = guinea_app::app::GuineaApp::new()
         .plugin(Showing)
         .install(UiThreadToken::dangerously_create_token_unchecked())
         .expect("install");
-    let mounted = Mounted::at(&WITH_READER);
+    let mounted = Mounted::hosted(&WITH_READER, FeatureHost::under(&runtime.context()));
 
     drop(mounted.router.render(&mounted.nodes));
 

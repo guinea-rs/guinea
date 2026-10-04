@@ -1,7 +1,7 @@
 //! `routes!` targeting Slint, and navigation moving the tree from branch to
 //! branch.
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_macros::routes;
 use guinea_router::router::{RouteChain, Router};
@@ -119,7 +119,7 @@ fn shown(route: Route, page: i32) -> Vec<String> {
     guinea_slint::testing::set_root(host.clone_strong());
 
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = std::rc::Rc::new(Router::<Slint>::new(token));
+    let router = std::rc::Rc::new(Router::<Slint>::new(FeatureHost::detached(token)));
     router.navigate(route).expect("navigate");
 
     host.set_page(page);

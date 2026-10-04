@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
-use guinea_app::feature::ScopeContext;
+use guinea_app::feature::{FeatureHost, ScopeContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::guard::Ask;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
@@ -61,15 +61,16 @@ where
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let runtime = match app.install(token.clone()) {
+    let runtime = match app.install(token) {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let initial = initial(&runtime.context());
+    let context = runtime.context();
+    let initial = initial(&context);
     install_runtime(runtime);
 
-    let router = Rc::new(Router::<Iced>::new(token));
+    let router = Rc::new(Router::<Iced>::new(FeatureHost::under(&context)));
     guinea_app::app::roots::set_label(router.root(), MAIN);
 
     let route = Rc::new(RefCell::new(initial.clone()));

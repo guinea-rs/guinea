@@ -6,10 +6,12 @@
 
 use std::cell::{Cell, RefCell};
 
+use guinea::app::{GuineaApp, install_runtime};
 use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
 use guinea::router::NavigateHandle;
 use guinea::winui::*;
+use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_macros::routes;
@@ -143,10 +145,16 @@ fn go(route: Route) {
 }
 
 fn mount(initial: Route) -> Host {
+    let token = UiThreadToken::dangerously_create_token_unchecked();
+    let runtime = GuineaApp::new().install(token).expect("install");
+    let app = runtime.context();
+    install_runtime(runtime);
+
     let mut adapter = RecordingAdapter::new();
     adapter.record_batches(true);
 
-    let mut host = Host::mount(adapter, [component::<RouterRoot<Route>>("root", initial)])
+    let rooted = Rooted { app, initial };
+    let mut host = Host::mount(adapter, [component::<RouterRoot<Route>>("root", rooted)])
         .expect("the route tree mounts");
     settle(&mut host);
     host

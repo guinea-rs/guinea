@@ -13,7 +13,7 @@ use std::any::Any;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_macros::routes;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
@@ -79,7 +79,7 @@ fn router() -> Rc<Router<Headless>> {
     SEEN.with(|seen| seen.borrow_mut().clear());
 
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    Rc::new(Router::<Headless>::new(token))
+    Rc::new(Router::<Headless>::new(FeatureHost::detached(token)))
 }
 
 fn seen() -> Vec<u32> {

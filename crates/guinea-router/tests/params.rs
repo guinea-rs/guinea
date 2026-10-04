@@ -10,7 +10,7 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::headless::{
@@ -131,7 +131,7 @@ impl RouteChain<Headless> for Route {
 
 fn router() -> Rc<Router<Headless>> {
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    Rc::new(Router::<Headless>::new(token))
+    Rc::new(Router::<Headless>::new(FeatureHost::detached(token)))
 }
 
 fn go(router: &Rc<Router<Headless>>, route: Route) {

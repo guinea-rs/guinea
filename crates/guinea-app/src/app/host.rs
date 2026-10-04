@@ -33,7 +33,6 @@ impl Default for AppHost {
 impl AppHost {
     pub fn new() -> Self {
         let tree = ScopeTree::new();
-        super::actors::set_app_scope(tree.scope());
 
         Self {
             tree,

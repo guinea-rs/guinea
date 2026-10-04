@@ -53,6 +53,10 @@ pub fn app_services() -> SharedState {
     })
 }
 
+pub(crate) fn installed_scope() -> Option<guinea_core::scope::Scope> {
+    RUNTIME.with(|slot| slot.borrow().as_ref().map(|runtime| runtime.builder.scope))
+}
+
 /// The plugins the installed application was built with, by id.
 pub fn installed_plugins() -> Vec<&'static str> {
     RUNTIME.with(|slot| {

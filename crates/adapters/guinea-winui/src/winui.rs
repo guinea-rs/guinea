@@ -22,7 +22,7 @@ use std::rc::Rc;
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Reducer;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Reads, Segment};
+use guinea_app::feature::{FeatureInitContext, Reaches, Reads, ScopeContext, Segment};
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps, Ui,
     single_entry_chain,
@@ -1270,6 +1270,48 @@ fn marked<S>(view: View) -> View {
         .into()
 }
 
+/// A window to open: a view as it is, or one that belongs to the application
+/// it is opened from - a second window of the route tree, say.
+pub struct NewWindow(Opens);
+
+enum Opens {
+    View(View),
+    Under(Box<dyn FnOnce(&ScopeContext) -> View>),
+}
+
+impl NewWindow {
+    /// A window built from the application it is opened from.
+    pub fn under(build: impl FnOnce(&ScopeContext) -> View + 'static) -> Self {
+        Self(Opens::Under(Box::new(build)))
+    }
+
+    fn open_from<C: Component>(self, cx: &mut ViewContext<C>) -> View {
+        let router = cx.use_context(router_context());
+
+        match self.0 {
+            Opens::View(view) => view,
+            Opens::Under(build) => {
+                let router = router.unwrap_or_else(|| {
+                    panic!(
+                        "a window of the application is opened from inside the tree a \
+                         RouterRoot renders - there is no router above this view"
+                    )
+                });
+                let app = router.0.host().application().cloned().unwrap_or_else(|| {
+                    panic!("the router above this view belongs to no application to open a window of")
+                });
+                build(&app)
+            }
+        }
+    }
+}
+
+impl From<View> for NewWindow {
+    fn from(view: View) -> Self {
+        Self(Opens::View(view))
+    }
+}
+
 fn open<C: Component>(cx: &ComponentContext<C>, window: View) {
     if !cx.open_window::<Shown>(window) {
         tracing::warn!("no active publication; the window was not opened");
@@ -1448,6 +1490,21 @@ pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
     _panel: guinea_core::devtools::PanelGuard,
 }
 
+/// What a [`RouterRoot`] is opened with: the application whose window it is,
+/// and where it starts.
+#[derive(Clone)]
+pub struct Rooted<R> {
+    pub app: ScopeContext,
+    pub initial: R,
+}
+
+/// The same application, at the same route.
+impl<R: PartialEq> PartialEq for Rooted<R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.app.scope == other.app.scope && self.initial == other.initial
+    }
+}
+
 /// What reaches a [`RouterRoot`].
 pub enum Routed<R> {
     /// The router is here now. `NavigateHandle` publishes through the sink
@@ -1461,26 +1518,17 @@ impl<R> Component for RouterRoot<R>
 where
     R: RouteChain<WinUi> + Clone + PartialEq + 'static,
 {
-    /// Where the window starts. A second window opened with a different route
-    /// is a different input, and gets its own router.
-    type Input = R;
+    /// The application, and where the window starts. A second window opened
+    /// with a different route is a different input, and gets its own router.
+    type Input = Rooted<R>;
     type Message = Routed<R>;
 
     /// Installs the first route before the first view. One that fails leaves
     /// the window saying why; the main window's failure also ends the
     /// application, and `run` returns it.
-    fn create(initial: &R, cx: &ComponentContext<Self>) -> Self {
-        let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
-
-        #[cfg(feature = "harness")]
-        let router = Rc::new(match crate::harness::routed_services() {
-            Some(services) => Router::with_host(guinea_app::feature::FeatureHost::with_services(
-                token, services,
-            )),
-            None => Router::new(token),
-        });
-        #[cfg(not(feature = "harness"))]
-        let router = Rc::new(Router::new(token));
+    fn create(input: &Rooted<R>, cx: &ComponentContext<Self>) -> Self {
+        let initial = &input.initial;
+        let router = Rc::new(Router::new(guinea_app::feature::FeatureHost::under(&input.app)));
 
         #[cfg(feature = "harness")]
         crate::harness::remember_router(&router);
@@ -1523,7 +1571,7 @@ where
         }
     }
 
-    fn view(&self, _input: &R, cx: &mut ViewContext<Self>) -> View {
+    fn view(&self, _input: &Rooted<R>, cx: &mut ViewContext<Self>) -> View {
         let sender = cx.sender();
         let nav = NavigateHandle::new(
             self.router.clone(),
@@ -1672,7 +1720,8 @@ impl<P: Page> PageCx<'_, '_, P> {
     /// Deferred rather than immediate, and the deferral is the reactor's rule
     /// rather than ours: a window may be opened during `create`, `changed` or
     /// `update`, never during `view`.
-    pub fn open_window(&self, window: View) -> Callback<()> {
+    pub fn open_window(&mut self, window: impl Into<NewWindow>) -> Callback<()> {
+        let window = window.into().open_from(self.cx);
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {
@@ -1773,7 +1822,8 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     }
 
     /// See [`PageCx::open_window`].
-    pub fn open_window(&self, window: View) -> Callback<()> {
+    pub fn open_window(&mut self, window: impl Into<NewWindow>) -> Callback<()> {
+        let window = window.into().open_from(self.cx);
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {

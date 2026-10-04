@@ -343,12 +343,11 @@ pub struct AppItem {
 
 /// Panics when the application running is not the one `route`'s tree names:
 /// its pages compiled against what that one exports.
-fn installed_for<U: Ui>(route: &impl RouteChain<U>) {
+fn installed_for<U: Ui>(route: &impl RouteChain<U>, app: Option<Scope>) {
     let Some(item) = route.application() else {
         return;
     };
 
-    let app = guinea_app::app::actors::app_scope();
     let installed = app.as_ref().is_some_and(|scope| (item.installed)(scope));
     assert!(
         installed,
@@ -933,10 +932,6 @@ impl<U: Ui> guinea_app::services::Services for Router<U> {
 }
 
 impl<U: Ui> Router<U> {
-    pub fn new(token: guinea_core::actor::UiThreadToken) -> Self {
-        Self::with_host(FeatureHost::new(token))
-    }
-
     /// Which root this router belongs to.
     ///
     /// One per host, so routers sharing a host share a root - and a router
@@ -946,9 +941,10 @@ impl<U: Ui> Router<U> {
         self.host.root()
     }
 
-    /// For a caller that already has a host - one window hosting more than a
-    /// single router, say, where features must share an event bus.
-    pub fn with_host(host: FeatureHost) -> Self {
+    /// A router over `host`: a window of an application -
+    /// [`FeatureHost::under`] - or one with none around it -
+    /// [`FeatureHost::detached`].
+    pub fn new(host: FeatureHost) -> Self {
         Self {
             active: RefCell::new(None),
             pending: RefCell::new(None),
@@ -1086,7 +1082,7 @@ impl<U: Ui> Router<U> {
         if !self.listed.replace(true) {
             crate::devtools::register(self);
         }
-        installed_for(&route);
+        installed_for(&route, self.host.application().map(|app| app.scope));
 
         let _navigating = guinea_core::trace::enter(|| guinea_core::trace::Point::Navigate {
             root: guinea_app::app::roots::label(self.root())

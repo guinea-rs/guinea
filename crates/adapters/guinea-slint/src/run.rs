@@ -12,7 +12,7 @@ use std::sync::Arc;
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
-use guinea_app::feature::ScopeContext;
+use guinea_app::feature::{FeatureHost, ScopeContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
@@ -70,7 +70,7 @@ where
     // Genuinely this thread: it owns the window, and nothing else touches the
     // router or the scopes.
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let runtime = match app.install(token.clone()) {
+    let runtime = match app.install(token) {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
@@ -78,7 +78,7 @@ where
     let context = runtime.context();
     install_runtime(runtime);
 
-    let router = Rc::new(Router::<Slint>::new(token));
+    let router = Rc::new(Router::<Slint>::new(FeatureHost::under(&context)));
 
     // The window belongs to this root, and stops belonging to it below, when
     // the loop is over.
@@ -89,7 +89,7 @@ where
     // runs has a key that outlives the id. One window per `run`, so it is the
     // main one; an application opening more names them itself.
     guinea_app::app::roots::set_label(root_id, MAIN);
-    restore(&shell, root_id);
+    restore(&shell, root_id, &context);
     let _watching = windows::watch(shell.clone());
 
     let initial = initial(&context);
@@ -130,11 +130,11 @@ where
 /// it is on screen jumps, and a jump is what this is meant to avoid. Asks
 /// rather than waits to be told - `RootOpened` travels through the UI queue
 /// and would arrive too late.
-fn restore(shell: &SlintWindows, root: RootId) {
+fn restore(shell: &SlintWindows, root: RootId, app: &ScopeContext) {
     let Some(label) = guinea_app::app::roots::label(root) else {
         return;
     };
-    let Some(saved) = guinea_app::app::app_services().get::<SavedGeometry>() else {
+    let Some(saved) = app.services.get::<SavedGeometry>() else {
         return;
     };
     let Some(geometry) = saved.for_label(&label) else {

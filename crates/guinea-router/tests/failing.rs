@@ -4,7 +4,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_macros::routes;
@@ -100,7 +100,7 @@ fn router() -> Rc<Router<Headless>> {
     BROKEN.with(|broken| broken.set(true));
 
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(token));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
     router
         .navigate(Route::Host {
             name: "ubuntu".to_string(),

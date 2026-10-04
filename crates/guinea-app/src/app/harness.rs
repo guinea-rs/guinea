@@ -136,6 +136,12 @@ impl Harness {
         self.executor.seed()
     }
 
+    /// The application around the harness, as a window is opened from it -
+    /// see [`FeatureHost::under`](crate::feature::FeatureHost::under).
+    pub fn application(&self) -> ScopeContext {
+        ScopeContext::clone(&self.app)
+    }
+
     /// Installs a plugin into the application around the harness. What it
     /// provides reaches every segment, so install it before whatever reads it.
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {

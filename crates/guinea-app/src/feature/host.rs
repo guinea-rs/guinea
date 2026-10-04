@@ -24,6 +24,8 @@ pub struct FeatureHost {
     /// The tree the window's scope is in, when there is no application to
     /// host it - a test, say.
     _tree: Option<ScopeTree>,
+    /// The application's own context, when there is one.
+    app: Option<ScopeContext>,
     token: UiThreadToken,
     /// One per window, shared by every feature installed through this host,
     /// so actors in different features can reach each other.
@@ -35,36 +37,50 @@ pub struct FeatureHost {
 }
 
 impl FeatureHost {
-    /// Takes the services from the installed application, or none if there is
-    /// no application - a test, say.
-    pub fn new(token: UiThreadToken) -> Self {
-        Self::with_services(token, crate::app::app_services())
+    /// A window of `app`: its scope under the application's, with what the
+    /// application's plugins provided.
+    ///
+    /// `app` is the application's own context - what
+    /// [`AppRuntime::context`](crate::app::AppRuntime::context) hands back.
+    pub fn under(app: &ScopeContext) -> Self {
+        Self::open(app.token.clone(), app.scope, None, app.services.clone(), Some(app.clone()))
     }
 
-    /// With `services` rather than the installed application's - for a
-    /// harness, whose application is its own.
-    pub fn with_services(token: UiThreadToken, services: SharedState) -> Self {
+    /// A window with no application around it - a test, say. Nothing is
+    /// provided, and it reads only what its own segments export.
+    pub fn detached(token: UiThreadToken) -> Self {
+        let tree = ScopeTree::new();
+        let parent = tree.scope();
+        Self::open(token, parent, Some(tree), SharedState::default(), None)
+    }
+
+    fn open(
+        token: UiThreadToken,
+        parent: Scope,
+        tree: Option<ScopeTree>,
+        services: SharedState,
+        app: Option<ScopeContext>,
+    ) -> Self {
         let root = Registration::open();
         let id = root.id().get();
-        let (tree, parent) = match crate::app::actors::app_scope() {
-            Some(app) => (None, app),
-            None => {
-                let tree = ScopeTree::new();
-                let root = tree.scope();
-                (Some(tree), root)
-            }
-        };
         let scope = parent.child();
         scope.set_window(id);
 
         Self {
             scope: scope.guard(),
             _tree: tree,
+            app,
             token,
             event_bus: Rc::new(EventBus::for_root(id)),
             services,
             root,
         }
+    }
+
+    /// The application this window belongs to, when it has one - what a
+    /// window opened from this one is opened under.
+    pub fn application(&self) -> Option<&ScopeContext> {
+        self.app.as_ref()
     }
 
     /// The window's own scope: the root of every scope installed here.
@@ -155,10 +171,7 @@ mod tests {
 
     #[test]
     fn what_changes_under_a_host_names_its_window() {
-        let host = FeatureHost::with_services(
-            UiThreadToken::dangerously_create_token_unchecked(),
-            SharedState::default(),
-        );
+        let host = FeatureHost::detached(UiThreadToken::dangerously_create_token_unchecked());
         let root = Some(host.root().get());
 
         let seen = Rc::new(RefCell::new(Vec::new()));

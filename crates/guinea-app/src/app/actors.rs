@@ -1,26 +1,12 @@
-//! The application's own scope on this thread, and the actors it holds rather
-//! than a window.
-//!
-//! Named here, not kept: the [`AppHost`](super::AppHost) owns the scope, and
-//! this goes dead with it.
-
-use std::cell::Cell;
+//! The installed application's own scope, and the actors it holds rather than
+//! a window.
 
 use guinea_core::actor::registry::ActorSnapshot;
 use guinea_core::scope::Scope;
 
-thread_local! {
-    static APP: Cell<Option<Scope>> = const { Cell::new(None) };
-}
-
-/// Makes `scope` the application's scope on this thread.
-pub(crate) fn set_app_scope(scope: Scope) {
-    APP.set(Some(scope));
-}
-
 /// The scope of the application installed on this thread, while it is.
 pub fn app_scope() -> Option<Scope> {
-    APP.get().filter(Scope::is_alive)
+    super::runtime::installed_scope().filter(Scope::is_alive)
 }
 
 /// Every application-level actor on this thread, by id.

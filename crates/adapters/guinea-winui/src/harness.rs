@@ -17,7 +17,6 @@ use std::rc::Rc;
 
 use guinea_app::app::{Act, Harness, Segment};
 use guinea_app::feature::FeatureInitContext;
-use guinea_core::SharedState;
 use guinea_core::mark::Mark;
 use guinea_core::scope::Scope;
 use guinea_router::router::{
@@ -35,7 +34,7 @@ pub use windows_reactor::{ObjectId as NodeId, PropertyId, PropertyValue};
 
 use crate::mark::MarkExt;
 use crate::winui::{
-    Layout, LayoutNode, Page, PageNode, RouterRoot, Shown, Signal, WinUi, install_layout,
+    Layout, LayoutNode, Page, PageNode, Rooted, RouterRoot, Shown, Signal, WinUi, install_layout,
     install_page, layout_entry, nav_context, route_context, segment_entry,
 };
 
@@ -84,15 +83,8 @@ thread_local! {
     static SENDERS: RefCell<HashMap<TypeId, Box<dyn Any>>> = RefCell::new(HashMap::new());
     static CHAINS: RefCell<HashMap<(TypeId, usize), &'static [SegmentEntry<WinUi>]>> =
         RefCell::new(HashMap::new());
-    static ROUTED_SERVICES: RefCell<Option<SharedState>> = const { RefCell::new(None) };
     static ROUTER: RefCell<Option<Rc<Router<WinUi>>>> = const { RefCell::new(None) };
     static NAV: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
-}
-
-/// What a [`RouterRoot`] being mounted by [`Mounted::routed`] takes its
-/// services from: the harness's, rather than an installed application's.
-pub(crate) fn routed_services() -> Option<SharedState> {
-    ROUTED_SERVICES.with(|services| services.borrow().clone())
 }
 
 /// The router a [`RouterRoot`] built, kept for [`Mounted::routed`].
@@ -1291,15 +1283,16 @@ where
     /// assert!(app.find(ProcessesMark::Loading).is_none());
     /// ```
     pub fn routed(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
-        let services = harness.segment().context().services.clone();
-        ROUTED_SERVICES.with(|routed| *routed.borrow_mut() = Some(services));
+        let rooted = Rooted {
+            app: harness.application(),
+            initial,
+        };
 
         let built = host(component::<Shown>(
             ROOT,
-            View::component::<RouterRoot<R>>(initial),
+            View::component::<RouterRoot<R>>(rooted),
         ));
 
-        ROUTED_SERVICES.with(|routed| routed.borrow_mut().take());
         let host = built.map_err(|refused| {
             anyhow::anyhow!("mounting the {} tree: {refused}", std::any::type_name::<R>())
         })?;

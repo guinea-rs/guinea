@@ -253,7 +253,7 @@ pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Headless>] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guinea_app::feature::FeatureInitContext;
+    use guinea_app::feature::{FeatureHost, FeatureInitContext};
     use crate::router::Router;
     use guinea_core::actor::UiThreadToken;
     use std::rc::Rc;
@@ -304,7 +304,7 @@ mod tests {
         use std::cell::RefCell;
 
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<Headless>::new(token));
+        let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
 
         let seen: Rc<RefCell<Vec<(Option<String>, String)>>> = Rc::new(RefCell::new(Vec::new()));
         let recorded = seen.clone();
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn the_router_runs_with_a_backend_that_draws_nothing() {
         let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Router::<Headless>::new(token);
+        let router = Router::<Headless>::new(FeatureHost::detached(token));
 
         let scope = router
             .activate(page_chain::<Page1>(), vec![Box::new(())])

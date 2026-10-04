@@ -12,7 +12,7 @@ use windows_reactor::{
     AppProxy, Border, Component, ComponentContext, View, ViewContext, WindowVisuals,
 };
 
-use crate::winui::{RouterRoot, Shown, WinUi};
+use crate::winui::{NewWindow, Rooted, RouterRoot, Shown, WinUi};
 
 /// The label this backend gives its first window, matching the other four.
 pub const MAIN: &str = "main";
@@ -50,12 +50,23 @@ pub(crate) fn failed(error: anyhow::Error) {
 
 /// A second window, showing the same route tree from `initial`.
 ///
-/// It gets its own router; the application is shared.
-pub fn window<R>(window: Window, initial: R) -> View
+/// It gets its own router; the application is the one it is opened from.
+pub fn window<R>(window: Window, initial: R) -> NewWindow
 where
     R: RouteChain<WinUi> + Clone + PartialEq + 'static,
 {
-    View::component::<Root<R>>(Opening { window, initial })
+    NewWindow::under(move |app| opening(app, window, initial))
+}
+
+fn opening<R>(app: &ScopeContext, window: Window, initial: R) -> View
+where
+    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+{
+    let rooted = Rooted {
+        app: app.clone(),
+        initial,
+    };
+    View::component::<Root<R>>(Opening { window, rooted })
 }
 
 /// Installs `app`, opens a window at `initial`, and runs until the last
@@ -91,7 +102,7 @@ where
         install_runtime(runtime);
         let installed = Installed;
 
-        cx.open_component_window::<Shown>(self::window(window, initial(&context)))?;
+        cx.open_component_window::<Shown>(opening(&context, window, initial(&context)))?;
         Ok(installed)
     });
 
@@ -159,7 +170,7 @@ impl Default for Window {
 #[derive(Clone, PartialEq)]
 struct Opening<R> {
     window: Window,
-    initial: R,
+    rooted: Rooted<R>,
 }
 
 /// The window's root: the chrome, and the route tree.
@@ -184,7 +195,7 @@ where
         }
 
         Border::new()
-            .content(View::component::<RouterRoot<R>>(input.initial.clone()))
+            .content(View::component::<RouterRoot<R>>(input.rooted.clone()))
             .into()
     }
 

@@ -9,7 +9,7 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use guinea_app::feature::{Feature, FeatureInitContext, Segment};
+use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext, Segment};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
@@ -152,7 +152,7 @@ const OWNS: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entr
 
 fn mounted(chain: &'static [SegmentEntry<Headless>]) -> Rc<Router<Headless>> {
     let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(token));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
     let params: Vec<Box<dyn Any>> = vec![Box::new(()), Box::new(())];
     router.activate(chain, params).expect("activate");
     router

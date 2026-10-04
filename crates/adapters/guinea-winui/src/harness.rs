@@ -1261,6 +1261,65 @@ impl<'h, S: 'static> Mounted<'h, S> {
     }
 }
 
+impl Mounted<'_, ()> {
+    /// Every route of `R`'s tree, each mounted on its own, drawn and settled.
+    ///
+    /// What a read that reaches nothing, or a fill nobody placed, would first
+    /// show a user, all of it at once: the error names every route that
+    /// failed and what it said. A route whose fields have no `Default` cannot
+    /// be made here, and is named as not mounted - mount it with
+    /// [`routed`](Mounted::routed) and the value it needs.
+    ///
+    /// A read in a branch the first draw does not take is not covered.
+    pub fn each_route<R>(harness: &Harness) -> anyhow::Result<()>
+    where
+        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+    {
+        let mut failed = Vec::new();
+
+        for sample in R::samples() {
+            let route = match sample {
+                Ok(route) => route,
+                Err(name) => {
+                    failed.push(format!(
+                        "`{name}` was not mounted: a field of its route has no `Default`"
+                    ));
+                    continue;
+                }
+            };
+
+            let name = route.name();
+            let drawn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Mounted::routed(harness, route).map(|mut mounted| mounted.settle())
+            }));
+            match drawn {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failed.push(format!("`{name}`: {error:#}")),
+                Err(panic) => failed.push(format!("`{name}`: {}", said(&*panic))),
+            }
+        }
+
+        match failed.is_empty() {
+            true => Ok(()),
+            false => Err(anyhow::anyhow!(
+                "{} of the routes of `{}` failed:\n{}",
+                failed.len(),
+                guinea_router::observability::short(std::any::type_name::<R>()),
+                failed.join("\n")
+            )),
+        }
+    }
+}
+
+/// What a panic said, when it said it in text.
+fn said(panic: &(dyn Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|said| said.to_string()))
+        .unwrap_or_else(|| "a panic that said nothing in text".to_string())
+}
+
 impl<'h, R> Mounted<'h, R>
 where
     R: RouteChain<WinUi> + Clone + PartialEq + 'static,

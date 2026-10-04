@@ -676,6 +676,18 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         })
     }).collect::<Vec<_>>();
 
+    let sample_mod = module_of_router(&guinea, "sample");
+    let samples = leaves.iter().zip(&variant_idents).map(|(leaf, ident)| {
+        let name = ident.to_string();
+        let made = leaf.fields.iter().map(|field| {
+            let (field, ty) = (&field.name, &field.ty);
+            quote! { #field: (&#sample_mod::Probe::<#ty>::new()).make()? }
+        });
+        quote! {
+            (|| ::core::option::Option::Some(#enum_ident::#ident { #(#made),* }))().ok_or(#name)
+        }
+    });
+
     let tree_name = format_ident!("__routes_tree_{}", enum_ident);
     let tree_chains = leaves.iter().zip(&variant_idents).flat_map(|(leaf, ident)| {
         let tree = &enum_ident;
@@ -815,6 +827,13 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
             fn leaves() -> &'static [&'static [#router::SegmentEntry<#backend_ty>]] {
                 #leaves_name
+            }
+
+            #[allow(clippy::redundant_closure_call)]
+            fn samples() -> ::std::vec::Vec<::core::result::Result<Self, &'static str>> {
+                #[allow(unused_imports)]
+                use #sample_mod::{ByDefault as _, Without as _};
+                ::std::vec![#(#samples),*]
             }
 
             #[allow(unused_variables)]

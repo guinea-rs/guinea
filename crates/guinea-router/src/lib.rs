@@ -12,6 +12,8 @@ pub mod manifest;
 pub mod observability;
 pub mod restore;
 pub mod router;
+#[doc(hidden)]
+pub mod sample;
 pub mod slot;
 
 pub use router::*;

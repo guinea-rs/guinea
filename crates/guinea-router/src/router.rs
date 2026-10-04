@@ -424,6 +424,16 @@ pub trait RouteChain<U: Ui> {
         &[]
     }
 
+    /// Every route of the tree, in the order `routes!` declared them, with
+    /// each field at its `Default` - or the route's name, where a field has
+    /// none.
+    fn samples() -> Vec<Result<Self, &'static str>>
+    where
+        Self: Sized,
+    {
+        Vec::new()
+    }
+
     /// Each route's chain, in the order `routes!` declared them.
     fn leaves() -> &'static [&'static [SegmentEntry<U>]]
     where

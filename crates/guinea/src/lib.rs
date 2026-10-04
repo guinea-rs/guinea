@@ -28,6 +28,8 @@
 //! as its one backend.
 
 pub use guinea_router::{enter, headless, link, manifest, restore, router, slot};
+#[doc(hidden)]
+pub use guinea_router::sample;
 
 /// Watching a running application from outside it: what devtools, a test or
 /// a logger read, and what a plugin offers them.

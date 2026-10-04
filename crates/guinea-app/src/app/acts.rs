@@ -7,11 +7,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use guinea_core::actor::short_type_name;
+use guinea_core::observability::{EveryRender, record_every_render};
 use guinea_core::trace::{self, Cause, Point, Trace};
 
 /// Every point recorded on this thread while it is held.
 pub(crate) struct Recorder {
     log: Rc<RefCell<Log>>,
+    _every_render: EveryRender,
 }
 
 #[derive(Default)]
@@ -66,7 +68,10 @@ impl Recorder {
         let hearing = log.clone();
         trace::observe(move |trace| hearing.borrow_mut().hear(trace));
 
-        Self { log }
+        Self {
+            log,
+            _every_render: record_every_render(),
+        }
     }
 
     pub(crate) fn heard(&self) -> usize {

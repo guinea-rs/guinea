@@ -29,6 +29,30 @@ fn render_threshold() -> u64 {
     })
 }
 
+thread_local! {
+    static EVERY_RENDER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Records every render on this thread, however quick, while the returned
+/// guard lives.
+///
+/// For a test, which asks which segments a cause redrew. The threshold is
+/// noise control for devtools watching a live application, and a test's draw
+/// is usually under it. Per thread rather than per process: tests run side by
+/// side, and a setting one of them changed would be every other's too.
+pub fn record_every_render() -> EveryRender {
+    EveryRender(EVERY_RENDER.replace(true))
+}
+
+/// Puts the threshold back when dropped. See [`record_every_render`].
+pub struct EveryRender(bool);
+
+impl Drop for EveryRender {
+    fn drop(&mut self) {
+        let _gone = EVERY_RENDER.try_with(|every| every.set(self.0));
+    }
+}
+
 /// Times one segment's drawing, and records it if it took long enough to be
 /// worth seeing. Sixty frames a second of every page is noise, not a trace.
 ///
@@ -122,7 +146,7 @@ pub mod profiling {
 impl Drop for Rendering {
     fn drop(&mut self) {
         let took_us = self.started.elapsed().as_micros() as u64;
-        if took_us < render_threshold() {
+        if took_us < render_threshold() && !EVERY_RENDER.get() {
             return;
         }
 

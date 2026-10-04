@@ -653,3 +653,25 @@ mod owners {
         assert_eq!(installed_plugins(), [""; 0]);
     }
 }
+
+mod renders {
+    use guinea_core::observability::Rendering;
+    use guinea_core::trace::Point;
+
+    use crate::app::Harness;
+
+    #[test]
+    fn a_harness_hears_every_render_however_quick() {
+        let harness = Harness::new(0);
+
+        let act = harness.record("draw", || drop(Rendering::of("Quick")));
+
+        assert!(
+            act.chain()
+                .has(|point| matches!(point, Point::Render { segment: "Quick", .. })),
+            "a test asks which segments a cause redrew; the threshold is devtools' noise \
+             control, and a test's draw is usually under it: {:?}",
+            act.chain()
+        );
+    }
+}

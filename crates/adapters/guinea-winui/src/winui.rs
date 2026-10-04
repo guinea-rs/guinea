@@ -243,7 +243,7 @@ pub trait Page: Default + Sized + 'static {
     /// of up to twelve of either. It is also what the page may read: what it
     /// installed itself, and what a segment above listed in `Exports`. See
     /// [`install`](Self::install) for an example.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     /// This page's own events. An enum, and nobody else's business.
     ///
@@ -746,7 +746,7 @@ pub trait Layout: Default + Sized + 'static {
     /// and what is installed here stays. Whatever its features list in
     /// `Exports`, and every reducer claimed directly as `Bound<R>`, those
     /// pages may read.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     /// This layout's own events. See [`Page::Message`].
     type Message: 'static;
@@ -905,6 +905,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<WinUi> {
     SegmentEntry::new::<P>(
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
+        <P::Installs as guinea_app::feature::Lists>::list,
         &const { MountPage::<P>(PhantomData) },
         P::CACHE_STATE_IN_MEMORY,
     )
@@ -915,6 +916,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<WinUi> {
     SegmentEntry::new::<L>(
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
+        <L::Installs as guinea_app::feature::Lists>::list,
         &const { MountLayout::<L>(PhantomData) },
         false,
     )

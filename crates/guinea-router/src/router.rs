@@ -55,6 +55,9 @@ pub struct SegmentEntry<U: Ui> {
     /// `PartialEq` off the route type itself - which matters for a payload
     /// that has no identity to compare.
     pub same_params: fn(&dyn Any, &dyn Any) -> bool,
+    /// What the segment's `Installs` lists, for the check a route tree gets
+    /// before anything in it mounts.
+    pub lists: fn(&mut Vec<guinea_app::feature::Listed>),
     /// Built by the backend: the agnostic half only calls it.
     pub mount: &'static dyn Mount<U>,
     pub cache_state: bool,
@@ -269,6 +272,7 @@ impl<U: Ui> SegmentEntry<U> {
     pub const fn new<S: 'static>(
         install: fn(&FeatureInitContext, &dyn Any) -> anyhow::Result<()>,
         same_params: fn(&dyn Any, &dyn Any) -> bool,
+        lists: fn(&mut Vec<guinea_app::feature::Listed>),
         mount: &'static dyn Mount<U>,
         cache_state: bool,
     ) -> Self {
@@ -277,6 +281,7 @@ impl<U: Ui> SegmentEntry<U> {
             type_name: std::any::type_name::<S>,
             install,
             same_params,
+            lists,
             mount,
             cache_state,
             keep: false,
@@ -355,6 +360,17 @@ pub trait RouteChain<U: Ui> {
     fn application(&self) -> Option<AppItem> {
         None
     }
+
+    /// Every chain of the tree this route belongs to, checked as a whole
+    /// before the first navigation installs anything.
+    ///
+    /// Defaulted, so a chain written by hand is checked as nothing.
+    fn tree() -> &'static [&'static [SegmentEntry<U>]]
+    where
+        Self: Sized,
+    {
+        &[]
+    }
 }
 
 /// The application a route tree names.
@@ -378,6 +394,22 @@ fn installed_for<U: Ui>(route: &impl RouteChain<U>, app: Option<Scope>) {
         "the route tree reads from the application `{0}`, but it was not installed - \
          build the application with `GuineaApp::new().application::<{0}>()`",
         item.name
+    );
+}
+
+/// Panics on a tree built wrong, before anything in it is installed, and
+/// says what deserves a word without refusing it.
+fn built_right<U: Ui>(tree: &[&'static [SegmentEntry<U>]]) {
+    let construction = crate::construction::check(tree);
+
+    for warning in &construction.warnings {
+        tracing::warn!("{warning}");
+    }
+
+    assert!(
+        construction.errors.is_empty(),
+        "the route tree is built wrong:\n  {}",
+        construction.errors.join("\n  ")
     );
 }
 
@@ -1105,6 +1137,7 @@ impl<U: Ui> Router<U> {
     {
         if !self.listed.replace(true) {
             crate::observability::register(self);
+            built_right(R::tree());
         }
         installed_for(&route, self.host.application().map(|app| app.scope));
 

@@ -131,7 +131,7 @@ pub trait Page: Default + Sized + 'static {
     ///
     /// What is returned is owned by the segment's scope, which is what gives a
     /// feature its own lifetime.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -194,7 +194,7 @@ pub trait Layout: Default + Sized + 'static {
     ///
     /// What is returned is owned by the segment's scope, which is what gives a
     /// feature its own lifetime.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -482,6 +482,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Iced> {
     SegmentEntry::new::<P>(
         install_page::<P>,
         same_params::<P::Params>,
+        <P::Installs as guinea_app::feature::Lists>::list,
         &const { MountPage::<P>(PhantomData) },
         P::CACHE_STATE_IN_MEMORY,
     )
@@ -492,6 +493,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Iced> {
     SegmentEntry::new::<L>(
         install_layout::<L>,
         same_params::<L::Params>,
+        <L::Installs as guinea_app::feature::Lists>::list,
         &const { MountLayout::<L>(PhantomData) },
         false,
     )

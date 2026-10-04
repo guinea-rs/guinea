@@ -158,7 +158,7 @@ impl Mount<WinUi> for MountOutlet {
 }
 
 const OUTLET: SegmentEntry<WinUi> =
-    SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, &MountOutlet, false);
+    SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, |_| {}, &MountOutlet, false);
 
 /// A host with no window for `root`, recording every batch it applies - a
 /// list says how long it is only in the batch that sets its source.

@@ -7,7 +7,7 @@
 
 use guinea_core::scope::Reducer;
 
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureInitContext, Lists};
 use crate::router::{Mount, SegmentEntry, SegmentProps, Ui, single_entry_chain};
 
 pub struct Headless;
@@ -49,7 +49,7 @@ pub trait Page: Sized + 'static {
     /// The price is that `install` has no default any more: Rust has no
     /// conditional default body, so "returns `()`" cannot be assumed for the
     /// segments that install nothing.
-    type Installs: 'static;
+    type Installs: Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -66,7 +66,7 @@ pub trait Layout: Sized + 'static {
     type Params: PartialEq + 'static;
 
     /// What this layout installs. See [`Page::Installs`].
-    type Installs: 'static;
+    type Installs: Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -77,6 +77,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Headless> {
     SegmentEntry::new::<P>(
         install_page::<P>,
         crate::router::same_params::<P::Params>,
+        P::Installs::list,
         &const { MountPage::<P>(std::marker::PhantomData) },
         P::CACHE_STATE_IN_MEMORY,
     )
@@ -87,6 +88,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Headless> {
     SegmentEntry::new::<L>(
         install_layout::<L>,
         crate::router::same_params::<L::Params>,
+        L::Installs::list,
         &const { MountLayout::<L>(std::marker::PhantomData) },
         false,
     )

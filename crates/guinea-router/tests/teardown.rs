@@ -13,7 +13,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_app::feature::{FeatureHost, FeatureInitContext, Listed, Lists};
 use guinea_core::actor::UiThreadToken;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
@@ -30,6 +30,11 @@ impl Drop for Marks {
     fn drop(&mut self) {
         GONE.with(|gone| gone.borrow_mut().push(self.0));
     }
+}
+
+/// Neither a feature nor a reducer: nothing for a check of the tree to read.
+impl Lists for Marks {
+    fn list(_into: &mut Vec<Listed>) {}
 }
 
 struct Shell;

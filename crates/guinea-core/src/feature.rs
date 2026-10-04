@@ -165,6 +165,26 @@ pub trait Exported {
     /// problem: a wrong export looks exactly like a feature that has not
     /// pushed an update yet.
     fn unclaimed(scope: Scope) -> Option<&'static str>;
+
+    /// The listed reducers, for a check that reads a route tree without
+    /// installing it.
+    fn named(into: &mut Vec<Named>);
+}
+
+/// A type as a check reads it: what tells it apart, and what to call it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Named {
+    pub id: std::any::TypeId,
+    pub name: &'static str,
+}
+
+impl Named {
+    pub fn of<T: 'static>() -> Self {
+        Self {
+            id: std::any::TypeId::of::<T>(),
+            name: std::any::type_name::<T>(),
+        }
+    }
 }
 
 fn missing<R: Reducer>(scope: Scope) -> Option<&'static str> {
@@ -177,6 +197,8 @@ impl Exported for () {
     fn unclaimed(_scope: Scope) -> Option<&'static str> {
         None
     }
+
+    fn named(_into: &mut Vec<Named>) {}
 }
 
 macro_rules! exported {
@@ -188,6 +210,10 @@ macro_rules! exported {
 
             fn unclaimed(scope: Scope) -> Option<&'static str> {
                 None$(.or_else(|| missing::<$reducer>(scope)))+
+            }
+
+            fn named(into: &mut Vec<Named>) {
+                $(into.push(Named::of::<$reducer>());)+
             }
         }
     };

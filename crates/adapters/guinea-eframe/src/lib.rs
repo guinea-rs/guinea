@@ -94,7 +94,7 @@ pub trait Page: Default + Sized + 'static {
     ///
     /// What is returned is owned by the segment's scope, which is what gives a
     /// feature its own lifetime.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -132,7 +132,7 @@ pub trait Layout: Default + Sized + 'static {
     ///
     /// What is returned is owned by the segment's scope, which is what gives a
     /// feature its own lifetime.
-    type Installs: 'static;
+    type Installs: guinea_app::feature::Lists;
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
@@ -148,6 +148,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Egui> {
     SegmentEntry::new::<P>(
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
+        <P::Installs as guinea_app::feature::Lists>::list,
         &const { MountPage::<P>(std::marker::PhantomData) },
         P::CACHE_STATE_IN_MEMORY,
     )
@@ -158,6 +159,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Egui> {
     SegmentEntry::new::<L>(
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
+        <L::Installs as guinea_app::feature::Lists>::list,
         &const { MountLayout::<L>(std::marker::PhantomData) },
         false,
     )

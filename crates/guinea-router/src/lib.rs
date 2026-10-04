@@ -4,6 +4,7 @@
 //! whatever the backend put in [`router::SegmentEntry`]. What a view is, and
 //! what it is handed, is the backend's business - see [`router::Ui`].
 
+pub mod construction;
 pub mod enter;
 pub mod headless;
 pub mod link;

@@ -568,6 +568,12 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         quote! { #enum_ident::#ident { .. } => &#const_name }
     });
 
+    let tree_name = format_ident!("__routes_tree_{}", enum_ident);
+    let tree_chains = variant_idents.iter().map(|ident| {
+        let const_name = format_ident!("__routes_chain_{}_{}", enum_ident, ident);
+        quote! { &#const_name }
+    });
+
     let expanded = quote! {
         #[derive(Clone)]
         #enum_derives
@@ -649,6 +655,9 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
         #(#guard_consts)*
 
+        #[allow(non_upper_case_globals)]
+        const #tree_name: &[&[#router::SegmentEntry<#backend_ty>]] = &[#(#tree_chains),*];
+
         impl #router::RouteChain<#backend_ty> for #enum_ident {
             fn chain(&self) -> &'static [#router::SegmentEntry<#backend_ty>] {
                 match self {
@@ -680,6 +689,10 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
             fn application(&self) -> ::core::option::Option<#router::AppItem> {
                 #application
+            }
+
+            fn tree() -> &'static [&'static [#router::SegmentEntry<#backend_ty>]] {
+                #tree_name
             }
         }
 

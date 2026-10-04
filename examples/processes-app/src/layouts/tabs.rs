@@ -24,7 +24,7 @@ impl Layout for TabsLayout {
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, Self>) -> View {
-        let (tabs, _) = cx.read::<Tabs, _>();
+        let (tabs, _) = cx.read::<Tabs>();
         cx.use_route_change(|from, to| tracing::debug!(?from, to, "route"));
 
         let nav = cx.use_navigate::<Route>();

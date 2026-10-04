@@ -357,11 +357,8 @@ thread_local! {
 
 /// A plugin's shortcut, written once for every backend.
 trait Sees: guinea_app::feature::Reads {
-    fn shown<I>(&mut self) -> u32
-    where
-        Self::Segment: guinea_app::feature::Reaches<Shown, I>,
-    {
-        self.read::<Shown, I>().0.0
+    fn shown(&mut self) -> u32 {
+        self.read::<Shown>().0.0
     }
 }
 
@@ -376,11 +373,6 @@ impl Page for Reader {
         SEEN.set(Some(cx.shown()));
         iced::widget::text("").into()
     }
-}
-
-impl guinea_app::feature::Segment for Reader {
-    type Installs = ();
-    type Above = (App, ());
 }
 
 const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Reader>()];

@@ -19,7 +19,7 @@ impl Page for Services {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (state, _) = cx.read::<Running, _>();
+        let (state, _) = cx.read::<Running>();
 
         egui::ScrollArea::vertical().show(cx.ui(), |ui| {
             for item in &state.items {

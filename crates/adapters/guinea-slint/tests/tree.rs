@@ -4,7 +4,7 @@
 //! `slint!` macro, which generates code referring to the `slint` crate by
 //! name - the same thing an application compiles.
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext, Segment};
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
@@ -89,21 +89,10 @@ impl guinea_slint::Page for Processes {
 
     fn bind(cx: PageCx<Self>) {
         let root = cx.root::<Shell>();
-        cx.bind::<Title, _>(move |title| {
+        cx.bind::<Title>(move |title| {
             root.global::<TitleModel>().set_label((&title.0).into())
         });
     }
-}
-
-// What `routes!` writes; a chain built by hand declares it by hand.
-impl Segment for Tabs {
-    type Installs = <Tabs as guinea_slint::Layout>::Installs;
-    type Above = ();
-}
-
-impl Segment for Processes {
-    type Installs = <Processes as guinea_slint::Page>::Installs;
-    type Above = (Tabs, ());
 }
 
 const CHAIN: [SegmentEntry<Slint>; 2] = [layout_entry::<Tabs>(), segment_entry::<Processes>()];

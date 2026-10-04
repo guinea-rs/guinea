@@ -29,7 +29,7 @@ impl Page for Services {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
-        let (services, _) = cx.read::<Running, _>();
+        let (services, _) = cx.read::<Running>();
 
         let rows = services
             .items

@@ -9,7 +9,7 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext, Segment};
+use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
@@ -104,7 +104,7 @@ impl Page for Reader {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (shown, _) = cx.read::<Shown, _>();
+        let (shown, _) = cx.read::<Shown>();
         assert_eq!(shown.0, 7);
     }
 }
@@ -124,27 +124,9 @@ impl Page for Owner {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (hidden, _) = cx.read::<Hidden, _>();
+        let (hidden, _) = cx.read::<Hidden>();
         assert_eq!(hidden.0, 1, "its own, not the layout's 9");
     }
-}
-
-// Where each segment sits. `routes!` writes these; a chain assembled by hand
-// declares them by hand, and the two halves - who is above whom, and what each
-// installs - are the same either way.
-impl Segment for Shell {
-    type Installs = <Shell as Layout>::Installs;
-    type Above = ();
-}
-
-impl Segment for Reader {
-    type Installs = <Reader as Page>::Installs;
-    type Above = (Shell, ());
-}
-
-impl Segment for Owner {
-    type Installs = <Owner as Page>::Installs;
-    type Above = (Shell, ());
 }
 
 const READS: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entry::<Reader>()];
@@ -224,12 +206,37 @@ fn exporting_what_was_never_claimed_is_caught_where_it_is_written() {
     mounted(&BOASTS).render(&());
 }
 
+struct Prier;
+
+impl Page for Prier {
+    type Params = ();
+    type Installs = ();
+
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn view(cx: &mut HeadlessCx<Self>) {
+        let _ = cx.read::<Hidden>();
+    }
+}
+
+const PRIES: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entry::<Prier>()];
+
 #[test]
-fn a_page_cannot_read_what_its_layout_kept_to_itself() {
-    // Nothing to run: it stopped being a panic and became an error at the
-    // read itself. The case lives as the `compile_fail` example on
-    // `headless::HeadlessCx::state`, which is the only place it can be
-    // checked - a test that does not compile is not a test.
+fn a_page_reading_what_its_layout_kept_to_itself_is_told_the_chain_it_walked() {
+    let router = mounted(&PRIES);
+
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| router.render(&())))
+        .expect_err("the read reaches nothing");
+    let said = failed
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| failed.downcast_ref::<&str>().map(|said| said.to_string()))
+        .unwrap_or_default();
+
+    assert!(said.contains("`Prier` reads `Hidden`, but nothing reaches it"), "{said}");
+    assert!(said.contains("Prier <- Shell"), "{said}");
 }
 
 #[derive(Default, Clone, Debug)]
@@ -301,20 +308,10 @@ impl Page for Beneath {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        assert_eq!(cx.read::<Slot<1>, _>().0.0, 1);
-        assert_eq!(cx.read::<Slot<13>, _>().0.0, 13);
-        assert_eq!(cx.read::<Slot<3>, _>().0.0, 3);
+        assert_eq!(cx.read::<Slot<1>>().0.0, 1);
+        assert_eq!(cx.read::<Slot<13>>().0.0, 13);
+        assert_eq!(cx.read::<Slot<3>>().0.0, 3);
     }
-}
-
-impl Segment for Crowded {
-    type Installs = <Crowded as Layout>::Installs;
-    type Above = ();
-}
-
-impl Segment for Beneath {
-    type Installs = <Beneath as Page>::Installs;
-    type Above = (Crowded, ());
 }
 
 const CROWDED: [SegmentEntry<Headless>; 2] =

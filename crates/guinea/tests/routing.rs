@@ -65,7 +65,7 @@ mod routing {
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
-            let (state, _dispatch) = cx.read::<Listing, _>();
+            let (state, _dispatch) = cx.read::<Listing>();
             assert_eq!(state.seeded_from, "ubuntu");
             windows_reactor::Grid::new().into()
         }

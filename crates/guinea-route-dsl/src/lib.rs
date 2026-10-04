@@ -469,60 +469,6 @@ fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>)
     }
 }
 
-/// Layouts placed more than once under different layouts.
-///
-/// A layout is one type with one answer to what stands above it - what it
-/// may read from its ancestors is checked against that answer when it
-/// compiles. Placed again under other ancestors, it would compile against
-/// the first place and find nothing to read in the second.
-pub fn check_layouts(tree: &RouteTree) -> Vec<String> {
-    let mut placed: Vec<(syn::Type, Vec<syn::Type>)> = Vec::new();
-    place_layouts(&tree.nodes, &mut Vec::new(), &mut placed);
-
-    let mut errors = Vec::new();
-    for (at, (ty, above)) in placed.iter().enumerate() {
-        let first = placed[..at]
-            .iter()
-            .find(|(earlier, _)| same_type(earlier, ty));
-        let Some((_, before)) = first else {
-            continue;
-        };
-
-        let same_above = before.len() == above.len()
-            && before.iter().zip(above).all(|(a, b)| same_type(a, b));
-        if !same_above {
-            let path = |above: &[syn::Type]| match above {
-                [] => "the root".to_string(),
-                _ => above.iter().map(spelled).collect::<Vec<_>>().join(" > "),
-            };
-            errors.push(format!(
-                "routes!: `layout({})` stands under {} in one place and under {} in another - \
-                 a layout is placed under the same layouts wherever it appears",
-                spelled(ty),
-                path(before),
-                path(above)
-            ));
-        }
-    }
-    errors
-}
-
-fn place_layouts(
-    nodes: &[Node],
-    above: &mut Vec<syn::Type>,
-    placed: &mut Vec<(syn::Type, Vec<syn::Type>)>,
-) {
-    for node in nodes {
-        if let Node::Layout { ty, children, .. } = node {
-            placed.push((ty.clone(), above.clone()));
-
-            above.push(ty.clone());
-            place_layouts(children, above, placed);
-            above.pop();
-        }
-    }
-}
-
 fn collect_layouts(nodes: &[Node], found: &mut Vec<syn::Type>) {
     for node in nodes {
         if let Node::Layout { ty, children, .. } = node {
@@ -1358,20 +1304,6 @@ mod tests {
     }
 
     #[test]
-    fn a_layout_under_other_layouts_elsewhere_is_refused() {
-        let tree = tree_of(
-            r#"
-            layout(Shell) { layout(Tabs) { page(A) } }
-            layout(Tabs) { page(B) }
-            "#,
-        );
-
-        let errors = check_layouts(&tree);
-        assert_eq!(errors.len(), 1, "{errors:?}");
-        assert!(errors[0].contains("under Shell in one place and under the root in another"));
-    }
-
-    #[test]
     fn a_tree_hangs_from_its_application() {
         let tree = find_in_source(
             "routes! { backend = guinea::winui::WinUi, Route { app(apps::App<Strings, u8>) { \
@@ -1420,20 +1352,5 @@ mod tests {
     #[should_panic(expected = "unknown setting `frontend = ..`")]
     fn an_unknown_setting_is_refused() {
         find_in_source("routes! { frontend = X, Route { page(A) } }");
-    }
-
-    #[test]
-    fn a_layout_under_the_same_layouts_twice_is_fine() {
-        let tree = tree_of(
-            r#"
-            layout(Shell) {
-                layout(Tabs) { page(A) }
-                page(Between)
-                layout(Tabs) { page(B) }
-            }
-            "#,
-        );
-
-        assert!(check_layouts(&tree).is_empty());
     }
 }

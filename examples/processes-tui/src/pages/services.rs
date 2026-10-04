@@ -37,8 +37,8 @@ impl Page for Services {
     }
 
     fn render(cx: &mut PageCx<'_, '_, Self>) {
-        let (state, _) = cx.read::<Running, _>();
-        let (cursor, _) = cx.read::<Cursor, _>();
+        let (state, _) = cx.read::<Running>();
+        let (cursor, _) = cx.read::<Cursor>();
         let area = cx.area();
 
         let focused = cursor.row;

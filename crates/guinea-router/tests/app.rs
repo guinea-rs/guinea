@@ -111,7 +111,7 @@ impl Layout for Shell {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (language, _) = cx.read::<Language, _>();
+        let (language, _) = cx.read::<Language>();
         seen(format!("shell speaks {}", language.0));
         cx.outlet();
     }
@@ -128,8 +128,8 @@ impl Page for Reader {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (language, _) = cx.read::<Language, _>();
-        let (accent, _) = cx.read::<Accent, _>();
+        let (language, _) = cx.read::<Language>();
+        let (accent, _) = cx.read::<Accent>();
         seen(format!("page speaks {} in {}", language.0, accent.0));
     }
 }

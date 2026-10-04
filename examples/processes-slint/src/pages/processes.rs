@@ -29,7 +29,7 @@ impl Page for Processes {
         // Read at click time rather than captured: the actor refreshes the
         // list, and the row under the button may not be the row that was there
         // when the page was installed.
-        let binding = cx.binding::<Running, _>();
+        let binding = cx.binding::<Running>();
         model.on_kill(move |index| {
             let pid = pid_at(&binding.peek().items, index as usize);
             if let Some(pid) = pid {

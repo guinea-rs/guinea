@@ -22,7 +22,7 @@ use std::rc::Rc;
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Reducer;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Reads, ScopeContext, Segment};
+use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps, Ui,
     single_entry_chain,
@@ -148,7 +148,7 @@ impl Ui for WinUi {
 ///     }
 ///
 ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-///         let (count, dispatch) = cx.read::<Count, _>();
+///         let (count, dispatch) = cx.read::<Count>();
 ///         let step = self.step;
 ///
 ///         StackPanel::new()
@@ -163,12 +163,6 @@ impl Ui for WinUi {
 ///             ))
 ///             .into()
 ///     }
-/// }
-///
-/// // `routes!` writes where each segment sits; this page stands alone.
-/// impl Segment for CounterPage {
-///     type Installs = Counter;
-///     type Above = ();
 /// }
 ///
 /// // Under test it mounts with no window, in a harness that runs what it
@@ -326,7 +320,7 @@ pub trait Page: Default + Sized + 'static {
     ///     }
     ///
     ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-    ///         let (listing, _) = cx.read::<Listing, _>();
+    ///         let (listing, _) = cx.read::<Listing>();
     ///         TextBlock::new().text(listing.0.clone()).into()
     ///     }
     /// }
@@ -430,7 +424,7 @@ pub trait Page: Default + Sized + 'static {
 
     /// The only place the node changes.
     ///
-    /// Effects are actions emitted to features - `cx.read::<R, _>().1.emit(..)` -
+    /// Effects are actions emitted to features - `cx.read::<R>().1.emit(..)` -
     /// rather than values returned from here: an effect that crosses a segment
     /// boundary is a domain's job, and one that does not is a state change.
     ///
@@ -492,14 +486,14 @@ pub trait Page: Default + Sized + 'static {
     ///         match message {
     ///             Msg::Typed(text) => self.query = text,
     ///             Msg::Submitted => {
-    ///                 let (_, search) = cx.read::<Results, _>();
+    ///                 let (_, search) = cx.read::<Results>();
     ///                 search.emit(Search(self.query.clone()));
     ///             }
     ///         }
     ///     }
     ///
     ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-    ///         let (results, _) = cx.read::<Results, _>();
+    ///         let (results, _) = cx.read::<Results>();
     ///         TextBlock::new().text(results.0.clone()).into()
     ///     }
     /// }
@@ -626,9 +620,9 @@ pub trait Page: Default + Sized + 'static {
 /// impl Page for Home {
 ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         // Installed by the shell above, and readable here because `Chrome`
-///         // exports it. A page outside the shell asking for it does not
-///         // compile.
-///         let (sidebar, _) = cx.read::<Sidebar, _>();
+///         // exports it. A page outside the shell asking for it panics on
+///         // its first render, naming the chain it walked.
+///         let (sidebar, _) = cx.read::<Sidebar>();
 ///         let width = if sidebar.open { "narrow" } else { "wide" };
 ///
 ///         TextBlock::new().text(format!("home, {width}")).into()
@@ -658,15 +652,15 @@ pub trait Page: Default + Sized + 'static {
 ///     fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
 ///         match message {
 ///             ShellMsg::Toggle => {
-///                 let (sidebar, dispatch) = cx.read::<Sidebar, _>();
+///                 let (sidebar, dispatch) = cx.read::<Sidebar>();
 ///                 dispatch.emit(SetOpen(!sidebar.open));
 ///             }
 ///         }
 ///     }
 ///
 ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-///         let (sidebar, _) = cx.read::<Sidebar, _>();
-///         let (title, _) = cx.read::<Title, _>();
+///         let (sidebar, _) = cx.read::<Sidebar>();
+///         let (title, _) = cx.read::<Title>();
 ///
 ///         let tab = if cx.child_is::<Home>() {
 ///             "> Home"
@@ -690,70 +684,12 @@ pub trait Page: Default + Sized + 'static {
 ///             .into()
 ///     }
 /// }
-///
-/// // Where each segment sits, which is what `routes!` writes.
-/// impl Segment for Shell {
-///     type Installs = <Shell as Layout>::Installs;
-///     type Above = ();
-/// }
-///
-/// impl Segment for Home {
-///     type Installs = ();
-///     type Above = (Shell, ());
-/// }
 /// ```
 /// <!-- /shown -->
 ///
 /// Nothing reaches up past what is above it. A page that no layout above
-/// installed `Sidebar` for does not compile at the read:
-///
-/// ```compile_fail,E0277
-/// # use guinea_app::feature::Segment;
-/// # use guinea_core::scope::Reducer;
-/// # use guinea_winui::{FeatureInitContext, UpdateCx};
-/// use guinea_winui::{Page, PageCx};
-/// use windows_reactor::{TextBlock, View};
-///
-/// #[derive(Default, Clone, PartialEq, Debug)]
-/// pub struct Sidebar {
-///     pub open: bool,
-/// }
-///
-/// impl Reducer for Sidebar {
-///     type Update = bool;
-///
-///     fn reduce(&mut self, open: bool) {
-///         self.open = open;
-///     }
-/// }
-///
-/// #[derive(Default)]
-/// pub struct Settings;
-///
-/// impl Page for Settings {
-/// #     type Params = ();
-/// #     type Installs = ();
-/// #     type Message = std::convert::Infallible;
-/// #
-/// #     fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-/// #         Ok(())
-/// #     }
-/// #
-/// #     fn update(&mut self, message: Self::Message, _cx: &mut UpdateCx<'_, Self>) {
-/// #         match message {}
-/// #     }
-/// #
-///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-///         let (sidebar, _) = cx.read::<Sidebar, _>();
-///         TextBlock::new().text(format!("{}", sidebar.open)).into()
-///     }
-/// }
-///
-/// impl Segment for Settings {
-///     type Installs = ();
-///     type Above = ();
-/// }
-/// ```
+/// installed `Sidebar` for panics on its first render, naming the chain it
+/// walked and who claimed `Sidebar` without exporting it.
 pub trait Layout: Default + Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
@@ -1369,15 +1305,14 @@ pub struct UpdateCx<'a, S> {
     segment: PhantomData<fn() -> S>,
 }
 
-impl<S: Segment> UpdateCx<'_, S> {
+impl<S> UpdateCx<'_, S> {
     /// The feature that owns `R` - its state, and what can be asked of it.
     ///
     /// No subscription: `update` is a moment, not a view, and the segment is
     /// already publishing again because of the message that got here.
-    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
-        S: Reaches<R, I>,
     {
         let binding = self.props.binding::<R>();
         (binding.get(), binding.dispatch())
@@ -1742,38 +1677,32 @@ impl<P: Page> PageCx<'_, '_, P> {
     }
 }
 
-impl<P: Page + Segment> PageCx<'_, '_, P> {
+impl<P: Page> PageCx<'_, '_, P> {
     /// Reads a reducer's state, and asks this segment to publish again when it
     /// changes.
     ///
-    /// Which feature answers is settled at build time: this page installed it,
-    /// or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
-    /// index, which says which of several impls applied - Rust has no partial
-    /// turbofish, so it has to be written.
-    pub fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    /// The feature that answers is the one this page installed, or the nearest
+    /// above that listed `R` in `Exports`. A read that reaches nothing panics
+    /// here, naming the chain it walked.
+    pub fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        P: Reaches<R, I>,
     {
         use_reducer::<R, _>(&self.props, self.cx)
     }
 }
 
-impl<P: Page + Segment> Reads for PageCx<'_, '_, P> {
-    type Segment = P;
-
-    fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+impl<P: Page> Reads for PageCx<'_, '_, P> {
+    fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        P: Reaches<R, I>,
     {
         use_reducer::<R, _>(&self.props, self.cx)
     }
 
-    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
-        P: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }
@@ -1844,32 +1773,27 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     }
 }
 
-impl<L: Layout + Segment> LayoutCx<'_, '_, L> {
+impl<L: Layout> LayoutCx<'_, '_, L> {
     /// See [`PageCx::read`].
-    pub fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        L: Reaches<R, I>,
     {
         use_reducer::<R, _>(&self.props, self.cx)
     }
 }
 
-impl<L: Layout + Segment> Reads for LayoutCx<'_, '_, L> {
-    type Segment = L;
-
-    fn read<R, I>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
+impl<L: Layout> Reads for LayoutCx<'_, '_, L> {
+    fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        L: Reaches<R, I>,
     {
         use_reducer::<R, _>(&self.props, self.cx)
     }
 
-    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
-        L: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }

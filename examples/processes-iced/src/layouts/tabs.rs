@@ -56,7 +56,7 @@ impl Layout for TabsLayout {
             Chrome::Show(tab) => {
                 // The context this layout was reached with, not one invented
                 // here: `routes!` derived it from the pages below.
-                let (tabs, _) = cx.read::<Tabs, _>();
+                let (tabs, _) = cx.read::<Tabs>();
                 let context = tabs.context.clone();
                 cx.navigate::<Route>().to(match tab {
                     Tab::Processes => Route::Processes { context },
@@ -67,7 +67,7 @@ impl Layout for TabsLayout {
                 });
             }
             Chrome::ToggleLanguage => {
-                let (language, switch) = cx.read::<Language<L10n>, _>();
+                let (language, switch) = cx.read::<Language<L10n>>();
                 switch.emit(SwitchLanguage(next_language(language.strings()).into()));
             }
         }
@@ -75,7 +75,7 @@ impl Layout for TabsLayout {
 
     fn view<'a>(&'a self, cx: &mut LayoutCx<'a, Self>) -> Element<'a, Envelope> {
         let strings = &cx.l10n::<L10n>();
-        let (tabs, _) = cx.read::<Tabs, _>();
+        let (tabs, _) = cx.read::<Tabs>();
 
         // Which tab is current comes from the chain, not from a copy of the
         // route in state - the router already knows what it mounted.

@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext, Segment};
+use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
@@ -135,22 +135,12 @@ impl Page for Both {
     }
 
     fn view(cx: &mut HeadlessCx<Self>) {
-        let (_, recent) = cx.read::<List<Recent>, _>();
-        let (_, archived) = cx.read::<List<Archived>, _>();
+        let (_, recent) = cx.read::<List<Recent>>();
+        let (_, archived) = cx.read::<List<Archived>>();
 
         recent.emit(Refresh);
         archived.emit(Refresh);
     }
-}
-
-impl Segment for Shell {
-    type Installs = <Shell as Layout>::Installs;
-    type Above = ();
-}
-
-impl Segment for Both {
-    type Installs = <Both as Page>::Installs;
-    type Above = (Shell, ());
 }
 
 const CHAIN: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entry::<Both>()];

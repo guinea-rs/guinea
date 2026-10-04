@@ -7,7 +7,7 @@
 
 use guinea_core::scope::Reducer;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Segment};
+use guinea_app::feature::FeatureInitContext;
 use crate::router::{Mount, SegmentEntry, SegmentProps, Ui, single_entry_chain};
 
 pub struct Headless;
@@ -120,10 +120,6 @@ fn install_layout<L: Layout>(
 }
 
 /// What a headless view gets: the segment it belongs to, and nothing else.
-///
-/// Carries the segment type because reading needs it: what a segment may read
-/// is a fact about where it sits, and this is where that fact enters the
-/// signature.
 pub struct HeadlessCx<S> {
     props: SegmentProps<Headless>,
     segment: std::marker::PhantomData<fn() -> S>,
@@ -133,88 +129,17 @@ impl<S> HeadlessCx<S> {
     pub fn outlet(&self) {
         self.props.outlet(&())
     }
-}
 
-impl<S: Segment> HeadlessCx<S> {
     /// The reducer's current state and what may be asked of its actor. No
     /// subscription: with nothing to re-render, a change is observed by
     /// reading again.
     ///
-    /// Which feature answers is settled at build time: this segment installed
-    /// it, or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
-    /// index, which says which of several impls applied - Rust has no partial
-    /// turbofish, so it has to be written.
-    ///
-    /// Reaching for what a feature above kept to itself does not compile. It
-    /// used to be a panic on the first render, which meant a page could be
-    /// wrong for as long as nobody walked to it:
-    ///
-    /// ```compile_fail
-    /// use guinea_app::feature::{Feature, FeatureInitContext, Segment};
-    /// use guinea_core::scope::Reducer;
-    /// use guinea_router::headless::{HeadlessCx, Layout, Page};
-    ///
-    /// #[derive(Default, Clone)]
-    /// struct Hidden(u32);
-    ///
-    /// impl Reducer for Hidden {
-    ///     type Update = u32;
-    ///     fn reduce(&mut self, to: u32) { self.0 = to; }
-    /// }
-    ///
-    /// struct Chrome;
-    ///
-    /// impl Feature for Chrome {
-    ///     type Params = ();
-    ///     type Exports = ();
-    ///
-    ///     fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-    ///         cx.state::<Hidden>().plain();
-    ///         Ok(Self)
-    ///     }
-    /// }
-    ///
-    /// struct Shell;
-    ///
-    /// impl Layout for Shell {
-    ///     type Params = ();
-    ///     type Installs = Chrome;
-    ///
-    ///     fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Chrome> {
-    ///         cx.install::<Chrome>(&())
-    ///     }
-    ///
-    ///     fn view(cx: &mut HeadlessCx<Self>) { cx.outlet(); }
-    /// }
-    ///
-    /// impl Segment for Shell {
-    ///     type Installs = <Shell as Layout>::Installs;
-    ///     type Above = ();
-    /// }
-    ///
-    /// struct Prier;
-    ///
-    /// impl Page for Prier {
-    ///     type Params = ();
-    ///     type Installs = ();
-    ///
-    ///     fn install(_cx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> { Ok(()) }
-    ///
-    ///     fn view(cx: &mut HeadlessCx<Self>) {
-    ///         // `Chrome` claimed `Hidden` and exported nothing.
-    ///         let _ = cx.read::<Hidden, _>();
-    ///     }
-    /// }
-    ///
-    /// impl Segment for Prier {
-    ///     type Installs = <Prier as Page>::Installs;
-    ///     type Above = (Shell, ());
-    /// }
-    /// ```
-    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    /// The feature that answers is the one this segment installed, or the
+    /// nearest above that listed `R` in `Exports`. A read that reaches nothing
+    /// panics here, naming the chain it walked.
+    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
-        S: Reaches<R, I>,
     {
         let binding = self.props.binding::<R>();
         (binding.get(), binding.dispatch())
@@ -289,14 +214,9 @@ mod tests {
         }
 
         fn view(cx: &mut HeadlessCx<Self>) {
-            let (counter, _) = cx.read::<Counter, _>();
+            let (counter, _) = cx.read::<Counter>();
             assert_eq!(counter.installs, 1);
         }
-    }
-
-    impl guinea_app::feature::Segment for Page1 {
-        type Installs = <Page1 as Page>::Installs;
-        type Above = ();
     }
 
     #[test]

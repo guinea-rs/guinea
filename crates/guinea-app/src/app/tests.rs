@@ -528,11 +528,6 @@ mod exports {
 
     struct Speaking(Installed<Localisation>);
 
-    impl crate::feature::Segment for Speaking {
-        type Installs = (Localisation,);
-        type Above = ();
-    }
-
     impl Application for Speaking {
         fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self> {
             Ok(Speaking(app.feature(Localisation)?))

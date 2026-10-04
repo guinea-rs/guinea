@@ -57,7 +57,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::{Reaches, Reads, Segment};
+use guinea_app::feature::Reads;
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{
@@ -161,7 +161,7 @@ pub trait Page: Default + Sized + 'static {
 
     /// The only place the node changes.
     ///
-    /// Effects are messages to actors - `cx.read::<R, _>().1.emit(..)` - not
+    /// Effects are messages to actors - `cx.read::<R>().1.emit(..)` - not
     /// values returned from here. That is the trade this framework makes
     /// against `Task`: an effect that crosses a node boundary is an actor's
     /// job, and one that does not is a state change.
@@ -298,59 +298,47 @@ pub struct PageCx<'a, P> {
     borrow: PhantomData<&'a Nodes>,
 }
 
-impl<P: Segment> PageCx<'_, P> {
+impl<P> PageCx<'_, P> {
     /// The feature that owns `R` - its state, and what can be asked of it.
     ///
-    /// Which feature that is, is settled at build time: this page installed it,
-    /// or a segment above listed `R` in its `Exports`. Neither is true and it
-    /// does not compile, rather than finding nothing on the first frame.
-    ///
-    /// The `_` is [`Reaches`]'s index, which says which of several impls
-    /// applied. Rust has no partial turbofish, so it has to be written.
-    pub fn read<R, I>(&mut self) -> Feature<R>
+    /// The one this page installed, or the nearest above that listed `R` in
+    /// its `Exports`. A read that reaches nothing panics on the frame that
+    /// makes it, naming the chain it walked.
+    pub fn read<R>(&mut self) -> Feature<R>
     where
         R: Reducer + Clone,
-        P: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 }
 
-impl<P: Segment> Reads for PageCx<'_, P> {
-    type Segment = P;
-
-    fn read<R, I>(&mut self) -> Feature<R>
+impl<P> Reads for PageCx<'_, P> {
+    fn read<R>(&mut self) -> Feature<R>
     where
         R: Reducer + PartialEq,
-        P: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 
-    fn dispatch<R, I>(&self) -> Dispatch
+    fn dispatch<R>(&self) -> Dispatch
     where
         R: Reducer,
-        P: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }
 }
 
-impl<L: Layout + Segment> Reads for LayoutCx<'_, L> {
-    type Segment = L;
-
-    fn read<R, I>(&mut self) -> Feature<R>
+impl<L: Layout> Reads for LayoutCx<'_, L> {
+    fn read<R>(&mut self) -> Feature<R>
     where
         R: Reducer + PartialEq,
-        L: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 
-    fn dispatch<R, I>(&self) -> Dispatch
+    fn dispatch<R>(&self) -> Dispatch
     where
         R: Reducer,
-        L: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }
@@ -366,10 +354,9 @@ pub struct LayoutCx<'a, L: Layout> {
 
 impl<'a, L: Layout> LayoutCx<'a, L> {
     /// See [`PageCx::read`].
-    pub fn read<R, I>(&mut self) -> Feature<R>
+    pub fn read<R>(&mut self) -> Feature<R>
     where
         R: Reducer + Clone,
-        L: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
@@ -408,7 +395,7 @@ pub struct UpdateCx<'a, S> {
     segment: PhantomData<fn() -> S>,
 }
 
-impl<S: Segment> UpdateCx<'_, S> {
+impl<S> UpdateCx<'_, S> {
     /// The feature that owns `R` - its state, and what can be asked of it.
     ///
     /// `emit` takes the action by value, so what is happening is readable
@@ -417,16 +404,13 @@ impl<S: Segment> UpdateCx<'_, S> {
     /// node's own if it said it was watching.
     ///
     /// See [`PageCx::read`] for what settles which feature answers.
-    pub fn read<R, I>(&self) -> Feature<R>
+    pub fn read<R>(&self) -> Feature<R>
     where
         R: Reducer + Clone,
-        S: Reaches<R, I>,
     {
         feature_of::<R>(self.props)
     }
-}
 
-impl<S> UpdateCx<'_, S> {
     pub fn navigate<R>(&self) -> NavigateHandle<Iced, R>
     where
         R: RouteChain<Iced> + Clone + PartialEq + 'static,

@@ -175,15 +175,39 @@ impl<U: Ui> SegmentProps<U> {
                 );
             }
 
-            panic!(
-                "reading {} here found no scope that owns it: this segment did not claim \
-                 it, and no ancestor exported it. Either this route never installs the \
-                 feature that owns it, that feature installs in another branch, or it \
-                 owns the reducer without listing it in `Exports`.",
-                std::any::type_name::<R>()
-            )
+            panic!("{}", self.unreached::<R>())
         });
         owner.binding::<R>()
+    }
+
+    fn unreached<R: 'static>(&self) -> String {
+        let name = |entry: &SegmentEntry<U>| crate::observability::short((entry.type_name)());
+        let walked: Vec<&SegmentEntry<U>> = self.chain[..=self.cursor].iter().rev().collect();
+        let reducer = crate::observability::short(std::any::type_name::<R>());
+
+        let mut said = format!(
+            "`{}` reads `{reducer}`, but nothing reaches it:\n  {}",
+            name(walked[0]),
+            walked.iter().map(|entry| name(entry)).collect::<Vec<_>>().join(" <- ")
+        );
+
+        let kept = (0..self.cursor)
+            .rev()
+            .filter(|&at| self.scopes[at].claims::<R>())
+            .map(|at| name(&self.chain[at]))
+            .collect::<Vec<_>>();
+        if kept.is_empty() {
+            said.push_str(&format!(
+                "\n  nothing on this chain installs the feature that owns `{reducer}` - it \
+                 installs in another branch, or not at all"
+            ));
+        } else {
+            said.push_str(&format!(
+                "\n  `{reducer}` is claimed by {}, which does not list it in `Exports`",
+                kept.join(", ")
+            ));
+        }
+        said
     }
 
     /// Mounts the next segment down the chain. Backends expose this to layouts

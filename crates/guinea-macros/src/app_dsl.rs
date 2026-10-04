@@ -10,14 +10,13 @@
 //!
 //! The counterpart of `feature!`. The type it makes holds one `Installed` per
 //! line, in the order listed, so the only way to have one is to have installed
-//! each of them - `#[installs]` writes the function that does. It is also the
-//! top segment of every route tree that hangs from it with `app(..)`, with the
-//! list as its `Installs`.
+//! each of them - `#[installs]` writes the function that does. A route tree
+//! hangs from it with `app(..)`.
 
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{FoundCrate, crate_name};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Ident, Meta, Token, Type, Visibility, braced};
 
@@ -127,7 +126,6 @@ fn expand(manifest: Manifest) -> TokenStream {
     } = manifest;
 
     let app = app_path();
-    let feature = crate::segment::context_path();
 
     let fields = installs.iter().map(|line| {
         let ty = &line.ty;
@@ -138,7 +136,7 @@ fn expand(manifest: Manifest) -> TokenStream {
         }
     });
 
-    let declared = if installs.is_empty() {
+    if installs.is_empty() {
         quote! {
             #(#attrs)*
             #vis struct #name;
@@ -147,39 +145,6 @@ fn expand(manifest: Manifest) -> TokenStream {
         quote! {
             #(#attrs)*
             #vis struct #name(#(#fields),*);
-        }
-    };
-
-    let mut aliases = Vec::new();
-    let listed = installs.iter().enumerate().map(|(at, line)| {
-        let ty = &line.ty;
-        if line.cfg.is_empty() {
-            return quote!(#ty);
-        }
-
-        let alias = format_ident!("__{}Installs{}", name, at);
-        let cfg = &line.cfg;
-        aliases.push(quote! {
-            #[cfg(all(#(#cfg),*))]
-            #[allow(non_camel_case_types)]
-            type #alias = #ty;
-
-            #[cfg(not(all(#(#cfg),*)))]
-            #[allow(non_camel_case_types)]
-            type #alias = ();
-        });
-        quote!(#alias)
-    });
-    let listed: Vec<TokenStream> = listed.collect();
-
-    quote! {
-        #declared
-
-        #(#aliases)*
-
-        impl #feature::Segment for #name {
-            type Installs = (#(#listed,)*);
-            type Above = ();
         }
     }
 }

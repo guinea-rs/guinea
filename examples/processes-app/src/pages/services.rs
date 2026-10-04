@@ -18,7 +18,7 @@ impl Page for Services {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
-        let (state, _dispatch) = cx.read::<Running, _>();
+        let (state, _dispatch) = cx.read::<Running>();
 
         let rows: Vec<(String, View)> = state
             .items

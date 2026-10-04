@@ -63,7 +63,7 @@ impl Page for Home {
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let (count, dispatch) = cx.read::<Count, _>();
+        let (count, dispatch) = cx.read::<Count>();
 
         StackPanel::new()
             .children((

@@ -32,7 +32,7 @@ impl Page for Metrics {
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Quiet> {
-        let (metrics, _) = cx.read::<Sampling, _>();
+        let (metrics, _) = cx.read::<Sampling>();
         let cpu = values(&metrics.cpu);
         let memory = values(&metrics.memory);
 

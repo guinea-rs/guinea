@@ -3,7 +3,7 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext, Segment};
+use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use std::cell::RefCell;
 
 use guinea_core::actor::{Cx, Handler, UiThreadToken};
@@ -73,16 +73,6 @@ impl Page for Detail {
     }
 
     fn view(_cx: &mut HeadlessCx<Self>) {}
-}
-
-impl Segment for Frame {
-    type Installs = ();
-    type Above = ();
-}
-
-impl Segment for Detail {
-    type Installs = Bound<Counter>;
-    type Above = (Frame, ());
 }
 
 const CHAIN: [SegmentEntry<Headless>; 2] = [layout_entry::<Frame>(), segment_entry::<Detail>()];

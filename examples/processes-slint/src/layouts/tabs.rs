@@ -26,8 +26,8 @@ impl Layout for TabsLayout {
         let root = cx.root::<AppWindow>();
         let model = root.global::<TabsModel>();
 
-        let binding = cx.binding::<Tabs, _>();
-        let language = cx.binding::<Language<L10n>, _>();
+        let binding = cx.binding::<Tabs>();
+        let language = cx.binding::<Language<L10n>>();
         let refresh: Rc<dyn Fn()> = {
             let root = root.clone_strong();
             let binding = binding.clone();

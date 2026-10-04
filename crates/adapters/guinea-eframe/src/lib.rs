@@ -22,7 +22,7 @@ use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Reads, Segment};
+use guinea_app::feature::{FeatureInitContext, Reads};
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{
@@ -311,7 +311,7 @@ fn feature_of<R: Reducer>(
     (binding.get(), binding.dispatch())
 }
 
-impl<P: Segment> PageCx<'_, P> {
+impl<P> PageCx<'_, P> {
     /// The reducer's state and actions.
     ///
     /// No subscription, as in the terminal: egui redraws the whole frame, so
@@ -319,17 +319,15 @@ impl<P: Segment> PageCx<'_, P> {
     /// What does need saying is when a frame should happen at all, and that is
     /// the dispatcher's job.
     ///
-    /// Which feature answers is settled at build time: this page installed it,
-    /// or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
-    /// index, which says which of several impls applied - Rust has no partial
-    /// turbofish, so it has to be written.
+    /// The feature that answers is the one this page installed, or the nearest
+    /// above that listed `R` in `Exports`. A read that reaches nothing panics
+    /// here, naming the chain it walked.
     ///
     /// The state comes shared, not copied: reading it every frame costs a
     /// count, and a change made mid-frame goes to a copy.
-    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
-        P: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
@@ -343,30 +341,25 @@ impl<P: Segment> PageCx<'_, P> {
     ///
     /// State a feature drives is not this: pushing into it goes behind the
     /// back of whatever answers for it. Use [`PageCx::read`] and emit.
-    pub fn binding<R, I>(&self) -> ReducerBinding<R>
+    pub fn binding<R>(&self) -> ReducerBinding<R>
     where
         R: Reducer,
-        P: Reaches<R, I>,
     {
         self.props.binding::<R>()
     }
 }
 
-impl<P: Segment> Reads for PageCx<'_, P> {
-    type Segment = P;
-
-    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+impl<P> Reads for PageCx<'_, P> {
+    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        P: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 
-    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
-        P: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }
@@ -393,41 +386,35 @@ pub struct LayoutCx<'a, L> {
     layout: std::marker::PhantomData<fn() -> L>,
 }
 
-impl<L: Segment> LayoutCx<'_, L> {
+impl<L> LayoutCx<'_, L> {
     /// See [`PageCx::read`].
-    pub fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
-        L: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 
     /// See [`PageCx::binding`].
-    pub fn binding<R, I>(&self) -> ReducerBinding<R>
+    pub fn binding<R>(&self) -> ReducerBinding<R>
     where
         R: Reducer,
-        L: Reaches<R, I>,
     {
         self.props.binding::<R>()
     }
 }
 
-impl<L: Segment> Reads for LayoutCx<'_, L> {
-    type Segment = L;
-
-    fn read<R, I>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+impl<L> Reads for LayoutCx<'_, L> {
+    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
-        L: Reaches<R, I>,
     {
         feature_of::<R>(&self.props)
     }
 
-    fn dispatch<R, I>(&self) -> guinea_core::feature::Dispatch
+    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
-        L: Reaches<R, I>,
     {
         self.props.binding::<R>().dispatch()
     }

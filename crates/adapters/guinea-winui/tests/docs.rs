@@ -24,7 +24,6 @@ mod only_a_view {
 mod whole {
     //@show a whole page
     //@hide
-    use guinea_app::feature::Segment;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
@@ -87,7 +86,7 @@ mod whole {
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (count, dispatch) = cx.read::<Count, _>();
+            let (count, dispatch) = cx.read::<Count>();
             let step = self.step;
 
             StackPanel::new()
@@ -102,12 +101,6 @@ mod whole {
                 ))
                 .into()
         }
-    }
-
-    // `routes!` writes where each segment sits; this page stands alone.
-    impl Segment for CounterPage {
-        type Installs = Counter;
-        type Above = ();
     }
 
     // Under test it mounts with no window, in a harness that runs what it
@@ -156,7 +149,6 @@ mod cached {
 mod installing {
     //@show a page that installs
     //@hide
-    use guinea_app::feature::Segment;
     use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
@@ -217,16 +209,11 @@ mod installing {
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (listing, _) = cx.read::<Listing, _>();
+            let (listing, _) = cx.read::<Listing>();
             TextBlock::new().text(listing.0.clone()).into()
         }
     }
     //@hide
-
-    impl Segment for ProcessesPage {
-        type Installs = <ProcessesPage as Page>::Installs;
-        type Above = ();
-    }
 
     #[cfg(feature = "harness")]
     #[test]
@@ -252,9 +239,6 @@ mod installing {
 
 mod keeping_the_capture {
     //@show a page that keeps its capture
-    //@hide
-    use guinea_app::feature::Segment;
-    //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
 
@@ -283,11 +267,6 @@ mod keeping_the_capture {
         }
     }
     //@hide
-
-    impl Segment for ProcessPage {
-        type Installs = ();
-        type Above = ();
-    }
 
     #[cfg(feature = "harness")]
     #[test]
@@ -345,7 +324,6 @@ mod minding_the_page {
 mod asking_a_feature {
     //@show a page that asks a feature
     //@hide
-    use guinea_app::feature::Segment;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
@@ -400,23 +378,18 @@ mod asking_a_feature {
             match message {
                 Msg::Typed(text) => self.query = text,
                 Msg::Submitted => {
-                    let (_, search) = cx.read::<Results, _>();
+                    let (_, search) = cx.read::<Results>();
                     search.emit(Search(self.query.clone()));
                 }
             }
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (results, _) = cx.read::<Results, _>();
+            let (results, _) = cx.read::<Results>();
             TextBlock::new().text(results.0.clone()).into()
         }
     }
     //@hide
-
-    impl Segment for SearchPage {
-        type Installs = Searching;
-        type Above = ();
-    }
 
     #[cfg(feature = "harness")]
     #[test]
@@ -436,9 +409,6 @@ mod asking_a_feature {
 
 mod answering_a_widget {
     //@show a page that answers a widget
-    //@hide
-    use guinea_app::feature::Segment;
-    //@unhide
     use std::rc::Rc;
 
     use guinea_winui::{Page, PageCx, UpdateCx, page};
@@ -474,11 +444,6 @@ mod answering_a_widget {
     }
     //@hide
 
-    impl Segment for Greeting {
-        type Installs = ();
-        type Above = ();
-    }
-
     #[cfg(feature = "harness")]
     #[test]
     fn greets_whoever_was_typed() {
@@ -501,7 +466,6 @@ mod answering_a_widget {
 mod shell {
     //@show a shell
     //@hide
-    use guinea_app::feature::Segment;
     use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
@@ -554,9 +518,9 @@ mod shell {
     impl Page for Home {
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             // Installed by the shell above, and readable here because `Chrome`
-            // exports it. A page outside the shell asking for it does not
-            // compile.
-            let (sidebar, _) = cx.read::<Sidebar, _>();
+            // exports it. A page outside the shell asking for it panics on
+            // its first render, naming the chain it walked.
+            let (sidebar, _) = cx.read::<Sidebar>();
             let width = if sidebar.open { "narrow" } else { "wide" };
 
             TextBlock::new().text(format!("home, {width}")).into()
@@ -586,15 +550,15 @@ mod shell {
         fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
             match message {
                 ShellMsg::Toggle => {
-                    let (sidebar, dispatch) = cx.read::<Sidebar, _>();
+                    let (sidebar, dispatch) = cx.read::<Sidebar>();
                     dispatch.emit(SetOpen(!sidebar.open));
                 }
             }
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let (sidebar, _) = cx.read::<Sidebar, _>();
-            let (title, _) = cx.read::<Title, _>();
+            let (sidebar, _) = cx.read::<Sidebar>();
+            let (title, _) = cx.read::<Title>();
 
             let tab = if cx.child_is::<Home>() {
                 "> Home"
@@ -617,17 +581,6 @@ mod shell {
                 ))
                 .into()
         }
-    }
-
-    // Where each segment sits, which is what `routes!` writes.
-    impl Segment for Shell {
-        type Installs = <Shell as Layout>::Installs;
-        type Above = ();
-    }
-
-    impl Segment for Home {
-        type Installs = ();
-        type Above = (Shell, ());
     }
     //@show-end
 

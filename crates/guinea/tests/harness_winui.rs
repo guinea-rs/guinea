@@ -5,7 +5,6 @@
 //! running in the seed's order.
 
 use guinea::app::Harness;
-use guinea::feature::Segment;
 use guinea::prelude::*;
 use guinea::winui::harness::{Mounted, PropertyId, PropertyValue};
 use guinea::winui::{MarkExt, Page, PageCx, UpdateCx, page};
@@ -121,7 +120,7 @@ impl Page for SearchPage {
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let (results, dispatch) = cx.read::<Results, _>();
+        let (results, dispatch) = cx.read::<Results>();
         let typed = self.typed.clone();
 
         StackPanel::new().children((
@@ -134,12 +133,6 @@ impl Page for SearchPage {
         ))
         .into()
     }
-}
-
-/// What `routes!` would write: the page stands alone.
-impl Segment for SearchPage {
-    type Installs = Search;
-    type Above = ();
 }
 
 #[guinea::test(iterations = 30)]
@@ -224,11 +217,6 @@ impl Page for CataloguePage {
             ))
             .into()
     }
-}
-
-impl Segment for CataloguePage {
-    type Installs = ();
-    type Above = ();
 }
 
 #[guinea::test(iterations = 4)]
@@ -337,11 +325,6 @@ impl Page for RowsPage {
     }
 }
 
-impl Segment for RowsPage {
-    type Installs = ();
-    type Above = ();
-}
-
 /// A row with a grip that drags it: the grip captures the pointer and follows
 /// it by the window's `y`. The capture is lost just before the release, so a
 /// lost capture only puts the drag aside: a release after it still drops, and
@@ -432,11 +415,6 @@ impl Page for GripPage {
             )))
             .into()
     }
-}
-
-impl Segment for GripPage {
-    type Installs = ();
-    type Above = ();
 }
 
 #[guinea::test(iterations = 2)]
@@ -558,11 +536,6 @@ impl Page for SwitchesPage {
     }
 }
 
-impl Segment for SwitchesPage {
-    type Installs = ();
-    type Above = ();
-}
-
 #[guinea::test(iterations = 2)]
 fn a_click_turns_a_switch_a_check_box_and_a_radio_button_over(h: &mut Harness) {
     let mut page = Mounted::<SwitchesPage>::mount(h.segment(),()).unwrap();
@@ -624,11 +597,6 @@ impl Page for ChartsPage {
             ))
             .into()
     }
-}
-
-impl Segment for ChartsPage {
-    type Installs = ();
-    type Above = ();
 }
 
 #[guinea::test(iterations = 2)]
@@ -771,11 +739,6 @@ impl Page for PlotPage {
     }
 }
 
-impl Segment for PlotPage {
-    type Installs = ();
-    type Above = ();
-}
-
 #[guinea::test(iterations = 2)]
 fn a_composition_host_hears_the_size_its_element_is_given(h: &mut Harness) {
     MEASURED.with(|seen| seen.borrow_mut().clear());
@@ -785,14 +748,6 @@ fn a_composition_host_hears_the_size_its_element_is_given(h: &mut Harness) {
     page.size(Marks::Plot, 300.0, 120.0);
 
     assert_eq!(MEASURED.with(|seen| seen.borrow().clone()), [(300.0, 120.0)]);
-}
-
-/// The segment above the page, as `routes!` would name it.
-pub struct Shell;
-
-impl Segment for Shell {
-    type Installs = polling::Polling;
-    type Above = ();
 }
 
 /// Shows how many samples the segment above it has taken.
@@ -812,14 +767,9 @@ impl Page for SamplesPage {
     fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let (samples, _) = cx.read::<polling::Samples, _>();
+        let (samples, _) = cx.read::<polling::Samples>();
         TextBlock::new().text(format!("samples: {}", samples.taken)).into()
     }
-}
-
-impl Segment for SamplesPage {
-    type Installs = ();
-    type Above = (Shell, ());
 }
 
 #[guinea::test(iterations = 8)]
@@ -1153,7 +1103,7 @@ mod navigating {
                 AppRoute::Draft {} => "at draft",
                 AppRoute::KeptList {} => "at kept list",
             };
-            let (ticks, _) = cx.read::<frame_clock::FrameTicks, _>();
+            let (ticks, _) = cx.read::<frame_clock::FrameTicks>();
             let nav = cx.navigate::<AppRoute>();
 
             StackPanel::new()
@@ -1200,7 +1150,7 @@ mod navigating {
         type Params = ListParams;
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
+            let (ticks, _) = cx.read::<list_clock::ListTicks>();
             TextBlock::new().text(format!("list ticks: {}", ticks.0)).into()
         }
     }
@@ -1272,7 +1222,7 @@ mod navigating {
         type Params = KeptListParams;
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (ticks, _) = cx.read::<list_clock::ListTicks, _>();
+            let (ticks, _) = cx.read::<list_clock::ListTicks>();
             TextBlock::new().text(format!("kept ticks: {}", ticks.0)).into()
         }
     }
@@ -1393,7 +1343,7 @@ mod navigating {
 }
 
 mod application_exports {
-    use guinea::feature::{Reaches, Reads};
+    use guinea::feature::Reads;
 
     use super::*;
 
@@ -1420,12 +1370,6 @@ mod application_exports {
         }
     }
 
-    app! {
-        pub App {
-            installs { Localisation }
-        }
-    }
-
     pub struct Speak(&'static str);
 
     #[derive(Default)]
@@ -1436,14 +1380,9 @@ mod application_exports {
         type Params = ();
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let (language, _) = cx.read::<Language, _>();
+            let (language, _) = cx.read::<Language>();
             TextBlock::new().text(format!("speaks {}", language.0)).into()
         }
-    }
-
-    impl Segment for Greeting {
-        type Installs = ();
-        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]
@@ -1457,11 +1396,8 @@ mod application_exports {
 
     /// A plugin's shortcut, written once for every backend.
     trait Speaks: Reads {
-        fn language<I>(&mut self) -> &'static str
-        where
-            Self::Segment: Reaches<Language, I>,
-        {
-            self.read::<Language, I>().0.0
+        fn language(&mut self) -> &'static str {
+            self.read::<Language>().0.0
         }
     }
 
@@ -1477,11 +1413,6 @@ mod application_exports {
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text(format!("speaks {}", cx.language())).into()
         }
-    }
-
-    impl Segment for Polyglot {
-        type Installs = ();
-        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]
@@ -1501,18 +1432,13 @@ mod application_exports {
         type Params = ();
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-            let speak = Reads::dispatch::<Language, _>(cx);
+            let speak = Reads::dispatch::<Language>(cx);
             Button::new()
                 .mark(Marks::Speak)
                 .on_click(move || speak.emit(Speak("ru")))
                 .content(TextBlock::new().text("speak"))
                 .into()
         }
-    }
-
-    impl Segment for Switcher {
-        type Installs = ();
-        type Above = (App, ());
     }
 
     #[guinea::test(iterations = 2)]

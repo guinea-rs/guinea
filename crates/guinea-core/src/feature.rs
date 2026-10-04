@@ -154,12 +154,10 @@ pub trait Exported {
     /// The first listed reducer this scope never claimed, if there is one.
     ///
     /// `Installs` closed the drift between what a segment says it installs and
-    /// what it built, by making the list the body's return value. `Exports`
-    /// cannot be a return value - it is read at build time, by
-    /// [`Reaches`](../../guinea_app/feature/trait.Reaches.html), and a value
-    /// arrives too late for that. So the same drift is closed from the other
-    /// end: the list is checked against what was actually claimed, the moment
-    /// the feature finishes installing.
+    /// what it built, by making the list the body's return value. `Exports` is
+    /// a type the feature names rather than a value it returns, so the same
+    /// drift is closed from the other end: the list is checked against what
+    /// was actually claimed, the moment the feature finishes installing.
     ///
     /// Without it, exporting something the feature never claimed type-checks,
     /// and a page below reads the reducer's `Default` forever - the state is

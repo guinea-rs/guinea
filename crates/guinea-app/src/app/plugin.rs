@@ -4,8 +4,6 @@ use std::marker::PhantomData;
 use guinea_core::feature::Exported;
 use guinea_core::scope::Scope;
 
-use crate::feature::Segment;
-
 use super::builder::{FeatureBuilder, PluginBuilder};
 
 /// Reusable, application-agnostic: the application knows the plugin, never the
@@ -46,14 +44,14 @@ impl<T> Installed<T> {
 /// The application as one item: what it installs, and the features and
 /// plugins whose exports its pages read.
 ///
-/// The top segment of every route tree that hangs from it with `app(..)`. Its
-/// `Installs` lists what pages read, and `install` returns one [`Installed`]
-/// for each, so the two cannot disagree. What pages do not read - devtools, a
-/// store - is installed in `install` and left out of the list.
+/// The root of every route tree that hangs from it with `app(..)`. `app!`
+/// lists what pages read, and `install` returns one [`Installed`] for each, so
+/// the two cannot disagree. What pages do not read - devtools, a store - is
+/// installed in `install` and left out of the list.
 ///
 /// Written with `app!` for the type and `#[installs]` for the function, as a
 /// feature is.
-pub trait Application: Segment + Sized + Send + 'static {
+pub trait Application: Sized + Send + 'static {
     fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self>;
 }
 

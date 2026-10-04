@@ -23,7 +23,7 @@ impl Layout for TabsLayout {
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
-        let (state, _) = cx.read::<Tabs, _>();
+        let (state, _) = cx.read::<Tabs>();
         let strings = &cx.l10n::<L10n>();
         let switch = cx.language_switch::<L10n>();
         let nav = cx.navigate::<Route>();

@@ -39,7 +39,7 @@ pub use run::{MAIN, run};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::{FeatureInitContext, Reaches, Segment};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::{DropGuard, Reducer};
 use guinea_router::router::{
@@ -238,11 +238,6 @@ impl Where {
 }
 
 /// What a page's wiring is handed.
-///
-/// Carries the page type, not because the wiring needs it, but because reading
-/// does: what a segment may read is a fact about where it sits, and this is
-/// where that fact enters the signature. Every method below that reaches a
-/// reducer carries the proof, since every one of them is a read.
 pub struct PageCx<P> {
     at: Where,
     page: PhantomData<fn() -> P>,
@@ -284,46 +279,32 @@ impl<P> PageCx<P> {
     }
 }
 
-impl<P: Segment> PageCx<P> {
+impl<P> PageCx<P> {
     /// The reducer's binding: state now, and a place to subscribe.
     ///
-    /// Which feature answers is settled at build time: this page installed it,
-    /// or a segment above listed it in `Exports`. The `_` is [`Reaches`]'s
-    /// index, which says which of several impls applied - Rust has no partial
-    /// turbofish, so it has to be written.
-    pub fn binding<R: Reducer, I>(&self) -> ReducerBinding<R>
-    where
-        P: Reaches<R, I>,
-    {
+    /// The feature that answers is the one this page installed, or the nearest
+    /// above that listed `R` in `Exports`. A binding that reaches nothing
+    /// panics here, while the page is being wired.
+    pub fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
         self.at.binding::<R>()
     }
 
     /// A snapshot of the reducer's state, and what may be asked of the
     /// feature that owns it. Read once: what stays in step is [`Self::bind`].
-    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer,
-        P: Reaches<R, I>,
-    {
-        let binding = self.binding::<R, I>();
+    pub fn read<R: Reducer>(&self) -> (Rc<R>, guinea_core::feature::Dispatch) {
+        let binding = self.binding::<R>();
         (binding.get(), binding.dispatch())
     }
 
     /// What may be asked of the actor driving `R`.
-    pub fn dispatch<R: Reducer, I>(&self) -> guinea_core::feature::Dispatch
-    where
-        P: Reaches<R, I>,
-    {
-        self.binding::<R, I>().dispatch()
+    pub fn dispatch<R: Reducer>(&self) -> guinea_core::feature::Dispatch {
+        self.binding::<R>().dispatch()
     }
 
     /// Applies the state now, and again after every change, for as long as
     /// this page's scope lives.
-    pub fn bind<R: Reducer, I>(&self, apply: impl Fn(&R) + 'static)
-    where
-        P: Reaches<R, I>,
-    {
-        bind_to_scope(&self.binding::<R, I>(), apply)
+    pub fn bind<R: Reducer>(&self, apply: impl Fn(&R) + 'static) {
+        bind_to_scope(&self.binding::<R>(), apply)
     }
 
     /// [`Self::bind`], with the root handed back on every call.
@@ -331,14 +312,13 @@ impl<P: Segment> PageCx<P> {
     /// Which is what a binding needs, since the globals it writes to hang off
     /// the root and borrow it - so nothing can capture one. Holding the root
     /// instead is safe: it is a handle, and the window outlives every page.
-    pub fn bind_to<R, W, I>(&self, root: &W, apply: impl Fn(&W, &R) + 'static)
+    pub fn bind_to<R, W>(&self, root: &W, apply: impl Fn(&W, &R) + 'static)
     where
         R: Reducer,
         W: slint::ComponentHandle + 'static,
-        P: Reaches<R, I>,
     {
         let root = root.clone_strong();
-        self.bind::<R, I>(move |state| apply(&root, state))
+        self.bind::<R>(move |state| apply(&root, state))
     }
 
     /// A list property that reads the state instead of copying it.
@@ -348,16 +328,15 @@ impl<P: Segment> PageCx<P> {
     /// of ten thousand costs a screenful, and adding one row costs one.
     ///
     /// ```ignore
-    /// model.set_items(cx.rows::<Processes, _, _>(|state| &state.items));
+    /// model.set_items(cx.rows::<Processes, _>(|state| &state.items));
     /// ```
-    pub fn rows<R, T, I>(&self, select: fn(&R) -> &[T]) -> slint::ModelRc<T::Slint>
+    pub fn rows<R, T>(&self, select: fn(&R) -> &[T]) -> slint::ModelRc<T::Slint>
     where
         R: Reducer,
         T: ToSlint + 'static,
         T::Slint: Clone + 'static,
-        P: Reaches<R, I>,
     {
-        model::Rows::new(self.binding::<R, I>(), select)
+        model::Rows::new(self.binding::<R>(), select)
     }
 }
 
@@ -394,60 +373,45 @@ impl<L> LayoutCx<L> {
     }
 }
 
-impl<L: Segment> LayoutCx<L> {
+impl<L> LayoutCx<L> {
     /// See [`PageCx::binding`].
-    pub fn binding<R: Reducer, I>(&self) -> ReducerBinding<R>
-    where
-        L: Reaches<R, I>,
-    {
+    pub fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
         self.at.binding::<R>()
     }
 
     /// See [`PageCx::read`].
-    pub fn read<R, I>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer,
-        L: Reaches<R, I>,
-    {
-        let binding = self.binding::<R, I>();
+    pub fn read<R: Reducer>(&self) -> (Rc<R>, guinea_core::feature::Dispatch) {
+        let binding = self.binding::<R>();
         (binding.get(), binding.dispatch())
     }
 
     /// What may be asked of the actor driving `R`.
-    pub fn dispatch<R: Reducer, I>(&self) -> guinea_core::feature::Dispatch
-    where
-        L: Reaches<R, I>,
-    {
-        self.binding::<R, I>().dispatch()
+    pub fn dispatch<R: Reducer>(&self) -> guinea_core::feature::Dispatch {
+        self.binding::<R>().dispatch()
     }
 
-    pub fn bind<R: Reducer, I>(&self, apply: impl Fn(&R) + 'static)
-    where
-        L: Reaches<R, I>,
-    {
-        bind_to_scope(&self.binding::<R, I>(), apply)
+    pub fn bind<R: Reducer>(&self, apply: impl Fn(&R) + 'static) {
+        bind_to_scope(&self.binding::<R>(), apply)
     }
 
     /// [`Self::bind`], with the root handed back on every call.
-    pub fn bind_to<R, W, I>(&self, root: &W, apply: impl Fn(&W, &R) + 'static)
+    pub fn bind_to<R, W>(&self, root: &W, apply: impl Fn(&W, &R) + 'static)
     where
         R: Reducer,
         W: slint::ComponentHandle + 'static,
-        L: Reaches<R, I>,
     {
         let root = root.clone_strong();
-        self.bind::<R, I>(move |state| apply(&root, state))
+        self.bind::<R>(move |state| apply(&root, state))
     }
 
     /// A list property that reads the state instead of copying it.
-    pub fn rows<R, T, I>(&self, select: fn(&R) -> &[T]) -> slint::ModelRc<T::Slint>
+    pub fn rows<R, T>(&self, select: fn(&R) -> &[T]) -> slint::ModelRc<T::Slint>
     where
         R: Reducer,
         T: ToSlint + 'static,
         T::Slint: Clone + 'static,
-        L: Reaches<R, I>,
     {
-        model::Rows::new(self.binding::<R, I>(), select)
+        model::Rows::new(self.binding::<R>(), select)
     }
 }
 

@@ -265,11 +265,6 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         panic!("{}", joined(&guard_errors));
     }
 
-    let layout_errors = guinea_route_dsl::check_layouts(&tree);
-    if !layout_errors.is_empty() {
-        panic!("{}", joined(&layout_errors));
-    }
-
     let match_tree = match guinea_route_dsl::matcher::build(&leaves) {
         Ok(tree) => tree,
         Err(conflicts) => panic!("{}", joined(&conflicts)),
@@ -530,24 +525,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         }
     });
 
-    // Where each segment sits, so the compiler can answer what it may read.
-    // The macro knows one half - who is above whom - and the author declares
-    // the other: `Installs` here, `Exports` on each feature.
     let feature = feature_path(&guinea);
-
-    // The application the tree hangs from is the outermost segment of every
-    // chain.
-    let app_tail = match &tree.app {
-        Some(app) => quote! { (#app, ()) },
-        None => quote!(()),
-    };
-    let above = |ancestors: &[syn::Type]| {
-        // Innermost first, as a cons list, so the search reads the way the
-        // runtime one used to walk.
-        ancestors.iter().rev().fold(app_tail.clone(), |tail, ty| {
-            quote! { (#ty, #tail) }
-        })
-    };
 
     let application = match &tree.app {
         Some(app) => {
@@ -561,39 +539,6 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         }
         None => quote!(::core::option::Option::None),
     };
-
-    let mut placements: Vec<TokenStream> = Vec::new();
-    for leaf in &leaves {
-        let ty = &leaf.ty;
-        let above = above(&leaf.ancestors);
-        placements.push(quote! {
-            impl #feature::Segment for #ty {
-                type Installs = <#ty as #backend_mod::Page>::Installs;
-                type Above = #above;
-            }
-        });
-    }
-
-    for layout in &layouts {
-        let ty = &layout.ty;
-        // A layout stands under the same layouts wherever it appears -
-        // `check_layouts` refuses a tree where it does not - so the first leaf
-        // that sits under it settles what is above it.
-        let ancestors = leaves
-            .iter()
-            .find_map(|leaf| {
-                let at = leaf.ancestors.iter().position(|a| same_type(a, ty))?;
-                Some(leaf.ancestors[..at].to_vec())
-            })
-            .unwrap_or_default();
-        let above = above(&ancestors);
-        placements.push(quote! {
-            impl #feature::Segment for #ty {
-                type Installs = <#ty as #backend_mod::Layout>::Installs;
-                type Above = #above;
-            }
-        });
-    }
 
     // One `const` per route rather than one shared list: the resolved set
     // differs per leaf, and a `const` keeps the guards where the entries are -
@@ -703,8 +648,6 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         #(#chain_consts)*
 
         #(#guard_consts)*
-
-        #(#placements)*
 
         impl #router::RouteChain<#backend_ty> for #enum_ident {
             fn chain(&self) -> &'static [#router::SegmentEntry<#backend_ty>] {

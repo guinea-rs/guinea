@@ -132,6 +132,14 @@ impl<S> HeadlessCx<S> {
         self.props.outlet(&())
     }
 
+    /// Draws the part mounted in slot `T`, if this layout has one. Nothing
+    /// below fills a slot here: a headless view draws nothing to fill it with.
+    pub fn slot<T: crate::slot::Slot>(&self) {
+        if let Some(part) = self.props.part::<T>() {
+            part.chain[part.cursor].mount.view(part, &());
+        }
+    }
+
     /// The reducer's current state and what may be asked of its actor. No
     /// subscription: with nothing to re-render, a change is observed by
     /// reading again.

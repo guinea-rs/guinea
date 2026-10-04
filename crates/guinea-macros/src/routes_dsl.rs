@@ -63,6 +63,12 @@ fn restore_path(guinea: &TokenStream) -> TokenStream {
     module_of_router(guinea, "restore")
 }
 
+/// The chain a part reads through: the layouts down to the one it is written
+/// in, then the part.
+fn part_chain_name(tree: &Ident, leaf: &Ident, at: usize, part: usize) -> Ident {
+    format_ident!("__routes_part_{}_{}_{}_{}", tree, leaf, at, part)
+}
+
 pub(crate) fn slot_impl(item: TokenStream1) -> TokenStream1 {
     let item = syn::parse_macro_input!(item as syn::ItemStruct);
     let name = &item.ident;
@@ -522,15 +528,62 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
             _ => quote!(),
         };
 
+        let parts_name = |at: usize| format_ident!("__routes_parts_{}_{}_{}", enum_ident, ident, at);
+
         let ancestor_entries = leaf.ancestors.iter().enumerate().map(|(at, ty)| {
             let declared = declared_at(ty);
             let kept = kept(at);
-            quote! { #backend_mod::layout_entry::<#ty>().at(#declared) #kept }
+            let parts = match leaf.parts.get(at) {
+                Some(parts) if !parts.is_empty() => {
+                    let name = parts_name(at);
+                    quote!(.parts(&#name))
+                }
+                _ => quote!(),
+            };
+            quote! { #backend_mod::layout_entry::<#ty>().at(#declared) #kept #parts }
         });
         let len = leaf.ancestors.len() + 1;
         let declared = declared_at(leaf_ty);
         let leaf_kept = kept(leaf.ancestors.len());
+
+        let parts_consts = leaf.parts.iter().enumerate().filter(|(_, parts)| !parts.is_empty()).map(|(at, parts)| {
+            let name = parts_name(at);
+            let count = parts.len();
+            let above = leaf.ancestors[..=at].iter().map(|ty| {
+                let declared = declared_at(ty);
+                quote! { #backend_mod::layout_entry::<#ty>().at(#declared) }
+            }).collect::<Vec<_>>();
+
+            let chains = parts.iter().enumerate().map(|(n, part)| {
+                let chain = part_chain_name(&enum_ident, ident, at, n);
+                let part_ty = &part.ty;
+                let declared = declared_at(part_ty);
+                let chain_len = at + 2;
+                quote! {
+                    #[allow(non_upper_case_globals)]
+                    const #chain: [#router::SegmentEntry<#backend_ty>; #chain_len] = [
+                        #(#above,)*
+                        #backend_mod::segment_entry::<#part_ty>().at(#declared),
+                    ];
+                }
+            });
+            let placed = parts.iter().enumerate().map(|(n, part)| {
+                let chain = part_chain_name(&enum_ident, ident, at, n);
+                let slot = &part.slot;
+                quote! { #router::Part::new::<#slot>(&#chain) }
+            });
+
+            quote! {
+                #(#chains)*
+
+                #[allow(non_upper_case_globals)]
+                const #name: [#router::Part<#backend_ty>; #count] = [#(#placed),*];
+            }
+        }).collect::<Vec<_>>();
+
         quote! {
+            #(#parts_consts)*
+
             #[allow(non_upper_case_globals)]
             const #const_name: [#router::SegmentEntry<#backend_ty>; #len] = [
                 #(#ancestor_entries,)*
@@ -583,10 +636,17 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
     });
 
     let tree_name = format_ident!("__routes_tree_{}", enum_ident);
-    let tree_chains = variant_idents.iter().map(|ident| {
-        let const_name = format_ident!("__routes_chain_{}_{}", enum_ident, ident);
-        quote! { &#const_name }
-    });
+    let tree_chains = leaves.iter().zip(&variant_idents).flat_map(|(leaf, ident)| {
+        let tree = &enum_ident;
+        let const_name = format_ident!("__routes_chain_{}_{}", tree, ident);
+        let part_chains = leaf.parts.iter().enumerate().flat_map(|(at, parts)| {
+            (0..parts.len()).map(move |n| {
+                let chain = part_chain_name(tree, ident, at, n);
+                quote! { &#chain }
+            })
+        });
+        std::iter::once(quote! { &#const_name }).chain(part_chains).collect::<Vec<_>>()
+    }).collect::<Vec<_>>();
 
     let expanded = quote! {
         #[derive(Clone)]

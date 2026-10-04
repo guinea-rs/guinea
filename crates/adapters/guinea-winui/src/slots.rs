@@ -123,9 +123,14 @@ pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
             .insert(slot);
     });
 
+    let part = props
+        .part::<S>()
+        .map(|part| part.chain[part.cursor].mount.view(part, &()));
+
     View::component::<Placeholder>(Shown {
         place: Place { placer, slot },
         name: guinea_router::observability::short(std::any::type_name::<S>()),
+        part,
     })
 }
 
@@ -199,9 +204,11 @@ fn unplaced<S: Slot>(props: &SegmentProps<WinUi>) {
 pub(crate) struct Shown {
     place: Place,
     name: &'static str,
+    /// What `routes!` mounted in this slot, shown when nothing fills it.
+    part: Option<View>,
 }
 
-/// Where a slot is drawn: the winning fill, or nothing.
+/// Where a slot is drawn: the winning fill, the part, or nothing.
 pub(crate) struct Placeholder;
 
 impl Component for Placeholder {
@@ -238,7 +245,7 @@ impl Component for Placeholder {
         });
 
         let border = Border::new().automation_id(input.name);
-        match shown {
+        match shown.or_else(|| input.part.clone()) {
             Some(view) => border.content(view).into(),
             None => border.into(),
         }

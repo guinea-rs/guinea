@@ -68,6 +68,32 @@ pub struct SegmentEntry<U: Ui> {
     pub declared: Option<guinea_core::actor::shape::Declared>,
     /// Where the segment itself was written, when `#[segment]` wrote it down.
     pub written: Option<guinea_core::actor::shape::Declared>,
+    /// What `routes!` mounts with this layout, each in a slot of its own.
+    pub parts: &'static [Part<U>],
+}
+
+/// `part(X) => Slot`: a page mounted with its layout and shown in that
+/// layout's slot when nothing below fills it.
+pub struct Part<U: Ui> {
+    pub slot: fn() -> TypeId,
+    pub slot_name: fn() -> &'static str,
+    /// The layout's chain down to it, then the part: what the part reads
+    /// through.
+    pub chain: &'static [SegmentEntry<U>],
+}
+
+impl<U: Ui> Part<U> {
+    pub const fn new<S: crate::slot::Slot>(chain: &'static [SegmentEntry<U>]) -> Self {
+        Self {
+            slot: TypeId::of::<S>,
+            slot_name: std::any::type_name::<S>,
+            chain,
+        }
+    }
+
+    fn entry(&self) -> &'static SegmentEntry<U> {
+        self.chain.last().expect("a part's chain ends in the part")
+    }
 }
 
 /// How a segment turns into a view.
@@ -213,6 +239,26 @@ impl<U: Ui> SegmentProps<U> {
         said
     }
 
+    /// Where the part this layout mounts in slot `S` renders, if it has one:
+    /// under this layout's scopes, so it reads what this layout reads.
+    pub fn part<S: crate::slot::Slot>(&self) -> Option<SegmentProps<U>> {
+        let part = self.chain[self.cursor]
+            .parts
+            .iter()
+            .find(|part| (part.slot)() == TypeId::of::<S>())?;
+        let scope = *self.scopes[self.cursor]
+            .children_in((part.slot_name)())
+            .first()?;
+
+        let mut scopes = self.scopes[..=self.cursor].to_vec();
+        scopes.push(scope);
+        Some(SegmentProps {
+            chain: part.chain,
+            scopes: Rc::new(scopes),
+            cursor: part.chain.len() - 1,
+        })
+    }
+
     /// Mounts the next segment down the chain. Backends expose this to layouts
     /// only: a page is the end of the chain and has no child to render.
     ///
@@ -287,12 +333,18 @@ impl<U: Ui> SegmentEntry<U> {
             keep: false,
             declared: None,
             written: None,
+            parts: &[],
         }
     }
 
     /// The same entry, kept asleep when a navigation leaves it.
     pub const fn kept(self) -> Self {
         Self { keep: true, ..self }
+    }
+
+    /// The same entry, with what `routes!` mounts in its slots.
+    pub const fn parts(self, parts: &'static [Part<U>]) -> Self {
+        Self { parts, ..self }
     }
 
     /// The same entry, knowing where `routes!` listed it.
@@ -1508,6 +1560,9 @@ impl<U: Ui> Router<U> {
             };
 
             scope.sleep();
+            for part in scope.beside() {
+                part.sleep();
+            }
             let replaced = self
                 .sleeping
                 .borrow_mut()
@@ -1564,6 +1619,9 @@ impl<U: Ui> Router<U> {
 
         for scope in scopes.iter().filter(|scope| !scope.is_awake()) {
             scope.wake();
+            for part in scope.beside() {
+                part.wake();
+            }
         }
     }
 
@@ -1646,7 +1704,9 @@ impl<U: Ui> Router<U> {
 
             let ctx = self.host.context(scope, index);
 
-            if let Err(error) = (entry.install)(&ctx, captured) {
+            let installed =
+                (entry.install)(&ctx, captured).and_then(|()| self.install_parts(entry, scope, index));
+            if let Err(error) = installed {
                 scopes.push(scope);
                 let kept = self.tear_down(scopes, standing);
 
@@ -1657,6 +1717,21 @@ impl<U: Ui> Router<U> {
         }
 
         Ok(scopes)
+    }
+
+    /// Installs what `entry` mounts in its slots, each under `layout` in the
+    /// slot's own outlet - so each goes when the layout does.
+    fn install_parts(
+        &self,
+        entry: &SegmentEntry<U>,
+        layout: Scope,
+        index: usize,
+    ) -> anyhow::Result<()> {
+        for part in entry.parts {
+            let scope = layout.child_in((part.slot_name)());
+            (part.entry().install)(&self.host.context(scope, index + 1), &())?;
+        }
+        Ok(())
     }
 
     pub fn deactivate(&self) {

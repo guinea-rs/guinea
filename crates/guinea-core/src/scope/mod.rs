@@ -178,6 +178,37 @@ impl Scope {
         std::iter::successors(self.parent(), Scope::parent).collect()
     }
 
+    /// The scopes right under this one, in `outlet`, oldest first.
+    pub fn children_in(&self, outlet: Outlet) -> Vec<Scope> {
+        self.read(|tree| {
+            let Some(node) = tree.node(self.index, self.serial) else {
+                return Vec::new();
+            };
+            node.children
+                .iter()
+                .filter(|&&child| tree.nodes[child as usize].outlet == outlet)
+                .map(|&child| self.named(tree, child))
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// The scopes right under this one in any outlet but [`MAIN`], oldest
+    /// first: what a layout mounts beside its chain.
+    pub fn beside(&self) -> Vec<Scope> {
+        self.read(|tree| {
+            let Some(node) = tree.node(self.index, self.serial) else {
+                return Vec::new();
+            };
+            node.children
+                .iter()
+                .filter(|&&child| tree.nodes[child as usize].outlet != MAIN)
+                .map(|&child| self.named(tree, child))
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
     fn read<T>(&self, read: impl FnOnce(&Tree) -> T) -> Option<T> {
         let tree = tree(self.tree)?;
         let nodes = tree.borrow();

@@ -33,6 +33,8 @@ pub enum Node {
         restorable: bool,
         /// `keep`: left, it sleeps rather than going. Not inherited.
         keep: bool,
+        /// `part(X) => Slot`: mounted with the layout, shown in its slot.
+        parts: Vec<Part>,
         children: Vec<Node>,
     },
     Page {
@@ -45,6 +47,15 @@ pub enum Node {
         keep: bool,
         fields: Vec<Field>,
     },
+}
+
+/// `part(X) => Slot`: a page with no route of its own, mounted with the
+/// layout it is written in and shown in that layout's slot when nothing below
+/// fills it.
+#[derive(Clone, Debug)]
+pub struct Part {
+    pub ty: syn::Type,
+    pub slot: syn::Type,
 }
 
 /// What a node said about the guards standing in front of it.
@@ -131,6 +142,8 @@ pub struct Leaf {
     /// Which segments of the chain are declared `keep`: the ancestors in
     /// order, then the page.
     pub keep: Vec<bool>,
+    /// The parts of each ancestor, in the ancestors' order.
+    pub parts: Vec<Vec<Part>>,
 }
 
 impl Leaf {
@@ -173,7 +186,8 @@ impl RouteTree {
     /// Every page, in declaration order, with its ancestors.
     pub fn leaves(&self) -> Vec<Leaf> {
         let mut leaves = Vec::new();
-        flatten(&self.nodes, &mut Vec::new(), &mut Vec::new(), &[], false, &mut leaves);
+        let mut above = Above::default();
+        flatten(&self.nodes, &mut above, &[], false, &mut leaves);
         leaves
     }
 
@@ -347,10 +361,18 @@ pub fn parse_pattern(pattern: &str) -> Vec<Segment> {
         .unwrap_or_else(|_| panic!("invalid route pattern {pattern:?}"))
 }
 
+/// The layouts a walk is under, outermost first: each one's type, whether it
+/// is kept, and its parts.
+#[derive(Default)]
+struct Above {
+    types: Vec<syn::Type>,
+    keeping: Vec<bool>,
+    parts: Vec<Vec<Part>>,
+}
+
 fn flatten(
     nodes: &[Node],
-    ancestors: &mut Vec<syn::Type>,
-    keeping: &mut Vec<bool>,
+    above: &mut Above,
     standing: &[syn::Type],
     kept: bool,
     leaves: &mut Vec<Leaf>,
@@ -362,16 +384,19 @@ fn flatten(
                 guards,
                 restorable,
                 keep,
+                parts,
                 children,
             } => {
                 let mut inside = standing.to_vec();
                 guards.fold_into(&mut inside);
 
-                ancestors.push(ty.clone());
-                keeping.push(*keep);
-                flatten(children, ancestors, keeping, &inside, kept || *restorable, leaves);
-                keeping.pop();
-                ancestors.pop();
+                above.types.push(ty.clone());
+                above.keeping.push(*keep);
+                above.parts.push(parts.clone());
+                flatten(children, above, &inside, kept || *restorable, leaves);
+                above.parts.pop();
+                above.keeping.pop();
+                above.types.pop();
             }
             Node::Page {
                 ty,
@@ -384,17 +409,18 @@ fn flatten(
                 let mut here = standing.to_vec();
                 guards.fold_into(&mut here);
 
-                let mut keep_chain = keeping.clone();
+                let mut keep_chain = above.keeping.clone();
                 keep_chain.push(*keep);
 
                 leaves.push(Leaf {
-                    ancestors: ancestors.clone(),
+                    ancestors: above.types.clone(),
                     ty: ty.clone(),
                     link: link.clone(),
                     fields: fields.clone(),
                     guards: here,
                     restorable: kept || *restorable,
                     keep: keep_chain,
+                    parts: above.parts.clone(),
                 });
             }
         }
@@ -637,14 +663,53 @@ fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
 
     let brace_tokens = group_inner(Delimiter::Brace).parse_next(input)?;
     let mut brace_slice: Tokens = &brace_tokens;
-    let children = parse_children(&mut brace_slice, &format!("layout({})", spelled(&ty)))?;
+    let parent = format!("layout({})", spelled(&ty));
+    let mut parts: Vec<Part> = Vec::new();
+    let mut children = Vec::new();
+    while !brace_slice.is_empty() {
+        let Some(part) = parse_part(&mut brace_slice) else {
+            children.push(parse_child(&mut brace_slice, &parent)?);
+            continue;
+        };
+
+        if let Some(taken) = parts.iter().find(|taken| same_type(&taken.slot, &part.slot)) {
+            panic!(
+                "routes!: `{parent}` has two parts in `{}`: `{}` and `{}`",
+                spelled(&part.slot),
+                spelled(&taken.ty),
+                spelled(&part.ty)
+            );
+        }
+        parts.push(part);
+    }
     Ok(Node::Layout {
         ty,
         guards,
         restorable,
         keep,
+        parts,
         children,
     })
+}
+
+/// `part(X) => Slot`, if it is there.
+fn parse_part(input: &mut Tokens) -> Option<Part> {
+    match input.first() {
+        Some(TokenTree::Ident(word)) if word == "part" => {}
+        _ => return None,
+    }
+
+    let mut slice: Tokens = &input[1..];
+    let paren = group_inner(Delimiter::Parenthesis).parse_next(&mut slice).ok()?;
+    let ty = sole_type(paren, |ty| format!("routes!: `part({}, ..)` - a part is one type", spelled(ty))).ok()?;
+    punct('=').parse_next(&mut slice).ok()?;
+    punct('>').parse_next(&mut slice).ok()?;
+    let slot = parse_type(|tt| matches!(tt, TokenTree::Ident(word) if word == "part" || word == "page" || word == "layout"))
+        .parse_next(&mut slice)
+        .ok()?;
+
+    *input = slice;
+    Some(Part { ty, slot })
 }
 
 fn parse_page_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
@@ -816,15 +881,26 @@ fn parse_app(input: &mut Tokens) -> Option<(syn::Type, Vec<Node>)> {
 fn parse_children<'i>(input: &mut Tokens<'i>, parent: &str) -> ModalResult<Vec<Node>> {
     let mut nodes = Vec::new();
     while !input.is_empty() {
-        if let Some((app, _)) = parse_app(input) {
+        if let Some(part) = parse_part(input) {
             panic!(
-                "routes!: `app({})` is the root of the tree, not a child of `{parent}`",
-                spelled(&app)
+                "routes!: `part({})` belongs to a layout, not to `{parent}`",
+                spelled(&part.ty)
             );
         }
-        nodes.push(parse_node.parse_next(input)?);
+        nodes.push(parse_child(input, parent)?);
     }
     Ok(nodes)
+}
+
+/// One node under `parent`.
+fn parse_child<'i>(input: &mut Tokens<'i>, parent: &str) -> ModalResult<Node> {
+    if let Some((app, _)) = parse_app(input) {
+        panic!(
+            "routes!: `app({})` is the root of the tree, not a child of `{parent}`",
+            spelled(&app)
+        );
+    }
+    parse_node.parse_next(input)
 }
 
 fn described(node: &Node) -> String {
@@ -841,6 +917,12 @@ fn parse_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
 fn parse_nodes<'i>(input: &mut Tokens<'i>) -> ModalResult<Vec<Node>> {
     let mut nodes = Vec::new();
     while !input.is_empty() {
+        if let Some(part) = parse_part(input) {
+            panic!(
+                "routes!: `part({})` belongs to a layout, not to the root of the tree",
+                spelled(&part.ty)
+            );
+        }
         nodes.push(parse_node.parse_next(input)?);
     }
     Ok(nodes)
@@ -1352,5 +1434,54 @@ mod tests {
     #[should_panic(expected = "unknown setting `frontend = ..`")]
     fn an_unknown_setting_is_refused() {
         find_in_source("routes! { frontend = X, Route { page(A) } }");
+    }
+
+    fn parts_of(tree: &RouteTree) -> Vec<(String, Vec<Vec<(String, String)>>)> {
+        tree.leaves()
+            .iter()
+            .map(|leaf| {
+                let parts = leaf
+                    .parts
+                    .iter()
+                    .map(|parts| {
+                        parts
+                            .iter()
+                            .map(|part| (spelled(&part.ty), spelled(&part.slot)))
+                            .collect()
+                    })
+                    .collect();
+                (spelled(&leaf.ty), parts)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_part_sits_in_its_layout_under_a_slot() {
+        let tree = tree_of(
+            "layout(Shell) { part(charts::Sidebar) => PaneFooter page(A) \
+             layout(Area) { part(Hint) => slots::Toolbar page(B) } }",
+        );
+
+        let footer = ("charts::Sidebar".to_string(), "PaneFooter".to_string());
+        let toolbar = ("Hint".to_string(), "slots::Toolbar".to_string());
+        assert_eq!(
+            parts_of(&tree),
+            [
+                ("A".to_string(), vec![vec![footer.clone()]]),
+                ("B".to_string(), vec![vec![footer], vec![toolbar]]),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "routes!: `layout(Shell)` has two parts in `PaneFooter`: `A` and `B`")]
+    fn a_slot_takes_one_part() {
+        tree_of("layout(Shell) { part(A) => PaneFooter part(B) => PaneFooter page(C) }");
+    }
+
+    #[test]
+    #[should_panic(expected = "routes!: `part(A)` belongs to a layout, not to `app(App)`")]
+    fn a_part_beside_the_pages_of_an_application_is_refused() {
+        tree_of("app(App) { part(A) => Toolbar page(B) }");
     }
 }

@@ -925,29 +925,48 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<WinUi> {
 }
 
 thread_local! {
-    /// Nodes built by `install`, waiting for the reconciler to mount them.
+    /// Nodes built by `install`, by the scope they were installed into.
     ///
     /// `init` needs the feature context, which exists while the router is
     /// installing; a component is created later, when the reconciler reaches
     /// it, and is handed no such thing. So the node is built where the context
-    /// is and taken where it is needed. Keyed by type: a chain holds each
-    /// segment type once.
-    static STAGED: RefCell<HashMap<TypeId, Box<dyn Any>>> = RefCell::new(HashMap::new());
+    /// is and found where it is needed.
+    ///
+    /// Kept for as long as the scope is, not taken once: a component the
+    /// reconciler drops and makes again in the same scope - a part a fill
+    /// covered and uncovered - is the same segment, and gets the same node.
+    static STAGED: RefCell<HashMap<usize, Box<dyn Any>>> = RefCell::new(HashMap::new());
 }
 
-fn stage<S: 'static>(node: S) {
+/// Forgets a scope's node when the scope goes.
+struct Unstage(usize);
+
+impl Drop for Unstage {
+    fn drop(&mut self) {
+        let _gone = STAGED.try_with(|staged| staged.borrow_mut().remove(&self.0));
+    }
+}
+
+fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
+    let key = ctx.scope.key();
     STAGED.with(|staged| {
-        staged.borrow_mut().insert(TypeId::of::<S>(), Box::new(node));
+        staged.borrow_mut().insert(key, Box::new(node));
     });
+    ctx.scope.own(guinea_core::scope::DropGuard(Unstage(key)));
 }
 
-/// The staged node, or a default one - which is what a page mounted outside a
-/// route tree gets, and what a second publication of the same segment gets.
-fn take_staged<S: Default + 'static>() -> S {
+/// The node installed into the scope at `props`, or a default one - which is
+/// what a page mounted outside a route tree gets.
+fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
+    let key = props.scopes[props.cursor].key();
     STAGED
-        .with(|staged| staged.borrow_mut().remove(&TypeId::of::<S>()))
-        .and_then(|node| node.downcast::<S>().ok())
-        .map(|node| *node)
+        .with(|staged| {
+            staged
+                .borrow()
+                .get(&key)
+                .and_then(|node| node.downcast_ref::<Shared<N>>())
+                .cloned()
+        })
         .unwrap_or_default()
 }
 
@@ -987,7 +1006,7 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
         }
     });
 
-    stage(node);
+    stage(ctx, node);
 }
 
 /// Hands what a segment installed to its scope - a feature's lifetime is the
@@ -1090,7 +1109,7 @@ impl<P: Page> Component for PageNode<P> {
         }
 
         Self {
-            page: take_staged::<Shared<P>>(),
+            page: staged::<P>(input),
             props: input.clone(),
         }
     }
@@ -1100,7 +1119,7 @@ impl<P: Page> Component for PageNode<P> {
     /// second is a new node, and `install` staged it.
     fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
         if input.identity() != self.props.identity() {
-            self.page = take_staged::<Shared<P>>();
+            self.page = staged::<P>(input);
         }
         self.props = input.clone();
     }
@@ -1160,7 +1179,7 @@ impl<L: Layout> Component for LayoutNode<L> {
         }
 
         Self {
-            layout: take_staged::<Shared<L>>(),
+            layout: staged::<L>(input),
             props: input.clone(),
         }
     }
@@ -1168,7 +1187,7 @@ impl<L: Layout> Component for LayoutNode<L> {
     /// See `PageNode::input_changed`.
     fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
         if input.identity() != self.props.identity() {
-            self.layout = take_staged::<Shared<L>>();
+            self.layout = staged::<L>(input);
         }
         self.props = input.clone();
     }

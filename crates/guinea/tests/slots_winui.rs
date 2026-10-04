@@ -16,6 +16,55 @@ use windows_reactor::{Button, StackPanel, TextBlock, View};
 #[guinea::slot]
 pub struct Toolbar;
 
+#[guinea::slot]
+pub struct Footer;
+
+/// Mounted with the shell in its footer, with state of its own.
+#[derive(Default)]
+pub struct Charts {
+    shown: u32,
+}
+
+pub enum More {
+    Charts,
+}
+
+#[page]
+impl Page for Charts {
+    type Message = More;
+
+    fn update(&mut self, message: More, _cx: &mut UpdateCx<'_, Self>) {
+        match message {
+            More::Charts => self.shown += 1,
+        }
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        StackPanel::new()
+            .children((
+                TextBlock::new().text(format!("charts {}", self.shown)),
+                Button::new()
+                    .on_click(cx.on(|()| More::Charts))
+                    .content(TextBlock::new().text("more charts")),
+            ))
+            .into()
+    }
+}
+
+/// Covers the shell's footer with its own.
+#[derive(Default)]
+pub struct Footing;
+
+#[page]
+impl Page for Footing {
+    type Params = FootingParams;
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        cx.fill::<Footer>(TextBlock::new().text("page footer").into());
+        TextBlock::new().text("footing").into()
+    }
+}
+
 thread_local! {
     static SHELL_DRAWN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -30,7 +79,7 @@ impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         SHELL_DRAWN.set(SHELL_DRAWN.get() + 1);
         StackPanel::new()
-            .children((cx.slot::<Toolbar>(), cx.outlet()))
+            .children((cx.slot::<Toolbar>(), cx.outlet(), cx.slot::<Footer>()))
             .into()
     }
 }
@@ -147,9 +196,11 @@ impl Page for Orphan {
 guinea::routes! {
     SlotRoute {
         layout(Shell) {
+            part(Charts) => Footer
             page(Processes) { }
             page(Services) { }
             page(Toggling) { }
+            page(Footing) { }
             layout(Area) {
                 page(Deep) { }
                 page(Plain) { }
@@ -157,6 +208,36 @@ guinea::routes! {
         }
         page(Orphan) { }
     }
+}
+
+#[guinea::test(iterations = 4)]
+fn a_part_shows_in_its_slot_where_nothing_below_fills_it(h: &mut Harness) {
+    let mut app = Mounted::routed(h, SlotRoute::Services {}).unwrap();
+    app.settle();
+
+    assert!(app.find_text("charts 0").is_some(), "{:#?}", app.tree());
+}
+
+#[guinea::test(iterations = 4)]
+fn a_fill_covers_the_part_and_leaving_uncovers_it_as_it_was(h: &mut Harness) {
+    let mut app = Mounted::routed(h, SlotRoute::Services {}).unwrap();
+    app.settle();
+    app.click_text("more charts").settle();
+    app.settle();
+    assert!(app.find_text("charts 1").is_some(), "{:#?}", app.tree());
+
+    app.navigate(SlotRoute::Footing {});
+    app.settle();
+    assert!(app.find_text("page footer").is_some(), "{:#?}", app.tree());
+    assert!(app.find_text("charts 1").is_none(), "{:#?}", app.tree());
+
+    app.navigate(SlotRoute::Services {});
+    app.settle();
+    assert!(
+        app.find_text("charts 1").is_some(),
+        "the part came back with the state it had:\n{:#?}",
+        app.tree()
+    );
 }
 
 #[guinea::test(iterations = 4)]

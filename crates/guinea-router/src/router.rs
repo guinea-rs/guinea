@@ -40,6 +40,11 @@ pub trait Ui: Sized + 'static {
     /// it. `()` for a backend that borrows nothing - which is four of the five
     /// here, and why this is an associated type rather than a requirement.
     type Nodes: 'static;
+
+    /// What a segment entry points at: `dyn Mount<Self>`, or a backend's own
+    /// trait over it when a segment has more to answer than its view - the
+    /// terminal offers each segment the keys.
+    type Mount: ?Sized + Mount<Self> + 'static;
 }
 
 pub struct SegmentEntry<U: Ui> {
@@ -59,7 +64,7 @@ pub struct SegmentEntry<U: Ui> {
     /// before anything in it mounts.
     pub lists: fn(&mut Vec<guinea_app::feature::Listed>),
     /// Built by the backend: the agnostic half only calls it.
-    pub mount: &'static dyn Mount<U>,
+    pub mount: &'static U::Mount,
     pub cache_state: bool,
     /// Declared `keep` in `routes!`: left, it sleeps instead of being torn
     /// down, and a navigation back wakes it as it was.
@@ -319,7 +324,7 @@ impl<U: Ui> SegmentEntry<U> {
         install: fn(&FeatureInitContext, &dyn Any) -> anyhow::Result<()>,
         same_params: fn(&dyn Any, &dyn Any) -> bool,
         lists: fn(&mut Vec<guinea_app::feature::Listed>),
-        mount: &'static dyn Mount<U>,
+        mount: &'static U::Mount,
         cache_state: bool,
     ) -> Self {
         Self {

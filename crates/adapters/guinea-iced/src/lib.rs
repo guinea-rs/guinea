@@ -74,6 +74,7 @@ pub struct Iced;
 impl Ui for Iced {
     type View<'a> = iced::Element<'a, Envelope>;
     type Nodes = Nodes;
+    type Mount = dyn Mount<Self>;
 }
 
 /// What a node's `view` returns.
@@ -483,7 +484,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Iced> {
         install_page::<P>,
         same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(PhantomData) },
+        &const { MountPage::<P>(PhantomData) } as &dyn Mount<Iced>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -494,7 +495,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Iced> {
         install_layout::<L>,
         same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(PhantomData) },
+        &const { MountLayout::<L>(PhantomData) } as &dyn Mount<Iced>,
         false,
     )
     .written(L::DECLARED)

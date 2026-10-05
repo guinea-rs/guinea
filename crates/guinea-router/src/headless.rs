@@ -16,6 +16,7 @@ impl Ui for Headless {
     type View<'a> = ();
     /// Nothing to borrow from: a view that draws nothing holds nothing.
     type Nodes = ();
+    type Mount = dyn Mount<Self>;
 }
 
 /// A leaf, in a backend that renders nothing. Note how little it has in common
@@ -78,7 +79,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Headless> {
         install_page::<P>,
         crate::router::same_params::<P::Params>,
         P::Installs::list,
-        &const { MountPage::<P>(std::marker::PhantomData) },
+        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn Mount<Headless>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -89,7 +90,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Headless> {
         install_layout::<L>,
         crate::router::same_params::<L::Params>,
         L::Installs::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) },
+        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn Mount<Headless>,
         false,
     )
     .written(L::DECLARED)

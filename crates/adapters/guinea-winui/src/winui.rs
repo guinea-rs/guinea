@@ -42,6 +42,7 @@ impl Ui for WinUi {
     /// the tree, and a view it is handed owns everything it shows.
     type View<'a> = View;
     type Nodes = ();
+    type Mount = dyn Mount<Self>;
 }
 
 /// A leaf of the route tree, and an Elm node.
@@ -908,7 +909,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<WinUi> {
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(PhantomData) },
+        &const { MountPage::<P>(PhantomData) } as &dyn Mount<WinUi>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -919,7 +920,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<WinUi> {
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(PhantomData) },
+        &const { MountLayout::<L>(PhantomData) } as &dyn Mount<WinUi>,
         false,
     )
     .written(L::DECLARED)

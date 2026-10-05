@@ -34,6 +34,7 @@ impl Ui for Tui {
     /// Nothing: a terminal view draws from a snapshot inside the frame and
     /// holds no reference to state afterwards.
     type Nodes = ();
+    type Mount = dyn Mount<Self>;
 }
 
 /// Drawing that has not happened yet.
@@ -124,7 +125,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Tui> {
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(std::marker::PhantomData) },
+        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn Mount<Tui>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -135,7 +136,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Tui> {
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) },
+        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn Mount<Tui>,
         false,
     )
     .written(L::DECLARED)

@@ -64,6 +64,7 @@ impl Ui for Slint {
     /// Nothing: Slint owns its own tree and this backend pushes into it, so
     /// there is no view here to borrow from anything.
     type Nodes = ();
+    type Mount = dyn Mount<Self>;
 }
 
 /// A leaf of the route tree.
@@ -140,7 +141,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Slint> {
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &NothingToRender,
+        &NothingToRender as &dyn Mount<Slint>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -151,7 +152,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Slint> {
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &NothingToRender,
+        &NothingToRender as &dyn Mount<Slint>,
         false,
     )
     .written(L::DECLARED)

@@ -18,10 +18,6 @@ mod run;
 
 pub use run::{MAIN, run};
 
-use std::any::{Any, TypeId};
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use guinea_app::feature::{FeatureInitContext, Reads};
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::Reducer;
@@ -37,6 +33,7 @@ impl Ui for Egui {
     /// Nothing: an immediate-mode view draws from a snapshot inside the frame
     /// and holds no reference to state afterwards.
     type Nodes = ();
+    type Mount = dyn Mount<Self>;
 }
 
 /// Drawing that has not happened yet.
@@ -149,7 +146,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Egui> {
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(std::marker::PhantomData) },
+        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn Mount<Egui>,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -160,7 +157,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Egui> {
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) },
+        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn Mount<Egui>,
         false,
     )
     .written(L::DECLARED)
@@ -172,7 +169,7 @@ fn install_page<P: Page>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
     own(ctx, P::install(ctx, params)?);
-    keep(ctx, P::init(ctx, params));
+    guinea_router::mounted::keep(&ctx.scope, P::init(ctx, params));
     Ok(())
 }
 
@@ -188,67 +185,8 @@ fn install_layout<L: Layout>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
     own(ctx, L::install(ctx, params)?);
-    keep(ctx, L::init(ctx, params));
+    guinea_router::mounted::keep(&ctx.scope, L::init(ctx, params));
     Ok(())
-}
-
-thread_local! {
-    /// Every mounted segment's own state, by the scope it is mounted in and
-    /// what it is.
-    ///
-    /// A segment's state has to outlive the frame and die with the mount,
-    /// and egui gives it nowhere to live: a [`Node`] is drawn once and
-    /// dropped. So the scope holds it - through this, because a scope keeps
-    /// reducers and teardowns, not nodes.
-    static MOUNTED: RefCell<HashMap<(usize, TypeId), Option<Box<dyn Any>>>> =
-        RefCell::new(HashMap::new());
-}
-
-/// Holds `node` for as long as the segment being installed is mounted.
-fn keep<S: 'static>(ctx: &FeatureInitContext, node: S) {
-    let at = (ctx.scope.key(), TypeId::of::<S>());
-
-    MOUNTED.with(|mounted| mounted.borrow_mut().insert(at, Some(Box::new(node))));
-    ctx.scope.own(Forget(at));
-}
-
-/// Drops a segment's state when its scope goes.
-struct Forget((usize, TypeId));
-
-impl guinea_core::scope::Teardown for Forget {
-    fn teardown(self) {
-        // `try_with`: a scope can outlive the thread local at thread
-        // teardown, and this runs from a `Drop`.
-        let _ = MOUNTED.try_with(|mounted| mounted.borrow_mut().remove(&self.0));
-    }
-}
-
-/// Draws with the segment's own state.
-///
-/// Taken out for the frame and put back after it, rather than borrowed
-/// across it: a segment draws its child inside its own drawing, and a page
-/// that navigates while drawing ends its own mount - after which there is
-/// nowhere to put anything back, and the state goes with it.
-///
-/// A segment mounted with no `install` behind it - which a test does, and
-/// nothing else - draws from a default that lasts the frame.
-fn with_mounted<S: Default + 'static, R>(scope: usize, draw: impl FnOnce(&mut S) -> R) -> R {
-    let at = (scope, TypeId::of::<S>());
-
-    let taken = MOUNTED.with(|mounted| mounted.borrow_mut().get_mut(&at).and_then(Option::take));
-    let mut node = taken
-        .and_then(|node| node.downcast::<S>().ok())
-        .map_or_else(S::default, |node| *node);
-
-    let drawn = draw(&mut node);
-
-    MOUNTED.with(|mounted| {
-        if let Some(slot) = mounted.borrow_mut().get_mut(&at) {
-            *slot = Some(Box::new(node));
-        }
-    });
-
-    drawn
 }
 
 /// A zero-sized marker per segment type: what a `const` entry points at to get
@@ -258,11 +196,11 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 
 impl<P: Page> Mount<Egui> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor].key();
+        let at = props.scopes[props.cursor];
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            with_mounted::<P, _>(at, |page| {
+            guinea_router::mounted::with::<P, _>(&at, |page| {
                 page.render(&mut PageCx {
                     ui,
                     props,
@@ -275,11 +213,11 @@ impl<P: Page> Mount<Egui> for MountPage<P> {
 
 impl<L: Layout> Mount<Egui> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor].key();
+        let at = props.scopes[props.cursor];
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            with_mounted::<L, _>(at, |layout| {
+            guinea_router::mounted::with::<L, _>(&at, |layout| {
                 layout.render(&mut LayoutCx {
                     ui,
                     props,

@@ -13,18 +13,10 @@ use guinea_router::router::Router;
 use ratatui::crossterm::event::{Event, KeyCode};
 use routes::Route;
 
-use guinea_core::scope::Scope;
-use guinea_plugin_l10n::{Language, Localization, SwitchLanguage};
 use guinea_plugin_store::Store;
-use processes_core::l10n::L10n;
-use processes_core::processes::contracts::{Kill, Processes as Running};
-use processes_core::services::contracts::Services;
-use processes_core::tabs::contracts::Tabs;
 use processes_core::startup;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-use cursor::{Cursor, Move};
 
 /// Where the store keeps the route between runs.
 const LAST_ROUTE: &str = "route";
@@ -96,6 +88,7 @@ fn main() -> anyhow::Result<()> {
     )
 }
 
+/// The keys no page took: the ones that are the application's, not a page's.
 fn on_key(
     event: &Event,
     nav: &guinea_router::router::NavigateHandle<Tui, Route>,
@@ -105,11 +98,9 @@ fn on_key(
         return Flow::Continue;
     };
 
-    // What the layout was reached with, read back from where its install put
-    // it - a key handler lives outside the tree and has no params of its own.
     let context = router
-        .scope_at(0)
-        .map(|tabs| tabs.state::<Tabs>().borrow().context.clone())
+        .current_route::<Route>()
+        .map(|route| route.context().to_string())
         .unwrap_or_default();
 
     match code {
@@ -124,12 +115,6 @@ fn on_key(
         KeyCode::Char('1') => nav.to(Route::Processes { context }),
         KeyCode::Char('2') => nav.to(Route::Services { context }),
         KeyCode::Char('3') => nav.to(Route::Metrics { context }),
-        // No widget to hang a handler on, so the key reaches the page's
-        // actions through the scope the router installed for it.
-        KeyCode::Up => move_focus(router, -1),
-        KeyCode::Down => move_focus(router, 1),
-        KeyCode::Char('k') => kill_focused(router),
-        KeyCode::Char('l') => toggle_language(router),
         _ => {}
     }
 
@@ -143,59 +128,6 @@ fn on_key(
     }
 
     Flow::Continue
-}
-
-/// The language is the application's, not a window's, and the store keeps it,
-/// so this reaches the WinUI front end too: flip it here and the next run of
-/// `processes-app` starts in the language the terminal left it in.
-fn toggle_language(router: &Router<Tui>) {
-    let Some(owner) = router
-        .active_scope()
-        .and_then(|scope| scope.owner_of::<Language<L10n>>())
-    else {
-        return;
-    };
-    let language = owner.binding::<Language<L10n>>();
-    let next = if language.get().strings().tag() == "ru" {
-        "en"
-    } else {
-        "ru"
-    };
-    language.dispatch().emit(SwitchLanguage(next.into()));
-}
-
-fn move_focus(router: &Router<Tui>, delta: isize) {
-    let Some(scope) = router.active_scope() else {
-        return;
-    };
-    let len = rows_on_screen(&scope);
-    scope.push::<Cursor>(Move { delta, len });
-}
-
-/// How long the list the active page is drawing is - asked of the page's own
-/// scope rather than of the route, so a page without a list simply has none.
-fn rows_on_screen(scope: &Scope) -> usize {
-    if let Some(state) = scope.peek::<Running>() {
-        return state.borrow().items.len();
-    }
-    if let Some(state) = scope.peek::<Services>() {
-        return state.borrow().items.len();
-    }
-    0
-}
-
-fn kill_focused(router: &Router<Tui>) {
-    let Some(scope) = router.active_scope() else {
-        return;
-    };
-    let Some(state) = scope.peek::<Running>() else {
-        return;
-    };
-    let focused = scope.state::<Cursor>().borrow().row;
-    let pid = processes_core::processes::pid_at(&state.borrow().items, focused);
-    if let Some(pid) = pid {
-        scope.binding::<Running>().dispatch().emit(Kill(pid));
-    }
 }
 
 #[cfg(test)]

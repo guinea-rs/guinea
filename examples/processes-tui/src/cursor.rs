@@ -1,32 +1,26 @@
-use guinea_core::scope::Reducer;
-
 /// Which row has the focus.
 ///
-/// A reducer rather than a field in the front end, so it lives in the scope
-/// the router installed for the page: every page keeps its own row, and the
-/// row dies with the page instead of following the user to the next one.
-#[derive(Default, Clone, PartialEq, Debug)]
+/// A field of the page that draws the list, not a reducer: nothing outside
+/// the page reads it, so it lives as long as the page and dies with it.
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub struct Cursor {
-    pub row: usize,
+    row: usize,
 }
 
-/// A step, and how many rows there were when it was taken - the list is
-/// refreshed by an actor and can shrink under the focus.
-#[derive(Clone)]
-pub struct Move {
-    pub delta: isize,
-    pub len: usize,
-}
+impl Cursor {
+    /// The focused row in a list of `len` - the list is refreshed by an actor
+    /// and can shrink under the focus.
+    pub fn row(&mut self, len: usize) -> usize {
+        self.step(0, len);
+        self.row
+    }
 
-impl Reducer for Cursor {
-    type Update = Move;
-
-    fn reduce(&mut self, step: Move) {
-        let Some(last) = step.len.checked_sub(1) else {
+    pub fn step(&mut self, delta: isize, len: usize) {
+        let Some(last) = len.checked_sub(1) else {
             self.row = 0;
             return;
         };
-        let next = (self.row as isize).saturating_add(step.delta);
+        let next = (self.row as isize).saturating_add(delta);
         self.row = next.clamp(0, last as isize) as usize;
     }
 }

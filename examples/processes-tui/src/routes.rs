@@ -21,6 +21,17 @@ routes! {
     }
 }
 
+impl Route {
+    /// What every tab was reached with.
+    pub fn context(&self) -> &str {
+        match self {
+            Route::Processes { context }
+            | Route::Services { context }
+            | Route::Metrics { context } => context,
+        }
+    }
+}
+
 /// What this application answers to from outside, committed and diffed.
 ///
 /// Not a test of the router - a test of this application's promises. It fails

@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Sparkline};
 
 use processes_core::metrics::contracts::Metrics as Sampling;
 
+#[derive(Default)]
 pub struct Metrics;
 
 impl Page for Metrics {
@@ -20,7 +21,7 @@ impl Page for Metrics {
         ctx.install(&())
     }
 
-    fn render(cx: &mut PageCx<'_, '_, Self>) {
+    fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
         let (state, _) = cx.read::<Sampling>();
 
         let rows = Rows::default()

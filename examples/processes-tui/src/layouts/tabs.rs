@@ -1,11 +1,12 @@
 use guinea::feature::FeatureInitContext;
-use guinea::ratatui::{Layout, LayoutCx};
+use guinea::ratatui::{Handled, InputCx, Layout, LayoutCx};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout as Rows};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use guinea_plugin_l10n::L10nAccess;
+use guinea_plugin_l10n::{L10nAccess, Localization};
 use processes_core::l10n::L10n;
 use processes_core::tabs::contracts::Tabs;
 
@@ -13,6 +14,7 @@ use crate::pages::metrics::Metrics;
 use crate::pages::processes::Processes;
 use crate::pages::services::Services;
 
+#[derive(Default)]
 pub struct TabsLayout;
 
 impl Layout for TabsLayout {
@@ -24,7 +26,20 @@ impl Layout for TabsLayout {
         ctx.install(params.context.as_str())
     }
 
-    fn render(cx: &mut LayoutCx<'_, '_, Self>) {
+    /// The language is the application's, not a window's, and the store keeps
+    /// it, so this reaches the WinUI front end too: flip it here and the next
+    /// run of `processes-app` starts in the language the terminal left it in.
+    fn on_key(&mut self, cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {
+        if key.code != KeyCode::Char('l') {
+            return Handled::No;
+        }
+
+        let next = if cx.l10n::<L10n>().tag() == "ru" { "en" } else { "ru" };
+        cx.language_switch::<L10n>().to(next);
+        Handled::Yes
+    }
+
+    fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
         let (state, _) = cx.read::<Tabs>();
         let strings = cx.l10n::<L10n>();
 

@@ -307,6 +307,23 @@ fn a_published_event_has_the_layout_it_redrew_in_its_chain(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 4)]
+fn a_layout_redrawn_does_not_redraw_the_page_under_it(h: &mut Harness) {
+    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    app.settle();
+
+    let act = h.publish(Sampled(3));
+    act.settle();
+    app.settle();
+
+    assert!(app.find_text("load 3").is_some(), "{:#?}", app.tree());
+    assert!(
+        !act.chain().has(rendered("Services")),
+        "{:#?}",
+        act.chain().points()
+    );
+}
+
+#[guinea::test(iterations = 4)]
 fn a_navigation_has_the_page_it_drew_in_its_chain(h: &mut Harness) {
     let mut app = Mounted::routed(h, Route::Services {}).unwrap();
     app.settle();

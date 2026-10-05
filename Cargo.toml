@@ -54,14 +54,14 @@ window-vibrancy = "0.7.1"
 raw-window-handle = "0.6.2"
 
 # --- UI Stack (windows-reactor) ---
-# windows-rs at af92a168e has the reactor guinea is written against, and
+# windows-rs at 42503b90e has the reactor guinea is written against, and
 # crates.io does not: its windows-reactor 0.100.0 is older. The reactor and the
 # canvas at that rev are published from crates/vendor as `-pre` crates, under
 # their own lib names, on the rest of the windows-rs 0.100 family from
 # crates.io - so guinea-winui can be published too.
-windows-reactor = { package = "windows-reactor-pre", version = "0.102.0", path = "crates/vendor/windows-reactor-pre" }
-windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "af92a168e" }
-windows-canvas = { package = "windows-canvas-pre", version = "0.102.0", path = "crates/vendor/windows-canvas-pre" }
+windows-reactor = { package = "windows-reactor-pre", version = "0.103.0", path = "crates/vendor/windows-reactor-pre" }
+windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "42503b90e" }
+windows-canvas = { package = "windows-canvas-pre", version = "0.103.0", path = "crates/vendor/windows-canvas-pre" }
 windows-core = "0.100.0"
 
 # --- Async ---

@@ -48,7 +48,6 @@ const ROOT: &str = "mounted";
 /// Every place a control holds a child, in the order they read on screen - a
 /// `NavigationView`'s pane before its content, a header before what it heads.
 const RELATIONS: &[RelationId] = &[
-    RelationId::Child,
     RelationId::Children,
     RelationId::LeftHeader,
     RelationId::Header,

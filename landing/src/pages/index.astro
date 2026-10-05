@@ -9,8 +9,6 @@ const links: [string, string][] = [
   ['crates.io', 'https://crates.io/crates/guinea'],
   ['GitHub', repo],
 ];
-
-const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
 ---
 
 <html lang="en">
@@ -20,7 +18,7 @@ const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
   <link rel="icon" href={asset('/favicon.ico')} sizes="any" />
   <link rel="icon" type="image/svg+xml" href={asset('/guinea.svg')} />
   <meta name="generator" content={Astro.generator} />
-  <meta name="description" content="The application layer for Rust GUI: reducers, actors and features, nested routes, and five backends behind one domain." />
+  <meta name="description" content="The application layer for Rust GUI." />
   <title>guinea — the application layer for Rust GUI</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -42,13 +40,7 @@ const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
   </header>
 
   <main class="hero">
-    <div class="backends">{backends.join(' · ')}</div>
     <h1>The application layer for Rust GUI.</h1>
-    <p class="lede">
-      State is a reducer, the domain is actors, and a feature owns both.
-      Pages are written the way their toolkit works; routes, lifetimes,
-      tracing and tests come with the architecture.
-    </p>
     <div class="actions">
       <div class="install">
         <span class="prompt">$</span>
@@ -144,14 +136,6 @@ const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
     gap: 24px;
   }
 
-  .backends {
-    align-self: flex-start;
-    font: 17px/1.5 'Share Tech Mono', monospace;
-    background: rgba(255, 250, 240, .72);
-    border: 2px solid #1f2a2e;
-    padding: 8px 14px;
-  }
-
   h1 {
     margin: 0;
     font-size: 66px;
@@ -159,15 +143,6 @@ const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
     font-weight: 700;
     letter-spacing: -.02em;
     text-wrap: balance;
-  }
-
-  .lede {
-    margin: 0;
-    font-size: 20px;
-    line-height: 1.45;
-    font-weight: 500;
-    max-width: 540px;
-    text-wrap: pretty;
   }
 
   .actions { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap }
@@ -215,15 +190,12 @@ const backends = ['WinUI', 'Slint', 'egui', 'iced', 'ratatui'];
   @media (max-width: 760px) {
     .links a:not(:last-child) { display: none }
     h1 { font-size: 44px }
-    .lede { font-size: 18px }
-    .backends { font-size: 15px }
   }
 
   @media (max-width: 420px) {
     .bar { padding: 22px 18px }
     .hero { left: 18px; width: calc(100% - 36px); gap: 18px }
     h1 { font-size: 36px }
-    .lede { font-size: 16px }
     .install { font-size: 14px }
   }
 </style>

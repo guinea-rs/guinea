@@ -30,10 +30,6 @@ const links: [string, string][] = [
   <canvas id="meadow" aria-hidden="true"></canvas>
 
   <header class="bar">
-    <a class="brand" href={asset('/')}>
-      <img src={asset('/guinea.svg')} alt="" width="32" height="32" />
-      guinea
-    </a>
     <nav class="links">
       {links.map(([label, href]) => <a href={href}>{label}</a>)}
     </nav>
@@ -114,15 +110,6 @@ const links: [string, string][] = [
     gap: 2rem;
     padding: 1.75rem 5.6vw;
   }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: .6rem;
-    font-weight: 700;
-    font-size: 1.6rem;
-    letter-spacing: -.01em;
-  }
-  .brand img { width: 2.1rem; height: 2.1rem; image-rendering: pixelated }
   .links {
     margin-left: auto;
     display: flex;
@@ -133,9 +120,10 @@ const links: [string, string][] = [
 
   .hero {
     position: absolute;
-    left: max(5.6vw, 50vw - 36rem);
-    top: max(7rem, 22vh);
-    width: calc(100% - 2 * 5.6vw);
+    left: 5.6vw;
+    right: 5.6vw;
+    top: calc(31% + 2.5rem);
+    transform: translateY(-50%);
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -143,16 +131,16 @@ const links: [string, string][] = [
   }
 
   h1 {
-    margin: 0;
+    margin: 0 0 0 -.06em;
     display: flex;
     align-items: center;
-    gap: .25em;
-    font-size: 6rem;
+    gap: .2em;
+    font-size: 8rem;
     line-height: 1;
     font-weight: 700;
     letter-spacing: -.02em;
   }
-  h1 img { width: 1.35em; height: 1.35em; image-rendering: pixelated }
+  h1 img { width: 1.25em; height: 1.25em; image-rendering: pixelated }
 
   .tagline {
     margin: -.4rem 0 .4rem;
@@ -211,7 +199,7 @@ const links: [string, string][] = [
 
   @media (max-width: 420px) {
     .bar { padding: 1.4rem 18px }
-    .hero { left: 18px; width: calc(100% - 36px); gap: 1.2rem }
+    .hero { left: 18px; right: 18px; gap: 1.2rem }
     h1 { font-size: 3.4rem }
     .tagline { font-size: 1.15rem }
     .install { font-size: .9rem }

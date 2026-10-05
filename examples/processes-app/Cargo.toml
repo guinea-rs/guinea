@@ -11,18 +11,18 @@ guinea = { path = "../../crates/guinea" }
 processes-core = { path = "../processes-core" }
 guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.25.0" }
-guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.25.0" }
-guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.25.0" }
-guinea-plugin-devtools = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.25.0" }
-guinea-xaml-tap = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.25.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.26.0" }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.26.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.26.0" }
+guinea-plugin-devtools = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.26.0" }
+guinea-xaml-tap = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.26.0" }
 anyhow = "1.0"
 inventory = "0.3"
 tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-windows-reactor = { package = "windows-reactor-pre", version = "0.102.0" }
-windows-canvas = { package = "windows-canvas-pre", version = "0.102.0", features = ["reactor"] }
+windows-reactor = { package = "windows-reactor-pre", version = "0.103.0" }
+windows-canvas = { package = "windows-canvas-pre", version = "0.103.0", features = ["reactor"] }
 
 [build-dependencies]
 guinea-meta-build = { path = "../../crates/guinea-meta-build" }

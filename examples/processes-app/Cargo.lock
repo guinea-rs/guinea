@@ -1019,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1077,8 +1077,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -1104,15 +1104,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "guinea-meta"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -1121,8 +1121,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-devtools"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "anyhow",
  "capnp",
@@ -1139,8 +1139,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -1154,8 +1154,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -1166,8 +1166,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "anyhow",
  "guinea",
@@ -1176,8 +1176,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.24.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.24.1"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -1244,8 +1244,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.25.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+version = "0.26.0"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "guinea-mark",
  "tracing",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1272,7 +1272,7 @@ dependencies = [
 [[package]]
 name = "guinea-xaml-tap"
 version = "0.1.0"
-source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.25.0#2fe274225ec56e6540287b22dab0b3c15ba2fa58"
+source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.26.0#e8efb6f317455709517e3f7f77b1f0b4c1d5c52e"
 dependencies = [
  "capnp",
  "compio",
@@ -2598,7 +2598,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-canvas-pre"
-version = "0.102.0"
+version = "0.103.0"
 dependencies = [
  "windows-core",
  "windows-numerics",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.102.0"
+version = "0.103.0"
 dependencies = [
  "windows-collections",
  "windows-core",

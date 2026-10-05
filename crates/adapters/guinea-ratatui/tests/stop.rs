@@ -9,6 +9,7 @@ use guinea_app::feature::FeatureInitContext;
 use guinea_macros::routes;
 use guinea_ratatui::{Flow, PageCx};
 
+#[derive(Default)]
 struct Home;
 
 impl guinea_ratatui::Page for Home {
@@ -19,7 +20,7 @@ impl guinea_ratatui::Page for Home {
         Ok(())
     }
 
-    fn render(_cx: &mut PageCx<'_, '_, Self>) {}
+    fn render(&mut self, _cx: &mut PageCx<'_, '_, Self>) {}
 }
 
 routes! {

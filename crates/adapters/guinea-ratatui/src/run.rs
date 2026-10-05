@@ -15,7 +15,7 @@ use guinea_app::feature::{FeatureHost, ScopeContext};
 use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use ratatui::crossterm::cursor::Show;
-use ratatui::crossterm::event::{self, Event};
+use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -23,7 +23,8 @@ use ratatui::crossterm::terminal::{
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::{Tui, dialog, dispatcher};
+use crate::lease::{Desk, Hand};
+use crate::{Handled, Tui, dialog, dispatcher};
 
 /// What the application wants after an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,12 +39,11 @@ const TICK: Duration = Duration::from_millis(50);
 
 /// Takes over the terminal and runs until `on_event` says to stop.
 ///
-/// `on_event` is handed every input event, the navigator, and the router, so
-/// routing stays the application's decision - the same split as the reactor
-/// backend, where keys are the application's business and the router only
-/// obeys. The router comes along because a terminal has no widgets to hang
-/// handlers on: a key is the only way to reach a page's actions, and they are
-/// found through the scope the router installed.
+/// Input goes to the mounted segments first, leaf to root - see
+/// [`Page::on_key`](crate::Page::on_key). `on_event` is handed what none of
+/// them took, and every event that is not input: what is global to the
+/// application, like quitting or switching tabs.
+///
 /// `initial` is a closure rather than a value because where an application
 /// starts is often something only the installed plugins know - a route saved
 /// by the last run, read out of the store the store plugin just provided.
@@ -83,11 +83,13 @@ where
 
     router.navigate(initial.clone())?;
 
+    let desk = Desk::open();
     let outcome = Screen::enter().and_then(|mut screen| {
-        let outcome = pump(&mut screen.terminal, &router, &nav, &mut on_event);
+        let outcome = pump(&mut screen, &desk, &router, &nav, &mut on_event);
         let left = screen.leave();
         outcome.and(left)
     });
+    drop(desk);
 
     router.deactivate();
     shutdown_current();
@@ -95,7 +97,8 @@ where
 }
 
 fn pump<R, F>(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: &mut Screen,
+    desk: &Desk,
     router: &Router<Tui>,
     nav: &NavigateHandle<Tui, R>,
     on_event: &mut F,
@@ -107,7 +110,7 @@ where
     loop {
         let asking = router.pending();
 
-        terminal.draw(|frame| {
+        screen.terminal.draw(|frame| {
             router.render(&()).draw(frame, frame.area());
             if let Some(ask) = &asking {
                 dialog::draw(frame, ask);
@@ -124,7 +127,9 @@ where
             match &asking {
                 Some(_) => dialog::answer(router, &event),
                 None => {
-                    if on_event(&event, nav, router) == Flow::Exit {
+                    if crate::offer(router, nav, &event) == Handled::No
+                        && on_event(&event, nav, router) == Flow::Exit
+                    {
                         return Ok(());
                     }
                 }
@@ -134,6 +139,8 @@ where
         // After the keys, so a navigation made above is already installed and
         // whatever it started can run in the same breath.
         dispatcher::drain();
+
+        desk.hand_over(screen)?;
     }
 }
 
@@ -165,6 +172,7 @@ impl Screen {
                 return Err(error.into());
             }
         };
+        let _ = execute!(io::stdout(), EnableBracketedPaste);
 
         let previous: Arc<PanicHook> = Arc::from(std::panic::take_hook());
         let chained = previous.clone();
@@ -184,6 +192,7 @@ impl Screen {
         self.left = true;
         self.stand_down();
 
+        let _ = execute!(self.terminal.backend_mut(), DisableBracketedPaste);
         disable_raw_mode()?;
         execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
         self.terminal.show_cursor()?;
@@ -202,6 +211,26 @@ impl Screen {
     }
 }
 
+impl Hand for Screen {
+    fn release(&mut self) -> io::Result<()> {
+        let _ = execute!(self.terminal.backend_mut(), DisableBracketedPaste);
+        execute!(self.terminal.backend_mut(), LeaveAlternateScreen, Show)?;
+        disable_raw_mode()
+    }
+
+    fn take_back(&mut self) -> io::Result<()> {
+        enable_raw_mode()?;
+        execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
+        let _ = execute!(self.terminal.backend_mut(), EnableBracketedPaste);
+        self.terminal.clear()?;
+
+        while event::poll(Duration::ZERO)? {
+            event::read()?;
+        }
+        Ok(())
+    }
+}
+
 impl Drop for Screen {
     fn drop(&mut self) {
         if !self.left {
@@ -214,6 +243,7 @@ impl Drop for Screen {
 /// The terminal as it was before [`Screen::enter`], as far as it can be put
 /// back: whatever fails here has no one left to report to.
 fn restore() {
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
     let _ = disable_raw_mode();
     let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
 }

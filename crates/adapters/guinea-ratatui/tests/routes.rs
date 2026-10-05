@@ -13,6 +13,7 @@ use ratatui::layout::{Constraint, Direction, Layout as RLayout};
 use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, backend::TestBackend};
 
+#[derive(Default)]
 struct Shell;
 
 impl guinea_ratatui::Layout for Shell {
@@ -23,7 +24,7 @@ impl guinea_ratatui::Layout for Shell {
         Ok(())
     }
 
-    fn render(cx: &mut LayoutCx<'_, '_, Self>) {
+    fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
         let chunks = RLayout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Min(0)])
@@ -34,6 +35,7 @@ impl guinea_ratatui::Layout for Shell {
     }
 }
 
+#[derive(Default)]
 struct Processes;
 
 impl guinea_ratatui::Page for Processes {
@@ -44,12 +46,13 @@ impl guinea_ratatui::Page for Processes {
         Ok(())
     }
 
-    fn render(cx: &mut PageCx<'_, '_, Self>) {
+    fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
         let area = cx.area();
         cx.frame().render_widget(Paragraph::new("processes"), area);
     }
 }
 
+#[derive(Default)]
 struct Services;
 
 impl guinea_ratatui::Page for Services {
@@ -60,7 +63,7 @@ impl guinea_ratatui::Page for Services {
         Ok(())
     }
 
-    fn render(cx: &mut PageCx<'_, '_, Self>) {
+    fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
         let area = cx.area();
         cx.frame().render_widget(Paragraph::new("services"), area);
     }

@@ -15,15 +15,22 @@
 mod dialog;
 mod dispatcher;
 mod keys;
+mod lease;
 mod run;
 
 pub use keys::pressed;
+pub use lease::{Lent, lend_terminal};
 pub use run::{Flow, run};
+
+use std::any::Any;
 
 use guinea_app::feature::{FeatureInitContext, Reads};
 use guinea_core::scope::Reducer;
-use guinea_router::router::{Mount, SegmentEntry, SegmentProps, Ui, single_entry_chain};
+use guinea_router::router::{
+    Mount, NavigateHandle, RouteChain, Router, SegmentEntry, SegmentProps, Ui, single_entry_chain,
+};
 use ratatui::Frame;
+use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::Rect;
 
 /// ratatui as a [`Ui`].
@@ -34,7 +41,7 @@ impl Ui for Tui {
     /// Nothing: a terminal view draws from a snapshot inside the frame and
     /// holds no reference to state afterwards.
     type Nodes = ();
-    type Mount = dyn Mount<Self>;
+    type Mount = dyn TuiMount;
 }
 
 /// Drawing that has not happened yet.
@@ -55,8 +62,23 @@ impl Node {
     }
 }
 
-/// A leaf of the route tree.
-pub trait Page: Sized + 'static {
+/// Whether a segment took the input it was offered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handled {
+    Yes,
+    No,
+}
+
+/// A leaf of the route tree, and its own state.
+///
+/// The struct that implements this **is** the page's state, as in the eframe
+/// backend: what is typed in a filter, which row is picked. It is made by
+/// [`Page::init`] when the page mounts and dropped when it leaves.
+///
+/// Input comes down the active chain from the leaf: [`Page::on_key`] and
+/// [`Page::on_paste`] see it first, the layouts above see what it did not
+/// take, and [`run`]'s `on_event` sees what nobody took.
+pub trait Page: Default + Sized + 'static {
     /// When `true`, the router keeps this page's reducer states in memory
     /// while the page is not mounted.
     const CACHE_STATE_IN_MEMORY: bool = false;
@@ -86,16 +108,35 @@ pub trait Page: Sized + 'static {
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
+    /// The state it starts with, when `Default` is not it. Runs once per
+    /// mount, beside [`install`](Self::install).
+    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
+        Self::default()
+    }
+
     /// Draws the page into the frame it is handed.
     ///
     /// `render` and not `view`: ratatui is immediate, so this is not a
     /// description of what the page is - it is the drawing itself, run again
     /// for every frame.
-    fn render(cx: &mut PageCx<'_, '_, Self>);
+    fn render(&mut self, cx: &mut PageCx<'_, '_, Self>);
+
+    /// A key pressed while this page is mounted. Releases and repeats are not
+    /// offered.
+    fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, _key: &KeyEvent) -> Handled {
+        Handled::No
+    }
+
+    /// Text pasted while this page is mounted, where the terminal reports a
+    /// paste as one.
+    fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, _text: &str) -> Handled {
+        Handled::No
+    }
 }
 
-/// A branch: draws its own chrome and decides where its child goes.
-pub trait Layout: Sized + 'static {
+/// A branch: draws its own chrome and decides where its child goes. Its own
+/// state, the same way a [`Page`] is.
+pub trait Layout: Default + Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
@@ -117,7 +158,61 @@ pub trait Layout: Sized + 'static {
 
     fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
 
-    fn render(cx: &mut LayoutCx<'_, '_, Self>);
+    /// See [`Page::init`].
+    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
+        Self::default()
+    }
+
+    fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>);
+
+    /// See [`Page::on_key`]: offered what the segments below did not take.
+    fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, _key: &KeyEvent) -> Handled {
+        Handled::No
+    }
+
+    /// See [`Page::on_paste`].
+    fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, _text: &str) -> Handled {
+        Handled::No
+    }
+}
+
+/// What a segment entry points at here: its drawing, and its input.
+pub trait TuiMount: Mount<Tui> {
+    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled;
+}
+
+/// Offers `event` to the active chain, leaf first, until a segment takes it.
+pub(crate) fn offer(router: &Router<Tui>, nav: &dyn Any, event: &Event) -> Handled {
+    let (Some(chain), Some(scopes)) = (router.active_chain(), router.active_scopes()) else {
+        return Handled::No;
+    };
+
+    for cursor in (0..chain.len().min(scopes.len())).rev() {
+        let props = SegmentProps {
+            chain,
+            scopes: scopes.clone(),
+            cursor,
+        };
+
+        if chain[cursor].mount.offer(props, nav, event) == Handled::Yes {
+            return Handled::Yes;
+        }
+    }
+
+    Handled::No
+}
+
+enum Input<'a> {
+    Key(&'a KeyEvent),
+    Paste(&'a str),
+}
+
+fn input(event: &Event) -> Option<Input<'_>> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => Some(Input::Key(key)),
+        Event::Paste(text) => Some(Input::Paste(text)),
+        _ => None,
+    }
 }
 
 pub const fn segment_entry<P: Page>() -> SegmentEntry<Tui> {
@@ -125,7 +220,7 @@ pub const fn segment_entry<P: Page>() -> SegmentEntry<Tui> {
         install_page::<P>,
         guinea_router::router::same_params::<P::Params>,
         <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn Mount<Tui>,
+        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn TuiMount,
         P::CACHE_STATE_IN_MEMORY,
     )
     .written(P::DECLARED)
@@ -136,7 +231,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Tui> {
         install_layout::<L>,
         guinea_router::router::same_params::<L::Params>,
         <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn Mount<Tui>,
+        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn TuiMount,
         false,
     )
     .written(L::DECLARED)
@@ -146,7 +241,9 @@ fn install_page<P: Page>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, P::install(ctx, guinea_router::router::narrow::<P::Params, P>(params)?)?);
+    let params = guinea_router::router::narrow::<P::Params, P>(params)?;
+    own(ctx, P::install(ctx, params)?);
+    guinea_router::mounted::keep(&ctx.scope, P::init(ctx, params));
     Ok(())
 }
 
@@ -160,7 +257,9 @@ fn install_layout<L: Layout>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, L::install(ctx, guinea_router::router::narrow::<L::Params, L>(params)?)?);
+    let params = guinea_router::router::narrow::<L::Params, L>(params)?;
+    own(ctx, L::install(ctx, params)?);
+    guinea_router::mounted::keep(&ctx.scope, L::init(ctx, params));
     Ok(())
 }
 
@@ -171,27 +270,73 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 
 impl<P: Page> Mount<Tui> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
+        let at = props.scopes[props.cursor];
+
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            P::render(&mut PageCx {
-                frame,
-                area,
-                props,
-                page: std::marker::PhantomData,
+            guinea_router::mounted::with::<P, _>(&at, |page| {
+                page.render(&mut PageCx {
+                    frame,
+                    area,
+                    props,
+                    page: std::marker::PhantomData,
+                })
             })
+        })
+    }
+}
+
+impl<P: Page> TuiMount for MountPage<P> {
+    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled {
+        let Some(input) = input(event) else {
+            return Handled::No;
+        };
+        let at = props.scopes[props.cursor];
+        let mut cx = InputCx {
+            props,
+            nav,
+            segment: std::marker::PhantomData,
+        };
+
+        guinea_router::mounted::with::<P, _>(&at, |page| match input {
+            Input::Key(key) => page.on_key(&mut cx, key),
+            Input::Paste(text) => page.on_paste(&mut cx, text),
+        })
+    }
+}
+
+impl<L: Layout> TuiMount for MountLayout<L> {
+    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled {
+        let Some(input) = input(event) else {
+            return Handled::No;
+        };
+        let at = props.scopes[props.cursor];
+        let mut cx = InputCx {
+            props,
+            nav,
+            segment: std::marker::PhantomData,
+        };
+
+        guinea_router::mounted::with::<L, _>(&at, |layout| match input {
+            Input::Key(key) => layout.on_key(&mut cx, key),
+            Input::Paste(text) => layout.on_paste(&mut cx, text),
         })
     }
 }
 
 impl<L: Layout> Mount<Tui> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
+        let at = props.scopes[props.cursor];
+
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            L::render(&mut LayoutCx {
-                frame,
-                area,
-                props,
-                layout: std::marker::PhantomData,
+            guinea_router::mounted::with::<L, _>(&at, |layout| {
+                layout.render(&mut LayoutCx {
+                    frame,
+                    area,
+                    props,
+                    layout: std::marker::PhantomData,
+                })
             })
         })
     }
@@ -271,6 +416,65 @@ impl<L> LayoutCx<'_, '_, L> {
     }
 }
 
+/// What a segment's input handler is handed: the state it may read, the
+/// actions it may ask for, and the navigator.
+pub struct InputCx<'a, S> {
+    props: SegmentProps<Tui>,
+    nav: &'a dyn Any,
+    segment: std::marker::PhantomData<fn() -> S>,
+}
+
+impl<S> InputCx<'_, S> {
+    /// See [`PageCx::read`].
+    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer,
+    {
+        feature_of::<R>(&self.props)
+    }
+
+    /// The reducer's actions, without its state.
+    pub fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
+    where
+        R: Reducer,
+    {
+        self.props.binding::<R>().dispatch()
+    }
+
+    /// The navigator [`run`] was started with. Panics when `R` is not the
+    /// route type it was given.
+    pub fn navigate<R>(&self) -> NavigateHandle<Tui, R>
+    where
+        R: RouteChain<Tui> + Clone + PartialEq + 'static,
+    {
+        self.nav
+            .downcast_ref::<NavigateHandle<Tui, R>>()
+            .unwrap_or_else(|| {
+                panic!(
+                    "navigate::<{}>() but run() was given a different route type",
+                    std::any::type_name::<R>()
+                )
+            })
+            .clone()
+    }
+}
+
+impl<S> Reads for InputCx<'_, S> {
+    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        feature_of::<R>(&self.props)
+    }
+
+    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
+    where
+        R: Reducer,
+    {
+        self.props.binding::<R>().dispatch()
+    }
+}
+
 impl<P> Reads for PageCx<'_, '_, P> {
     fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
     where
@@ -342,9 +546,13 @@ mod tests {
     use guinea_router::router::Router;
     use ratatui::layout::{Constraint, Direction, Layout as RLayout};
     use ratatui::widgets::Paragraph;
+    use ratatui::crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
-    struct Shell;
+    #[derive(Default)]
+    struct Shell {
+        quitting: bool,
+    }
 
     impl Layout for Shell {
         type Params = ();
@@ -354,20 +562,33 @@ mod tests {
             Ok(())
         }
 
-        fn render(cx: &mut LayoutCx<'_, '_, Self>) {
+        fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
             let chunks = RLayout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(1), Constraint::Min(0)])
                 .split(cx.area());
 
-            let area = cx.area();
-            cx.frame().render_widget(Paragraph::new("tabs"), chunks[0]);
-            let _ = area;
+            let chrome = if self.quitting { "quitting" } else { "tabs" };
+            cx.frame().render_widget(Paragraph::new(chrome), chunks[0]);
             cx.outlet(chunks[1]);
+        }
+
+        fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Char('x') => {
+                    self.quitting = true;
+                    Handled::Yes
+                }
+                _ => Handled::No,
+            }
         }
     }
 
-    struct Processes;
+    #[derive(Default)]
+    struct Processes {
+        frames: u32,
+        filter: String,
+    }
 
     impl Page for Processes {
         type Params = ();
@@ -377,44 +598,140 @@ mod tests {
             Ok(())
         }
 
-        fn render(cx: &mut PageCx<'_, '_, Self>) {
+        fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
+            self.frames += 1;
+
             let area = cx.area();
-            cx.frame().render_widget(Paragraph::new("processes"), area);
+            let shown = format!("processes {} {}", self.frames, self.filter);
+            cx.frame().render_widget(Paragraph::new(shown.trim_end().to_string()), area);
+        }
+
+        fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {
+            match key.code {
+                KeyCode::Char(typed @ ('x' | 'y')) => {
+                    self.filter.push(typed);
+                    Handled::Yes
+                }
+                _ => Handled::No,
+            }
+        }
+
+        fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, text: &str) -> Handled {
+            self.filter.push_str(text);
+            Handled::Yes
         }
     }
 
     const CHAIN: [SegmentEntry<Tui>; 2] = [layout_entry::<Shell>(), segment_entry::<Processes>()];
 
-    fn rendered() -> String {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Router::<Tui>::new(FeatureHost::detached(token));
-        router
-            .activate(&CHAIN, vec![Box::new(()), Box::new(())])
-            .expect("activate");
+    struct Mounted {
+        router: Router<Tui>,
+        terminal: Terminal<TestBackend>,
+    }
 
-        let mut terminal = Terminal::new(TestBackend::new(12, 3)).expect("terminal");
-        terminal
-            .draw(|frame| router.render(&()).draw(frame, frame.area()))
-            .expect("draw");
+    impl Mounted {
+        fn new() -> Self {
+            let token = UiThreadToken::dangerously_create_token_unchecked();
+            let router = Router::<Tui>::new(FeatureHost::detached(token));
+            router
+                .activate(&CHAIN, vec![Box::new(()), Box::new(())])
+                .expect("activate");
 
-        let buffer = terminal.backend().buffer();
-        (0..buffer.area.height)
-            .map(|y| {
-                (0..buffer.area.width)
-                    .map(|x| buffer[(x, y)].symbol().to_string())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+            Self {
+                router,
+                terminal: Terminal::new(TestBackend::new(20, 3)).expect("terminal"),
+            }
+        }
+
+        fn draw(&mut self) -> String {
+            let router = &self.router;
+            self.terminal
+                .draw(|frame| router.render(&()).draw(frame, frame.area()))
+                .expect("draw");
+
+            let buffer = self.terminal.backend().buffer();
+            (0..buffer.area.height)
+                .map(|y| {
+                    (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol().to_string())
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim_end()
+                .to_string()
+        }
+
+        fn offer(&self, event: Event) -> Handled {
+            offer(&self.router, &(), &event)
+        }
+    }
+
+    fn press(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn release(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release))
     }
 
     #[test]
     fn a_layout_places_the_page_it_wraps() {
-        // The same router, the same chain, drawn by a backend with no widget
-        // tree at all - the layout put its chrome on the first row and handed
-        // the rest to the page.
-        assert_eq!(rendered().trim_end(), "tabs\nprocesses");
+        assert_eq!(Mounted::new().draw(), "tabs\nprocesses 1");
+    }
+
+    #[test]
+    fn a_page_keeps_its_own_state_between_frames() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.draw(), "tabs\nprocesses 2");
+    }
+
+    #[test]
+    fn a_key_is_offered_to_the_page_before_the_layout() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.offer(press(KeyCode::Char('x'))), Handled::Yes);
+        assert_eq!(app.draw(), "tabs\nprocesses 2 x");
+    }
+
+    #[test]
+    fn a_key_the_page_leaves_reaches_the_layout() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.offer(press(KeyCode::Char('q'))), Handled::Yes);
+        assert_eq!(app.draw(), "quitting\nprocesses 2");
+    }
+
+    #[test]
+    fn a_key_nobody_takes_is_left_for_the_application() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.offer(press(KeyCode::Char('z'))), Handled::No);
+        assert_eq!(app.draw(), "tabs\nprocesses 2");
+    }
+
+    #[test]
+    fn a_release_is_not_offered() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.offer(release(KeyCode::Char('x'))), Handled::No);
+        assert_eq!(app.draw(), "tabs\nprocesses 2");
+    }
+
+    #[test]
+    fn a_paste_is_offered_as_one_text() {
+        let mut app = Mounted::new();
+        app.draw();
+
+        assert_eq!(app.offer(Event::Paste("db-01".into())), Handled::Yes);
+        assert_eq!(app.draw(), "tabs\nprocesses 2 db-01");
     }
 }

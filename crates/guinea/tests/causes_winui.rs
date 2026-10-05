@@ -207,6 +207,70 @@ impl Page for Quiet {
     }
 }
 
+#[derive(Clone, Debug, Event)]
+pub struct Ticked(pub u32);
+
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Rate {
+    pub ticks: u32,
+}
+
+impl Reducer for Rate {
+    type Update = u32;
+
+    fn reduce(&mut self, ticks: u32) {
+        self.ticks = ticks;
+    }
+}
+
+#[derive(Debug)]
+pub struct Ticker {
+    pub push: Push<Rate>,
+}
+
+actor! {
+    Ticker {
+        handlers { Ticked }
+    }
+}
+
+#[handler]
+fn ticked(this: &mut Ticker, Ticked(ticks): Ticked) {
+    this.push.send(ticks);
+}
+
+feature! {
+    pub Ticking {
+        exports { Rate }
+    }
+}
+
+#[installs]
+fn ticking(cx: &FeatureInitContext) -> anyhow::Result<Ticking> {
+    let (rate, ticker) = cx.state::<Rate>().driven_by(|push| Ticker { push });
+    ticker.subscribe_on::<Ticked>(Bus::Global);
+    Ok(Ticking(rate))
+}
+
+/// Owns what it reads, so leaving it tears that down.
+#[derive(Default)]
+pub struct Watched;
+
+#[page]
+impl Page for Watched {
+    type Params = WatchedParams;
+    type Installs = Ticking;
+
+    fn install(ctx: &FeatureInitContext, _params: &WatchedParams) -> anyhow::Result<Ticking> {
+        ctx.install(&())
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        let (rate, _) = cx.read::<Rate>();
+        TextBlock::new().text(format!("ticks {}", rate.ticks)).into()
+    }
+}
+
 guinea::routes! {
     Route {
         layout(Shell) {
@@ -214,6 +278,7 @@ guinea::routes! {
             page(Processes) { }
             page(Services) { }
             page(Quiet) { }
+            page(Watched) { }
         }
     }
 }
@@ -287,6 +352,28 @@ fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
         "{:#?}",
         act.chain().points()
     );
+}
+
+#[guinea::test(iterations = 4)]
+fn a_page_left_with_a_redraw_pending_is_not_drawn_again(h: &mut Harness) {
+    let mut app = Mounted::routed(h, Route::Watched {}).unwrap();
+    app.settle();
+    h.publish(Ticked(1)).settle();
+
+    let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        app.navigate(Route::Processes {});
+        app.settle();
+        app.find_text("processes").is_some()
+    }));
+
+    let said = left.as_ref().map_err(|panic| {
+        panic
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panic.downcast_ref::<&str>().map(|it| it.to_string()))
+            .unwrap_or_default()
+    });
+    assert_eq!(said, Ok(&true));
 }
 
 #[guinea::test(iterations = 4)]

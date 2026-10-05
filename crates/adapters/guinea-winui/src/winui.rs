@@ -1150,6 +1150,9 @@ impl<P: Page> Component for PageNode<P> {
         if input.cursor == 0 {
             guinea_core::observability::profiling::frame_done();
         }
+        if left(input) {
+            return marked::<P>(Grid::new().into());
+        }
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         leaves_its_fills(input, cx);
@@ -1214,6 +1217,9 @@ impl<L: Layout> Component for LayoutNode<L> {
         if input.cursor == 0 {
             guinea_core::observability::profiling::frame_done();
         }
+        if left(input) {
+            return marked::<L>(Grid::new().into());
+        }
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         leaves_its_fills(input, cx);
@@ -1257,6 +1263,17 @@ pub(crate) fn caused<C: Component>(cx: &mut ViewContext<C>) -> guinea_core::trac
     });
 
     guinea_core::trace::resume(cause)
+}
+
+/// Whether the segment at `props` was torn down while a redraw of it was on
+/// its way.
+///
+/// A push queues the redraw a drain ahead of the drawing; leaving the page
+/// tears its scope down at once and queues the new chain behind it. The
+/// redraw comes first and finds nothing to read - so it draws nothing, and the
+/// chain that follows takes its place.
+fn left(props: &SegmentProps<WinUi>) -> bool {
+    !props.scopes[props.cursor].is_alive()
 }
 
 /// Withdraws what a segment filled, and the slots it placed, when it leaves

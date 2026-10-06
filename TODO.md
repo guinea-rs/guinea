@@ -211,6 +211,20 @@ nobody wrote for guinea.
 
 ## Actors
 
+### Bug: actors are not released
+
+Actors are not freed once nothing needs them, and what they hold leaks with
+them. Not investigated yet: which actors (a segment's, a feature's, the
+application's), and what keeps them alive.
+
+A first suspect, not verified: `Scope::hold_actor`
+(`crates/guinea-core/src/scope/actors.rs`) keeps a clone of the `Addr` inside
+the devtools snapshot closure, for as long as the scope lives. If an actor
+ends when its last `Addr` goes, the listing alone keeps it running.
+
+Start with a test that installs a feature with an actor on a segment, leaves
+the segment, and checks that the actor stopped and its state was dropped.
+
 ### Background work where only the latest run counts (uniproc)
 
 Asked for by uniproc: `cx.spawn_bg_latest(key, fut)`, or whatever it ends up

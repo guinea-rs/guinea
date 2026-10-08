@@ -6,9 +6,10 @@ use crate::trace::Bus;
 
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
+use std::panic::Location;
 use std::rc::Weak;
 
-use super::EventBus;
+use super::{EventBus, HeardBy};
 
 /// Identifies one subscription on one bus. Carries the event's `TypeId` so
 /// removal goes straight to the right bucket instead of scanning every one.
@@ -79,6 +80,11 @@ pub trait UntypedSubscriber: 'static {
     fn is_asleep(&self) -> bool {
         false
     }
+
+    /// Who it is, for [`EventBus::listeners`].
+    fn heard_by(&self) -> HeardBy {
+        HeardBy::Unknown
+    }
 }
 
 pub struct Subscriber<A: Handler<M>, M: Event> {
@@ -121,12 +127,20 @@ where
     fn is_asleep(&self) -> bool {
         self.addr.is_asleep()
     }
+
+    fn heard_by(&self) -> HeardBy {
+        HeardBy::Actor {
+            name: short_type_name::<A>(),
+            id: self.addr.id(),
+        }
+    }
 }
 
 /// A callback that answers `Req`: see [`EventBus::answer_fn`].
 pub struct AnswerFn<Req: RpcCall> {
     pub(super) seq: u64,
     pub(super) answer: Box<dyn Fn(Req) -> Req::Response>,
+    pub(super) at: &'static Location<'static>,
 }
 
 impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
@@ -152,11 +166,16 @@ impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
     fn answerer(&self) -> Option<&'static str> {
         Some("a callback")
     }
+
+    fn heard_by(&self) -> HeardBy {
+        HeardBy::Callback(self.at)
+    }
 }
 
 pub struct FnSubscriber<M: Event> {
     pub(super) seq: u64,
     pub(super) callback: std::sync::Arc<dyn Fn(M) + 'static>,
+    pub(super) at: &'static Location<'static>,
 }
 
 impl<M: Event> UntypedSubscriber for FnSubscriber<M> {
@@ -174,5 +193,9 @@ impl<M: Event> UntypedSubscriber for FnSubscriber<M> {
 
     fn event(&self) -> &'static str {
         short_type_name::<M>()
+    }
+
+    fn heard_by(&self) -> HeardBy {
+        HeardBy::Callback(self.at)
     }
 }

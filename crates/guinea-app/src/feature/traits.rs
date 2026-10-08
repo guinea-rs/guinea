@@ -228,6 +228,7 @@ impl FeatureInitContext {
 
     /// Hears `M` on this window's bus, for as long as this segment lives and
     /// while it is awake.
+    #[track_caller]
     pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Window);
         self.scope
@@ -347,6 +348,7 @@ impl ScopeContext {
 
     /// Hears `M` on the global bus, for as long as this scope lives and while
     /// it is awake.
+    #[track_caller]
     pub fn subscribe_global<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Global);
         self.scope

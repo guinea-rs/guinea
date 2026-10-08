@@ -719,6 +719,22 @@ fn an_actor_hears_the_bus_until_its_page_is_left(h: &mut Harness) {
     assert!(GlobalEventBus::bus().subscriptions().is_empty(), "the actor went, and so did its subscription");
 }
 
+#[guinea::test(iterations = 1)]
+fn a_callback_a_feature_subscribes_is_listed_where_the_feature_subscribed_it(h: &mut Harness) {
+    use guinea::core::actor::event_bus::HeardBy;
+
+    let page = h.child();
+    let subscribed_at = line!() + 1;
+    page.context().subscribe_global(|_: reports::Report| {});
+
+    let listening = GlobalEventBus::bus().listeners();
+    let at = match listening[0].listeners[0].by {
+        HeardBy::Callback(at) => at,
+        ref other => panic!("a callback, not {other:?}"),
+    };
+    assert_eq!((at.file(), at.line()), (file!(), subscribed_at), "listed inside guinea instead");
+}
+
 #[guinea::test(iterations = 4)]
 fn what_an_actor_s_manifest_subscribes_to_it_hears_and_lets_go_with_its_page(h: &mut Harness) {
     let page = h.child();

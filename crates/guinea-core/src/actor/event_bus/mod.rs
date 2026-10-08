@@ -52,6 +52,34 @@ impl Drop for Counted {
     }
 }
 
+/// One event type on a bus and who hears it. See [`EventBus::listeners`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listening {
+    pub event: &'static str,
+    pub listeners: Vec<Listener>,
+}
+
+/// One subscriber of one event type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listener {
+    pub by: HeardBy,
+    /// It answers the request rather than only hearing it.
+    pub answers: bool,
+    /// It lives in a scope that is asleep, and hears nothing now.
+    pub asleep: bool,
+}
+
+/// Who a subscriber is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HeardBy {
+    /// An actor, by its type and its id in the actor snapshot.
+    Actor { name: &'static str, id: usize },
+    /// A callback, by where it was subscribed.
+    Callback(&'static std::panic::Location<'static>),
+    /// A subscriber that does not say.
+    Unknown,
+}
+
 pub struct EventBus {
     /// `Rc` rather than `Box`: delivery hands the subscribers out of the map
     /// before telling them, so one that subscribes or unsubscribes while it
@@ -143,6 +171,32 @@ impl EventBus {
         listed
     }
 
+    /// Every event type something is subscribed to, with who hears it, in the
+    /// order they subscribed.
+    pub fn listeners(&self) -> Vec<Listening> {
+        let answerers = self.answerers.borrow();
+        let subscribers = self.subscribers.borrow();
+
+        let mut listed: Vec<Listening> = subscribers
+            .iter()
+            .filter(|(_, list)| !list.is_empty())
+            .map(|(event, list)| Listening {
+                event: list[0].event(),
+                listeners: list
+                    .iter()
+                    .map(|sub| Listener {
+                        by: sub.heard_by(),
+                        answers: answerers.get(event).is_some_and(|(seq, _)| *seq == sub.seq()),
+                        asleep: sub.is_asleep(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        listed.sort_unstable_by_key(|listening| listening.event);
+        listed
+    }
+
     fn next_id(&self) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
@@ -162,6 +216,7 @@ impl EventBus {
         }))
     }
 
+    #[track_caller]
     pub fn subscribe_fn<M: Event>(
         self: &Rc<Self>,
         callback: impl Fn(M) + 'static,
@@ -170,11 +225,13 @@ impl EventBus {
         self.insert::<M>(Box::new(FnSubscriber {
             seq,
             callback: Arc::new(callback),
+            at: std::panic::Location::caller(),
         }))
     }
 
     /// Answers `Req` with `answer`: the callback counterpart of an actor's
     /// handler that returns the reply.
+    #[track_caller]
     pub fn answer_fn<Req: RpcCall>(
         self: &Rc<Self>,
         answer: impl Fn(Req) -> Req::Response + 'static,
@@ -183,6 +240,7 @@ impl EventBus {
         self.insert::<RpcRequest<Req>>(Box::new(AnswerFn {
             seq,
             answer: Box::new(answer),
+            at: std::panic::Location::caller(),
         }))
     }
 
@@ -356,11 +414,13 @@ impl GlobalEventBus {
         Self::instance().subscribe(addr)
     }
 
+    #[track_caller]
     pub fn subscribe_fn<M: Event>(callback: impl Fn(M) + 'static) -> BusSubscription {
         Self::instance().subscribe_fn(callback)
     }
 
     /// See [`EventBus::answer_fn`].
+    #[track_caller]
     pub fn answer_fn<Req: RpcCall>(
         answer: impl Fn(Req) -> Req::Response + 'static,
     ) -> BusSubscription {

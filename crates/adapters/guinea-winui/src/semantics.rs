@@ -16,6 +16,7 @@ thread_local! {
     static PUBLISHED: RefCell<Vec<Weak<Entry>>> = const { RefCell::new(Vec::new()) };
 }
 
+#[cfg_attr(not(feature = "harness"), allow(dead_code))]
 struct Entry {
     owner: Cell<Option<u64>>,
     element: Box<dyn Fn() -> Option<ObjectId>>,

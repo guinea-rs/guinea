@@ -141,8 +141,14 @@ pub enum Point {
     /// A router moved.
     Navigate { root: String, to: String },
     /// A timer fired; `timer` is its id, as the application's timers list
-    /// it.
-    Tick { timer: u64 },
+    /// it. The rest says whose it is, so the record reads on its own once the
+    /// timer is gone: the name it was given, if any, and where it was set up.
+    Tick {
+        timer: u64,
+        name: Option<&'static str>,
+        file: &'static str,
+        line: u32,
+    },
     /// A persisted value changed.
     Store {
         op: StoreOp,
@@ -299,7 +305,8 @@ impl fmt::Display for Point {
             Point::Deliver { event, bus } => write!(f, "deliver {event} from the {bus} bus"),
             Point::Push { reducer } => write!(f, "push into {reducer}"),
             Point::Navigate { root, to } => write!(f, "{root} navigates to {to}"),
-            Point::Tick { timer } => write!(f, "timer #{timer}"),
+            Point::Tick { name: Some(name), .. } => write!(f, "timer {name}"),
+            Point::Tick { timer, .. } => write!(f, "timer #{timer}"),
             Point::Render { segment, took_us } => {
                 write!(f, "{segment} drew itself in {:.1} ms", *took_us as f64 / 1000.0)
             }

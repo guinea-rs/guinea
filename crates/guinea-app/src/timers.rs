@@ -322,19 +322,25 @@ fn tick(id: u64, generation: u64) {
         return;
     }
 
-    let (active, traced) = {
+    let (active, traced, name, place) = {
         let entry = entry.borrow();
         let active = entry.active.as_ref().is_none_or(|active| active())
             && entry.awake.as_ref().is_none_or(Awake::now);
-        (active, entry.traced)
+        (active, entry.traced, entry.info.name, entry.info.place)
     };
 
     if active {
         let mut run = std::mem::replace(&mut entry.borrow_mut().run, Box::new(|| {}));
 
         {
-            let _tick = traced
-                .then(|| guinea_core::trace::enter(|| guinea_core::trace::Point::Tick { timer: id }));
+            let _tick = traced.then(|| {
+                guinea_core::trace::enter(|| guinea_core::trace::Point::Tick {
+                    timer: id,
+                    name,
+                    file: place.file(),
+                    line: place.line(),
+                })
+            });
             run();
         }
 
@@ -536,6 +542,36 @@ mod tests {
 
         wait(&clock, 30);
         assert_eq!(count(&counter), 2);
+    }
+
+    #[test]
+    fn a_tick_says_whose_it_is_without_asking_the_running_timers() {
+        let clock = clock();
+        let ticks = Rc::new(RefCell::new(Vec::new()));
+        let heard = ticks.clone();
+        guinea_core::trace::observe(move |trace| {
+            if let guinea_core::trace::Trace::Begin(record) = trace
+                && let guinea_core::trace::Point::Tick { .. } = record.point
+            {
+                heard.borrow_mut().push(record.point.clone());
+            }
+        });
+
+        let place = Location::caller();
+        let (_ticking, timer) = start(place, None, None, Duration::from_millis(30).into(), || {});
+        let timer = timer.named("flush");
+        wait(&clock, 30);
+        guinea_core::trace::stop_observing();
+
+        assert_eq!(
+            *ticks.borrow(),
+            [guinea_core::trace::Point::Tick {
+                timer: timer.id().expect("running"),
+                name: Some("flush"),
+                file: place.file(),
+                line: place.line(),
+            }]
+        );
     }
 
     #[test]

@@ -265,7 +265,12 @@ fn write(record: &Record) {
         }
         Point::Push { reducer } => point!("guinea::push", record, reducer = %reducer),
         Point::Navigate { root, to } => point!("guinea::navigate", record, root = %root, to = %to),
-        Point::Tick { timer } => point!("guinea::tick", record, timer),
+        Point::Tick {
+            timer,
+            name,
+            file,
+            line,
+        } => point!("guinea::tick", record, timer, name = *name, file = *file, line = *line),
         Point::Store {
             op,
             path,

@@ -165,6 +165,36 @@ fn devtools_hear_a_router_open_and_close_and_read_it_alone() {
     );
 }
 
+#[derive(Clone, Debug, guinea_macros::Event)]
+struct Resized;
+
+#[test]
+fn a_router_view_says_who_hears_its_window_s_bus() {
+    let host = FeatureHost::detached(UiThreadToken::dangerously_create_token_unchecked());
+    let subscribed_at = line!() + 1;
+    let _hears = host.event_bus().subscribe_fn(|_: Resized| {});
+    let router = Rc::new(Router::<Headless>::new(host));
+    router.navigate(Route { id: 1 }).expect("navigate");
+    let root = router.root().get();
+
+    let listening = observability::router(root).expect("the window is open").bus;
+
+    let resized = listening
+        .iter()
+        .find(|listening| listening.event.ends_with("Resized"))
+        .map(|listening| listening.listeners.clone());
+    let places: Option<Vec<(&str, u32)>> = resized.map(|listeners| {
+        listeners
+            .iter()
+            .filter_map(|listener| match listener.by {
+                guinea_core::actor::event_bus::HeardBy::Callback(at) => Some((at.file(), at.line())),
+                _ => None,
+            })
+            .collect()
+    });
+    assert_eq!(places, Some(vec![(file!(), subscribed_at)]), "{listening:#?}");
+}
+
 #[test]
 fn one_actor_of_one_window_is_read_by_its_id() {
     let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(

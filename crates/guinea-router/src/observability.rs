@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 use guinea_app::app::roots::{self, RootId};
+use guinea_core::actor::event_bus::Listening;
 use guinea_core::actor::registry::ActorSnapshot;
 use guinea_core::actor::shape::Declared;
 use guinea_core::observability::changes::{self, Change};
@@ -28,8 +29,8 @@ pub struct RouterView {
     pub actors: Vec<ActorSnapshot>,
     /// What the backend offered for this root.
     pub panels: Vec<Panel>,
-    /// What is subscribed to this window's bus, by event.
-    pub bus: Vec<(&'static str, usize)>,
+    /// Who hears each event on this window's bus.
+    pub bus: Vec<Listening>,
 }
 
 pub struct SegmentView {
@@ -168,7 +169,7 @@ impl<U: Ui> Inspected for Router<U> {
             pending: self.pending().map(|ask| ask.text),
             actors,
             panels: panels::for_root(root.get()),
-            bus: self.host().event_bus().subscriptions(),
+            bus: self.host().event_bus().listeners(),
         }
     }
 

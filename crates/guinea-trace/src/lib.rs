@@ -25,8 +25,8 @@ mod sink;
 pub use json::{Json, json};
 pub use point::{Bus, Point, StoreOp};
 pub use sink::{
-    Observer, is_observed, is_observed_anywhere, is_point_target, is_recorded_anywhere, observe,
-    stop_observing,
+    ELSEWHERE_LIMIT, Elsewhere, Observer, is_observed, is_observed_anywhere, is_point_target,
+    is_recorded_anywhere, observe, stop_observing, take_elsewhere, thread_id,
 };
 
 use std::cell::Cell;
@@ -477,15 +477,5 @@ mod tests {
         assert!(fields.contains(&("msg", "Kill")), "{fields:?}");
         assert!(!fields.iter().any(|(name, _)| *name == "parent"), "no cause, no parent: {fields:?}");
         assert!(!fields.iter().any(|(name, _)| *name == "message"), "no prose: {fields:?}");
-    }
-
-    #[test]
-    fn nothing_is_built_while_nobody_listens() {
-        let built = Cell::new(false);
-        mark(|| {
-            built.set(true);
-            Point::Note("unused".into())
-        });
-        assert!(!built.get());
     }
 }

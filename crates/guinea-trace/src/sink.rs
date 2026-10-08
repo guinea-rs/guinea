@@ -1,8 +1,10 @@
 //! Where records go.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use tracing::Level;
 
@@ -26,8 +28,10 @@ pub fn observe(observer: impl Fn(&Trace) + 'static) {
 }
 
 pub fn stop_observing() {
-    if OBSERVER.with(|slot| slot.borrow_mut().take()).is_some() {
-        OBSERVED_THREADS.fetch_sub(1, Ordering::Relaxed);
+    if OBSERVER.with(|slot| slot.borrow_mut().take()).is_some()
+        && OBSERVED_THREADS.fetch_sub(1, Ordering::Relaxed) == 1
+    {
+        take_elsewhere();
     }
 }
 
@@ -47,13 +51,87 @@ pub fn is_recorded_anywhere() -> bool {
     is_observed_anywhere() || tracing::enabled!(target: "guinea", Level::DEBUG)
 }
 
+/// How many records [`take_elsewhere`] keeps between two takes; past it the
+/// oldest go.
+pub const ELSEWHERE_LIMIT: usize = 16_384;
+
+/// Records made on threads nobody observes, while some thread observes.
+#[derive(Debug, Default)]
+pub struct Elsewhere {
+    /// Oldest first, each with the thread it was made on, as [`thread_id`]
+    /// names it.
+    pub records: Vec<(u32, Trace)>,
+    /// How many were let go since the last take, to keep the newest.
+    pub dropped: u64,
+}
+
+#[derive(Default)]
+struct Queue {
+    records: VecDeque<(u32, Trace)>,
+    dropped: u64,
+}
+
+fn elsewhere() -> &'static Mutex<Queue> {
+    static ELSEWHERE: OnceLock<Mutex<Queue>> = OnceLock::new();
+    ELSEWHERE.get_or_init(Mutex::default)
+}
+
+fn keep_elsewhere(trace: Trace) {
+    let mut queue = elsewhere().lock().unwrap_or_else(PoisonError::into_inner);
+
+    if queue.records.len() == ELSEWHERE_LIMIT {
+        queue.records.pop_front();
+        queue.dropped += 1;
+    }
+    queue.records.push_back((thread_id(), trace));
+}
+
+/// What other threads recorded since the last take.
+///
+/// Kept while any thread observes, from the threads that do not; a thread
+/// that observes hears its own records and leaves none here.
+pub fn take_elsewhere() -> Elsewhere {
+    let mut queue = elsewhere().lock().unwrap_or_else(PoisonError::into_inner);
+    let taken = std::mem::take(&mut *queue);
+
+    Elsewhere {
+        records: taken.records.into(),
+        dropped: taken.dropped,
+    }
+}
+
+/// This thread, as [`Elsewhere`] names it: the operating system's id on
+/// Windows, what a stack sampler names it by; elsewhere a number this
+/// process gives each thread once, from 1.
+pub fn thread_id() -> u32 {
+    thread_local! {
+        static ID: u32 = os_thread_id();
+    }
+    ID.with(|id| *id)
+}
+
+#[cfg(windows)]
+fn os_thread_id() -> u32 {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThreadId() -> u32;
+    }
+
+    unsafe { GetCurrentThreadId() }
+}
+
+#[cfg(not(windows))]
+fn os_thread_id() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 fn observer() -> Option<Observer> {
     OBSERVER.with(|slot| slot.borrow().clone())
 }
 
 pub(crate) fn wanted() -> bool {
-    OBSERVER.with(|slot| slot.borrow().is_some())
-        || tracing::enabled!(target: "guinea", Level::DEBUG)
+    is_recorded_anywhere()
 }
 
 /// Whether `target` is one [`emit`] writes points under, so a layer that
@@ -235,7 +313,9 @@ pub(crate) fn emit(trace: Trace) {
         ),
     }
 
-    if let Some(observer) = observer() {
-        observer(&trace);
+    match observer() {
+        Some(observer) => observer(&trace),
+        None if is_observed_anywhere() => keep_elsewhere(trace),
+        None => {}
     }
 }

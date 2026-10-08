@@ -5,10 +5,6 @@ on:
     tags:
       - 'v*'
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
-
 permissions:
   contents: read
 
@@ -48,9 +44,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: windows
+          save-if: false
 
       - name: Test
         run: cargo test --workspace
+
+  package:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: package
+          save-if: false
 
       - name: Package and build what is about to be published
         run: >
@@ -59,7 +73,7 @@ jobs:
           --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"
 
   publish:
-    needs: test
+    needs: [test, package]
     runs-on: windows-latest
     defaults:
       run:
@@ -70,8 +84,6 @@ jobs:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Publish in dependency order
         env:
@@ -107,7 +119,7 @@ jobs:
             echo "::group::cargo publish $crate"
             failures=0
             while true; do
-              if out=$(cargo publish "${which[@]}" --allow-dirty 2>&1); then
+              if out=$(cargo publish "${which[@]}" --allow-dirty --no-verify 2>&1); then
                 echo "$out"
                 break
               fi

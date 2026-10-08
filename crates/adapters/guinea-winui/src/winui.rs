@@ -1135,6 +1135,7 @@ impl<P: Page> Component for PageNode<P> {
             // refresh that touches no state still brings the view round.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
+            Signal::Node(_) if left(&self.props) => {}
             Signal::Node(message) => self.page.borrow_mut().update(
                 message,
                 &mut UpdateCx {
@@ -1204,6 +1205,7 @@ impl<L: Layout> Component for LayoutNode<L> {
             // See `PageNode::update`.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
+            Signal::Node(_) if left(&self.props) => {}
             Signal::Node(message) => self.layout.borrow_mut().update(
                 message,
                 &mut UpdateCx {
@@ -1266,13 +1268,14 @@ pub(crate) fn caused<C: Component>(cx: &mut ViewContext<C>) -> guinea_core::trac
     guinea_core::trace::resume(cause)
 }
 
-/// Whether the segment at `props` was torn down while a redraw of it was on
-/// its way.
+/// Whether the segment at `props` was torn down while a redraw of it, or a
+/// message for it, was on its way.
 ///
 /// A push queues the redraw a drain ahead of the drawing; leaving the page
 /// tears its scope down at once and queues the new chain behind it. The
 /// redraw comes first and finds nothing to read - so it draws nothing, and the
-/// chain that follows takes its place.
+/// chain that follows takes its place. A message for the page is dropped the
+/// same way: `update` would read a scope that is gone.
 fn left(props: &SegmentProps<WinUi>) -> bool {
     !props.scopes[props.cursor].is_alive()
 }

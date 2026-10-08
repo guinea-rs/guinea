@@ -10,7 +10,7 @@ use guinea::core::actor::event_bus::{Event, GlobalEventBus};
 use guinea::core::trace::Bus;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page};
 use windows_reactor::{TextBlock, View};
 
 thread_local! {
@@ -104,6 +104,40 @@ impl Page for Listening {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PressedAway;
+
+impl Event for PressedAway {}
+
+#[derive(Debug)]
+pub struct Dismiss;
+
+#[derive(Default)]
+pub struct Menu;
+
+#[page]
+impl Page for Menu {
+    type Params = MenuParams;
+    type Installs = Pinging;
+    type Message = Dismiss;
+
+    fn install(ctx: &FeatureInitContext, _params: &MenuParams) -> anyhow::Result<Pinging> {
+        ctx.install::<Pinging>(&())
+    }
+
+    fn update(&mut self, _message: Dismiss, cx: &mut UpdateCx<'_, Self>) {
+        let (_pings, _) = cx.read::<Pings>();
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        let away = cx.on(|message: Dismiss| message);
+        cx.use_effect_guard("released::menu_closes_on_press_away", (), move || {
+            GlobalEventBus::subscribe_fn(move |_: PressedAway| away.call(Dismiss))
+        });
+        TextBlock::new().text("menu").into()
+    }
+}
+
 #[derive(Default)]
 pub struct Elsewhere;
 
@@ -175,6 +209,7 @@ guinea::routes! {
     Route {
         layout(Frame) {
             page(Listening) { }
+            page(Menu) { }
             page(Elsewhere) { }
             layout(PingArea) {
                 page(Reading) { }
@@ -196,6 +231,19 @@ impl Page for Quiet {
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("quiet").into()
     }
+}
+
+#[guinea::test(iterations = 4)]
+fn a_message_for_a_page_that_was_left_meanwhile_is_dropped(h: &mut Harness) {
+    let mut app = Mounted::routed(h, Route::Menu {}).unwrap();
+
+    let navigated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _pressed = h.publish(PressedAway);
+        app.navigate(Route::Elsewhere {});
+    }));
+
+    assert!(navigated.is_ok(), "the left page's update ran on a torn-down segment");
+    assert!(app.find_text("elsewhere").is_some());
 }
 
 #[guinea::test(iterations = 1)]

@@ -2023,7 +2023,7 @@ checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
 
 [[package]]
 name = "guinea"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2046,7 +2046,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2081,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2095,15 +2095,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.26.1"
+version = "0.26.2"
 
 [[package]]
 name = "guinea-meta"
-version = "0.26.1"
+version = "0.26.2"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -2163,7 +2163,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2173,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2185,7 +2185,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2198,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "anyhow",
  "guinea-route-dsl",
@@ -2209,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.26.1"
+version = "0.26.2"
 dependencies = [
  "serde_json",
  "tracing",

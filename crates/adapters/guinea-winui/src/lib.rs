@@ -16,6 +16,7 @@ mod dispatching;
 pub mod harness;
 mod mark;
 mod run;
+pub mod semantics;
 mod slots;
 mod winui;
 

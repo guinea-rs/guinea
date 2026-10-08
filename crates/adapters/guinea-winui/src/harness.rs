@@ -8,12 +8,20 @@
 //!
 //! A page that reads what a layout above it exports is mounted below that
 //! layout: the layout into `h.segment()`, the page into `h.child()`.
+//!
+//! An element that draws for itself has nothing native under it; what it
+//! [publishes](crate::semantics::publish) stands in its place. Its nodes are
+//! found by mark and text, a published list counts as a list for
+//! [`Mounted::item`] and the rest, and a click or a drag on a node lands on
+//! the element, within the node's bounds, once the lists it sits in have
+//! scrolled it into view.
 
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use guinea_app::app::{Act, Harness, Segment};
 use guinea_app::feature::FeatureInitContext;
@@ -34,6 +42,7 @@ use windows_reactor::{
 pub use windows_reactor::{ObjectId as NodeId, PropertyId, PropertyValue};
 
 use crate::mark::MarkExt;
+use crate::semantics::{self, Bounds, Children, Items, Semantic};
 use crate::winui::{
     Layout, LayoutNode, Page, PageNode, Rooted, RouterRoot, Shown, Signal, WinUi, install_layout,
     install_page, layout_entry, nav_context, route_context, segment_entry,
@@ -161,12 +170,38 @@ const OUTLET: SegmentEntry<WinUi> =
     SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, |_| {}, &MountOutlet as &dyn Mount<WinUi>, false);
 
 /// A host with no window for `root`, recording every batch it applies - a
-/// list says how long it is only in the batch that sets its source.
-fn host(root: ComponentNode) -> Result<ComponentHost<RecordingAdapter>, String> {
+/// list says how long it is only in the batch that sets its source. What it
+/// publishes is `owner`'s.
+fn host(owner: u64, root: ComponentNode) -> Result<ComponentHost<RecordingAdapter>, String> {
     let mut adapter = RecordingAdapter::new();
     adapter.record_batches(true);
 
-    ComponentHost::mount(adapter, [root]).map_err(|refused| format!("{refused:?}"))
+    let host = ComponentHost::mount(adapter, [root]).map_err(|refused| format!("{refused:?}"))?;
+    semantics::claim(owner);
+
+    Ok(host)
+}
+
+fn next_owner() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// A step from a published node to one it holds.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Step {
+    Child(usize),
+    /// An item of a list: its index when it was listed, and its key, which
+    /// finds it again if it has moved since.
+    Item(usize, Option<u64>),
+}
+
+/// Every published node a [`Place`] has named: the element that published
+/// it and the steps down to it.
+#[derive(Default)]
+struct Painted {
+    places: Vec<(NodeId, Vec<Step>)>,
+    named: HashMap<(NodeId, Vec<Step>), usize>,
 }
 
 /// A drag with the left button, for [`Mounted::drag`]: down on an element,
@@ -208,7 +243,8 @@ impl Drag {
         }
     }
 
-    /// Where inside the element the button goes down: `x`, `y`.
+    /// Where inside the element the button goes down: `x`, `y`. On a
+    /// published node, inside its bounds.
     pub fn from(self, x: f64, y: f64) -> Self {
         Self {
             from: (x, y),
@@ -324,13 +360,39 @@ impl<L: Layout> Mountable<AsLayout> for L {
     }
 }
 
+/// Where something the page drew is: a native element, or a node of a tree
+/// an element [published](crate::semantics::publish).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Place(Spot);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Spot {
+    Native(NodeId),
+    Painted(usize),
+}
+
+impl Place {
+    /// The native element, when it is one.
+    pub fn node(&self) -> Option<NodeId> {
+        match self.0 {
+            Spot::Native(node) => Some(node),
+            Spot::Painted(_) => None,
+        }
+    }
+
+    fn native(node: NodeId) -> Self {
+        Self(Spot::Native(node))
+    }
+}
+
 /// One element of what a page drew, as a snapshot keeps it.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Node {
     /// Where it is, for [`Mounted::property`] and [`Mounted::at`]. Not part
     /// of a snapshot: it changes from run to run.
     #[serde(skip)]
-    pub at: NodeId,
+    pub at: Place,
+    /// The control's type, or a published node's role.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -338,6 +400,9 @@ pub struct Node {
     /// border, and any the page set itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// What a published node says when pointed at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tip: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Node>,
 }
@@ -384,6 +449,12 @@ pub struct Mounted<'h, S> {
     sizes: Vec<(&'static str, f64, f64)>,
     /// The size each composition host was last told, by its observation.
     told: HashMap<(NodeId, u64), (f64, f64)>,
+    /// Who the host is, to what its elements publish.
+    owner: u64,
+    painted: RefCell<Painted>,
+    /// The items of each published list read so far, by index, with their
+    /// keys: the published counterpart of `realized`.
+    listed: HashMap<usize, BTreeMap<usize, Option<u64>>>,
     kind: PhantomData<S>,
     /// The segment it is mounted into, kept for as long as it is: dropped
     /// after the page, the way leaving a page tears down its scope.
@@ -437,7 +508,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
             cursor: depth - 1,
         };
 
-        let host = host(component::<Shown>(ROOT, wrap(S::component(props))))
+        let owner = next_owner();
+        let host = host(owner, component::<Shown>(ROOT, wrap(S::component(props))))
             .map_err(|refused| anyhow::anyhow!("mounting {}: {refused}", std::any::type_name::<S>()))?;
 
         let mut mounted = Self {
@@ -450,6 +522,9 @@ impl<'h, S: 'static> Mounted<'h, S> {
             router: None,
             sizes: Vec::new(),
             told: HashMap::new(),
+            owner,
+            painted: RefCell::default(),
+            listed: HashMap::new(),
             kind: PhantomData,
             segment,
         };
@@ -574,14 +649,14 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// [`click_at`](Self::click_at) for the route it takes - and hands back
     /// what the click set off, as an action named after the mark.
     pub fn click(&mut self, mark: impl Mark) -> Act<'h> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.marked(root, &mark);
         self.click_at(found, mark.name(), mark.name())
     }
 
     /// [`click`](Self::click) for what shows `text` and carries no mark.
     pub fn click_text(&mut self, text: &str) -> Act<'h> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.showing(root, text);
         self.click_at(found, text, "click")
     }
@@ -596,7 +671,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// lost just *before* the release arrives, so a drag that cancels itself
     /// on a lost capture never drops. See [`Drag`] for the coordinates.
     pub fn drag(&mut self, mark: impl Mark, drag: Drag) -> Act<'h> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.marked(root, &mark);
         self.drag_at(found, drag, mark.name(), mark.name())
     }
@@ -611,7 +686,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// observed anew - a redraw that binds a new element keeps the size. A
     /// later size for the same mark replaces this one.
     pub fn size(&mut self, mark: impl Mark, width: f64, height: f64) {
-        let root = self.page_root();
+        let root = self.top();
         self.marked(root, &mark);
 
         let name = mark.name();
@@ -622,18 +697,18 @@ impl<'h, S: 'static> Mounted<'h, S> {
     }
 
     /// The first element, depth first, that carries `mark`.
-    pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
-        self.first_marked(self.root()?, mark.name())
+    pub fn find(&self, mark: impl Mark) -> Option<Place> {
+        self.first_marked(Place::native(self.root()?), mark.name())
     }
 
     /// The first element, depth first, that shows `text`.
-    pub fn find_text(&self, text: &str) -> Option<NodeId> {
-        self.first_showing(self.root()?, text)
+    pub fn find_text(&self, text: &str) -> Option<Place> {
+        self.first_showing(Place::native(self.root()?), text)
     }
 
     /// The part of the page that carries `mark`, to find and click in.
     pub fn within(&mut self, mark: impl Mark) -> Within<'_, 'h, S> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.marked(root, &mark);
 
         Within {
@@ -646,7 +721,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// scrolling to it would - a list builds only the items on screen, and
     /// with no screen, none until asked.
     pub fn item(&mut self, index: usize) -> Within<'_, 'h, S> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.realize(root, index);
 
         Within {
@@ -657,14 +732,14 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// How many items the first list on the page holds - built or not.
     pub fn item_count(&mut self) -> usize {
-        let root = self.page_root();
+        let root = self.top();
         self.count(root)
     }
 
     /// The first item of the first list for which `test` holds, bringing
     /// items into view in order until one does.
     pub fn item_where(&mut self, test: impl Fn(&Node) -> bool) -> Within<'_, 'h, S> {
-        let root = self.page_root();
+        let root = self.top();
         let found = self.first_item(root, test);
 
         Within {
@@ -680,12 +755,17 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// Every item of the first list, each brought into view.
     pub fn items(&mut self) -> Vec<Node> {
-        let root = self.page_root();
+        let root = self.top();
         self.all_items(root)
     }
 
-    /// What `node` has for `property`, if it was ever set.
-    pub fn property(&self, node: NodeId, property: PropertyId) -> Option<&PropertyValue> {
+    /// What the native element at `place` has for `property`, if it was ever
+    /// set. A published node has no properties.
+    pub fn property(&self, place: Place, property: PropertyId) -> Option<&PropertyValue> {
+        self.native_property(place.node()?, property)
+    }
+
+    fn native_property(&self, node: NodeId, property: PropertyId) -> Option<&PropertyValue> {
         self.graph()
             .properties(node)?
             .iter()
@@ -716,22 +796,26 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// The part of the page from `node` down - one found in a [`Node`], say,
     /// to click or read without a mark of its own.
-    pub fn at(&mut self, node: NodeId) -> Within<'_, 'h, S> {
+    pub fn at(&mut self, place: Place) -> Within<'_, 'h, S> {
         Within {
             mounted: self,
-            root: node,
+            root: place,
         }
     }
 
-    fn list_of(&self, under: NodeId) -> NodeId {
+    fn list_of(&self, under: Place) -> Place {
         self.list(under)
             .unwrap_or_else(|| panic!("there is no list here:\n{:#?}", self.node(under)))
     }
 
-    fn count(&mut self, under: NodeId) -> usize {
-        let list = self.list_of(under);
-        self.note_counts();
-        self.counts.get(&list).copied().unwrap_or(0)
+    fn count(&mut self, under: Place) -> usize {
+        match self.list_of(under).0 {
+            Spot::Native(list) => {
+                self.note_counts();
+                self.counts.get(&list).copied().unwrap_or(0)
+            }
+            Spot::Painted(list) => self.items_of(list).map_or(0, |items| items.len()),
+        }
     }
 
     /// Reads what the lists said of their length since the last look.
@@ -751,7 +835,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         self.counts.extend(said);
     }
 
-    fn first_item(&mut self, under: NodeId, test: impl Fn(&Node) -> bool) -> NodeId {
+    fn first_item(&mut self, under: Place, test: impl Fn(&Node) -> bool) -> Place {
         let count = self.count(under);
 
         for index in 0..count {
@@ -764,7 +848,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         panic!("none of the {count} items matches:\n{:#?}", self.all_items(under))
     }
 
-    fn all_items(&mut self, under: NodeId) -> Vec<Node> {
+    fn all_items(&mut self, under: Place) -> Vec<Node> {
         let count = self.count(under);
 
         (0..count)
@@ -775,21 +859,44 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .collect()
     }
 
-    fn marked(&self, under: NodeId, mark: &impl Mark) -> NodeId {
+    fn marked(&self, under: Place, mark: &impl Mark) -> Place {
         let name = mark.name();
         self.first_marked(under, name)
             .unwrap_or_else(|| panic!("nothing here is marked {name:?}:\n{:#?}", self.node(under)))
     }
 
-    fn showing(&self, under: NodeId, text: &str) -> NodeId {
+    fn showing(&self, under: Place, text: &str) -> Place {
         self.first_showing(under, text)
             .unwrap_or_else(|| panic!("nothing here shows {text:?}:\n{:#?}", self.node(under)))
     }
 
     /// The list at or under `under`, with item `index` realized in it.
-    fn realize(&mut self, under: NodeId, index: usize) -> NodeId {
-        let list = self.list_of(under);
+    fn realize(&mut self, under: Place, index: usize) -> Place {
+        match self.list_of(under).0 {
+            Spot::Native(list) => Place::native(self.realize_native(list, index)),
+            Spot::Painted(list) => self.realize_painted(list, index),
+        }
+    }
 
+    /// Item `index` of the published list `list`, read now and kept in the
+    /// tree from then on, as a realized item is.
+    fn realize_painted(&mut self, list: usize, index: usize) -> Place {
+        let items = self
+            .items_of(list)
+            .unwrap_or_else(|| panic!("the list is gone:\n{:#?}", self.tree()));
+        if index >= items.len() {
+            panic!("the list has no item {index}");
+        }
+
+        let key = items.item(index).key;
+        self.listed.entry(list).or_default().insert(index, key);
+
+        let (host, mut path) = self.path_of(list);
+        path.push(Step::Item(index, key));
+        self.name(host, path)
+    }
+
+    fn realize_native(&mut self, list: NodeId, index: usize) -> NodeId {
         if let Some(item) = self.realized.get(&(list, index))
             && self.graph().kind(*item).is_some()
         {
@@ -827,24 +934,114 @@ impl<'h, S: 'static> Mounted<'h, S> {
         item
     }
 
-    fn list(&self, under: NodeId) -> Option<NodeId> {
-        let mut unseen = vec![under];
+    fn list(&self, under: Place) -> Option<Place> {
+        self.first(under, |place| match place.0 {
+            Spot::Native(node) => self.graph().virtual_source_revision(node).is_some(),
+            Spot::Painted(painted) => self.items_of(painted).is_some(),
+        })
+    }
 
-        while let Some(node) = unseen.pop() {
-            if self.graph().virtual_source_revision(node).is_some() {
-                return Some(node);
+    /// What `place` holds, in order. A native element that published a tree
+    /// holds that tree after whatever native children it has; a published
+    /// list holds the items read so far.
+    fn below(&self, place: Place) -> Vec<Place> {
+        match place.0 {
+            Spot::Native(node) => {
+                let mut below: Vec<Place> =
+                    self.native_below(node).into_iter().map(Place::native).collect();
+                if semantics::is_published(self.owner, node) {
+                    below.push(self.name(node, Vec::new()));
+                }
+                below
             }
+            Spot::Painted(painted) => {
+                let Some((semantic, _)) = self.resolve(painted) else {
+                    return Vec::new();
+                };
+                let (host, path) = self.path_of(painted);
+                let step = |step: Step| {
+                    let mut path = path.clone();
+                    path.push(step);
+                    self.name(host, path)
+                };
 
-            unseen.extend(self.below(node).into_iter().rev());
+                match semantic.children {
+                    Children::Nodes(nodes) => {
+                        (0..nodes.len()).map(|at| step(Step::Child(at))).collect()
+                    }
+                    Children::Items(_) => self
+                        .listed
+                        .get(&painted)
+                        .into_iter()
+                        .flatten()
+                        .map(|(index, key)| step(Step::Item(*index, *key)))
+                        .collect(),
+                }
+            }
+        }
+    }
+
+    /// The place of the published node `path` leads to from `host`, named
+    /// once and the same every time after.
+    fn name(&self, host: NodeId, path: Vec<Step>) -> Place {
+        let mut painted = self.painted.borrow_mut();
+        let named = (host, path);
+        if let Some(at) = painted.named.get(&named) {
+            return Place(Spot::Painted(*at));
         }
 
-        None
+        let at = painted.places.len();
+        painted.places.push(named.clone());
+        painted.named.insert(named, at);
+        Place(Spot::Painted(at))
+    }
+
+    fn path_of(&self, painted: usize) -> (NodeId, Vec<Step>) {
+        self.painted.borrow().places[painted].clone()
+    }
+
+    /// The published node `painted` names, read now, and every list it sits
+    /// in with its index there, outermost first. `None` once it is gone.
+    fn resolve(&self, painted: usize) -> Option<(Semantic, Vec<(Items, usize)>)> {
+        let (host, path) = self.path_of(painted);
+        let mut node = semantics::published(self.owner, host)?;
+        let mut lists = Vec::new();
+
+        for step in path {
+            node = match (step, node.children) {
+                (Step::Child(at), Children::Nodes(mut nodes)) if at < nodes.len() => {
+                    nodes.swap_remove(at)
+                }
+                (Step::Item(index, key), Children::Items(items)) => {
+                    let index = if index < items.len() && items.item(index).key == key {
+                        index
+                    } else {
+                        key?;
+                        (0..items.len()).find(|at| items.item(*at).key == key)?
+                    };
+                    let item = items.item(index);
+                    lists.push((items, index));
+                    item
+                }
+                _ => return None,
+            };
+        }
+
+        Some((node, lists))
+    }
+
+    /// The items of the published list `painted`, if it is one.
+    fn items_of(&self, painted: usize) -> Option<Items> {
+        match self.resolve(painted)?.0.children {
+            Children::Items(items) => Some(items),
+            Children::Nodes(_) => None,
+        }
     }
 
     /// What `node` holds, in order: what sits in each place it holds a child,
     /// items brought into view among them, then its flyout's content -
     /// closed or open, as an `Expander`'s content is walked folded or not.
-    fn below(&self, node: NodeId) -> Vec<NodeId> {
+    fn native_below(&self, node: NodeId) -> Vec<NodeId> {
         let graph = self.graph();
         let adapter = self.host.adapter();
         if graph.kind(node).is_none() {
@@ -867,10 +1064,17 @@ impl<'h, S: 'static> Mounted<'h, S> {
         self.graph().kind(node)
     }
 
-    fn kind_name(&self, node: NodeId) -> String {
-        self.kind(node)
-            .map(|kind| format!("{kind:?}"))
-            .unwrap_or_else(|| "?".to_string())
+    fn kind_name(&self, place: Place) -> String {
+        match place.0 {
+            Spot::Native(node) => self
+                .kind(node)
+                .map(|kind| format!("{kind:?}"))
+                .unwrap_or_else(|| "?".to_string()),
+            Spot::Painted(painted) => self
+                .resolve(painted)
+                .map(|(semantic, _)| format!("{:?}", semantic.role))
+                .unwrap_or_else(|| "?".to_string()),
+        }
     }
 
     /// If `node` is a control a click turns over, the event that says so, the
@@ -880,7 +1084,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let kind = self.kind(node)?;
         let (_, event, state, turns_back) = FLIPS.iter().find(|(flips, ..)| *flips == kind)?;
 
-        let now = bool_of(self.property(node, *state)) == Some(true);
+        let now = bool_of(self.native_property(node, *state)) == Some(true);
 
         Some((node, *event, *state, !(*turns_back && now)))
     }
@@ -897,10 +1101,13 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
 
         let view = above.unwrap_or_else(|| {
-            panic!("a NavigationViewItem outside a NavigationView:\n{:#?}", self.node(item))
+            panic!(
+                "a NavigationViewItem outside a NavigationView:\n{:#?}",
+                self.node(Place::native(item))
+            )
         });
 
-        let tag = text_of(self.property(item, PropertyId::Tag));
+        let tag = text_of(self.native_property(item, PropertyId::Tag));
         self.raise(
             view,
             EventId::SelectionChanged,
@@ -918,7 +1125,14 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// radio button, which turns over - the switch to the opposite of what it
     /// shows, the radio button only ever on. Nothing inside a disabled
     /// control takes it at all.
-    fn click_at(&mut self, found: NodeId, label: &str, name: &'static str) -> Act<'h> {
+    ///
+    /// A published node is clicked in the middle of its bounds, on the
+    /// element that published it, after the lists it sits in have scrolled
+    /// it into view.
+    fn click_at(&mut self, found: Place, label: &str, name: &'static str) -> Act<'h> {
+        let (found, bounds) = self.aim(found, label);
+        let (x, y) = bounds.map_or((0.0, 0.0), |bounds| bounds.center());
+
         let parents = self.parents();
         self.refuse_disabled(found, &parents, label, "clicked");
 
@@ -952,15 +1166,22 @@ impl<'h, S: 'static> Mounted<'h, S> {
             "{label:?} is on the page, but nothing at or above it listens for a click"
         );
 
+        let released = PointerEventInfo {
+            x,
+            y,
+            window_x: x,
+            window_y: y,
+            ..Default::default()
+        };
         let pressed = PointerEventInfo {
             is_left_button_pressed: true,
-            ..Default::default()
+            ..released
         };
         for node in &bubbled {
             self.pointer(*node, EventId::PointerPressed, pressed);
         }
         for node in &bubbled {
-            self.pointer(*node, EventId::PointerReleased, PointerEventInfo::default());
+            self.pointer(*node, EventId::PointerReleased, released);
         }
         if let Some(item) = item {
             self.select(item, &parents);
@@ -988,7 +1209,20 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// The capture is lost *before* the release is heard: the reactor
     /// releases the capture on the way into its release handler, and WinUI
     /// raises the loss right there.
-    fn drag_at(&mut self, found: NodeId, drag: Drag, label: &str, name: &'static str) -> Act<'h> {
+    ///
+    /// A published node is dragged on the element that published it, from
+    /// [`Drag::from`] inside the node's bounds, after the lists it sits in
+    /// have scrolled it into view.
+    fn drag_at(&mut self, found: Place, drag: Drag, label: &str, name: &'static str) -> Act<'h> {
+        let (found, bounds) = self.aim(found, label);
+        let drag = match bounds {
+            Some(bounds) => Drag {
+                from: (bounds.x + drag.from.0, bounds.y + drag.from.1),
+                ..drag
+            },
+            None => drag,
+        };
+
         let parents = self.parents();
         self.refuse_disabled(found, &parents, label, "dragged");
 
@@ -1004,7 +1238,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         );
 
         let captured = path.iter().position(|node| {
-            bool_of(self.property(*node, PropertyId::CapturePointerOnPress)) == Some(true)
+            bool_of(self.native_property(*node, PropertyId::CapturePointerOnPress)) == Some(true)
         });
         let held = path[captured.unwrap_or(0)..].to_vec();
         let capture = captured.map(|at| path[at]);
@@ -1047,10 +1281,10 @@ impl<'h, S: 'static> Mounted<'h, S> {
         let mut above = Some(found);
         while let Some(node) = above {
             if self.disabled(node) {
+                let disabled = self.node(Place::native(node));
                 panic!(
-                    "{label:?} cannot be {done}: it is inside a disabled {}\n{:#?}",
-                    self.node(node).kind,
-                    self.node(node)
+                    "{label:?} cannot be {done}: it is inside a disabled {}\n{disabled:#?}",
+                    disabled.kind,
                 );
             }
             above = parents.get(&node).copied();
@@ -1060,7 +1294,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// Whether `node` is a control set to disabled - which takes no input, and
     /// neither does anything inside it.
     fn disabled(&self, node: NodeId) -> bool {
-        bool_of(self.property(node, PropertyId::IsEnabled)) == Some(false)
+        bool_of(self.native_property(node, PropertyId::IsEnabled)) == Some(false)
     }
 
     /// The pointer `event` on `node`, carried the way the element listens
@@ -1076,7 +1310,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// Turns `control` over to `to` the way WinUI does: the state changes on
     /// the control, and the event that says so comes with it.
     fn turn_over(&mut self, control: NodeId, event: EventId, state: PropertyId, to: bool) {
-        let value = match self.property(control, state) {
+        let value = match self.native_property(control, state) {
             Some(PropertyValue::OptionalBool(_)) => PropertyValue::OptionalBool(Some(to)),
             _ => PropertyValue::Bool(to),
         };
@@ -1122,66 +1356,117 @@ impl<'h, S: 'static> Mounted<'h, S> {
         self.root().expect("a mounted page has drawn something")
     }
 
-    /// What the page drew, from its outermost element down.
-    pub fn tree(&self) -> Node {
-        self.node(self.page_root())
+    fn top(&self) -> Place {
+        Place::native(self.page_root())
     }
 
-    fn first(&self, under: NodeId, test: impl Fn(NodeId) -> bool) -> Option<NodeId> {
+    /// What the page drew, from its outermost element down.
+    pub fn tree(&self) -> Node {
+        self.node(self.top())
+    }
+
+    fn first(&self, under: Place, test: impl Fn(Place) -> bool) -> Option<Place> {
         let mut unseen = vec![under];
 
-        while let Some(node) = unseen.pop() {
-            if test(node) {
-                return Some(node);
+        while let Some(place) = unseen.pop() {
+            if test(place) {
+                return Some(place);
             }
 
-            unseen.extend(self.below(node).into_iter().rev());
+            unseen.extend(self.below(place).into_iter().rev());
         }
 
         None
     }
 
-    fn first_marked(&self, under: NodeId, name: &str) -> Option<NodeId> {
-        self.first(under, |node| self.mark_of(node).as_deref() == Some(name))
+    fn first_marked(&self, under: Place, name: &str) -> Option<Place> {
+        self.first(under, |place| self.mark_of(place).as_deref() == Some(name))
     }
 
-    fn first_showing(&self, under: NodeId, text: &str) -> Option<NodeId> {
-        self.first(under, |node| self.text(node).as_deref() == Some(text))
+    fn first_showing(&self, under: Place, text: &str) -> Option<Place> {
+        self.first(under, |place| self.text(place).as_deref() == Some(text))
     }
 
     /// What a text block shows - a text box's text is what was typed into
     /// it, not something on the page to find.
-    fn text(&self, node: NodeId) -> Option<String> {
-        match self.kind(node)? {
-            ObjectType::TextBlock => text_of(self.property(node, PropertyId::Text)),
-            _ => None,
+    fn text(&self, place: Place) -> Option<String> {
+        match place.0 {
+            Spot::Native(node) => match self.kind(node)? {
+                ObjectType::TextBlock => text_of(self.native_property(node, PropertyId::Text)),
+                _ => None,
+            },
+            Spot::Painted(painted) => self.resolve(painted)?.0.text,
         }
     }
 
-    fn mark_of(&self, node: NodeId) -> Option<String> {
-        text_of(self.property(node, PropertyId::AutomationId))
+    fn mark_of(&self, place: Place) -> Option<String> {
+        match place.0 {
+            Spot::Native(node) => text_of(self.native_property(node, PropertyId::AutomationId)),
+            Spot::Painted(painted) => self.resolve(painted)?.0.mark.map(str::to_string),
+        }
     }
 
-    fn node(&self, id: NodeId) -> Node {
+    fn tip(&self, place: Place) -> Option<String> {
+        match place.0 {
+            Spot::Native(_) => None,
+            Spot::Painted(painted) => self.resolve(painted)?.0.tip,
+        }
+    }
+
+    fn node(&self, place: Place) -> Node {
         Node {
-            at: id,
-            kind: self.kind_name(id),
-            text: self.text(id),
-            id: self.mark_of(id),
+            at: place,
+            kind: self.kind_name(place),
+            text: self.text(place),
+            id: self.mark_of(place),
+            tip: self.tip(place),
             children: self
-                .below(id)
+                .below(place)
                 .into_iter()
                 .map(|child| self.node(child))
                 .collect(),
         }
     }
 
+    /// Where a pointer aimed at `found` lands: on the native element itself,
+    /// or on the element that published it, within its bounds.
+    fn aim(&mut self, found: Place, label: &str) -> (NodeId, Option<Bounds>) {
+        let painted = match found.0 {
+            Spot::Native(node) => return (node, None),
+            Spot::Painted(painted) => painted,
+        };
+
+        let gone = |mounted: &Self| -> ! {
+            panic!("{label:?} is no longer published:\n{:#?}", mounted.tree())
+        };
+
+        let Some((_, lists)) = self.resolve(painted) else { gone(self) };
+        if !lists.is_empty() {
+            for (items, index) in &lists {
+                items.show(*index);
+            }
+            self.settle();
+        }
+
+        let Some((semantic, _)) = self.resolve(painted) else { gone(self) };
+        let bounds = semantic.bounds.unwrap_or_else(|| {
+            panic!(
+                "{label:?} is a published {:?} with no bounds: nothing says where a pointer would land on it",
+                semantic.role
+            )
+        });
+
+        (self.path_of(painted).0, Some(bounds))
+    }
+
+    /// The native element each native element sits in - all a pointer
+    /// bubbles through.
     fn parents(&self) -> HashMap<NodeId, NodeId> {
         let mut parents = HashMap::new();
         let mut unseen: Vec<NodeId> = self.root().into_iter().collect();
 
         while let Some(node) = unseen.pop() {
-            for child in self.below(node) {
+            for child in self.native_below(node) {
                 parents.insert(child, node);
                 unseen.push(child);
             }
@@ -1197,8 +1482,10 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .host
             .drain(TURNS)
             .unwrap_or_else(|error| panic!("running the page's components: {error:?}"));
+        let measured = self.measure();
+        semantics::claim(self.owner);
 
-        drained.dispatched + drained.dropped + self.measure()
+        drained.dispatched + drained.dropped + measured
     }
 
     /// Tells each composition host under a [sized](Self::size) element the
@@ -1229,14 +1516,17 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         let mut sized = HashMap::new();
         for (name, width, height) in &self.sizes {
-            let Some(element) = self.first_marked(root, name) else {
+            let Some(element) = self
+                .first_marked(Place::native(root), name)
+                .and_then(|place| place.node())
+            else {
                 continue;
             };
 
             let mut unseen = vec![element];
             while let Some(node) = unseen.pop() {
                 sized.insert(node, (*width, *height));
-                unseen.extend(self.below(node));
+                unseen.extend(self.native_below(node));
             }
         }
 
@@ -1347,10 +1637,11 @@ where
             initial,
         };
 
-        let built = host(component::<Shown>(
-            ROOT,
-            View::component::<RouterRoot<R>>(rooted),
-        ));
+        let owner = next_owner();
+        let built = host(
+            owner,
+            component::<Shown>(ROOT, View::component::<RouterRoot<R>>(rooted)),
+        );
 
         let host = built.map_err(|refused| {
             anyhow::anyhow!("mounting the {} tree: {refused}", std::any::type_name::<R>())
@@ -1370,6 +1661,9 @@ where
             router: Some(router),
             sizes: Vec::new(),
             told: HashMap::new(),
+            owner,
+            painted: RefCell::default(),
+            listed: HashMap::new(),
             kind: PhantomData,
             segment: harness.segment(),
         };
@@ -1468,7 +1762,7 @@ where
 /// under it, so the same mark in every row of a list names one thing again.
 pub struct Within<'m, 'h, S> {
     mounted: &'m mut Mounted<'h, S>,
-    root: NodeId,
+    root: Place,
 }
 
 impl<'h, S: 'static> Within<'_, 'h, S> {
@@ -1510,11 +1804,11 @@ impl<'h, S: 'static> Within<'_, 'h, S> {
         self.mounted.property(self.root, property)
     }
 
-    pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
+    pub fn find(&self, mark: impl Mark) -> Option<Place> {
         self.mounted.first_marked(self.root, mark.name())
     }
 
-    pub fn find_text(&self, text: &str) -> Option<NodeId> {
+    pub fn find_text(&self, text: &str) -> Option<Place> {
         self.mounted.first_showing(self.root, text)
     }
 

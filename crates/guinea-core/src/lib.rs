@@ -10,6 +10,7 @@ pub mod notify;
 pub mod observability;
 pub mod shared_state;
 pub mod scope;
+pub mod semantics;
 #[cfg(feature = "test-utils")]
 pub mod test_kit;
 pub mod trace;

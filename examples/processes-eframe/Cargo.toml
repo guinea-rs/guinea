@@ -13,11 +13,11 @@ guinea = { path = "../../crates/guinea", default-features = false, features = ["
 guinea-core = { path = "../../crates/guinea-core" }
 guinea-macros = { path = "../../crates/guinea-macros" }
 processes-core = { path = "../processes-core" }
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.28.0" }
-guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.28.0" }
-guinea-plugin-devtools = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.28.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.29.0" }
+guinea-plugin-l10n = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.29.0" }
+guinea-plugin-devtools = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.29.0" }
 # For `RingSeries` only, which is plain data.
-guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.28.0", default-features = false }
+guinea-widgets = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.29.0", default-features = false }
 eframe = "0.36"
 egui = "0.36"
 anyhow = "1.0"

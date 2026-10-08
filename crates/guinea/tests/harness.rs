@@ -1085,6 +1085,115 @@ fn leaving_the_page_closes_its_watch(h: &mut Harness) {
     assert_eq!(h.stuck(), 0);
 }
 
+/// An actor whose state counts itself: what is left of it once its page is
+/// gone.
+mod lingering {
+    use super::*;
+    use std::cell::Cell;
+
+    thread_local! {
+        pub static ALIVE: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[derive(Debug)]
+    pub struct Alive;
+
+    impl Alive {
+        fn new() -> Self {
+            ALIVE.with(|alive| alive.set(alive.get() + 1));
+            Self
+        }
+    }
+
+    impl Drop for Alive {
+        fn drop(&mut self) {
+            ALIVE.with(|alive| alive.set(alive.get() - 1));
+        }
+    }
+
+    pub fn alive() -> usize {
+        ALIVE.with(Cell::get)
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Poke;
+
+    #[derive(Clone, Debug)]
+    pub struct Poked;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Pokes(pub u32);
+
+    impl Reducer for Pokes {
+        type Update = Poked;
+
+        fn reduce(&mut self, _poked: Poked) {
+            self.0 += 1;
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Lingerer {
+        pub push: Push<Pokes>,
+        pub _alive: Alive,
+    }
+
+    actor! {
+        Lingerer {
+            handlers { Poke => { bg Poked }, Poked }
+        }
+    }
+
+    #[handler]
+    fn poke(_this: &mut Lingerer, _: Poke, cx: Cx) {
+        cx.spawn_bg::<Poked, _>(async { Poked });
+    }
+
+    #[handler]
+    fn poked(this: &mut Lingerer, poked: Poked) {
+        this.push.send(poked);
+    }
+
+    feature! {
+        pub Lingering {
+            exports { Pokes }
+        }
+    }
+
+    #[installs]
+    fn lingering(cx: &FeatureInitContext) -> anyhow::Result<Lingering> {
+        let (pokes, addr) = cx.state::<Pokes>().driven_by(|push| Lingerer { push, _alive: Alive::new() });
+        cx.every(ms(100), &addr, || Poke);
+        Ok(Lingering(pokes))
+    }
+}
+
+#[guinea::test(iterations = 8)]
+fn an_actor_is_let_go_of_with_its_page(h: &mut Harness) {
+    let page = h.child();
+    page.install::<lingering::Lingering>(&()).unwrap();
+    assert_eq!(lingering::alive(), 1);
+
+    page.leave();
+    h.settled();
+
+    assert_eq!(lingering::alive(), 0, "the actor outlived its page");
+}
+
+#[guinea::test(iterations = 8)]
+fn an_actor_that_worked_is_let_go_of_with_its_page(h: &mut Harness) {
+    let page = h.child();
+    page.install::<lingering::Lingering>(&()).unwrap();
+    page.act::<lingering::Pokes>(lingering::Poke).settle();
+    h.advance(ms(250));
+    assert!(page.state::<lingering::Pokes>().0 >= 3);
+
+    page.leave();
+    h.settled();
+
+    assert_eq!(lingering::alive(), 0, "the actor outlived its page");
+}
+
 /// A background answer whose handler starts an actor and ends one - what a
 /// supervisor does when an agent comes and goes.
 mod supervising {

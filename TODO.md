@@ -211,19 +211,30 @@ nobody wrote for guinea.
 
 ## Actors
 
-### Bug: actors are not released
+### Suspected: actors are not released (not reproduced)
 
-Actors are not freed once nothing needs them, and what they hold leaks with
-them. Not investigated yet: which actors (a segment's, a feature's, the
-application's), and what keeps them alive.
+Seen in uniproc as actors subscribing to the same events again and again.
+Checked, and freed every time - the actor's state dropped and its global
+subscription gone:
 
-A first suspect, not verified: `Scope::hold_actor`
-(`crates/guinea-core/src/scope/actors.rs`) keeps a clone of the `Addr` inside
-the devtools snapshot closure, for as long as the scope lives. If an actor
-ends when its last `Addr` goes, the listing alone keeps it running.
+- a segment's actor under the harness, idle and after handling messages, a
+  background answer and a timer (`harness.rs`, `an_actor_*_let_go_of_*`);
+- a page's actor and a layout's feature through the real router and WinUI
+  mount, three visits in a row (`released_winui.rs`);
+- router navigation away from a page (`routing.rs`,
+  `navigating_away_from_page_disposes_actor_subscribed_to_global_bus`).
 
-Start with a test that installs a feature with an actor on a segment, leaves
-the segment, and checks that the actor stopped and its state was dropped.
+What uniproc shows is most likely the design: its domain features are
+installed by the area layouts (`processes_area` installs
+`ProcessesFeature`), so every visit to an area installs a new actor that
+subscribes anew, and leaving tears it down. An area that should keep its
+actor across visits is `mounted::keep`.
+
+Still open, since the strong `Addr` in the registry makes it possible: an
+actor made with `Addr::new` and never disposed lives forever, whoever lets
+go of it. Nothing in guinea, the plugins or uniproc does that today. If a
+leak shows up again, measure it first: `ALIVE` counters on the actor's state,
+or the leak report `AppHost::shutdown` logs at exit.
 
 ### Background work where only the latest run counts (uniproc)
 

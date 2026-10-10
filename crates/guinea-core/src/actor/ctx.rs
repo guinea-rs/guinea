@@ -340,7 +340,7 @@ impl<A: 'static, M> Cx<A, M> {
         Fut: Future<Output = ()> + 'static + Send,
     {
         let cancel = self.addr.cancellation();
-        let task = Task::new::<A>(self.addr.id, "()");
+        let task = Task::new::<A>(self.addr.id(), "()");
         let spawned = trace::mark(|| task.spawn());
 
         #[cfg(feature = "test-utils")]

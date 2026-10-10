@@ -1,7 +1,6 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 
-use guinea_core::actor::addr::Addr;
+use guinea_core::actor::addr::{Addr, Refs};
 use guinea_core::scope::{Scope, ScopeTree, Teardown};
 
 /// What hosts the application: the tree of scopes every window sits in, and
@@ -13,7 +12,7 @@ use guinea_core::scope::{Scope, ScopeTree, Teardown};
 /// windows first, then what the application set up, the last first.
 pub struct AppHost {
     tree: ScopeTree,
-    counted: RefCell<Vec<Rc<&'static str>>>,
+    counted: RefCell<Vec<Refs>>,
 }
 
 struct Cleanup(Box<dyn FnOnce()>);
@@ -52,7 +51,7 @@ impl AppHost {
     /// Counts `addr` among the actors that must be gone once the application
     /// is.
     pub(crate) fn count<A: 'static>(&self, addr: &Addr<A>) {
-        self.counted.borrow_mut().push(addr.strong_count_ptr());
+        self.counted.borrow_mut().push(addr.refs());
     }
 
     /// Removes the application's scope - everything in it the last first - and
@@ -63,9 +62,9 @@ impl AppHost {
         let counted = std::mem::take(&mut *self.counted.borrow_mut());
         let leaked: Vec<(&'static str, usize)> = counted
             .into_iter()
-            .filter_map(|counter| {
-                let held = Rc::strong_count(&counter) - 1;
-                (held > 0).then_some((*counter, held))
+            .filter_map(|refs| {
+                let held = refs.count();
+                (held > 0).then_some((refs.actor(), held))
             })
             .collect();
 

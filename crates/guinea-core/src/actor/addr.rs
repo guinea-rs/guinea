@@ -65,30 +65,39 @@ impl<A: 'static> Reach<A> {
     }
 }
 
-pub struct Addr<A: 'static> {
-    pub(super) id: usize,
-    state: Rc<RefCell<A>>,
-    queue: Rc<RefCell<VecDeque<Box<dyn Envelope<A>>>>>,
-    is_processing: Rc<Cell<bool>>,
-    counter: Rc<&'static str>,
+pub struct Addr<A: 'static>(Rc<Actor<A>>);
+
+struct Actor<A: 'static> {
+    id: usize,
+    state: RefCell<A>,
+    queue: RefCell<VecDeque<Box<dyn Envelope<A>>>>,
+    is_processing: Cell<bool>,
     cancel: Cancel,
     /// What it hears, for as long as it lives: disposing it ends them.
-    subscriptions: Rc<RefCell<Vec<BusSubscription>>>,
-    home: Rc<Home>,
+    subscriptions: RefCell<Vec<BusSubscription>>,
+    home: Home,
 }
 
 impl<A: 'static> Clone for Addr<A> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            state: self.state.clone(),
-            queue: self.queue.clone(),
-            is_processing: self.is_processing.clone(),
-            counter: self.counter.clone(),
-            cancel: self.cancel.clone(),
-            subscriptions: self.subscriptions.clone(),
-            home: self.home.clone(),
-        }
+        Self(self.0.clone())
+    }
+}
+
+/// How many addresses of an actor are still held, without holding one.
+pub struct Refs {
+    actor: &'static str,
+    addr: Weak<dyn std::any::Any>,
+}
+
+impl Refs {
+    /// The actor's type, by its short name.
+    pub fn actor(&self) -> &'static str {
+        self.actor
+    }
+
+    pub fn count(&self) -> usize {
+        self.addr.strong_count()
     }
 }
 
@@ -100,16 +109,15 @@ impl<A: 'static> Addr<A> {
     ///
     /// When the scope of `home` is already gone.
     pub fn new(state: A, home: &Home) -> Self {
-        let addr = Self {
+        let addr = Self(Rc::new(Actor {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            state: Rc::new(RefCell::new(state)),
-            queue: Rc::new(RefCell::new(VecDeque::new())),
-            is_processing: Rc::new(Cell::new(false)),
-            counter: Rc::new(short_type_name::<A>()),
+            state: RefCell::new(state),
+            queue: RefCell::new(VecDeque::new()),
+            is_processing: Cell::new(false),
             cancel: Cancel::new(),
-            subscriptions: Rc::new(RefCell::new(Vec::new())),
-            home: Rc::new(home.clone()),
-        };
+            subscriptions: RefCell::new(Vec::new()),
+            home: home.clone(),
+        }));
 
         home.scope.hold(&addr);
         addr
@@ -138,14 +146,14 @@ impl<A: 'static> Addr<A> {
     /// Where it lives: what an actor it makes lives in too, when it is the
     /// actor's to make.
     pub fn home(&self) -> Home {
-        (*self.home).clone()
+        self.0.home.clone()
     }
 
     /// How work off the UI thread finds this actor again.
     pub(crate) fn reach(&self) -> Reach<A> {
         Reach {
-            scope: self.home.scope,
-            id: self.id,
+            scope: self.0.home.scope,
+            id: self.0.id,
             actor: PhantomData,
         }
     }
@@ -158,7 +166,7 @@ impl<A: 'static> Addr<A> {
     {
         let on = match bus {
             Bus::Global => GlobalEventBus::bus(),
-            Bus::Window => self.home.bus.upgrade().unwrap_or_else(|| {
+            Bus::Window => self.0.home.bus.upgrade().unwrap_or_else(|| {
                 panic!(
                     "{} lives in no window, so there is no window bus to hear {} on",
                     short_type_name::<A>(),
@@ -167,16 +175,16 @@ impl<A: 'static> Addr<A> {
             }),
         };
 
-        self.home.scope.note_listener(name::<M>(), Some(name::<A>()), bus);
+        self.0.home.scope.note_listener(name::<M>(), Some(name::<A>()), bus);
 
         let subscription = on.subscribe::<A, M>(self.clone());
-        self.subscriptions.borrow_mut().push(subscription);
+        self.0.subscriptions.borrow_mut().push(subscription);
     }
 
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
     /// is not for it.
     pub(crate) fn is_asleep(&self) -> bool {
-        !self.home.scope.is_awake()
+        !self.0.home.scope.is_awake()
     }
 
     pub fn send<M>(&self, msg: M)
@@ -217,7 +225,7 @@ impl<A: 'static> Addr<A> {
             message: short_type_name::<M>(),
         });
 
-        self.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
+        self.0.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
             message: Some(msg),
             cause,
         }));
@@ -225,25 +233,31 @@ impl<A: 'static> Addr<A> {
         self.process_queue();
     }
 
-    pub fn strong_count_ptr(&self) -> Rc<&'static str> {
-        self.counter.clone()
+    /// Counts the addresses of this actor that are still held.
+    pub fn refs(&self) -> Refs {
+        let addr: Rc<dyn std::any::Any> = self.0.clone();
+
+        Refs {
+            actor: short_type_name::<A>(),
+            addr: Rc::downgrade(&addr),
+        }
     }
 
     pub fn id(&self) -> usize {
-        self.id
+        self.0.id
     }
 
     /// The token every task this actor spawned is guarded by; cancelled by
     /// [`Addr::dispose`], and so by the teardown that owns the actor.
     pub fn cancellation(&self) -> Cancel {
-        self.cancel.clone()
+        self.0.cancel.clone()
     }
 
     pub fn debug_snapshot(&self) -> String
     where
         A: std::fmt::Debug,
     {
-        match self.state.try_borrow() {
+        match self.0.state.try_borrow() {
             Ok(state) => format!("{:#?}", *state),
             Err(_) => "<handling a message>".to_string(),
         }
@@ -253,16 +267,16 @@ impl<A: 'static> Addr<A> {
     /// dropped where it last awaited, instead of running on with nowhere to
     /// answer. Its scope lets go of it, and does this itself when it goes.
     pub fn dispose(&self) {
-        self.cancel.cancel();
-        self.subscriptions.borrow_mut().clear();
-        self.home.scope.release(self.id);
+        self.0.cancel.cancel();
+        self.0.subscriptions.borrow_mut().clear();
+        self.0.home.scope.release(self.0.id);
     }
 
     fn process_queue(&self) {
-        if self.is_processing.get() {
+        if self.0.is_processing.get() {
             return;
         }
-        self.is_processing.set(true);
+        self.0.is_processing.set(true);
 
         crate::notify::turn(|| self.drain_queue());
     }
@@ -270,26 +284,26 @@ impl<A: 'static> Addr<A> {
     fn drain_queue(&self) {
         loop {
             let mut envelope = {
-                let mut q = self.queue.borrow_mut();
+                let mut q = self.0.queue.borrow_mut();
                 match q.pop_front() {
                     Some(e) => e,
                     None => {
-                        self.is_processing.set(false);
+                        self.0.is_processing.set(false);
                         break;
                     }
                 }
             };
 
             {
-                let mut state_guard = self.state.borrow_mut();
+                let mut state_guard = self.0.state.borrow_mut();
                 Envelope::<A>::handle(envelope.as_mut(), &mut *state_guard, self);
             }
             crate::observability::changes::changed(|| {
-                crate::observability::changes::Change::ActorHandled { id: self.id }
+                crate::observability::changes::Change::ActorHandled { id: self.0.id }
             });
         }
 
-        self.is_processing.set(false);
+        self.0.is_processing.set(false);
     }
 }
 
@@ -324,6 +338,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_address_is_one_pointer_so_handing_it_on_is_one_count() {
+        assert_eq!(size_of::<Addr<()>>(), size_of::<usize>());
+    }
+
+    #[test]
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
         let home = TestHome::new();
         let addr = Addr::new((), &home);
@@ -337,14 +356,14 @@ mod tests {
     fn an_actor_is_held_by_its_scope_alone() {
         let home = TestHome::new();
         let addr = Addr::new((), &home);
-        let counter = addr.strong_count_ptr();
+        let refs = addr.refs();
         drop(addr);
 
-        let while_there = Rc::strong_count(&counter);
+        let while_there = refs.count();
         home.tree.remove();
-        let after = Rc::strong_count(&counter);
+        let after = refs.count();
 
-        assert_eq!((while_there, after), (2, 1));
+        assert_eq!((while_there, after), (1, 0));
     }
 
     #[test]
@@ -364,14 +383,14 @@ mod tests {
     fn an_actor_disposed_before_its_scope_goes_is_let_go_at_once() {
         let home = TestHome::new();
         let addr = Addr::new((), &home);
-        let counter = addr.strong_count_ptr();
+        let refs = addr.refs();
         let reach = addr.reach();
 
         addr.dispose();
         drop(addr);
 
         let found = reach.addr().map(|found| found.id());
-        assert_eq!((Rc::strong_count(&counter), found), (1, None));
+        assert_eq!((refs.count(), found), (0, None));
     }
 
     #[test]

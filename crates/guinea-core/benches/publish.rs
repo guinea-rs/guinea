@@ -1,0 +1,75 @@
+//! What publishing an event costs, by how many hear it and the size of what
+//! it carries: heard by callbacks, and heard by actors.
+
+use std::hint::black_box;
+use std::rc::Rc;
+
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use guinea_core::actor::event_bus::{Event, EventBus};
+use guinea_core::BusSubscription;
+use guinea_core::actor::{Addr, Cx, Handler, Home};
+use guinea_core::scope::ScopeTree;
+
+const HEARD_BY: [usize; 3] = [1, 4, 16];
+
+#[derive(Clone)]
+struct Payload<const N: usize>([u8; N]);
+
+impl<const N: usize> Event for Payload<N> {}
+
+struct Sink(u64);
+
+impl<const N: usize> Handler<Payload<N>> for Sink {
+    fn handle(&mut self, Payload(bytes): Payload<N>, _cx: Cx<Self, Payload<N>>) {
+        self.0 += black_box(bytes).len() as u64;
+    }
+}
+
+fn by_callbacks<const N: usize>(group: &mut BenchmarkGroup<WallTime>) {
+    for heard_by in HEARD_BY {
+        let bus = Rc::new(EventBus::new());
+        let _subscriptions: Vec<BusSubscription> = (0..heard_by)
+            .map(|_| bus.subscribe_fn(|Payload(bytes): Payload<N>| drop(black_box(bytes))))
+            .collect();
+
+        group.throughput(Throughput::Elements(1));
+        group.bench_function(BenchmarkId::new(format!("{N}B"), heard_by), |b| {
+            b.iter(|| bus.publish(black_box(Payload([0u8; N]))))
+        });
+    }
+}
+
+fn by_actors<const N: usize>(group: &mut BenchmarkGroup<WallTime>, home: &Home) {
+    for heard_by in HEARD_BY {
+        let bus = Rc::new(EventBus::new());
+        let _subscriptions: Vec<BusSubscription> = (0..heard_by)
+            .map(|_| bus.subscribe::<Sink, Payload<N>>(Addr::new(Sink(0), home)))
+            .collect();
+
+        group.throughput(Throughput::Elements(1));
+        group.bench_function(BenchmarkId::new(format!("{N}B"), heard_by), |b| {
+            b.iter(|| bus.publish(black_box(Payload([0u8; N]))))
+        });
+    }
+}
+
+fn publish(c: &mut Criterion) {
+    let tree = ScopeTree::new();
+    let home = Home::new(tree.scope(), None);
+
+    let mut group = c.benchmark_group("callbacks");
+    by_callbacks::<0>(&mut group);
+    by_callbacks::<256>(&mut group);
+    by_callbacks::<4096>(&mut group);
+    group.finish();
+
+    let mut group = c.benchmark_group("actors");
+    by_actors::<0>(&mut group, &home);
+    by_actors::<256>(&mut group, &home);
+    by_actors::<4096>(&mut group, &home);
+    group.finish();
+}
+
+criterion_group!(benches, publish);
+criterion_main!(benches);

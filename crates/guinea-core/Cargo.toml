@@ -34,6 +34,10 @@ criterion.workspace = true
 name = "send"
 harness = false
 
+[[bench]]
+name = "publish"
+harness = false
+
 [features]
 # The test queue for `invoke_on_ui`, and the seeded executor whose clock is a
 # paused tokio runtime - which is tokio's `test-util`.

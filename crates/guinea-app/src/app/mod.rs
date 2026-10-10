@@ -105,13 +105,24 @@ impl GuineaApp {
     /// Replays the recipe: installs every plugin and feature in registration
     /// order, then runs the ready hooks.
     ///
-    /// For backend adapters. The caller must already be on the UI thread, and
-    /// must hand the result to [`install_runtime`] so teardown can find it.
+    /// For backend adapters. The caller must hand the result to
+    /// [`install_runtime`] so teardown can find it.
     ///
     /// When a plugin or feature fails, or returns [`Stop`], what was installed
     /// before it is torn down here and the error is returned; an adapter
     /// returns `Ok` from `run` for [`Stop`].
+    ///
+    /// Fails, before installing anything, off the UI thread: the application
+    /// would live where the dispatcher never runs its work, and every answer
+    /// from the background would be lost.
     pub fn install(self) -> anyhow::Result<AppRuntime> {
+        if guinea_core::actor::on_ui_thread() == Some(false) {
+            anyhow::bail!(
+                "installed off the UI thread: the dispatcher runs work on another thread, \
+                 where this application's actors would not be"
+            );
+        }
+
         // Before anything is built: a feature may spawn an actor while
         // installing, and that needs a runtime on this thread.
         #[cfg(feature = "own-runtime")]

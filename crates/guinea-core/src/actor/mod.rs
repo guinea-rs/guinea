@@ -33,8 +33,20 @@ pub trait UiDispatcher: Send + Sync {
 
 static UI_DISPATCHER: Lazy<RwLock<Option<Box<dyn UiDispatcher>>>> = Lazy::new(|| RwLock::new(None));
 
+/// Installs the dispatcher [`invoke_on_ui`] hands work to. Called from the
+/// UI thread: the thread it is called on is the one that work runs on.
 pub fn set_ui_dispatcher(dispatcher: impl UiDispatcher + 'static) {
     *UI_DISPATCHER.write().unwrap() = Some(Box::new(dispatcher));
+    *UI_THREAD.write().unwrap() = Some(std::thread::current().id());
+}
+
+static UI_THREAD: RwLock<Option<std::thread::ThreadId>> = RwLock::new(None);
+
+/// Whether this is the UI thread, the one [`set_ui_dispatcher`] was called
+/// on; `None` while no dispatcher is installed, as in a test.
+pub fn on_ui_thread() -> Option<bool> {
+    let ui = (*UI_THREAD.read().unwrap())?;
+    Some(ui == std::thread::current().id())
 }
 
 /// Runs `f` on the UI thread.

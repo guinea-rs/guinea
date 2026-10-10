@@ -107,8 +107,71 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// Declared as `bg` in `actor!`, like any other work that answers later.
     ///
-    /// ```ignore
-    /// cx.spawn_source(changes, Changed);
+    /// ```
+    /// use std::cell::RefCell;
+    /// use std::pin::Pin;
+    /// use std::rc::Rc;
+    /// use std::task::{Context, Poll};
+    /// use std::time::Duration;
+    ///
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home, Stream, UiLoop};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// struct Countdown(u32);
+    ///
+    /// impl Stream for Countdown {
+    ///     type Item = u32;
+    ///
+    ///     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<u32>> {
+    ///         if self.0 == 0 {
+    ///             return Poll::Ready(None);
+    ///         }
+    ///         self.0 -= 1;
+    ///         Poll::Ready(Some(self.0 + 1))
+    ///     }
+    /// }
+    ///
+    /// #[derive(Debug)]
+    /// struct Launch(Rc<RefCell<Vec<u32>>>);
+    ///
+    /// struct Start;
+    ///
+    /// struct Tick(u32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Launch {
+    ///         handlers {
+    ///             Start => { bg Tick }
+    ///             Tick
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Start> for Launch {
+    ///     fn handle(&mut self, _: Start, cx: Cx<Self, Start>) {
+    ///         cx.spawn_source(Countdown(3), Tick);
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Tick> for Launch {
+    ///     fn handle(&mut self, Tick(n): Tick, _cx: Cx<Self, Tick>) {
+    ///         self.0.borrow_mut().push(n);
+    ///     }
+    /// }
+    ///
+    /// let ui = UiLoop::install();
+    /// let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// let _entered = runtime.enter();
+    ///
+    /// let tree = ScopeTree::new();
+    /// let heard = Rc::new(RefCell::new(Vec::new()));
+    /// let launch = Addr::new_managed(Launch(heard.clone()), &Home::new(tree.scope(), None));
+    ///
+    /// launch.send(Start);
+    /// assert!(heard.borrow().is_empty(), "the source is not drained by the send");
+    ///
+    /// assert!(ui.run_until(|| heard.borrow().len() == 3, Duration::from_secs(5)));
+    /// assert_eq!(*heard.borrow(), [3, 2, 1]);
     /// ```
     pub fn spawn_source<S, Out, F>(&self, source: S, into: F)
     where

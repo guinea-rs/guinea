@@ -130,6 +130,120 @@ impl<A: 'static, M> Cx<A, M> {
     /// token and winds itself down: it is left to finish instead of being
     /// dropped at its next await. Either way nothing is sent to an actor
     /// that is gone.
+    ///
+    /// What the work returns comes back to the actor as a message:
+    ///
+    /// ```
+    /// use std::cell::Cell;
+    /// use std::rc::Rc;
+    /// use std::time::Duration;
+    ///
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home, UiLoop};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Debug)]
+    /// struct Weather(Rc<Cell<Option<i32>>>);
+    ///
+    /// struct Fetch;
+    ///
+    /// struct Fetched(i32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Weather {
+    ///         handlers {
+    ///             Fetch => { bg Fetched }
+    ///             Fetched
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, _: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.spawn_bg(async { Fetched(21) });
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Fetched> for Weather {
+    ///     fn handle(&mut self, Fetched(degrees): Fetched, _cx: Cx<Self, Fetched>) {
+    ///         self.0.set(Some(degrees));
+    ///     }
+    /// }
+    ///
+    /// let ui = UiLoop::install();
+    /// let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// let _entered = runtime.enter();
+    ///
+    /// let tree = ScopeTree::new();
+    /// let shown = Rc::new(Cell::new(None));
+    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope(), None));
+    ///
+    /// weather.send(Fetch);
+    /// assert_eq!(shown.get(), None, "the answer comes later, on the UI thread");
+    ///
+    /// assert!(ui.run_until(|| shown.get().is_some(), Duration::from_secs(5)));
+    /// assert_eq!(shown.get(), Some(21));
+    /// ```
+    ///
+    /// Work that listens for the token runs on after the actor is gone, to
+    /// wind itself down; what it returns then is for nobody:
+    ///
+    /// ```
+    /// use std::cell::Cell;
+    /// use std::rc::Rc;
+    /// use std::sync::Arc;
+    /// use std::sync::atomic::{AtomicBool, Ordering};
+    /// use std::time::Duration;
+    ///
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home, UiLoop};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Debug)]
+    /// struct Weather(Rc<Cell<Option<i32>>>);
+    ///
+    /// struct Fetch(Arc<AtomicBool>);
+    ///
+    /// struct Fetched(i32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Weather {
+    ///         handlers {
+    ///             Fetch => { bg Fetched }
+    ///             Fetched
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch(closed): Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.spawn_bg_with(|gone| async move {
+    ///             gone.cancelled().await;
+    ///             closed.store(true, Ordering::SeqCst);
+    ///             Fetched(0)
+    ///         });
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Fetched> for Weather {
+    ///     fn handle(&mut self, Fetched(degrees): Fetched, _cx: Cx<Self, Fetched>) {
+    ///         self.0.set(Some(degrees));
+    ///     }
+    /// }
+    ///
+    /// let ui = UiLoop::install();
+    /// let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// let _entered = runtime.enter();
+    ///
+    /// let tree = ScopeTree::new();
+    /// let shown = Rc::new(Cell::new(None));
+    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope(), None));
+    /// let closed = Arc::new(AtomicBool::new(false));
+    ///
+    /// weather.send(Fetch(closed.clone()));
+    /// weather.dispose();
+    ///
+    /// assert!(ui.run_until(|| closed.load(Ordering::SeqCst), Duration::from_secs(5)), "it wound down");
+    /// assert!(!ui.run_until(|| shown.get().is_some(), Duration::from_millis(100)), "and answered nobody");
+    /// ```
     fn bg<Out, Fut>(&self, fut: Fut, listens: bool)
     where
         Out: Send + 'static,

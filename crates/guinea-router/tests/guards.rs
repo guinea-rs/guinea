@@ -10,7 +10,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Navigation, RouteChain, Router, SegmentEntry};
@@ -137,8 +136,7 @@ fn opened() -> Rc<Router<Headless>> {
     ASKED.with(|slot| *slot.borrow_mut() = None);
     SHELL_INSTALLS.with(|n| n.set(0));
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router.navigate(Route::Editor).expect("navigate");
     router
 }

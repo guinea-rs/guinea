@@ -14,7 +14,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext, Listed, Lists};
-use guinea_core::actor::UiThreadToken;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
@@ -142,8 +141,7 @@ impl RouteChain<Headless> for Route {
 fn router() -> Rc<Router<Headless>> {
     GONE.with(|gone| gone.borrow_mut().clear());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router.navigate(Route::Processes).expect("the first route");
     router
 }

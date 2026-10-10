@@ -8,7 +8,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_router::enter::{Enter, EnterCx};
 use guinea_router::headless::{HeadlessCx, Layout, Page};
@@ -181,8 +180,7 @@ fn router() -> Rc<Router<Headless>> {
     LEAVE_ASKED.with(|asked| asked.set(false));
     PARKED.with(|parked| *parked.borrow_mut() = None);
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router.navigate(Route::Home {}).expect("the first route");
 
     // The leave guard belongs to `Home`, and only what happens after it is

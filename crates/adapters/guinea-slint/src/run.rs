@@ -13,7 +13,6 @@ use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
 use guinea_app::feature::{FeatureHost, ScopeContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
 
@@ -69,8 +68,7 @@ where
 
     // Genuinely this thread: it owns the window, and nothing else touches the
     // router or the scopes.
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let runtime = match app.install(token) {
+    let runtime = match app.install() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

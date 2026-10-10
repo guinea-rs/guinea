@@ -11,7 +11,6 @@ mod routing {
     use guinea::feature::{FeatureHost, FeatureInitContext};
     use std::rc::Rc;
     use guinea::router::*;
-    use guinea_core::actor::UiThreadToken;
     use guinea_core::feature::Bound;
     use guinea_core::scope::Reducer;
     use guinea_macros::routes;
@@ -105,11 +104,9 @@ mod routing {
 
     #[test]
     fn a_page_can_read_what_an_application_plugin_provided() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-
         let runtime = guinea::app::GuineaApp::new()
             .plugin(GreetingPlugin)
-            .install(token)
+            .install()
             .expect("install");
         let context = runtime.context();
         guinea_app::app::install_runtime(runtime);
@@ -123,8 +120,7 @@ mod routing {
 
     #[test]
     fn a_page_without_an_application_gets_a_plain_error_not_a_panic() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         let err = router
             .activate(page_chain::<NeedsAService>(), vec![Box::new(())])
@@ -177,8 +173,7 @@ mod routing {
 
     #[test]
     fn activating_a_page_runs_install_and_view_can_use_it() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         let scope = router
             .activate(
@@ -218,8 +213,7 @@ mod routing {
         // Mirrors what `RouterRx::render` actually does: it calls
         // `Router::navigate` on *every* render, not just when the route
         // value changes (the caller doesn't know whether it changed).
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
         let route = AppRoute::Processes { context: "ubuntu".to_string() };
 
         let scope_a = router
@@ -332,8 +326,7 @@ mod routing {
 
     #[test]
     fn a_layout_is_not_the_same_props_when_the_page_under_it_changes() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         let props_at_layout = |route: TabRoute| {
             router.navigate(route).expect("navigate");
@@ -364,8 +357,7 @@ mod routing {
 
     #[test]
     fn navigating_between_siblings_keeps_the_shared_ancestor_scope() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         router
             .navigate(TabRoute::Processes {
@@ -399,8 +391,7 @@ mod routing {
 
     #[test]
     fn navigating_to_the_same_leaf_type_with_different_params_reinstalls_only_the_leaf() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         router
             .navigate(TabRoute::Processes {
@@ -831,8 +822,7 @@ mod routing {
             }
         }
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
 
         router
             .navigate(ProbeRoute::ProbePage {})

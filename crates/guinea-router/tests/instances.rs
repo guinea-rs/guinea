@@ -15,7 +15,6 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
@@ -149,8 +148,7 @@ const CHAIN: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_ent
 fn each_instance_answers_for_itself() {
     ANSWERED.with(|seen| seen.borrow_mut().clear());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     let params: Vec<Box<dyn Any>> = vec![Box::new(()), Box::new(())];
     router.activate(&CHAIN, params).expect("activate");
 

@@ -4,7 +4,6 @@ use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::shape::name;
 use crate::actor::traits::{EventSubscription, Handler};
-use crate::actor::UiThreadToken;
 use crate::actor::{ManagedActor, short_type_name};
 use crate::scope::Scope;
 use crate::trace::{self, Bus, Cause, Point};
@@ -17,20 +16,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Where an actor is made: the scope that owns it, the UI thread it runs on,
-/// and the window bus it can hear when it is in a window.
+/// Where an actor is made: the scope that owns it, and the window bus it can
+/// hear when it is in a window.
 #[derive(Clone)]
 pub struct Home {
     scope: Scope,
-    token: UiThreadToken,
     bus: Weak<EventBus>,
 }
 
 impl Home {
-    pub fn new(scope: Scope, token: UiThreadToken, bus: Option<&Rc<EventBus>>) -> Self {
+    pub fn new(scope: Scope, bus: Option<&Rc<EventBus>>) -> Self {
         Self {
             scope,
-            token,
             bus: bus.map(Rc::downgrade).unwrap_or_default(),
         }
     }
@@ -225,9 +222,6 @@ impl<A: 'static> Addr<A> {
         self.process_queue();
     }
 
-    pub fn get_token(&self) -> UiThreadToken {
-        self.home.token.clone()
-    }
     pub fn strong_count_ptr(&self) -> Rc<&'static str> {
         self.counter.clone()
     }
@@ -308,11 +302,7 @@ pub(crate) struct TestHome {
 impl TestHome {
     pub(crate) fn new() -> Self {
         let tree = crate::scope::ScopeTree::new();
-        let home = Home::new(
-            tree.scope(),
-            UiThreadToken::dangerously_create_token_unchecked(),
-            None,
-        );
+        let home = Home::new(tree.scope(), None);
         Self { tree, home }
     }
 }

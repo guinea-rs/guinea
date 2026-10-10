@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_core::actor::UiThreadToken;
-
 use super::{AppFeature, AppHost, FeatureBuilder, Plugin, PluginBuilder};
 
 thread_local! {
@@ -19,10 +17,7 @@ fn taken() -> Vec<&'static str> {
 
 fn builder() -> FeatureBuilder {
     TRACE.with(|t| t.borrow_mut().clear());
-    FeatureBuilder::new(
-        UiThreadToken::dangerously_create_token_unchecked(),
-        AppHost::new(),
-    )
+    FeatureBuilder::new(AppHost::new())
 }
 
 struct Settings;
@@ -190,8 +185,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     struct Tick;
     impl Event for Tick {}
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let app = PluginBuilder::new(token, AppHost::new());
+    let app = PluginBuilder::new(AppHost::new());
     let seen = Rc::new(RefCell::new(0usize));
 
     {
@@ -223,11 +217,9 @@ impl Plugin for GreetingPlugin {
 
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-
     let runtime = super::GuineaApp::new()
         .plugin(GreetingPlugin)
-        .install(token)
+        .install()
         .expect("install");
 
     // No chain, no route, no backend: an application with a single window and
@@ -277,8 +269,6 @@ impl Plugin for NeedsMeta {
 
 #[test]
 fn a_plugin_reads_the_application_identity_instead_of_being_told_it() {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-
     super::GuineaApp::new()
         .meta(super::AppMeta::new(
             "Test",
@@ -287,7 +277,7 @@ fn a_plugin_reads_the_application_identity_instead_of_being_told_it() {
             "uniproc",
         ))
         .plugin(NeedsMeta)
-        .install(token)
+        .install()
         .expect("install");
 
     assert_eq!(taken(), vec!["read the identifier"]);
@@ -295,8 +285,6 @@ fn a_plugin_reads_the_application_identity_instead_of_being_told_it() {
 
 #[test]
 fn meta_declared_after_a_plugin_is_still_there_for_it() {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-
     // Order in the builder is registration order, not installation order -
     // both are replayed before any plugin is built.
     super::GuineaApp::new()
@@ -307,7 +295,7 @@ fn meta_declared_after_a_plugin_is_still_there_for_it() {
             "1.2.3",
             "uniproc",
         ))
-        .install(token)
+        .install()
         .expect("install");
 
     assert_eq!(taken(), vec!["read the identifier"]);
@@ -362,7 +350,7 @@ fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
         .plugin(Opened)
         .plugin(SecondCopy)
         .feature(Startup)
-        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .install()
         .err()
         .expect("stopped");
 
@@ -377,7 +365,7 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     let error = super::GuineaApp::new()
         .plugin(Opened)
         .plugin(Broken)
-        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .install()
         .err()
         .expect("failed");
 
@@ -389,7 +377,7 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
 fn an_installed_application_hands_out_what_its_plugins_provided() {
     let runtime = super::GuineaApp::new()
         .plugin(Settings)
-        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .install()
         .expect("install");
 
     let store = runtime.context().try_require::<Store>().map(|store| store.0);
@@ -398,7 +386,6 @@ fn an_installed_application_hands_out_what_its_plugins_provided() {
 }
 
 mod exports {
-    use guinea_core::actor::UiThreadToken;
     use guinea_core::scope::{Reducer, Scope};
 
     use super::super::Harness;
@@ -468,10 +455,9 @@ mod exports {
 
     #[test]
     fn a_window_reads_what_the_installed_application_exports() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
         let runtime = super::super::GuineaApp::new()
             .feature(Localisation)
-            .install(token)
+            .install()
             .expect("install");
 
         let window = crate::feature::FeatureHost::under(&runtime.context());
@@ -481,14 +467,13 @@ mod exports {
 
     #[test]
     fn a_window_sits_under_the_application_it_was_opened_from_not_the_latest_one() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
         let english = super::super::GuineaApp::new()
             .feature(Localisation)
-            .install(token.clone())
+            .install()
             .expect("install");
         let _german = super::super::GuineaApp::new()
             .plugin(Translations)
-            .install(token)
+            .install()
             .expect("install");
 
         let window = crate::feature::FeatureHost::under(&english.context());
@@ -536,10 +521,9 @@ mod exports {
 
     #[test]
     fn an_application_installs_what_it_returns_and_counts_as_installed() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
         let runtime = super::super::GuineaApp::new()
             .application::<Speaking>()
-            .install(token)
+            .install()
             .expect("install");
         crate::app::install_runtime(runtime);
 
@@ -621,10 +605,9 @@ mod owners {
 
     #[test]
     fn an_application_actor_names_the_feature_that_spawned_it() {
-        let token = guinea_core::actor::UiThreadToken::dangerously_create_token_unchecked();
         let runtime = super::super::GuineaApp::new()
             .feature(Housekeeping)
-            .install(token)
+            .install()
             .expect("install");
         crate::app::install_runtime(runtime);
 

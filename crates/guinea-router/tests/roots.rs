@@ -10,7 +10,6 @@ use std::rc::Rc;
 
 use guinea_app::app::roots;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{DropGuard, Reducer};
 use guinea_router::headless::{Headless, HeadlessCx, Page, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
@@ -58,8 +57,7 @@ impl Page for Processes {
 const CHAIN: [SegmentEntry<Headless>; 1] = [segment_entry::<Processes>()];
 
 fn open() -> Rc<Router<Headless>> {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router
         .activate(&CHAIN, vec![Box::new(())])
         .expect("activate");

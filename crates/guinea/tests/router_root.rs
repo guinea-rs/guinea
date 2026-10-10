@@ -11,7 +11,6 @@ use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
 use guinea::router::NavigateHandle;
 use guinea::winui::*;
-use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_macros::routes;
@@ -145,8 +144,7 @@ fn go(route: Route) {
 }
 
 fn mount(initial: Route) -> Host {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let runtime = GuineaApp::new().install(token).expect("install");
+    let runtime = GuineaApp::new().install().expect("install");
     let app = runtime.context();
     install_runtime(runtime);
 

@@ -82,7 +82,6 @@ mod tests {
     use std::any::Any;
 
     use guinea_app::feature::{FeatureHost, FeatureInitContext};
-    use guinea_core::actor::UiThreadToken;
     use guinea_core::guard::Verdict;
     use guinea_router::router::{Navigation, RouteChain, SegmentEntry};
 
@@ -135,8 +134,7 @@ mod tests {
 
     #[test]
     fn a_question_reaches_the_window_and_its_answer_the_router() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<Slint>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<Slint>::new(FeatureHost::detached()));
         let _question = install(&router);
 
         let asked = Rc::new(RefCell::new(Vec::new()));

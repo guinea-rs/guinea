@@ -2,7 +2,6 @@
 //! branch.
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_macros::routes;
 use guinea_router::router::{RouteChain, Router};
 use guinea_slint::{LayoutCx, PageCx, Slint};
@@ -118,8 +117,7 @@ fn shown(route: Route, page: i32) -> Vec<String> {
     let host = Host::new().expect("window");
     guinea_slint::testing::set_root(host.clone_strong());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = std::rc::Rc::new(Router::<Slint>::new(FeatureHost::detached(token)));
+    let router = std::rc::Rc::new(Router::<Slint>::new(FeatureHost::detached()));
     router.navigate(route).expect("navigate");
 
     host.set_page(page);

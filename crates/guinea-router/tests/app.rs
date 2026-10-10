@@ -12,7 +12,6 @@ use std::rc::Rc;
 
 use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_macros::{app, installs, routes};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
@@ -148,8 +147,7 @@ routes! {
 fn router(app: GuineaApp) -> Rc<Router<Headless>> {
     SEEN.with(|seen| seen.borrow_mut().clear());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let runtime = app.install(token).expect("install");
+    let runtime = app.install().expect("install");
     let context = runtime.context();
     guinea_app::app::install_runtime(runtime);
 

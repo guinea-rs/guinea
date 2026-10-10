@@ -81,7 +81,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use guinea_core::actor::UiThreadToken;
     use guinea_core::actor::event_bus::GlobalEventBus;
     use guinea_core::scope::DropGuard;
 
@@ -114,10 +113,7 @@ mod tests {
     fn probe_ping(_this: &mut Probe, _: Ping) {}
 
     fn plugin_builder() -> PluginBuilder {
-        PluginBuilder::new(
-            UiThreadToken::dangerously_create_token_unchecked(),
-            AppHost::new(),
-        )
+        PluginBuilder::new(AppHost::new())
     }
 
     #[test]

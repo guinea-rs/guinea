@@ -37,15 +37,6 @@ pub fn set_ui_dispatcher(dispatcher: impl UiDispatcher + 'static) {
     *UI_DISPATCHER.write().unwrap() = Some(Box::new(dispatcher));
 }
 
-#[derive(Clone)]
-pub struct UiThreadToken(std::marker::PhantomData<*const ()>);
-
-impl UiThreadToken {
-    pub fn dangerously_create_token_unchecked() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
 /// Runs `f` on the UI thread.
 ///
 /// Under `test-utils` a seeded executor on this thread takes it first, then

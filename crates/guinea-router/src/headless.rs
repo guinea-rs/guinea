@@ -191,7 +191,6 @@ mod tests {
     use super::*;
     use guinea_app::feature::{FeatureHost, FeatureInitContext};
     use crate::router::Router;
-    use guinea_core::actor::UiThreadToken;
     use std::rc::Rc;
 
     /// Plain Rust: the state is the reducer, and the two items are both about
@@ -234,8 +233,7 @@ mod tests {
     fn route_hooks_see_the_previous_and_current_path() {
         use std::cell::RefCell;
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+        let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
 
         let seen: Rc<RefCell<Vec<(Option<String>, String)>>> = Rc::new(RefCell::new(Vec::new()));
         let recorded = seen.clone();
@@ -260,8 +258,7 @@ mod tests {
 
     #[test]
     fn the_router_runs_with_a_backend_that_draws_nothing() {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let router = Router::<Headless>::new(FeatureHost::detached(token));
+        let router = Router::<Headless>::new(FeatureHost::detached());
 
         let scope = router
             .activate(page_chain::<Page1>(), vec![Box::new(())])

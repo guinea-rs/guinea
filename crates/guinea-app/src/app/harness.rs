@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus, GlobalEventBus};
-use guinea_core::actor::{UiThreadToken, short_type_name};
+use guinea_core::actor::short_type_name;
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
@@ -28,20 +28,17 @@ use super::runtime;
 /// its own crate. Nothing here attests to being on a real UI thread: work that
 /// actually touches the reactor still needs one.
 pub struct TestApp {
-    token: UiThreadToken,
     builder: FeatureBuilder,
     _observed: Observed,
 }
 
 impl TestApp {
     pub fn new() -> Self {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let builder = FeatureBuilder::new(token.clone(), AppHost::new());
+        let builder = FeatureBuilder::new(AppHost::new());
 
         Self {
             _observed: builder.observed(),
             builder,
-            token,
         }
     }
 
@@ -119,7 +116,6 @@ impl Harness {
         let segment = FeatureInitContext {
             scope_cx: ScopeContext {
                 scope: scope.scope(),
-                token: app.token.clone(),
                 services: app.services.clone(),
             },
             cursor: 0,

@@ -10,7 +10,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
 use guinea_macros::routes;
@@ -228,8 +227,7 @@ routes! {
 #[test]
 fn the_first_navigation_refuses_a_tree_built_wrong_before_installing_anything() {
     INSTALLED.set(0);
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
 
     let outcome = catch_unwind(AssertUnwindSafe(|| router.navigate(Route::Reader {}).map(|_| ())));
 

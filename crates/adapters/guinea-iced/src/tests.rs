@@ -7,7 +7,6 @@
 use std::any::Any;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
@@ -183,8 +182,7 @@ struct Mounted {
 
 impl Mounted {
     fn at(chain: &'static [SegmentEntry<Iced>]) -> Self {
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        Self::hosted(chain, FeatureHost::detached(token))
+        Self::hosted(chain, FeatureHost::detached())
     }
 
     fn hosted(chain: &'static [SegmentEntry<Iced>], host: FeatureHost) -> Self {
@@ -381,7 +379,7 @@ const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_e
 fn a_shortcut_written_over_reads_reads_in_a_view() {
     let runtime = guinea_app::app::GuineaApp::new()
         .plugin(Showing)
-        .install(UiThreadToken::dangerously_create_token_unchecked())
+        .install()
         .expect("install");
     let mounted = Mounted::hosted(&WITH_READER, FeatureHost::under(&runtime.context()));
 

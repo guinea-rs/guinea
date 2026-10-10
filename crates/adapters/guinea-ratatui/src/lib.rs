@@ -542,7 +542,6 @@ impl<'b, L> LayoutCx<'_, 'b, L> {
 mod tests {
     use super::*;
     use guinea_app::feature::FeatureHost;
-    use guinea_core::actor::UiThreadToken;
     use guinea_router::router::Router;
     use ratatui::layout::{Constraint, Direction, Layout as RLayout};
     use ratatui::widgets::Paragraph;
@@ -631,8 +630,7 @@ mod tests {
 
     impl Mounted {
         fn new() -> Self {
-            let token = UiThreadToken::dangerously_create_token_unchecked();
-            let router = Router::<Tui>::new(FeatureHost::detached(token));
+            let router = Router::<Tui>::new(FeatureHost::detached());
             router
                 .activate(&CHAIN, vec![Box::new(()), Box::new(())])
                 .expect("activate");

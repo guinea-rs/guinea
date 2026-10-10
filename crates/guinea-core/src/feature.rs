@@ -16,7 +16,7 @@
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
-use crate::actor::{Addr, Home, ManagedActor, UiThreadToken};
+use crate::actor::{Addr, Home, ManagedActor};
 use crate::scope::{Reducer, Scope};
 
 /// The way back into a reducer, for whoever changes it.
@@ -251,7 +251,6 @@ pub trait Serves: Sized + 'static {
 pub struct Claim<'a, R: Reducer> {
     scope: Scope,
     bus: Option<&'a Rc<EventBus>>,
-    token: &'a UiThreadToken,
     reducer: std::marker::PhantomData<fn() -> R>,
 }
 
@@ -259,12 +258,11 @@ impl<'a, R: Reducer> Claim<'a, R> {
     /// For a context that hands features their scope - the contexts in
     /// `guinea-app`, and nothing else. `bus` is the window's, when the scope
     /// is in one.
-    pub fn new(scope: Scope, bus: Option<&'a Rc<EventBus>>, token: &'a UiThreadToken) -> Self {
+    pub fn new(scope: Scope, bus: Option<&'a Rc<EventBus>>) -> Self {
         scope.note_reducer_owner::<R>();
         Self {
             scope,
             bus,
-            token,
             reducer: std::marker::PhantomData,
         }
     }
@@ -296,7 +294,7 @@ impl<'a, R: Reducer> Claim<'a, R> {
         F: FnOnce(Push<R>) -> A,
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
-        let home = Home::new(self.scope, self.token.clone(), self.bus);
+        let home = Home::new(self.scope, self.bus);
         let drives = Some(crate::actor::short_type_name::<R>());
         let actor = Addr::listed(build(Push::new(self.scope)), &home, drives);
         A::serve(&actor, self.scope);

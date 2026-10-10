@@ -5,7 +5,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::Reducer;
 use guinea_macros::routes;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
@@ -99,8 +98,7 @@ fn router() -> Rc<Router<Headless>> {
     INSTALLS.with(|installs| installs.borrow_mut().clear());
     BROKEN.with(|broken| broken.set(true));
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router
         .navigate(Route::Host {
             name: "ubuntu".to_string(),

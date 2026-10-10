@@ -141,11 +141,7 @@ impl crate::actor::Handler<Tick> for Ticker {
 }
 
 fn home(scope: Scope) -> crate::actor::Home {
-    crate::actor::Home::new(
-        scope,
-        crate::actor::UiThreadToken::dangerously_create_token_unchecked(),
-        None,
-    )
+    crate::actor::Home::new(scope, None)
 }
 
 fn watched(run: impl FnOnce()) -> Vec<crate::observability::changes::Change> {

@@ -6,7 +6,7 @@ use std::rc::Rc;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use std::cell::RefCell;
 
-use guinea_core::actor::{Cx, Handler, UiThreadToken};
+use guinea_core::actor::{Cx, Handler};
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
@@ -101,8 +101,7 @@ impl RouteChain<Headless> for Route {
 
 #[test]
 fn a_router_shows_up_once_it_has_navigated_and_goes_when_dropped() {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(token)));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     let before = observability::routers().len();
 
     router.navigate(Route { id: 7 }).expect("navigate");
@@ -131,9 +130,7 @@ fn a_router_shows_up_once_it_has_navigated_and_goes_when_dropped() {
 
 #[test]
 fn devtools_hear_a_router_open_and_close_and_read_it_alone() {
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(
-        UiThreadToken::dangerously_create_token_unchecked(),
-    )));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     let root = router.root().get();
 
     let seen = Rc::new(RefCell::new(Vec::new()));
@@ -170,7 +167,7 @@ struct Resized;
 
 #[test]
 fn a_router_view_says_who_hears_its_window_s_bus() {
-    let host = FeatureHost::detached(UiThreadToken::dangerously_create_token_unchecked());
+    let host = FeatureHost::detached();
     let subscribed_at = line!() + 1;
     let _hears = host.event_bus().subscribe_fn(|_: Resized| {});
     let router = Rc::new(Router::<Headless>::new(host));
@@ -197,9 +194,7 @@ fn a_router_view_says_who_hears_its_window_s_bus() {
 
 #[test]
 fn one_actor_of_one_window_is_read_by_its_id() {
-    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached(
-        UiThreadToken::dangerously_create_token_unchecked(),
-    )));
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
     router.navigate(Route { id: 1 }).expect("navigate");
     let root = router.root().get();
 

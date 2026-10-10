@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use guinea_core::SharedState;
-use guinea_core::actor::{Addr, ManagedActor, UiThreadToken};
+use guinea_core::actor::{Addr, ManagedActor};
 use crate::feature::{AppFeatureDeinitContext, ScopeContext};
 
 use super::host::AppHost;
@@ -30,11 +30,10 @@ pub struct FeatureBuilder {
 }
 
 impl PluginBuilder {
-    pub(crate) fn new(token: UiThreadToken, host: AppHost) -> Self {
+    pub(crate) fn new(host: AppHost) -> Self {
         Self {
             cx: ScopeContext {
                 scope: host.scope(),
-                token,
                 services: SharedState::new(),
             },
             host,
@@ -106,13 +105,9 @@ impl PluginBuilder {
         &self,
         f: impl for<'a> FnOnce(&mut AppFeatureDeinitContext<'a>) -> anyhow::Result<()> + 'static,
     ) -> &Self {
-        let token = self.token.clone();
         let services = self.services.clone();
         self.host.on_cleanup(move || {
-            let mut ctx = AppFeatureDeinitContext {
-                token,
-                shared: &services,
-            };
+            let mut ctx = AppFeatureDeinitContext { shared: &services };
             if let Err(e) = f(&mut ctx) {
                 tracing::error!(error = %e, "an application cleanup failed");
             }
@@ -155,9 +150,9 @@ impl PluginBuilder {
 }
 
 impl FeatureBuilder {
-    pub(crate) fn new(token: UiThreadToken, host: AppHost) -> Self {
+    pub(crate) fn new(host: AppHost) -> Self {
         Self {
-            inner: PluginBuilder::new(token, host),
+            inner: PluginBuilder::new(host),
         }
     }
 

@@ -5,7 +5,6 @@
 //! name - the same thing an application compiles.
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Reducer;
 use guinea_router::router::{Router, SegmentEntry};
@@ -103,8 +102,7 @@ fn mounted() -> (Shell, Router<Slint>) {
     let shell = Shell::new().expect("window");
     guinea_slint::testing::set_root(shell.clone_strong());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = Router::<Slint>::new(FeatureHost::detached(token));
+    let router = Router::<Slint>::new(FeatureHost::detached());
     router
         .activate(
             &CHAIN,

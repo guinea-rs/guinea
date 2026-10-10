@@ -6,7 +6,7 @@
 
 use futures_core::Stream;
 use guinea_core::actor::{
-    Addr, Cx, Handler, Home, UiDispatcher, UiTask, UiThreadToken, set_ui_dispatcher,
+    Addr, Cx, Handler, Home, UiDispatcher, UiTask, set_ui_dispatcher,
 };
 use guinea_core::scope::ScopeTree;
 use guinea_core::trace::{self, Cause, Point, Trace};
@@ -97,8 +97,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
         .unwrap();
     runtime.block_on(async {
         let tree = ScopeTree::new();
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let addr = Addr::new_managed(Maker, &Home::new(tree.scope(), token, None));
+        let addr = Addr::new_managed(Maker, &Home::new(tree.scope(), None));
         addr.send(Open(Making { left: 2 }));
 
         for _ in 0..20 {

@@ -26,7 +26,6 @@ pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
 pub use runtime::{AppRuntime, install_runtime, shutdown_current};
 
-use guinea_core::actor::UiThreadToken;
 
 pub type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
 pub type ReadyHook = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
@@ -106,20 +105,19 @@ impl GuineaApp {
     /// Replays the recipe: installs every plugin and feature in registration
     /// order, then runs the ready hooks.
     ///
-    /// For backend adapters. The caller must already be on the UI thread -
-    /// that is what `token` attests to - and must hand the result to
-    /// [`install_runtime`] so teardown can find it.
+    /// For backend adapters. The caller must already be on the UI thread, and
+    /// must hand the result to [`install_runtime`] so teardown can find it.
     ///
     /// When a plugin or feature fails, or returns [`Stop`], what was installed
     /// before it is torn down here and the error is returned; an adapter
     /// returns `Ok` from `run` for [`Stop`].
-    pub fn install(self, token: UiThreadToken) -> anyhow::Result<AppRuntime> {
+    pub fn install(self) -> anyhow::Result<AppRuntime> {
         // Before anything is built: a feature may spawn an actor while
         // installing, and that needs a runtime on this thread.
         #[cfg(feature = "own-runtime")]
         runtime_host::ensure_entered()?;
 
-        let mut builder = FeatureBuilder::new(token.clone(), AppHost::new());
+        let mut builder = FeatureBuilder::new(AppHost::new());
 
         // First, whatever the order of the calls that built this: a plugin
         // asking who the application is must not depend on where `meta()` sat

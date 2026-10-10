@@ -5,7 +5,6 @@
 //! other case.
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_macros::routes;
 use guinea_ratatui::{LayoutCx, PageCx, Tui};
 use guinea_router::router::{RouteChain, Router};
@@ -80,8 +79,7 @@ routes! {
 }
 
 fn draw(route: Route) -> String {
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = std::rc::Rc::new(Router::<Tui>::new(FeatureHost::detached(token)));
+    let router = std::rc::Rc::new(Router::<Tui>::new(FeatureHost::detached()));
     router.navigate(route).expect("navigate");
 
     let mut terminal = Terminal::new(TestBackend::new(10, 2)).expect("terminal");
@@ -139,8 +137,7 @@ fn navigator() -> (
 ) {
     use guinea_router::router::{NavigateHandle, RouteSink};
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    let router = std::rc::Rc::new(Router::<Tui>::new(FeatureHost::detached(token)));
+    let router = std::rc::Rc::new(Router::<Tui>::new(FeatureHost::detached()));
     let here = Route::Processes {
         host: "ubuntu".to_string(),
     };

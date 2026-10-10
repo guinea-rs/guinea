@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use guinea_core::SharedState;
 use guinea_core::actor::event_bus::EventBus;
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
@@ -26,7 +25,6 @@ pub struct FeatureHost {
     _tree: Option<ScopeTree>,
     /// The application's own context, when there is one.
     app: Option<ScopeContext>,
-    token: UiThreadToken,
     /// One per window, shared by every feature installed through this host,
     /// so actors in different features can reach each other.
     event_bus: Rc<EventBus>,
@@ -43,19 +41,18 @@ impl FeatureHost {
     /// `app` is the application's own context - what
     /// [`AppRuntime::context`](crate::app::AppRuntime::context) hands back.
     pub fn under(app: &ScopeContext) -> Self {
-        Self::open(app.token.clone(), app.scope, None, app.services.clone(), Some(app.clone()))
+        Self::open(app.scope, None, app.services.clone(), Some(app.clone()))
     }
 
     /// A window with no application around it - a test, say. Nothing is
     /// provided, and it reads only what its own segments export.
-    pub fn detached(token: UiThreadToken) -> Self {
+    pub fn detached() -> Self {
         let tree = ScopeTree::new();
         let parent = tree.scope();
-        Self::open(token, parent, Some(tree), SharedState::default(), None)
+        Self::open(parent, Some(tree), SharedState::default(), None)
     }
 
     fn open(
-        token: UiThreadToken,
         parent: Scope,
         tree: Option<ScopeTree>,
         services: SharedState,
@@ -70,7 +67,6 @@ impl FeatureHost {
             scope: scope.guard(),
             _tree: tree,
             app,
-            token,
             event_bus: Rc::new(EventBus::for_root(id)),
             services,
             root,
@@ -86,10 +82,6 @@ impl FeatureHost {
     /// The window's own scope: the root of every scope installed here.
     pub fn scope(&self) -> Scope {
         self.scope.scope()
-    }
-
-    pub fn token(&self) -> &UiThreadToken {
-        &self.token
     }
 
     /// Which root this is - the one a feature installed here belongs to.
@@ -115,7 +107,6 @@ impl FeatureHost {
         FeatureInitContext {
             scope_cx: ScopeContext {
                 scope,
-                token: self.token.clone(),
                 services: self.services.clone(),
             },
             cursor,
@@ -171,7 +162,7 @@ mod tests {
 
     #[test]
     fn what_changes_under_a_host_names_its_window() {
-        let host = FeatureHost::detached(UiThreadToken::dangerously_create_token_unchecked());
+        let host = FeatureHost::detached();
         let root = Some(host.root().get());
 
         let seen = Rc::new(RefCell::new(Vec::new()));

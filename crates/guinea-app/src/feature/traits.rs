@@ -7,7 +7,7 @@ use crate::timers::{self, Period, Timer};
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
-use guinea_core::actor::{Addr, Handler, Home, ManagedActor, UiThreadToken};
+use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
 use guinea_core::trace::Bus;
 use guinea_core::actor::event_bus::{EventBus, GlobalEventBus};
 use guinea_core::actor::event_bus::subscribe::Event;
@@ -16,7 +16,6 @@ use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::{DropGuard, Reducer, Scope};
 
 pub struct AppFeatureDeinitContext<'a> {
-    pub token: UiThreadToken,
     pub shared: &'a SharedState,
 }
 
@@ -31,7 +30,6 @@ pub struct AppFeatureDeinitContext<'a> {
 #[derive(Clone)]
 pub struct ScopeContext {
     pub scope: Scope,
-    pub token: UiThreadToken,
     /// What plugins provided during application startup.
     pub services: SharedState,
 }
@@ -263,7 +261,7 @@ impl ScopeContext {
             crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
         });
 
-        Claim::new(self.scope, bus, &self.token)
+        Claim::new(self.scope, bus)
     }
 
     /// Says this scope answers `M`, and how.
@@ -375,7 +373,7 @@ impl ScopeContext {
         bus: Option<&Rc<EventBus>>,
         actor: A,
     ) -> Addr<A> {
-        Addr::new_managed(actor, &Home::new(self.scope, self.token.clone(), bus))
+        Addr::new_managed(actor, &Home::new(self.scope, bus))
     }
 
     /// Sends `message()` to `addr` every `period`, for as long as this scope

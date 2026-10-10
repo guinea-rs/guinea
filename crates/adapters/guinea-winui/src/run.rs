@@ -6,7 +6,6 @@ use std::rc::{Rc, Weak};
 
 use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
 use guinea_app::feature::ScopeContext;
-use guinea_core::actor::UiThreadToken;
 use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{
     AppProxy, Border, Component, ComponentContext, View, ViewContext, WindowVisuals,
@@ -90,8 +89,7 @@ where
         crate::dispatching::install(proxy.clone());
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
-        let runtime = match app.install(token) {
+        let runtime = match app.install() {
             Ok(runtime) => runtime,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);

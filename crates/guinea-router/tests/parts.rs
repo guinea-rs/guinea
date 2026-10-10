@@ -8,7 +8,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::actor::UiThreadToken;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_macros::{routes, slot};
 use guinea_router::construction::check;
@@ -160,8 +159,7 @@ fn router() -> Rc<Router<Headless>> {
     PART.set(None);
     SEEN.with(|seen| seen.borrow_mut().clear());
 
-    let token = UiThreadToken::dangerously_create_token_unchecked();
-    Rc::new(Router::<Headless>::new(FeatureHost::detached(token)))
+    Rc::new(Router::<Headless>::new(FeatureHost::detached()))
 }
 
 #[test]

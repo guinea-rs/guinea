@@ -13,7 +13,7 @@
 //! ```no_run
 //! // build.rs
 //! fn main() -> std::io::Result<()> {
-//!     let mut build = guinea_codegen::Build::from_env()?;
+//!     let mut build = guinea_codegen::Build::from_env();
 //!     let manifest = build.read("app.toml")?;
 //!     build.write("app.rs", format!("pub const APP: &str = {manifest:?};"))?;
 //!     Ok(())
@@ -36,8 +36,13 @@ pub struct Build {
 
 impl Build {
     /// The package cargo is running this build script for.
-    pub fn from_env() -> io::Result<Self> {
-        Ok(Self::new(from_cargo("CARGO_MANIFEST_DIR")?, from_cargo("OUT_DIR")?))
+    ///
+    /// # Panics
+    ///
+    /// Outside a build script, where cargo has not set `CARGO_MANIFEST_DIR`
+    /// and `OUT_DIR`.
+    pub fn from_env() -> Self {
+        Self::new(from_cargo("CARGO_MANIFEST_DIR"), from_cargo("OUT_DIR"))
     }
 
     fn new(manifest_dir: PathBuf, out_dir: PathBuf) -> Self {
@@ -115,10 +120,11 @@ fn naming(path: &Path, error: io::Error) -> io::Error {
     io::Error::new(error.kind(), format!("{}: {error}", path.display()))
 }
 
-fn from_cargo(key: &str) -> io::Result<PathBuf> {
-    env::var_os(key)
-        .map(PathBuf::from)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{key}: not run by cargo")))
+fn from_cargo(key: &str) -> PathBuf {
+    match env::var_os(key) {
+        Some(value) => PathBuf::from(value),
+        None => panic!("{key}: not run by cargo"),
+    }
 }
 
 #[cfg(test)]
@@ -145,6 +151,17 @@ mod tests {
 
     fn outcome<T>(result: io::Result<T>) -> Result<T, String> {
         result.map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn outside_a_build_script_it_says_what_cargo_did_not_set() {
+        let outcome = std::panic::catch_unwind(Build::from_env);
+
+        let message = outcome
+            .err()
+            .and_then(|panic| panic.downcast::<String>().ok())
+            .map(|message| *message);
+        assert_eq!(message.as_deref(), Some("OUT_DIR: not run by cargo"));
     }
 
     #[test]

@@ -67,7 +67,7 @@ pub(crate) const IDS: &str = "route-id.slint";
 /// Generates the route tree from `<root>/routes.rs` and compiles
 /// `<root>/app.slint` against it.
 pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
-    let mut build = Build::from_env()?;
+    let mut build = Build::from_env();
 
     // The directory rather than the files in it: adding a page is adding files,
     // and cargo has to notice that too.

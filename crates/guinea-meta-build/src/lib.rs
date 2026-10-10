@@ -23,7 +23,7 @@ struct WindowSection {
 }
 
 pub fn generate(manifest_relative_path: &str) {
-    let mut build = Build::from_env().unwrap_or_else(|e| panic!("{e}"));
+    let mut build = Build::from_env();
 
     let contents = build
         .read(manifest_relative_path)

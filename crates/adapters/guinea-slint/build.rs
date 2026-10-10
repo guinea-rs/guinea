@@ -1,5 +1,5 @@
-fn main() -> std::io::Result<()> {
-    let mut build = guinea_codegen::Build::from_env()?;
+fn main() {
+    let mut build = guinea_codegen::Build::from_env();
 
     // Both flags reach the `slint!` macro through rustc's environment, and
     // rustc compiles one crate at a time - so these apply to this crate only,
@@ -14,6 +14,4 @@ fn main() -> std::io::Result<()> {
     // exposes reads debug info the compiler otherwise leaves out.
     build.rustc_env("SLINT_EMIT_DEBUG_INFO", "1");
     build.track("build.rs");
-
-    Ok(())
 }

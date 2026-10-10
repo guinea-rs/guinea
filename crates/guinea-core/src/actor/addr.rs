@@ -94,8 +94,11 @@ impl<A: 'static> Clone for Addr<A> {
 
 impl<A: 'static> Addr<A> {
     /// An actor living in `home`: its scope owns it, and disposes it when
-    /// the scope goes. Made in a scope that is already gone, it is disposed
-    /// at once.
+    /// the scope goes.
+    ///
+    /// # Panics
+    ///
+    /// When the scope of `home` is already gone.
     pub fn new(state: A, home: &Home) -> Self {
         let addr = Self {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -382,14 +385,20 @@ mod tests {
     }
 
     #[test]
-    fn an_actor_made_in_a_scope_that_is_gone_is_disposed_at_once() {
+    fn making_an_actor_in_a_scope_that_is_gone_is_a_mistake_said_out_loud() {
         let home = TestHome::new();
         home.tree.remove();
 
-        let addr = Addr::new((), &home);
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Addr::new((), &home);
+        }));
 
-        assert!(addr.cancellation().is_cancelled());
-        assert_eq!(addr.reach().addr().map(|found| found.id()), None);
+        let message = made
+            .err()
+            .and_then(|panic| panic.downcast::<String>().ok())
+            .map(|message| *message);
+        let expected = format!("making an actor in {:?}, which was removed", home.scope());
+        assert_eq!(message, Some(expected));
     }
 
     #[derive(Clone)]

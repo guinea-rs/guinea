@@ -125,10 +125,7 @@ impl Scope {
     /// Takes `addr` on: held until this scope goes, then disposed. What
     /// [`Addr::new`] does with the scope it is made in.
     pub(crate) fn hold<A: 'static>(&self, addr: &Addr<A>) {
-        let Some(data) = self.data() else {
-            addr.dispose();
-            return;
-        };
+        let data = self.installing("making an actor");
 
         data.actors.borrow_mut().insert(
             addr.id(),

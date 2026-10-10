@@ -48,9 +48,10 @@ mod scan;
 mod tree;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
+use guinea_codegen::Build;
 
 /// The window, by convention, next to the routes it shows.
 const APP: &str = "app.slint";
@@ -66,15 +67,11 @@ pub(crate) const IDS: &str = "route-id.slint";
 /// Generates the route tree from `<root>/routes.rs` and compiles
 /// `<root>/app.slint` against it.
 pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
-    let manifest = PathBuf::from(
-        std::env::var_os("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR: not run by cargo")?,
-    );
-    let out = PathBuf::from(std::env::var_os("OUT_DIR").context("OUT_DIR: not run by cargo")?);
-    let root = manifest.join(root.as_ref());
+    let mut build = Build::from_env()?;
 
     // The directory rather than the files in it: adding a page is adding files,
     // and cargo has to notice that too.
-    println!("cargo::rerun-if-changed={}", root.display());
+    let root = build.track(root);
 
     let declaration = fs::read_to_string(root.join(ROUTES))
         .with_context(|| format!("{}: no route declaration", root.join(ROUTES).display()))?;
@@ -88,13 +85,14 @@ pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
     let components = scan::components_under(&root)?;
     let generated = tree::emit(&routes, &components)?;
 
-    fs::write(out.join(IDS), generated.ids)?;
-    fs::write(out.join(GENERATED_SLINT), generated.slint)?;
-    fs::write(out.join(GENERATED_RUST), generated.rust)?;
+    build.write(IDS, generated.ids)?;
+    build.write(GENERATED_SLINT, generated.slint)?;
+    build.write(GENERATED_RUST, generated.rust)?;
 
     // The generated tree is reached by name, not by path: it lives in OUT_DIR,
     // which the application cannot spell.
-    let config = slint_build::CompilerConfiguration::new().with_include_paths(vec![out]);
+    let config = slint_build::CompilerConfiguration::new()
+        .with_include_paths(vec![build.out_dir().to_path_buf()]);
     let app = root.join(APP);
     slint_build::compile_with_config(&app, config)
         .map_err(|e| anyhow::anyhow!("{}: {e}", app.display()))?;

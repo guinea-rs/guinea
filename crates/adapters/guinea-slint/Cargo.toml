@@ -15,11 +15,14 @@ anyhow.workspace = true
 # No backend and no renderer: which one to draw with is the application's
 # choice, and an adapter that picked one would decide it for every application
 # that links it.
-slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2"] }
+slint = { workspace = true, features = ["std", "compat-1-2"] }
 tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
+
+[build-dependencies]
+guinea-codegen.workspace = true
 
 [features]
 # Reaches the winit window Slint is standing on, for the part of the window
@@ -37,4 +40,4 @@ workspace = true
 [dev-dependencies]
 guinea-macros.workspace = true
 guinea-core = { workspace = true, features = ["test-utils"] }
-i-slint-backend-testing = "1.17"
+i-slint-backend-testing.workspace = true

@@ -1022,7 +1022,6 @@ name = "guinea"
 version = "0.29.0"
 dependencies = [
  "guinea-app",
- "guinea-codegen",
  "guinea-core",
  "guinea-macros",
  "guinea-meta",
@@ -1043,16 +1042,6 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.29.0"
-dependencies = [
- "guinea-meta-build",
- "heck",
- "proc-macro2",
- "quote",
- "strsim",
- "syn 2.0.119",
- "toml 0.9.12+spec-1.1.0",
- "walkdir",
-]
 
 [[package]]
 name = "guinea-core"
@@ -1092,7 +1081,6 @@ dependencies = [
 name = "guinea-macros"
 version = "0.29.0"
 dependencies = [
- "guinea-codegen",
  "guinea-route-dsl",
  "heck",
  "proc-macro-crate",
@@ -1114,6 +1102,7 @@ version = "0.29.0"
 name = "guinea-meta-build"
 version = "0.29.0"
 dependencies = [
+ "guinea-codegen",
  "serde",
  "toml 0.9.12+spec-1.1.0",
  "winresource",

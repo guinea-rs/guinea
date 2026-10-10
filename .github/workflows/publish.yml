@@ -95,10 +95,10 @@ jobs:
             vendor/windows-canvas-pre
             guinea-mark
             guinea-meta
+            guinea-codegen
             guinea-meta-build
             guinea-route-dsl
             guinea-trace
-            guinea-codegen
             guinea-slint-build
             guinea-macros
             guinea-core

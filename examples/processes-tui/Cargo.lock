@@ -792,7 +792,6 @@ name = "guinea"
 version = "0.29.0"
 dependencies = [
  "guinea-app",
- "guinea-codegen",
  "guinea-core",
  "guinea-macros",
  "guinea-meta",
@@ -809,20 +808,6 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "guinea-codegen"
-version = "0.29.0"
-dependencies = [
- "guinea-meta-build",
- "heck",
- "proc-macro2",
- "quote",
- "strsim",
- "syn 2.0.119",
- "toml 0.9.12+spec-1.1.0",
- "walkdir",
 ]
 
 [[package]]
@@ -850,14 +835,13 @@ dependencies = [
 name = "guinea-macros"
 version = "0.29.0"
 dependencies = [
- "guinea-codegen",
  "guinea-route-dsl",
  "heck",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -867,15 +851,6 @@ version = "0.29.0"
 [[package]]
 name = "guinea-meta"
 version = "0.29.0"
-
-[[package]]
-name = "guinea-meta-build"
-version = "0.29.0"
-dependencies = [
- "serde",
- "toml 0.9.12+spec-1.1.0",
- "winresource",
-]
 
 [[package]]
 name = "guinea-plugin-l10n"
@@ -936,7 +911,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -2024,15 +1999,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_spanned"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2395,45 +2361,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml"
-version = "0.9.12+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
-dependencies = [
- "indexmap",
- "serde_core",
- "serde_spanned",
- "toml_datetime 0.7.5+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 0.7.15",
-]
-
-[[package]]
-name = "toml"
-version = "1.1.4+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
-dependencies = [
- "indexmap",
- "serde_core",
- "serde_spanned",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow 1.0.4",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "0.7.5+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2449,9 +2376,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
 dependencies = [
  "indexmap",
- "toml_datetime 1.1.1+spec-1.1.0",
+ "toml_datetime",
  "toml_parser",
- "winnow 1.0.4",
+ "winnow",
 ]
 
 [[package]]
@@ -2460,14 +2387,8 @@ version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
- "winnow 1.0.4",
+ "winnow",
 ]
-
-[[package]]
-name = "toml_writer"
-version = "1.1.2+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tracing"
@@ -2871,27 +2792,11 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
-
-[[package]]
-name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "winresource"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0986a8b1d586b7d3e4fe3d9ea39fb451ae22869dcea4aa109d287a374d866087"
-dependencies = [
- "toml 1.1.4+spec-1.1.0",
- "version_check",
 ]
 
 [[package]]
@@ -2927,3 +2832,11 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "guinea-codegen"
+version = "0.29.0"
+
+[[patch.unused]]
+name = "guinea-meta-build"
+version = "0.29.0"

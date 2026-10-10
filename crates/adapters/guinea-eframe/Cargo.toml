@@ -12,13 +12,13 @@ guinea-core.workspace = true
 guinea-app.workspace = true
 guinea-router.workspace = true
 anyhow.workspace = true
-eframe = { version = "0.36", default-features = false, features = [
+eframe = { workspace = true, features = [
     # A renderer has to be named or eframe builds without one; glow is the
     # cheap default and does not pull in wgpu.
     "glow",
     "default_fonts",
 ] }
-egui = "0.36"
+egui.workspace = true
 tracing.workspace = true
 
 [features]

@@ -49,10 +49,6 @@ guinea-route-dsl = { path = "crates/guinea-route-dsl", version = "0.29.0" }
 guinea = { path = "crates/guinea", version = "0.29.0" }
 inventory = "0.3"
 
-# --- UI Stack (Windowing) ---
-window-vibrancy = "0.7.1"
-raw-window-handle = "0.6.2"
-
 # --- UI Stack (windows-reactor) ---
 # windows-rs at 42503b90e has the reactor guinea is written against, and
 # crates.io does not: its windows-reactor 0.100.0 is older. The reactor and the
@@ -60,40 +56,61 @@ raw-window-handle = "0.6.2"
 # their own lib names, on the rest of the windows-rs 0.100 family from
 # crates.io - so guinea-winui can be published too.
 windows-reactor = { package = "windows-reactor-pre", version = "0.103.0", path = "crates/vendor/windows-reactor-pre" }
-windows-reactor-setup = { git = "https://github.com/microsoft/windows-rs", rev = "42503b90e" }
-windows-canvas = { package = "windows-canvas-pre", version = "0.103.0", path = "crates/vendor/windows-canvas-pre" }
 windows-core = "0.100.0"
+
+# --- UI Stack (the other backends) ---
+# Without their defaults, which pick a renderer: that is the application's
+# choice. Each adapter names the features it needs.
+eframe = { version = "0.36", default-features = false }
+egui = "0.36"
+iced = { version = "0.14", default-features = false }
+ratatui = "0.30"
+crossterm = "0.29"
+slint = { version = "1.17", default-features = false }
+slint-build = "1.17"
+i-slint-backend-testing = "1.17"
+windows-sys = "0.61"
+
+# --- Macros ---
+proc-macro2 = "1.0"
+proc-macro-crate = "3.0"
+quote = "1.0"
+syn = "2.0"
+heck = "0.5"
+winnow = "1.0"
 
 # --- Async ---
 tokio = { version = "1.49.0", features = ["full"] }
+futures-core = "0.3"
 
 # --- Serialization & Data ---
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 uuid = { version = "1.23.0", features = ["v4"] }
+toml = "0.9.8"
 
 # --- Logging & Diagnostics ---
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+puffin = "0.20"
 
-# --- System & Platform ---
-windows = { version = "0.61.3", features = [
-    "Win32_UI_Controls", "Win32_Graphics_Dwm", "Win32_UI_Shell",
-    "Win32_Storage", "Win32_Storage_FileSystem", "Win32_System_Performance",
-    "Win32_NetworkManagement", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis",
-    "Win32_Networking_WinSock", "Win32_System_Threading", "UI",
-    "UI_ViewManagement", "Win32_System_Hypervisor", "Management", "Management_Deployment",
-    "ApplicationModel", "ApplicationModel_Core", "Win32_Storage_Packaging", "Win32_Storage_Packaging_Appx", "Win32_System_Services",
-] }
+# --- Build ---
+winresource = "0.1.30"
 
 # --- Utilities ---
 anyhow = "1.0.100"
 arc-swap = "1.7.1"
 derive_more = "2.1.1"
-toml = "0.9.8"
+once_cell = "1.21.3"
+parking_lot = "0.12.5"
 walkdir = "2.5.0"
-strsim = "0.11"
-fluent-syntax = "0.12.0"
+
+# --- Tests ---
+insta = "1"
+tempfile = "3.27.0"
+
+# --- Tools ---
+shown = { git = "https://github.com/guinea-rs/shown", tag = "v0.2.0" }
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }

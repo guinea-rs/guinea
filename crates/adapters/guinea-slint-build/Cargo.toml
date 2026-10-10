@@ -8,9 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-slint-build = "1.17"
+slint-build.workspace = true
+guinea-codegen.workspace = true
 guinea-route-dsl.workspace = true
-syn = { version = "2.0", features = ["full"] }
+syn = { workspace = true, features = ["full"] }
 walkdir.workspace = true
 anyhow.workspace = true
 

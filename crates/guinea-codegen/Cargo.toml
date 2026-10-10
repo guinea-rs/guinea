@@ -1,25 +1,14 @@
 [package]
 name = "guinea-codegen"
-description = "Build-script helpers for guinea applications: generated files written only when they change"
+description = "For build.rs: inputs read and watched in one step, generated files written only when they change"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[dependencies]
-toml.workspace = true
-proc-macro2 = "1.0"
-quote = "1.0"
-syn = { version = "2.0", features = ["full", "extra-traits"] }
-walkdir.workspace = true
-strsim.workspace = true
-heck = "0.5"
-guinea-meta-build.workspace = true
-
 [dev-dependencies]
-insta = "1"
-tempfile = "3.27.0"
+tempfile.workspace = true
 
 [lints]
 workspace = true

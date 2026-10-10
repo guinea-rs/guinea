@@ -1,3 +1,4 @@
+use guinea_codegen::Build;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -22,27 +23,27 @@ struct WindowSection {
 }
 
 pub fn generate(manifest_relative_path: &str) {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-    let manifest_path = Path::new(&manifest_dir).join(manifest_relative_path);
+    let mut build = Build::from_env().unwrap_or_else(|e| panic!("{e}"));
 
-    println!("cargo:rerun-if-changed={}", manifest_path.display());
-
-    let contents = std::fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", manifest_path.display()));
+    let contents = build
+        .read(manifest_relative_path)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let manifest_path = build.manifest_dir().join(manifest_relative_path);
     let manifest: Manifest = toml::from_str(&contents)
         .unwrap_or_else(|e| panic!("failed to parse {}: {e}", manifest_path.display()));
 
-    let icon_path = manifest_path
-        .parent()
-        .expect("manifest path has no parent directory")
-        .join(&manifest.window.icon);
-    println!("cargo:rerun-if-changed={}", icon_path.display());
+    let icon_path = build.track(
+        manifest_path
+            .parent()
+            .expect("manifest path has no parent directory")
+            .join(&manifest.window.icon),
+    );
 
     if std::env::var_os("CARGO_CFG_WINDOWS").is_some() {
         embed_windows_resources(&manifest, &icon_path);
     }
 
-    write_generated_consts(&manifest, &icon_path);
+    write_generated_consts(&build, &manifest, &icon_path);
 }
 
 #[cfg(windows)]
@@ -64,10 +65,7 @@ fn embed_windows_resources(manifest: &Manifest, icon_path: &Path) {
 #[cfg(not(windows))]
 fn embed_windows_resources(_manifest: &Manifest, _icon_path: &Path) {}
 
-fn write_generated_consts(manifest: &Manifest, icon_path: &Path) {
-    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
-    let dest = Path::new(&out_dir).join("guinea_meta.rs");
-
+fn write_generated_consts(build: &Build, manifest: &Manifest, icon_path: &Path) {
     let icon_path_str = icon_path
         .to_str()
         .unwrap_or_else(|| panic!("non-UTF8 icon path: {}", icon_path.display()));
@@ -94,6 +92,7 @@ pub const WINDOW_ICON: &[u8] = include_bytes!({icon_path:?});
         icon_path = icon_path_str,
     );
 
-    std::fs::write(&dest, generated)
-        .unwrap_or_else(|e| panic!("failed to write {}: {e}", dest.display()));
+    build
+        .write("guinea_meta.rs", generated)
+        .unwrap_or_else(|e| panic!("{e}"));
 }

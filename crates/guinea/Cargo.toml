@@ -14,7 +14,6 @@ categories = ["gui"]
 guinea-core.workspace = true
 guinea-app.workspace = true
 guinea-router.workspace = true
-guinea-codegen.workspace = true
 guinea-macros.workspace = true
 guinea-meta.workspace = true
 
@@ -61,12 +60,12 @@ workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 guinea-router.workspace = true
-tempfile = "3.27.0"
+tempfile.workspace = true
 uuid.workspace = true
 inventory.workspace = true
 guinea-core = { workspace = true, features = ["test-utils"] }
 guinea-app = { workspace = true, features = ["test-utils"] }
-insta = { version = "1", features = ["ron"] }
+insta = { workspace = true, features = ["ron"] }
 serde.workspace = true
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]

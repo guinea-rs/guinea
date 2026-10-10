@@ -6,4 +6,4 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-shown = { git = "https://github.com/guinea-rs/shown", tag = "v0.2.0" }
+shown.workspace = true

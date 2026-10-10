@@ -8,8 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+guinea-codegen.workspace = true
 serde.workspace = true
 toml.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-winresource = "0.1.30"
+winresource.workspace = true

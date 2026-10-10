@@ -236,7 +236,6 @@ pub mod backend {
 pub use guinea_app::{app, app_meta, feature, services, timers};
 pub use guinea_app::services::Services;
 
-pub use guinea_codegen as codegen;
 pub use guinea_core as core;
 pub use guinea_meta as meta;
 

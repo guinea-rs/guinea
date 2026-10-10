@@ -20,7 +20,7 @@ tracing.workspace = true
 # No wgpu: tiny-skia draws this on the CPU, which is what a proof of concept
 # needs and costs about a tenth of the build. `thread-pool` is the executor
 # iced runs subscriptions on, and the wake-up channel is one of those.
-iced = { version = "0.14", default-features = false, features = [
+iced = { workspace = true, features = [
     "tiny-skia",
     "thread-pool",
     "fira-sans",

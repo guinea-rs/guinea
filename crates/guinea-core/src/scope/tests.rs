@@ -140,10 +140,11 @@ impl crate::actor::Handler<Tick> for Ticker {
     }
 }
 
-fn ticker() -> Addr<Ticker> {
-    Addr::new_managed(
-        Ticker(0),
+fn home(scope: Scope) -> crate::actor::Home {
+    crate::actor::Home::new(
+        scope,
         crate::actor::UiThreadToken::dangerously_create_token_unchecked(),
+        None,
     )
 }
 
@@ -165,11 +166,11 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
     let window = ScopeTree::new();
     window.set_window(7);
     let page = window.child();
-    let addr = ticker();
-    let id = addr.id();
+    page.open_section(Some("app::Clock"), None);
+    let mut id = 0;
 
     let seen = watched(|| {
-        page.hold_actor(&addr, Some("app::Clock"), Some("Time"));
+        id = Addr::listed(Ticker(0), &home(page), Some("Time")).id();
         window.remove();
     });
 
@@ -195,9 +196,8 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
 fn a_window_reads_the_actors_under_it_and_one_by_id_without_the_rest() {
     let window = ScopeTree::new();
     let page = window.child();
-    let (bumped, other) = (ticker(), ticker());
-    window.hold_actor(&other, None, None);
-    page.hold_actor(&bumped, None, None);
+    let other = Addr::new_managed(Ticker(0), &home(window.scope()));
+    let bumped = Addr::new_managed(Ticker(0), &home(page));
     bumped.send(Tick);
 
     let mut held: Vec<usize> = window.actors().iter().map(|actor| actor.id).collect();
@@ -327,30 +327,5 @@ async fn removing_the_store_aborts_owned_tasks() {
     assert!(
         !ran_to_completion.load(Ordering::SeqCst),
         "task should have been aborted when its owning scope was removed"
-    );
-}
-
-#[test]
-fn own_actor_disposes_the_registry_entry_on_removal() {
-    let token = crate::actor::UiThreadToken::dangerously_create_token_unchecked();
-    let addr = Addr::new((), token);
-    let counter = addr.strong_count_ptr();
-
-    let store = ScopeTree::new();
-    store.own(addr.clone());
-    drop(addr);
-
-    assert!(
-        Rc::strong_count(&counter) > 1,
-        "REGISTRY should still hold the actor alive while its Scope is alive"
-    );
-
-    store.remove();
-
-    assert_eq!(
-        Rc::strong_count(&counter),
-        1,
-        "removing the Scope should dispose the REGISTRY entry, \
-         leaving only this test's own counter handle"
     );
 }

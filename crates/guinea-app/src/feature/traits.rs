@@ -7,7 +7,7 @@ use crate::timers::{self, Period, Timer};
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
-use guinea_core::actor::{Addr, Handler, ManagedActor, UiThreadToken};
+use guinea_core::actor::{Addr, Handler, Home, ManagedActor, UiThreadToken};
 use guinea_core::trace::Bus;
 use guinea_core::actor::event_bus::{EventBus, GlobalEventBus};
 use guinea_core::actor::event_bus::subscribe::Event;
@@ -375,11 +375,7 @@ impl ScopeContext {
         bus: Option<&Rc<EventBus>>,
         actor: A,
     ) -> Addr<A> {
-        let addr = Addr::new_managed(actor, self.token.clone());
-        addr.live_in(self.scope, bus);
-        self.scope.hold_actor(&addr, self.scope.current_feature(), None);
-        self.scope.own(addr.clone());
-        addr
+        Addr::new_managed(actor, &Home::new(self.scope, self.token.clone(), bus))
     }
 
     /// Sends `message()` to `addr` every `period`, for as long as this scope

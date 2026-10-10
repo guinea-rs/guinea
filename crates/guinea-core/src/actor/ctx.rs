@@ -1,4 +1,4 @@
-use crate::actor::addr::{Addr, registered};
+use crate::actor::addr::{Addr, Reach};
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::event_bus::subscribe::Event;
@@ -259,9 +259,9 @@ impl<A: 'static, M> Cx<A, M> {
         A::Flow: crate::actor::flow::Allows<M, Out>,
         Fut: Future<Output = Out> + 'static + Send,
     {
-        let id = self.addr.id;
+        let reach = self.addr.reach();
         let cancel = self.addr.cancellation();
-        let task = Task::new::<A>(id, short_type_name::<Out>());
+        let task = Task::new::<A>(reach.id(), short_type_name::<Out>());
         let spawned = trace::mark(|| task.spawn());
 
         #[cfg(feature = "test-utils")]
@@ -285,7 +285,7 @@ impl<A: 'static, M> Cx<A, M> {
 
                 let settled = trace::mark_under(Some(spawned), || task.settled());
 
-                if let Some(addr) = registered::<A>(id) {
+                if let Some(addr) = reach.addr() {
                     addr.send_under(result, Some(settled));
                 }
             };
@@ -392,13 +392,13 @@ impl<A: 'static, M> Cx<A, M> {
         A: Handler<Out> + ManagedActor,
         A::Flow: crate::actor::flow::Allows<M, Out>,
     {
-        let id = self.addr.id;
+        let reach = self.addr.reach();
         let cancel = self.addr.cancellation();
-        let feed = Feed::new::<A>(id, short_type_name::<Out>());
+        let feed = Feed::new::<A>(reach.id(), short_type_name::<Out>());
         let opened = trace::mark(|| feed.opened());
 
         crate::executor::spawn(async move {
-            let pouring = trace::within(None, pour::<A, _, _, _>(id, source, into, feed, opened));
+            let pouring = trace::within(None, pour(reach, source, into, feed, opened));
             let ran_dry = cancel.guard(pouring).await.is_some();
 
             feed.closed(opened, !ran_dry || cancel.is_cancelled());
@@ -409,7 +409,7 @@ impl<A: 'static, M> Cx<A, M> {
 /// Hands each item of `source` to the UI thread, as a root of its own, until
 /// the source runs dry. Gives way after each item, so a source that is always
 /// ready still notices its actor going.
-async fn pour<A, S, Out, F>(id: usize, source: S, mut into: F, feed: Feed, opened: Cause)
+async fn pour<A, S, Out, F>(reach: Reach<A>, source: S, mut into: F, feed: Feed, opened: Cause)
 where
     A: Handler<Out> + 'static,
     S: Stream,
@@ -437,7 +437,7 @@ where
             let _root = trace::resume(None);
             let _arrived = trace::enter(|| feed.arrived(opened));
 
-            if let Some(addr) = registered::<A>(id) {
+            if let Some(addr) = reach.addr() {
                 addr.send(message);
             }
         });
@@ -447,31 +447,22 @@ where
 }
 
 pub struct AsyncContext<A: 'static> {
-    actor_id: usize,
+    reach: Reach<A>,
     cancel: Cancel,
-    _phantom: PhantomData<A>,
 }
 
 impl<A: 'static> Clone for AsyncContext<A> {
     fn clone(&self) -> Self {
         Self {
-            actor_id: self.actor_id,
+            reach: self.reach,
             cancel: self.cancel.clone(),
-            _phantom: PhantomData,
         }
     }
 }
 
-unsafe impl<A: 'static> Send for AsyncContext<A> {}
-unsafe impl<A: 'static> Sync for AsyncContext<A> {}
-
 impl<A: 'static> AsyncContext<A> {
-    pub(crate) fn new(actor_id: usize, cancel: Cancel) -> Self {
-        Self {
-            actor_id,
-            cancel,
-            _phantom: PhantomData,
-        }
+    pub(crate) fn new(reach: Reach<A>, cancel: Cancel) -> Self {
+        Self { reach, cancel }
     }
 
     /// The actor's cancellation token, to hand to something that takes one.
@@ -522,11 +513,11 @@ impl<A: 'static> AsyncContext<A> {
         M: Send + 'static,
         A: Handler<M>,
     {
-        let id = self.actor_id;
+        let reach = self.reach;
         let cause = trace::current();
 
         invoke_on_ui(move || {
-            if let Some(addr) = registered::<A>(id) {
+            if let Some(addr) = reach.addr() {
                 addr.send_under(msg, cause);
             }
         });
@@ -535,14 +526,14 @@ impl<A: 'static> AsyncContext<A> {
 
 impl<A: 'static, M> Cx<A, M> {
     pub fn async_ctx(&self) -> AsyncContext<A> {
-        AsyncContext::new(self.addr.id, self.addr.cancellation())
+        AsyncContext::new(self.addr.reach(), self.addr.cancellation())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::UiThreadToken;
+    use crate::actor::addr::TestHome;
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::Arc;
@@ -551,6 +542,7 @@ mod tests {
     struct First;
     struct Second;
 
+    #[derive(Debug)]
     struct Chain {
         log: Rc<RefCell<Vec<&'static str>>>,
     }
@@ -579,10 +571,11 @@ mod tests {
 
     #[test]
     fn send_from_a_handler_is_drained_by_the_same_queue() {
+        let home = TestHome::new();
         let log = Rc::new(RefCell::new(Vec::new()));
         let addr = Addr::new(
             Chain { log: log.clone() },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         addr.send(First);
@@ -594,6 +587,7 @@ mod tests {
     fn a_watcher_hears_which_actor_handled_a_message() {
         use crate::observability::changes::{self, Change};
 
+        let home = TestHome::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
         changes::watch(move |change| {
@@ -606,7 +600,7 @@ mod tests {
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
         addr.send(First);
         changes::stop_watching();
@@ -619,6 +613,7 @@ mod tests {
     fn a_chain_of_sends_is_traced_back_to_the_action_that_started_it() {
         use crate::trace::{Cause, Record, Trace};
 
+        let home = TestHome::new();
         let seen = Rc::new(RefCell::new(Vec::<Record>::new()));
         let sink = seen.clone();
         trace::observe(move |trace| {
@@ -631,7 +626,7 @@ mod tests {
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
         {
             let _action = trace::enter(|| Point::Action { message: "First" });
@@ -662,11 +657,12 @@ mod tests {
 
     #[test]
     fn disposing_an_actor_cancels_what_it_spawned() {
+        let home = TestHome::new();
         let addr = Addr::new(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         let cx = Cx::<_, First>::new(addr.clone());
@@ -680,6 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_task_cancelled_with_its_actor_says_so_and_answers_nobody() {
+        let home = TestHome::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
         trace::observe(move |trace| {
@@ -691,7 +688,7 @@ mod tests {
         let log = Rc::new(RefCell::new(Vec::new()));
         let addr = Addr::new_managed(
             Chain { log: log.clone() },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         let cx = Cx::<_, First>::new(addr.clone());
@@ -713,11 +710,12 @@ mod tests {
 
     #[tokio::test]
     async fn work_that_listens_for_the_token_is_left_to_wind_itself_down() {
+        let home = TestHome::new();
         let addr = Addr::new_managed(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         let wound_down = Arc::new(AtomicBool::new(false));
@@ -744,10 +742,11 @@ mod tests {
 
     #[test]
     fn detach_keeps_the_address() {
+        let home = TestHome::new();
         let log = Rc::new(RefCell::new(Vec::new()));
         let addr = Addr::new(
             Chain { log },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         let cx = Cx::<_, First>::new(addr.clone());

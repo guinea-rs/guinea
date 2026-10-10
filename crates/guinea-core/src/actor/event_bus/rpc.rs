@@ -359,7 +359,8 @@ mod tests {
     #[tokio::test]
     async fn rpc_handler_replies_exactly_once_via_the_blanket_impl() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        use crate::actor::{Addr, UiThreadToken};
+        use crate::actor::Addr;
+        use crate::actor::addr::TestHome;
 
         #[derive(Clone, Debug, guinea_macros::Request)]
         #[request(reply = Echoed)]
@@ -374,7 +375,8 @@ mod tests {
             }
         }
 
-        let addr = Addr::new(EchoActor, UiThreadToken::dangerously_create_token_unchecked());
+        let home = TestHome::new();
+        let addr = Addr::new(EchoActor, &home);
         let _sub = GlobalEventBus::instance().subscribe::<EchoActor, RpcRequest<Echo>>(addr);
 
         let handle = tokio::spawn(AsyncBus::request::<Echo>(Echo(21), StdDuration::from_secs(1)));
@@ -429,7 +431,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "a request has exactly one answerer")]
     fn two_actors_returning_the_reply_cannot_both_answer() {
-        use crate::actor::{Addr, UiThreadToken};
+        use crate::actor::Addr;
+        use crate::actor::addr::TestHome;
 
         #[derive(Clone, Debug, guinea_macros::Request)]
         #[request(reply = Answer)]
@@ -450,12 +453,10 @@ mod tests {
             }
         }
 
-        let token = UiThreadToken::dangerously_create_token_unchecked();
+        let home = TestHome::new();
         let bus = Rc::new(EventBus::new());
-        let _service =
-            bus.subscribe::<Service, RpcRequest<Question>>(Addr::new(Service, token.clone()));
-        let _monitor =
-            bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new(Monitor, token));
+        let _service = bus.subscribe::<Service, RpcRequest<Question>>(Addr::new(Service, &home));
+        let _monitor = bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new(Monitor, &home));
     }
 
     #[test]
@@ -503,8 +504,8 @@ mod tests {
     #[tokio::test]
     async fn a_request_whose_answerer_sleeps_fails_at_once() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        use crate::actor::{Addr, UiThreadToken};
-        use crate::scope::ScopeTree;
+        use crate::actor::Addr;
+        use crate::actor::addr::TestHome;
 
         #[derive(Clone, Debug, guinea_macros::Request)]
         #[request(reply = Done)]
@@ -519,11 +520,10 @@ mod tests {
             }
         }
 
-        let scope = ScopeTree::new();
-        let addr = Addr::new(Worker, UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
+        let home = TestHome::new();
+        let addr = Addr::new(Worker, &home);
         let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
-        scope.sleep();
+        home.tree.sleep();
 
         let handle = tokio::spawn(AsyncBus::request::<Work>(Work, StdDuration::from_secs(60)));
         tokio::task::yield_now().await;
@@ -597,7 +597,8 @@ mod tests {
     #[tokio::test]
     async fn handler_macro_rpc_heuristic_sync_and_async() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        use crate::actor::{Addr, AsyncContext, UiThreadToken};
+        use crate::actor::addr::TestHome;
+        use crate::actor::{Addr, AsyncContext};
         use guinea_macros::handler;
 
         #[derive(Clone, Debug, guinea_macros::Request)]
@@ -629,8 +630,8 @@ mod tests {
             Sum(req.0 + req.1)
         }
 
-        let addr =
-            Addr::new(MathActor, UiThreadToken::dangerously_create_token_unchecked());
+        let home = TestHome::new();
+        let addr = Addr::new(MathActor, &home);
         let _sub_double =
             GlobalEventBus::instance().subscribe::<MathActor, RpcRequest<Double>>(addr.clone());
         let _sub_add = GlobalEventBus::instance()
@@ -680,7 +681,8 @@ mod tests {
     #[tokio::test]
     async fn cross_actor_rpc_cycle_is_detected_immediately() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        use crate::actor::{Addr, AsyncContext, UiThreadToken};
+        use crate::actor::addr::TestHome;
+        use crate::actor::{Addr, AsyncContext};
         use guinea_macros::handler;
         use std::panic;
         use std::sync::{Arc, Mutex};
@@ -736,8 +738,9 @@ mod tests {
                 .any(|message| message.contains("RPC cycle detected"))
         };
 
-        let addr_a = Addr::new(ActorA, UiThreadToken::dangerously_create_token_unchecked());
-        let addr_b = Addr::new(ActorB, UiThreadToken::dangerously_create_token_unchecked());
+        let home = TestHome::new();
+        let addr_a = Addr::new(ActorA, &home);
+        let addr_b = Addr::new(ActorB, &home);
         let _sub_a = GlobalEventBus::instance().subscribe::<ActorA, RpcRequest<ReqA>>(addr_a);
         let _sub_b = GlobalEventBus::instance().subscribe::<ActorB, RpcRequest<ReqB>>(addr_b);
 
@@ -784,7 +787,8 @@ mod tests {
     #[test]
     fn many_concurrent_requests_do_not_deadlock() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        use crate::actor::{Addr, UiThreadToken};
+        use crate::actor::Addr;
+        use crate::actor::addr::TestHome;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -825,8 +829,8 @@ mod tests {
         // above: owns the actor, subscribes it, and pumps the dispatcher
         // queue on an interval.
         let ui_thread = std::thread::spawn(move || {
-            let addr =
-                Addr::new(AddActor, UiThreadToken::dangerously_create_token_unchecked());
+            let home = TestHome::new();
+            let addr = Addr::new(AddActor, &home);
             let _sub = GlobalEventBus::instance().subscribe::<AddActor, RpcRequest<Add>>(addr);
             ready_tx.send(()).unwrap();
             while stop_rx.try_recv().is_err() {

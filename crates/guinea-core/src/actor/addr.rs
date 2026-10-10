@@ -8,35 +8,68 @@ use crate::actor::UiThreadToken;
 use crate::actor::{ManagedActor, short_type_name};
 use crate::scope::Scope;
 use crate::trace::{self, Bus, Cause, Point};
-use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
-thread_local! {
-    pub static REGISTRY: RefCell<HashMap<usize, Box<dyn Any>>> = RefCell::new(HashMap::new());
+/// Where an actor is made: the scope that owns it, the UI thread it runs on,
+/// and the window bus it can hear when it is in a window.
+#[derive(Clone)]
+pub struct Home {
+    scope: Scope,
+    token: UiThreadToken,
+    bus: Weak<EventBus>,
 }
 
-/// The actor registered under `id`, if it is still there and is an `A`.
-///
-/// A clone, taken with the registry borrowed only for as long as it takes to
-/// clone: whatever the caller does with it next - send, and so run handlers
-/// that create or dispose actors - finds the registry free.
-pub(crate) fn registered<A: 'static>(id: usize) -> Option<Addr<A>> {
-    REGISTRY.with(|reg| {
-        reg.borrow()
-            .get(&id)
-            .and_then(|addr| addr.downcast_ref::<Addr<A>>())
-            .cloned()
-    })
+impl Home {
+    pub fn new(scope: Scope, token: UiThreadToken, bus: Option<&Rc<EventBus>>) -> Self {
+        Self {
+            scope,
+            token,
+            bus: bus.map(Rc::downgrade).unwrap_or_default(),
+        }
+    }
+
+    /// The scope that owns what is made here.
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+}
+
+/// How work off the UI thread finds its actor again: by the scope that owns
+/// it and its id there. `Send`, where an [`Addr`] is not.
+pub(crate) struct Reach<A> {
+    scope: Scope,
+    id: usize,
+    actor: PhantomData<fn() -> A>,
+}
+
+impl<A> Clone for Reach<A> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<A> Copy for Reach<A> {}
+
+impl<A: 'static> Reach<A> {
+    /// The actor, while its scope still holds it. On the UI thread.
+    pub(crate) fn addr(&self) -> Option<Addr<A>> {
+        self.scope.held::<A>(self.id)
+    }
+
+    pub(crate) fn id(&self) -> usize {
+        self.id
+    }
 }
 
 pub struct Addr<A: 'static> {
     pub(super) id: usize,
-    pub(super) guard: UiThreadToken,
     state: Rc<RefCell<A>>,
     queue: Rc<RefCell<VecDeque<Box<dyn Envelope<A>>>>>,
     is_processing: Rc<Cell<bool>>,
@@ -44,13 +77,7 @@ pub struct Addr<A: 'static> {
     cancel: Cancel,
     /// What it hears, for as long as it lives: disposing it ends them.
     subscriptions: Rc<RefCell<Vec<BusSubscription>>>,
-    /// The scope it belongs to and its window's bus, when it has them.
-    home: Rc<RefCell<Option<Home>>>,
-}
-
-struct Home {
-    scope: Scope,
-    bus: Weak<EventBus>,
+    home: Rc<Home>,
 }
 
 impl<A: 'static> Clone for Addr<A> {
@@ -58,7 +85,6 @@ impl<A: 'static> Clone for Addr<A> {
         Self {
             id: self.id,
             state: self.state.clone(),
-            guard: self.guard.clone(),
             queue: self.queue.clone(),
             is_processing: self.is_processing.clone(),
             counter: self.counter.clone(),
@@ -70,26 +96,58 @@ impl<A: 'static> Clone for Addr<A> {
 }
 
 impl<A: 'static> Addr<A> {
-    /// An actor `actor!` declared. What its manifest subscribes to is held by
-    /// the actor, and ends when it is disposed.
-    pub fn new_managed(state: A, token: UiThreadToken) -> Self
-    where
-        A: ManagedActor,
-    {
-        let addr = Self::new(state, token);
-        A::Bus::subscribe_into(&addr);
+    /// An actor living in `home`: its scope owns it, and disposes it when
+    /// the scope goes. Made in a scope that is already gone, it is disposed
+    /// at once.
+    pub fn new(state: A, home: &Home) -> Self {
+        let addr = Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            state: Rc::new(RefCell::new(state)),
+            queue: Rc::new(RefCell::new(VecDeque::new())),
+            is_processing: Rc::new(Cell::new(false)),
+            counter: Rc::new(short_type_name::<A>()),
+            cancel: Cancel::new(),
+            subscriptions: Rc::new(RefCell::new(Vec::new())),
+            home: Rc::new(home.clone()),
+        };
+
+        home.scope.hold(&addr);
         addr
     }
 
-    /// Where the actor lives: the scope that owns it, and that scope's
-    /// window bus when it is in a window. What `subscribe_on` reaches the
-    /// window bus through, and notes a listener on.
-    #[doc(hidden)]
-    pub fn live_in(&self, scope: Scope, bus: Option<&Rc<EventBus>>) {
-        *self.home.borrow_mut() = Some(Home {
-            scope,
-            bus: bus.map(Rc::downgrade).unwrap_or_default(),
-        });
+    /// An actor `actor!` declared: subscribed to its manifest until it is
+    /// disposed, and listed for devtools under the feature installing now.
+    pub fn new_managed(state: A, home: &Home) -> Self
+    where
+        A: ManagedActor + Debug,
+    {
+        Self::listed(state, home, None)
+    }
+
+    /// [`Addr::new_managed`] for the actor that drives the reducer `drives`.
+    pub(crate) fn listed(state: A, home: &Home, drives: Option<&'static str>) -> Self
+    where
+        A: ManagedActor + Debug,
+    {
+        let addr = Self::new(state, home);
+        A::Bus::subscribe_into(&addr);
+        home.scope.list(&addr, drives);
+        addr
+    }
+
+    /// Where it lives: what an actor it makes lives in too, when it is the
+    /// actor's to make.
+    pub fn home(&self) -> Home {
+        (*self.home).clone()
+    }
+
+    /// How work off the UI thread finds this actor again.
+    pub(crate) fn reach(&self) -> Reach<A> {
+        Reach {
+            scope: self.home.scope,
+            id: self.id,
+            actor: PhantomData,
+        }
     }
 
     /// Hears `M` on `bus` for as long as the actor lives: disposing it ends
@@ -98,14 +156,9 @@ impl<A: 'static> Addr<A> {
     where
         A: Handler<M>,
     {
-        let (scope, window) = match self.home.borrow().as_ref() {
-            Some(home) => (Some(home.scope), home.bus.upgrade()),
-            None => (None, None),
-        };
-
         let on = match bus {
             Bus::Global => GlobalEventBus::bus(),
-            Bus::Window => window.unwrap_or_else(|| {
+            Bus::Window => self.home.bus.upgrade().unwrap_or_else(|| {
                 panic!(
                     "{} lives in no window, so there is no window bus to hear {} on",
                     short_type_name::<A>(),
@@ -114,9 +167,7 @@ impl<A: 'static> Addr<A> {
             }),
         };
 
-        if let Some(scope) = scope {
-            scope.note_listener(name::<M>(), Some(name::<A>()), bus);
-        }
+        self.home.scope.note_listener(name::<M>(), Some(name::<A>()), bus);
 
         let subscription = on.subscribe::<A, M>(self.clone());
         self.subscriptions.borrow_mut().push(subscription);
@@ -125,32 +176,7 @@ impl<A: 'static> Addr<A> {
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
     /// is not for it.
     pub(crate) fn is_asleep(&self) -> bool {
-        self.home
-            .borrow()
-            .as_ref()
-            .is_some_and(|home| !home.scope.is_awake())
-    }
-
-    pub fn new(state: A, guard: UiThreadToken) -> Self {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let addr = Self {
-            id,
-            guard,
-            state: Rc::new(RefCell::new(state)),
-            queue: Rc::new(RefCell::new(VecDeque::new())),
-            is_processing: Rc::new(Cell::new(false)),
-            counter: Rc::new(short_type_name::<A>()),
-            cancel: Cancel::new(),
-            subscriptions: Rc::new(RefCell::new(Vec::new())),
-            home: Rc::new(RefCell::new(None)),
-        };
-
-        let addr_clone = addr.clone();
-        REGISTRY.with(|reg| {
-            reg.borrow_mut().insert(id, Box::new(addr_clone));
-        });
-
-        addr
+        !self.home.scope.is_awake()
     }
 
     pub fn send<M>(&self, msg: M)
@@ -200,7 +226,7 @@ impl<A: 'static> Addr<A> {
     }
 
     pub fn get_token(&self) -> UiThreadToken {
-        self.guard.clone()
+        self.home.token.clone()
     }
     pub fn strong_count_ptr(&self) -> Rc<&'static str> {
         self.counter.clone()
@@ -226,15 +252,13 @@ impl<A: 'static> Addr<A> {
         }
     }
 
-    /// Takes the actor out of the registry and ends its background work: what
-    /// it spawned is dropped where it last awaited, instead of running on with
-    /// nowhere to answer.
+    /// Ends its background work and what it hears: what it spawned is
+    /// dropped where it last awaited, instead of running on with nowhere to
+    /// answer. Its scope lets go of it, and does this itself when it goes.
     pub fn dispose(&self) {
         self.cancel.cancel();
         self.subscriptions.borrow_mut().clear();
-
-        let gone = REGISTRY.with(|reg| reg.borrow_mut().remove(&self.id));
-        drop(gone);
+        self.home.scope.release(self.id);
     }
 
     fn process_queue(&self) {
@@ -272,19 +296,110 @@ impl<A: 'static> Addr<A> {
     }
 }
 
+/// A scope tree of its own for a unit test, and the home in it: actors made
+/// there live until it is dropped.
+#[cfg(test)]
+pub(crate) struct TestHome {
+    pub(crate) tree: crate::scope::ScopeTree,
+    home: Home,
+}
+
+#[cfg(test)]
+impl TestHome {
+    pub(crate) fn new() -> Self {
+        let tree = crate::scope::ScopeTree::new();
+        let home = Home::new(
+            tree.scope(),
+            UiThreadToken::dangerously_create_token_unchecked(),
+            None,
+        );
+        Self { tree, home }
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for TestHome {
+    type Target = Home;
+
+    fn deref(&self) -> &Home {
+        &self.home
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
-        let scope = crate::scope::ScopeTree::new();
-        let addr = Addr::new((), UiThreadToken::dangerously_create_token_unchecked());
-        addr.live_in(scope.scope(), Some(&Rc::new(EventBus::new())));
+        let home = TestHome::new();
+        let addr = Addr::new((), &home);
 
-        scope.remove();
+        home.tree.remove();
 
         assert!(addr.is_asleep(), "a removed scope read as awake");
+    }
+
+    #[test]
+    fn an_actor_is_held_by_its_scope_alone() {
+        let home = TestHome::new();
+        let addr = Addr::new((), &home);
+        let counter = addr.strong_count_ptr();
+        drop(addr);
+
+        let while_there = Rc::strong_count(&counter);
+        home.tree.remove();
+        let after = Rc::strong_count(&counter);
+
+        assert_eq!((while_there, after), (2, 1));
+    }
+
+    #[test]
+    fn work_off_the_ui_thread_finds_its_actor_until_the_scope_goes() {
+        let home = TestHome::new();
+        let addr = Addr::new((), &home);
+        let reach = addr.reach();
+
+        let while_there = reach.addr().map(|found| found.id());
+        home.tree.remove();
+        let after = reach.addr().map(|found| found.id());
+
+        assert_eq!((while_there, after), (Some(addr.id()), None));
+    }
+
+    #[test]
+    fn an_actor_disposed_before_its_scope_goes_is_let_go_at_once() {
+        let home = TestHome::new();
+        let addr = Addr::new((), &home);
+        let counter = addr.strong_count_ptr();
+        let reach = addr.reach();
+
+        addr.dispose();
+        drop(addr);
+
+        let found = reach.addr().map(|found| found.id());
+        assert_eq!((Rc::strong_count(&counter), found), (1, None));
+    }
+
+    #[test]
+    fn an_actor_is_not_found_as_another_type() {
+        let home = TestHome::new();
+        let addr = Addr::new((), &home);
+
+        let found = home.scope().held::<u8>(addr.id()).map(|found| found.id());
+
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn an_actor_made_in_a_scope_that_is_gone_is_disposed_at_once() {
+        let home = TestHome::new();
+        home.tree.remove();
+
+        let addr = Addr::new((), &home);
+
+        assert!(addr.cancellation().is_cancelled());
+        assert_eq!(addr.reach().addr().map(|found| found.id()), None);
     }
 
     #[derive(Clone)]
@@ -308,7 +423,8 @@ mod tests {
 
     #[test]
     fn a_managed_actor_hears_its_manifest_until_it_is_disposed() {
-        let addr = Addr::new_managed(Listening, UiThreadToken::dangerously_create_token_unchecked());
+        let home = TestHome::new();
+        let addr = Addr::new_managed(Listening, &home);
         assert_eq!(GlobalEventBus::count_subscribers::<Heard>(), 1);
 
         addr.dispose();

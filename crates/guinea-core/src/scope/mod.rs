@@ -19,7 +19,7 @@ pub use lifetime::{Awake, DropGuard, Teardown};
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};
 
-use actors::HeldActor;
+use actors::Held;
 use state::{Cell, Kind};
 use tree::{Tree, tree};
 
@@ -107,8 +107,8 @@ struct ScopeData {
     wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
     /// The window this scope is the root of. See [`Scope::set_window`].
     window: std::cell::Cell<Option<u64>>,
-    /// The actors it holds, for devtools to read. See [`Scope::hold_actor`].
-    actors: RefCell<Vec<HeldActor>>,
+    /// The actors it owns, and lists for devtools. See [`Scope::hold`].
+    actors: RefCell<Held>,
 }
 
 impl Scope {

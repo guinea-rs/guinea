@@ -1214,7 +1214,6 @@ fn an_actor_that_worked_is_let_go_of_with_its_page(h: &mut Harness) {
 /// supervisor does when an agent comes and goes.
 mod supervising {
     use super::*;
-    use guinea::core::actor::UiThreadToken;
 
     #[derive(Clone, Debug)]
     pub struct Ping;
@@ -1265,8 +1264,8 @@ mod supervising {
     }
 
     #[handler]
-    fn found(this: &mut Supervisor, found: Found) {
-        let agent = Addr::new(Agent, UiThreadToken::dangerously_create_token_unchecked());
+    fn found(this: &mut Supervisor, found: Found, cx: Cx) {
+        let agent = Addr::new(Agent, &cx.addr().home());
         agent.send(Ping);
         agent.dispose();
 

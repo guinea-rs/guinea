@@ -5,8 +5,9 @@
 
 use futures_core::Stream;
 use guinea_core::actor::{
-    Addr, Cx, Handler, UiDispatcher, UiTask, UiThreadToken, set_ui_dispatcher,
+    Addr, Cx, Handler, Home, UiDispatcher, UiTask, UiThreadToken, set_ui_dispatcher,
 };
+use guinea_core::scope::ScopeTree;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -70,10 +71,9 @@ fn a_source_that_never_waits_still_stops_with_its_actor() {
     let entered = runtime.enter();
 
     let pulled = Arc::new(AtomicUsize::new(0));
-    let addr = Addr::new_managed(
-        Puller,
-        UiThreadToken::dangerously_create_token_unchecked(),
-    );
+    let tree = ScopeTree::new();
+    let token = UiThreadToken::dangerously_create_token_unchecked();
+    let addr = Addr::new_managed(Puller, &Home::new(tree.scope(), token, None));
     addr.send(Open(Forever(pulled.clone())));
 
     let deadline = Instant::now() + Duration::from_secs(5);

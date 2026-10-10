@@ -6,8 +6,10 @@
 
 use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::actor::{
-    Addr, AsyncContext, Cx, Handler, UiDispatcher, UiTask, UiThreadToken, set_ui_dispatcher,
+    Addr, AsyncContext, Cx, Handler, Home, UiDispatcher, UiTask, UiThreadToken,
+    set_ui_dispatcher,
 };
+use guinea_core::scope::ScopeTree;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -66,11 +68,13 @@ fn an_event_published_off_the_ui_thread_reaches_the_ui_thread_s_subscribers() {
     });
 
     let handed: Arc<Mutex<Option<AsyncContext<Refresher>>>> = Arc::default();
+    let tree = ScopeTree::new();
+    let token = UiThreadToken::dangerously_create_token_unchecked();
     let addr = Addr::new_managed(
         Refresher {
             handed: handed.clone(),
         },
-        UiThreadToken::dangerously_create_token_unchecked(),
+        &Home::new(tree.scope(), token, None),
     );
     addr.send(Refresh);
     let ctx = handed.lock().unwrap().take().expect("the handler ran on this thread");

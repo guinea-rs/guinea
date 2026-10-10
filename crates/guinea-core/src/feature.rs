@@ -16,7 +16,7 @@
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
-use crate::actor::{Addr, ManagedActor, UiThreadToken};
+use crate::actor::{Addr, Home, ManagedActor, UiThreadToken};
 use crate::scope::{Reducer, Scope};
 
 /// The way back into a reducer, for whoever changes it.
@@ -296,15 +296,10 @@ impl<'a, R: Reducer> Claim<'a, R> {
         F: FnOnce(Push<R>) -> A,
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
-        let actor = Addr::new_managed(build(Push::new(self.scope)), self.token.clone());
-        actor.live_in(self.scope, self.bus);
+        let home = Home::new(self.scope, self.token.clone(), self.bus);
+        let drives = Some(crate::actor::short_type_name::<R>());
+        let actor = Addr::listed(build(Push::new(self.scope)), &home, drives);
         A::serve(&actor, self.scope);
-        self.scope.hold_actor(
-            &actor,
-            self.scope.current_feature(),
-            Some(crate::actor::short_type_name::<R>()),
-        );
-        self.scope.own(actor.clone());
         (self.bound(), actor)
     }
 

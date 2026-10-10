@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use tokio::task::JoinHandle;
 
-use crate::actor::Addr;
 use crate::actor::event_bus::subscribe::BusSubscription;
 
 use super::{Scope, ScopeData};
@@ -126,13 +125,6 @@ pub trait Teardown: 'static {
 impl Teardown for JoinHandle<()> {
     fn teardown(self) {
         self.abort();
-    }
-}
-
-impl<A: 'static> Teardown for Addr<A> {
-    fn teardown(self) {
-        self.dispose();
-        drop(self);
     }
 }
 

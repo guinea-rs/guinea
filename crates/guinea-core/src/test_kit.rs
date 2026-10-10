@@ -67,7 +67,8 @@ impl<M: 'static> PortSpy<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor::{Addr, Cx, Handler, UiThreadToken};
+    use crate::actor::addr::TestHome;
+    use crate::actor::{Addr, Cx, Handler};
 
     struct Refresh;
 
@@ -89,11 +90,12 @@ mod tests {
     #[test]
     fn a_closure_is_the_port_and_the_spy_records_what_went_through_it() {
         let spy = PortSpy::<Ui>::new();
+        let home = TestHome::new();
         let addr = Addr::new(
             Service {
                 port: spy.sender(),
             },
-            UiThreadToken::dangerously_create_token_unchecked(),
+            &home,
         );
 
         addr.send(Refresh);

@@ -300,25 +300,17 @@ mod tests {
         seen
     }
 
-    /// Every trace, as its kind and its id, in the order it was seen: a test
-    /// compares the whole of it, so a record it did not make fails it.
-    fn order(seen: &[Trace]) -> Vec<(&'static str, Cause)> {
+    /// Every trace, as its kind, its id and its parent, in the order it was
+    /// seen: a test compares the whole of it, so a record it did not make
+    /// fails it. An end has no parent of its own.
+    fn order(seen: &[Trace]) -> Vec<(&'static str, Cause, Option<Cause>)> {
         seen.iter()
             .map(|trace| match trace {
-                Trace::Begin(record) => ("begin", record.id),
-                Trace::Mark(record) => ("mark", record.id),
-                Trace::End { id, .. } => ("end", *id),
+                Trace::Begin(record) => ("begin", record.id, record.parent),
+                Trace::Mark(record) => ("mark", record.id, record.parent),
+                Trace::End { id, .. } => ("end", *id, None),
             })
             .collect()
-    }
-
-    fn parent_of(seen: &[Trace], id: Cause) -> Option<Cause> {
-        seen.iter()
-            .find_map(|trace| match trace {
-                Trace::Begin(record) | Trace::Mark(record) if record.id == id => Some(record.parent),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("{id} was never recorded: {seen:#?}"))
     }
 
     #[test]
@@ -331,7 +323,11 @@ mod tests {
         stop_observing();
 
         let seen = seen.borrow();
-        assert_eq!(order(&seen), [("mark", before), ("mark", after)], "{seen:#?}");
+        assert_eq!(
+            order(&seen),
+            [("mark", before, None), ("mark", after, None)],
+            "{seen:#?}"
+        );
 
         let at: Vec<Duration> = seen
             .iter()
@@ -357,19 +353,29 @@ mod tests {
         });
 
         let action = enter(|| Point::Action { message: "Save" });
-        let pushes: Vec<Cause> = (0..5)
-            .map(|_| mark(|| Point::Push { reducer: "Metrics" }))
-            .collect();
+        let first = mark(|| Point::Push { reducer: "Metrics" });
+        let second = mark(|| Point::Push { reducer: "Metrics" });
+        let third = mark(|| Point::Push { reducer: "Metrics" });
+        let fourth = mark(|| Point::Push { reducer: "Metrics" });
+        let fifth = mark(|| Point::Push { reducer: "Metrics" });
         let action_id = action.id();
         drop(action);
         stop_observing();
 
         let seen = seen.borrow();
-        let expected: Vec<(&str, Cause)> = std::iter::once(("begin", action_id))
-            .chain(pushes.iter().map(|push| ("mark", *push)))
-            .chain(std::iter::once(("end", action_id)))
-            .collect();
-        assert_eq!(order(&seen), expected, "{seen:#?}");
+        assert_eq!(
+            order(&seen),
+            [
+                ("begin", action_id, None),
+                ("mark", first, Some(action_id)),
+                ("mark", second, Some(action_id)),
+                ("mark", third, Some(action_id)),
+                ("mark", fourth, Some(action_id)),
+                ("mark", fifth, Some(action_id)),
+                ("end", action_id, None),
+            ],
+            "{seen:#?}"
+        );
 
         let Some(&Trace::End { took, .. }) = seen.last() else {
             unreachable!("the order above ends with the action's end")
@@ -395,7 +401,11 @@ mod tests {
         stop_observing();
 
         let seen = seen.borrow();
-        assert_eq!(order(&seen), [("begin", action_id), ("end", action_id)], "{seen:#?}");
+        assert_eq!(
+            order(&seen),
+            [("begin", action_id, None), ("end", action_id, None)],
+            "{seen:#?}"
+        );
 
         let Some(&Trace::End { took, .. }) = seen.last() else {
             unreachable!("the order above ends with the action's end")
@@ -434,25 +444,20 @@ mod tests {
         assert_eq!(
             order(&seen),
             [
-                ("begin", action_id),
-                ("mark", send),
-                ("begin", handle_id),
-                ("mark", publish),
-                ("end", handle_id),
-                ("end", action_id),
+                ("begin", action_id, None),
+                ("mark", send, Some(action_id)),
+                ("begin", handle_id, Some(send)),
+                ("mark", publish, Some(handle_id)),
+                ("end", handle_id, None),
+                ("end", action_id, None),
             ],
             "{seen:#?}"
         );
-        assert_eq!(parent_of(&seen, send), Some(action_id));
-        assert_eq!(parent_of(&seen, handle_id), Some(send));
-        assert_eq!(parent_of(&seen, publish), Some(handle_id));
-        assert_eq!(parent_of(&seen, action_id), None);
-        assert!(matches!(seen.last(), Some(Trace::End { id, .. }) if *id == action_id));
         assert_eq!(current(), None, "everything entered has been left");
     }
 
     #[test]
-    fn a_resumed_cause_is_the_parent_of_what_follows_and_goes_away_after() {
+    fn a_resumed_cause_holds_only_until_its_guard_drops() {
         let seen = collect();
         let spawn = mark(|| Point::Spawn {
             actor: "Poller",
@@ -468,11 +473,13 @@ mod tests {
         let seen = seen.borrow();
         assert_eq!(
             order(&seen),
-            [("mark", spawn), ("mark", pushed), ("mark", after)],
+            [
+                ("mark", spawn, None),
+                ("mark", pushed, Some(spawn)),
+                ("mark", after, None),
+            ],
             "{seen:#?}"
         );
-        assert_eq!(parent_of(&seen, pushed), Some(spawn));
-        assert_eq!(parent_of(&seen, after), None);
     }
 
     type Event = (String, Vec<(String, String)>);

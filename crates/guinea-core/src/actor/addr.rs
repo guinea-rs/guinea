@@ -91,11 +91,13 @@ pub struct Refs {
 }
 
 impl Refs {
-    /// The actor's type, by its short name.
+    /// The actor's type, by its module and name.
     pub fn actor(&self) -> &'static str {
         self.actor
     }
 
+    /// The addresses held now, its scope's among them: none once the actor
+    /// is gone.
     pub fn count(&self) -> usize {
         self.addr.strong_count()
     }
@@ -105,9 +107,31 @@ impl<A: 'static> Addr<A> {
     /// An actor living in `home`: its scope owns it, and disposes it when
     /// the scope goes.
     ///
+    /// ```
+    /// use guinea_core::actor::{Addr, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// let tree = ScopeTree::new();
+    /// let refs = Addr::new(0u32, &Home::new(tree.scope(), None)).refs();
+    /// assert_eq!(refs.count(), 1, "held by its scope");
+    ///
+    /// tree.remove();
+    /// assert_eq!(refs.count(), 0);
+    /// ```
+    ///
     /// # Panics
     ///
     /// When the scope of `home` is already gone.
+    ///
+    /// ```should_panic
+    /// use guinea_core::actor::{Addr, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// let tree = ScopeTree::new();
+    /// tree.remove();
+    ///
+    /// Addr::new(0u32, &Home::new(tree.scope(), None));
+    /// ```
     pub fn new(state: A, home: &Home) -> Self {
         let addr = Self(Rc::new(Actor {
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
@@ -125,22 +149,43 @@ impl<A: 'static> Addr<A> {
 
     /// An actor `actor!` declared: subscribed to its manifest until it is
     /// disposed, and listed for devtools under the feature installing now.
+    ///
+    /// ```
+    /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Clone)]
+    /// struct Saved;
+    ///
+    /// impl Event for Saved {}
+    ///
+    /// #[derive(Debug)]
+    /// struct Autosave;
+    ///
+    /// guinea_macros::actor! {
+    ///     Autosave {
+    ///         handlers { Saved }
+    ///         subscribes { Saved }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Saved> for Autosave {
+    ///     fn handle(&mut self, _: Saved, _cx: Cx<Self, Saved>) {}
+    /// }
+    ///
+    /// let tree = ScopeTree::new();
+    /// let autosave = Addr::new_managed(Autosave, &Home::new(tree.scope(), None));
+    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 1);
+    ///
+    /// autosave.dispose();
+    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 0);
+    /// ```
     pub fn new_managed(state: A, home: &Home) -> Self
     where
         A: ManagedActor + Debug,
     {
         Self::listed(state, home, None)
-    }
-
-    /// [`Addr::new_managed`] for the actor that drives the reducer `drives`.
-    pub(crate) fn listed(state: A, home: &Home, drives: Option<&'static str>) -> Self
-    where
-        A: ManagedActor + Debug,
-    {
-        let addr = Self::new(state, home);
-        A::Bus::subscribe_into(&addr);
-        home.scope.list(&addr, drives);
-        addr
     }
 
     /// Where it lives: what an actor it makes lives in too, when it is the
@@ -149,17 +194,39 @@ impl<A: 'static> Addr<A> {
         self.0.home.clone()
     }
 
-    /// How work off the UI thread finds this actor again.
-    pub(crate) fn reach(&self) -> Reach<A> {
-        Reach {
-            scope: self.0.home.scope,
-            id: self.0.id,
-            actor: PhantomData,
-        }
-    }
-
     /// Hears `M` on `bus` for as long as the actor lives: disposing it ends
     /// the subscription.
+    ///
+    /// ```
+    /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::trace::Bus;
+    ///
+    /// #[derive(Clone)]
+    /// struct Saved;
+    ///
+    /// impl Event for Saved {}
+    ///
+    /// struct Autosave;
+    ///
+    /// impl Handler<Saved> for Autosave {
+    ///     fn handle(&mut self, _: Saved, _cx: Cx<Self, Saved>) {}
+    /// }
+    ///
+    /// let tree = ScopeTree::new();
+    /// let autosave = Addr::new(Autosave, &Home::new(tree.scope(), None));
+    ///
+    /// autosave.subscribe_on::<Saved>(Bus::Global);
+    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 1);
+    ///
+    /// autosave.dispose();
+    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 0);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// On [`Bus::Window`], when the actor lives in no window.
     pub fn subscribe_on<M: Event>(&self, bus: Bus)
     where
         A: Handler<M>,
@@ -181,31 +248,60 @@ impl<A: 'static> Addr<A> {
         self.0.subscriptions.borrow_mut().push(subscription);
     }
 
-    /// Whether the scope it lives in is asleep, or gone: what a bus carries
-    /// is not for it.
-    pub(crate) fn is_asleep(&self) -> bool {
-        !self.0.home.scope.is_awake()
-    }
-
+    /// Hands `msg` to the actor. One that is not busy handles it before this
+    /// returns:
+    ///
+    /// ```
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Debug)]
+    /// struct Total(u32);
+    ///
+    /// struct Add(u32);
+    ///
+    /// impl Handler<Add> for Total {
+    ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
+    ///         self.0 += n;
+    ///     }
+    /// }
+    ///
+    /// let tree = ScopeTree::new();
+    /// let total = Addr::new(Total(0), &Home::new(tree.scope(), None));
+    ///
+    /// total.send(Add(2));
+    /// total.send(Add(3));
+    /// assert_eq!(total.debug_snapshot(), "Total(\n    5,\n)");
+    /// ```
+    ///
+    /// One that is busy - sending to itself from a handler - handles it once
+    /// what it is doing returns, in the order it was sent:
+    ///
+    /// ```
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Debug)]
+    /// struct Countdown(Vec<u32>);
+    ///
+    /// struct From(u32);
+    ///
+    /// impl Handler<From> for Countdown {
+    ///     fn handle(&mut self, From(n): From, cx: Cx<Self, From>) {
+    ///         if n > 0 {
+    ///             cx.addr().send(From(n - 1));
+    ///         }
+    ///         self.0.push(n);
+    ///     }
+    /// }
+    ///
+    /// let tree = ScopeTree::new();
+    /// let countdown = Addr::new(Countdown(Vec::new()), &Home::new(tree.scope(), None));
+    ///
+    /// countdown.send(From(2));
+    /// assert_eq!(countdown.debug_snapshot(), format!("{:#?}", Countdown(vec![2, 1, 0])));
+    /// ```
     pub fn send<M>(&self, msg: M)
-    where
-        M: 'static,
-        A: Handler<M>,
-    {
-        self.do_send(msg);
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub fn send_test<M>(&self, msg: M) -> crate::test_kit::Interaction<()>
-    where
-        M: 'static,
-        A: Handler<M>,
-    {
-        self.do_send(msg);
-        crate::test_kit::Interaction::new(())
-    }
-
-    fn do_send<M>(&self, msg: M)
     where
         M: 'static,
         A: Handler<M>,
@@ -213,32 +309,15 @@ impl<A: 'static> Addr<A> {
         self.send_under(msg, trace::current());
     }
 
-    /// Sends `msg` as caused by `parent`: for a message whose cause crossed a
-    /// thread or a background task to get here. An actor that is not busy
-    /// handles it at once; a busy one queues it for after what it is doing.
-    pub(crate) fn send_under<M>(&self, msg: M, parent: Option<Cause>)
+    /// [`Addr::send`], for a test that stabilizes what it set off.
+    #[cfg(feature = "test-utils")]
+    pub fn send_test<M>(&self, msg: M) -> crate::test_kit::Interaction<()>
     where
         M: 'static,
         A: Handler<M>,
     {
-        let cause = trace::mark_under(parent, || Point::Send {
-            actor: short_type_name::<A>(),
-            message: short_type_name::<M>(),
-        });
-
-        if self.0.is_processing.get() {
-            self.0.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
-                message: Some(msg),
-                cause,
-            }));
-            return;
-        }
-        self.0.is_processing.set(true);
-
-        crate::notify::turn(|| {
-            self.handled(|actor| envelope::deliver(actor, self, msg, cause));
-            self.drain_queue();
-        });
+        self.send(msg);
+        crate::test_kit::Interaction::new(())
     }
 
     /// Counts the addresses of this actor that are still held.
@@ -278,6 +357,62 @@ impl<A: 'static> Addr<A> {
         self.0.cancel.cancel();
         self.0.subscriptions.borrow_mut().clear();
         self.0.home.scope.release(self.0.id);
+    }
+}
+
+impl<A: 'static> Addr<A> {
+    /// [`Addr::new_managed`] for the actor that drives the reducer `drives`.
+    pub(crate) fn listed(state: A, home: &Home, drives: Option<&'static str>) -> Self
+    where
+        A: ManagedActor + Debug,
+    {
+        let addr = Self::new(state, home);
+        A::Bus::subscribe_into(&addr);
+        home.scope.list(&addr, drives);
+        addr
+    }
+
+    /// How work off the UI thread finds this actor again.
+    pub(crate) fn reach(&self) -> Reach<A> {
+        Reach {
+            scope: self.0.home.scope,
+            id: self.0.id,
+            actor: PhantomData,
+        }
+    }
+
+    /// Whether the scope it lives in is asleep, or gone: what a bus carries
+    /// is not for it.
+    pub(crate) fn is_asleep(&self) -> bool {
+        !self.0.home.scope.is_awake()
+    }
+
+    /// Sends `msg` as caused by `parent`: for a message whose cause crossed a
+    /// thread or a background task to get here. An actor that is not busy
+    /// handles it at once; a busy one queues it for after what it is doing.
+    pub(crate) fn send_under<M>(&self, msg: M, parent: Option<Cause>)
+    where
+        M: 'static,
+        A: Handler<M>,
+    {
+        let cause = trace::mark_under(parent, || Point::Send {
+            actor: short_type_name::<A>(),
+            message: short_type_name::<M>(),
+        });
+
+        if self.0.is_processing.get() {
+            self.0.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
+                message: Some(msg),
+                cause,
+            }));
+            return;
+        }
+        self.0.is_processing.set(true);
+
+        crate::notify::turn(|| {
+            self.handled(|actor| envelope::deliver(actor, self, msg, cause));
+            self.drain_queue();
+        });
     }
 
     fn handled(&self, handle: impl FnOnce(&mut A)) {

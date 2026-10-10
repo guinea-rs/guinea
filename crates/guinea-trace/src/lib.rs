@@ -153,29 +153,29 @@ pub fn enter(point: impl FnOnce() -> Point) -> Entered {
 /// [`enter`], with the cause given rather than taken from the thread.
 pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Entered {
     let id = Cause::next();
-    let started = now();
-    let watched = WATCHING.with(Cell::get);
-    if sink::wanted() {
+
+    let begun = sink::wanted().then(|| {
+        let begun = Begun {
+            started: now(),
+            // What observing had cost before this point opened. Whatever is
+            // added to it while the point is open, its own beginning
+            // included, was spent watching it, not doing it.
+            watched: WATCHING.with(Cell::get),
+        };
         observed(|| {
             sink::emit(Trace::Begin(Record {
                 id,
                 parent,
-                at: started,
+                at: begun.started,
                 point: point(),
             }));
         });
-    }
+        begun
+    });
+
     let previous = CURRENT.with(|current| current.replace(Some(id)));
 
-    Entered {
-        id,
-        previous,
-        started,
-        // What observing had cost before this point opened. Whatever is
-        // added to it while the point is open, its own beginning included,
-        // was spent watching it, not doing it.
-        watched,
-    }
+    Entered { id, previous, begun }
 }
 
 /// An id for a point recorded later, by [`begin_as`]. For a point that is not
@@ -248,8 +248,14 @@ impl<F: Future> Future for Within<F> {
 pub struct Entered {
     id: Cause,
     previous: Option<Cause>,
+    /// Set when the point's beginning was recorded: only then is its end.
+    begun: Option<Begun>,
+}
+
+#[derive(Clone, Copy)]
+struct Begun {
     started: Duration,
-    /// What observing had cost by the time this point opened.
+    /// What observing had cost by the time the point opened.
     watched: Duration,
 }
 
@@ -263,13 +269,15 @@ impl Drop for Entered {
     fn drop(&mut self) {
         CURRENT.with(|current| current.set(self.previous));
 
-        if sink::wanted() {
+        if let Some(begun) = self.begun
+            && sink::wanted()
+        {
             // Everything observing cost while this point was open comes off
             // what the point is said to have taken. It stays on the running
             // total, so the point above this one discounts it too - it was
             // open for all of it as well.
-            let watching = WATCHING.with(Cell::get).saturating_sub(self.watched);
-            let took = now().saturating_sub(self.started).saturating_sub(watching);
+            let watching = WATCHING.with(Cell::get).saturating_sub(begun.watched);
+            let took = now().saturating_sub(begun.started).saturating_sub(watching);
 
             observed(|| sink::emit(Trace::End { id: self.id, took }));
         }
@@ -413,6 +421,24 @@ mod tests {
         assert!(
             took < std::time::Duration::from_millis(5),
             "recording the action's own begin, ten milliseconds of observer, was charged to it: {took:?}"
+        );
+    }
+
+    #[test]
+    fn a_point_opened_while_nobody_watched_does_not_end_for_whoever_watches_later() {
+        let action = enter(|| Point::Action { message: "Save" });
+
+        let seen = collect();
+        let pushed = mark(|| Point::Push { reducer: "Metrics" });
+        let action_id = action.id();
+        drop(action);
+        stop_observing();
+
+        let seen = seen.borrow();
+        assert_eq!(
+            order(&seen),
+            [("mark", pushed, Some(action_id))],
+            "{seen:#?}"
         );
     }
 

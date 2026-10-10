@@ -312,10 +312,12 @@ mod tests {
     }
 
     fn parent_of(seen: &[Trace], id: Cause) -> Option<Cause> {
-        seen.iter().find_map(|trace| match trace {
-            Trace::Begin(record) | Trace::Mark(record) if record.id == id => Some(record.parent),
-            _ => None,
-        })?
+        seen.iter()
+            .find_map(|trace| match trace {
+                Trace::Begin(record) | Trace::Mark(record) if record.id == id => Some(record.parent),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{id} was never recorded: {seen:#?}"))
     }
 
     #[test]
@@ -332,9 +334,9 @@ mod tests {
 
         let at: Vec<Duration> = seen
             .iter()
-            .filter_map(|trace| match trace {
-                Trace::Mark(record) => Some(record.at),
-                _ => None,
+            .map(|trace| match trace {
+                Trace::Mark(record) => record.at,
+                other => panic!("only marks were recorded, not {other:?}"),
             })
             .collect();
         assert!(at[0] <= between && between <= at[1], "{at:?} around {between:?}");

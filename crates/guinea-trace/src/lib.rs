@@ -154,6 +154,7 @@ pub fn enter(point: impl FnOnce() -> Point) -> Entered {
 pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Entered {
     let id = Cause::next();
     let started = now();
+    let watched = WATCHING.with(Cell::get);
     if sink::wanted() {
         observed(|| {
             sink::emit(Trace::Begin(Record {
@@ -171,9 +172,9 @@ pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Ente
         previous,
         started,
         // What observing had cost before this point opened. Whatever is
-        // added to it while the point is open was spent watching it, not
-        // doing it.
-        watched: WATCHING.with(Cell::get),
+        // added to it while the point is open, its own beginning included,
+        // was spent watching it, not doing it.
+        watched,
     }
 }
 
@@ -376,6 +377,32 @@ mod tests {
         assert!(
             took < std::time::Duration::from_millis(5),
             "five marks at two milliseconds of observer each were charged to the action: {took:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_point_took_leaves_out_recording_its_own_beginning() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        observe(move |trace| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            sink.borrow_mut().push(trace.clone());
+        });
+
+        let action = enter(|| Point::Action { message: "Save" });
+        let action_id = action.id();
+        drop(action);
+        stop_observing();
+
+        let seen = seen.borrow();
+        assert_eq!(order(&seen), [("begin", action_id), ("end", action_id)], "{seen:#?}");
+
+        let Some(&Trace::End { took, .. }) = seen.last() else {
+            unreachable!("the order above ends with the action's end")
+        };
+        assert!(
+            took < std::time::Duration::from_millis(5),
+            "recording the action's own begin, ten milliseconds of observer, was charged to it: {took:?}"
         );
     }
 

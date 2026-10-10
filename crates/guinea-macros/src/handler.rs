@@ -14,7 +14,7 @@ pub fn generate_standalone_handler(item: ItemFn) -> TokenStream {
 /// itself, a direct dependency, or the facade's `core`.
 pub(crate) fn guinea_core_crate_path() -> proc_macro2::TokenStream {
     match crate_name("guinea-core") {
-        Ok(FoundCrate::Itself) => return quote!(crate),
+        Ok(FoundCrate::Itself) => return quote!(::guinea_core),
         Ok(FoundCrate::Name(name)) => {
             let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
             return quote!(::#ident);

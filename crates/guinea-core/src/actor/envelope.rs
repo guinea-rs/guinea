@@ -19,11 +19,19 @@ where
 {
     fn handle(&mut self, actor: &mut A, addr: &Addr<A>) {
         if let Some(message) = self.message.take() {
-            let _handling = trace::enter_under(Some(self.cause), || Point::Handle {
-                actor: short_type_name::<A>(),
-                message: short_type_name::<M>(),
-            });
-            actor.handle(message, Cx::new(addr.clone()));
+            deliver(actor, addr, message, self.cause);
         }
     }
+}
+
+/// Hands `message`, queued by the send `cause`, to the actor.
+pub(super) fn deliver<A, M: 'static>(actor: &mut A, addr: &Addr<A>, message: M, cause: Cause)
+where
+    A: Handler<M>,
+{
+    let _handling = trace::enter_under(Some(cause), || Point::Handle {
+        actor: short_type_name::<A>(),
+        message: short_type_name::<M>(),
+    });
+    actor.handle(message, Cx::new(addr.clone()));
 }

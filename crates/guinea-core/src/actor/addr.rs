@@ -1,5 +1,5 @@
 use crate::actor::cancel::Cancel;
-use crate::actor::envelope::{Envelope, MessageEnvelope};
+use crate::actor::envelope::{self, Envelope, MessageEnvelope};
 use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::shape::name;
@@ -213,8 +213,9 @@ impl<A: 'static> Addr<A> {
         self.send_under(msg, trace::current());
     }
 
-    /// Queues `msg` as caused by `parent`: for a message whose cause crossed a
-    /// thread or a background task to get here.
+    /// Sends `msg` as caused by `parent`: for a message whose cause crossed a
+    /// thread or a background task to get here. An actor that is not busy
+    /// handles it at once; a busy one queues it for after what it is doing.
     pub(crate) fn send_under<M>(&self, msg: M, parent: Option<Cause>)
     where
         M: 'static,
@@ -225,12 +226,19 @@ impl<A: 'static> Addr<A> {
             message: short_type_name::<M>(),
         });
 
-        self.0.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
-            message: Some(msg),
-            cause,
-        }));
+        if self.0.is_processing.get() {
+            self.0.queue.borrow_mut().push_back(Box::new(MessageEnvelope {
+                message: Some(msg),
+                cause,
+            }));
+            return;
+        }
+        self.0.is_processing.set(true);
 
-        self.process_queue();
+        crate::notify::turn(|| {
+            self.handled(|actor| envelope::deliver(actor, self, msg, cause));
+            self.drain_queue();
+        });
     }
 
     /// Counts the addresses of this actor that are still held.
@@ -272,35 +280,21 @@ impl<A: 'static> Addr<A> {
         self.0.home.scope.release(self.0.id);
     }
 
-    fn process_queue(&self) {
-        if self.0.is_processing.get() {
-            return;
-        }
-        self.0.is_processing.set(true);
+    fn handled(&self, handle: impl FnOnce(&mut A)) {
+        handle(&mut self.0.state.borrow_mut());
 
-        crate::notify::turn(|| self.drain_queue());
+        crate::observability::changes::changed(|| {
+            crate::observability::changes::Change::ActorHandled { id: self.0.id }
+        });
     }
 
+    /// Handles what was queued while the actor was busy, then lets it be.
     fn drain_queue(&self) {
         loop {
-            let mut envelope = {
-                let mut q = self.0.queue.borrow_mut();
-                match q.pop_front() {
-                    Some(e) => e,
-                    None => {
-                        self.0.is_processing.set(false);
-                        break;
-                    }
-                }
-            };
+            let next = self.0.queue.borrow_mut().pop_front();
+            let Some(mut queued) = next else { break };
 
-            {
-                let mut state_guard = self.0.state.borrow_mut();
-                Envelope::<A>::handle(envelope.as_mut(), &mut *state_guard, self);
-            }
-            crate::observability::changes::changed(|| {
-                crate::observability::changes::Change::ActorHandled { id: self.0.id }
-            });
+            self.handled(|actor| Envelope::<A>::handle(queued.as_mut(), actor, self));
         }
 
         self.0.is_processing.set(false);

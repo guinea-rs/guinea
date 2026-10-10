@@ -197,7 +197,7 @@ impl<A: 'static, M> Cx<A, M> {
         Cx::new(self.addr.clone())
     }
 
-    /// Sends to this actor's own queue; drained by the same `process_queue`.
+    /// Sends to this actor's own queue, handled once the current message is.
     pub fn send<Out>(&self, msg: Out)
     where
         Out: 'static,

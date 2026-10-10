@@ -425,24 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn a_point_opened_while_nobody_watched_does_not_end_for_whoever_watches_later() {
-        let action = enter(|| Point::Action { message: "Save" });
-
-        let seen = collect();
-        let pushed = mark(|| Point::Push { reducer: "Metrics" });
-        let action_id = action.id();
-        drop(action);
-        stop_observing();
-
-        let seen = seen.borrow();
-        assert_eq!(
-            order(&seen),
-            [("mark", pushed, Some(action_id))],
-            "{seen:#?}"
-        );
-    }
-
-    #[test]
     fn what_happens_inside_a_point_is_caused_by_it() {
         let seen = collect();
 

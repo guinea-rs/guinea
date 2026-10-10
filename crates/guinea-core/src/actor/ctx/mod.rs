@@ -2,6 +2,7 @@ use crate::actor::addr::Addr;
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::event_bus::subscribe::Event;
+use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::actor::{AllowedSignal, ManagedActor};
 use std::marker::PhantomData;
@@ -59,7 +60,7 @@ impl<A: 'static, M> Cx<A, M> {
     where
         Out: 'static,
         A: Handler<Out> + ManagedActor,
-        A::Flow: crate::actor::flow::Allows<M, Out>,
+        A::Flow: Allows<M, Out>,
     {
         self.addr.send(msg);
     }

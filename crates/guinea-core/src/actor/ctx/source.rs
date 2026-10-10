@@ -1,5 +1,6 @@
 use super::Cx;
 use crate::actor::addr::Reach;
+use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::actor::{ManagedActor, invoke_on_ui, short_type_name};
 use crate::trace::{self, Cause, Point};
@@ -115,7 +116,7 @@ impl<A: 'static, M> Cx<A, M> {
         Out: Send + 'static,
         F: FnMut(S::Item) -> Out + Send + 'static,
         A: Handler<Out> + ManagedActor,
-        A::Flow: crate::actor::flow::Allows<M, Out>,
+        A::Flow: Allows<M, Out>,
     {
         let reach = self.addr.reach();
         let cancel = self.addr.cancellation();

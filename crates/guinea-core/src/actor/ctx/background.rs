@@ -1,5 +1,6 @@
 use super::Cx;
 use crate::actor::cancel::Cancel;
+use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::actor::{ManagedActor, invoke_on_ui, short_type_name};
 use crate::trace::{self, Cause, Point};
@@ -78,7 +79,7 @@ impl<A: 'static, M> Cx<A, M> {
     where
         Out: Send + 'static,
         A: Handler<Out> + ManagedActor,
-        A::Flow: crate::actor::flow::Allows<M, Out>,
+        A::Flow: Allows<M, Out>,
         Fut: Future<Output = Out> + 'static + Send,
     {
         self.bg(fut, false);
@@ -100,7 +101,7 @@ impl<A: 'static, M> Cx<A, M> {
     where
         Out: Send + 'static,
         A: Handler<Out> + ManagedActor,
-        A::Flow: crate::actor::flow::Allows<M, Out>,
+        A::Flow: Allows<M, Out>,
         Fut: Future<Output = Out> + 'static + Send,
         F: FnOnce(Cancel) -> Fut,
     {
@@ -133,7 +134,7 @@ impl<A: 'static, M> Cx<A, M> {
     where
         Out: Send + 'static,
         A: Handler<Out> + ManagedActor,
-        A::Flow: crate::actor::flow::Allows<M, Out>,
+        A::Flow: Allows<M, Out>,
         Fut: Future<Output = Out> + 'static + Send,
     {
         let reach = self.addr.reach();

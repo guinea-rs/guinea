@@ -2268,7 +2268,6 @@ dependencies = [
  "inventory",
  "serde",
  "tempfile",
- "uuid",
  "windows-reactor-pre",
 ]
 
@@ -2311,7 +2310,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

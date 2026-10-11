@@ -69,7 +69,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     // A return type is the signal that this handler answers an
     // `Scope::request` rather than reacting to a fire-and-forget event.
     // The generated impl is the only code path that can call
-    // `AsyncBus::reply` for this message, so "replies exactly once" holds
+    // reply to this message, so "replies exactly once" holds
     // by construction regardless of which of the four branches below fires.
     let ret_ty = match &item.sig.output {
         ReturnType::Default => None,
@@ -178,7 +178,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
         // `Handler<RpcRequest<#msg_ty>>` directly instead: unwrap the
         // envelope up front, spawn the body, and reply with whatever it
         // returns once it resolves. The user's fn body never sees
-        // `correlation_id` and has no way to call `reply` itself - this
+        // where the reply goes and has no way to call `reply` itself - this
         // generated glue is the only thing that can, same "exactly once"
         // guarantee as the sync branch, just paid for with generated code
         // instead of the trait system (async traits can't express "you
@@ -206,11 +206,9 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                         cx: #gc::actor::Cx<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>,
                     ) {
                         let actx = cx.async_ctx();
-                        let payload = msg.payload;
-                        #gc::actor::event_bus::AsyncBus::spawn_reply::<#ret_ty, _>(
-                            msg.scope,
-                            msg.correlation_id,
-                            msg.chain,
+                        let (payload, reply_to) = msg.into_parts();
+                        #gc::actor::event_bus::ReplyTo::<#ret_ty>::later(
+                            reply_to,
                             async move { #fn_name(actx, payload).await },
                         );
                     }

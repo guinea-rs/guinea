@@ -5,21 +5,19 @@ use crate::actor::Cx;
 use crate::scope::Scope;
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
-use once_cell::sync::Lazy;
-use parking_lot::RwLock;
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use parking_lot::Mutex;
+use std::any::TypeId;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 tokio::task_local! {
     /// The chain of `RpcCall` types whose replies are currently pending
     /// somewhere up this task's ancestry, oldest first. Set by
-    /// `AsyncBus::spawn_reply` around a handler body when it starts running,
+    /// `ReplyTo::later` around a handler body when it starts running,
     /// so that any `Scope::request` called from within that body - even
-    /// transitively, through further `spawn_reply`d handlers on other
+    /// transitively, through further handlers answering `later` on other
     /// actors - sees it. See `Scope::request`'s cycle check below for why
     /// this exists.
     static RPC_CHAIN: Vec<TypeId>;
@@ -29,40 +27,95 @@ fn current_rpc_chain() -> Vec<TypeId> {
     RPC_CHAIN.try_with(|c| c.clone()).unwrap_or_default()
 }
 
+/// A request on its way to what answers it, carrying where the answer goes.
 #[derive(Clone)]
-pub struct RpcRequest<T> {
-    pub correlation_id: Uuid,
-    /// Who asked: the [`RpcResponse`] is published on its bus.
-    pub scope: Scope,
+pub struct RpcRequest<T: RpcCall> {
     pub payload: T,
-    /// See `RPC_CHAIN`. Only meaningful to `AsyncBus::spawn_reply` - a
-    /// hand-written `Handler<RpcRequest<Req>>` that spawns its own reply
-    /// task without going through `spawn_reply` simply won't get cycle
-    /// detection for requests made from inside it.
-    pub chain: Vec<TypeId>,
+    reply_to: ReplyTo<T::Response>,
 }
 
 impl<T: RpcCall> Event for RpcRequest<T> {
-    /// Without the address the reply goes to: a listener hears the request,
-    /// and a reply from it lands nowhere.
+    /// Without the way back: a listener hears the request, and a reply from
+    /// it lands nowhere.
     fn overheard(self) -> Self {
         Self {
-            correlation_id: Uuid::nil(),
+            reply_to: self.reply_to.nowhere(),
             ..self
         }
     }
 }
 
-/// Why a request was not published: nothing could have answered it.
-struct Unanswered(String);
+type Waiting<R> = Arc<Mutex<Option<oneshot::Sender<Result<R, String>>>>>;
 
-#[derive(Clone)]
-pub struct RpcResponse<T> {
-    pub correlation_id: Uuid,
-    pub payload: T,
+/// Where the answer to one request goes: to whoever awaits it, once.
+///
+/// The request carries it, so nothing outside the request keeps track of
+/// what is pending. When every copy that could answer is dropped unanswered,
+/// the one who asked hears so at once rather than at its timeout.
+pub struct ReplyTo<R> {
+    waiting: Option<Waiting<R>>,
+    /// See `RPC_CHAIN`: the requests already awaiting answers up this call
+    /// chain, carried into [`ReplyTo::later`].
+    chain: Vec<TypeId>,
 }
 
-impl<T: Clone + Send + 'static> Event for RpcResponse<T> {}
+impl<R> Clone for ReplyTo<R> {
+    fn clone(&self) -> Self {
+        Self {
+            waiting: self.waiting.clone(),
+            chain: self.chain.clone(),
+        }
+    }
+}
+
+impl<R: Send + 'static> ReplyTo<R> {
+    fn nowhere(self) -> Self {
+        Self {
+            waiting: None,
+            ..self
+        }
+    }
+
+    fn settle(&self, outcome: Result<R, String>) -> bool {
+        let Some(waiting) = &self.waiting else {
+            return false;
+        };
+
+        if let Some(tx) = waiting.lock().take() {
+            let _ = tx.send(outcome);
+        }
+        true
+    }
+
+    /// Answers with `value`. From something that only hears the request it
+    /// goes nowhere.
+    pub fn send(self, value: R) {
+        if !self.settle(Ok(value)) {
+            tracing::warn!(
+                reply = std::any::type_name::<R>(),
+                "a reply from something that only hears the request went nowhere"
+            );
+        }
+    }
+
+    /// Answers with what `work` comes to, run in the background with this
+    /// request's chain - so a request made from inside it, even through
+    /// other actors, is caught when it closes a cycle.
+    ///
+    /// Not cut short when the actor that answers is disposed: somebody is
+    /// waiting for a value, and a dropped future would leave them only the
+    /// timeout. A handler that would rather stop early has the token through
+    /// its `AsyncContext` - but it still owes an answer.
+    pub fn later<Fut>(self, work: Fut)
+    where
+        Fut: Future<Output = R> + Send + 'static,
+    {
+        let chain = self.chain.clone();
+        crate::executor::spawn(RPC_CHAIN.scope(chain, async move {
+            self.send(work.await);
+        }));
+    }
+}
 
 /// A request on a tree's bus, and what answers it. Written with
 /// `#[derive(guinea::Request)]` and `#[request(reply = Type)]`.
@@ -76,8 +129,15 @@ pub trait RpcCall: Clone + Send + 'static {
 }
 
 impl<Req: RpcCall> RpcRequest<Req> {
+    /// Answers it now. See [`ReplyTo::send`].
     pub fn reply(self, response: Req::Response) {
-        AsyncBus::reply(self.scope, self.correlation_id, response);
+        self.reply_to.send(response);
+    }
+
+    /// What was asked, and where the answer goes - for a handler that answers
+    /// after it is done with the request.
+    pub fn into_parts(self) -> (Req, ReplyTo<Req::Response>) {
+        (self.payload, self.reply_to)
     }
 }
 
@@ -124,11 +184,11 @@ impl<T> From<T> for Reply<T> {
     }
 }
 
-impl<T: Clone + Send + 'static> Reply<T> {
-    fn send(self, scope: Scope, correlation_id: Uuid, chain: Vec<TypeId>) {
+impl<T: Send + 'static> Reply<T> {
+    fn send(self, to: ReplyTo<T>) {
         match self.0 {
-            Answer::Now(value) => AsyncBus::reply(scope, correlation_id, value),
-            Answer::Later(work) => AsyncBus::spawn_reply(scope, correlation_id, chain, work),
+            Answer::Now(value) => to.send(value),
+            Answer::Later(work) => to.later(work),
         }
     }
 }
@@ -159,13 +219,10 @@ where
     const ANSWERS: bool = true;
 
     fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
-        self.handle_rpc(msg.payload, cx.handling())
-            .send(msg.scope, msg.correlation_id, msg.chain);
+        let (payload, reply_to) = msg.into_parts();
+        self.handle_rpc(payload, cx.handling()).send(reply_to);
     }
 }
-
-static PENDING_REQUESTS: Lazy<RwLock<HashMap<Uuid, oneshot::Sender<Box<dyn Any + Send>>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 impl Scope {
     /// Asks `payload` on this scope's [`bus`](Scope::bus) and waits for the
@@ -190,7 +247,7 @@ impl Scope {
         // an obvious bug report at the exact call site that closed the loop.
         if chain.contains(&req_type) {
             panic!(
-                "AsyncBus: RPC cycle detected requesting {} - it (or a request that led back \
+                "RPC cycle detected requesting {} - it (or a request that led back \
                  to it) is already awaiting its own reply {} level(s) up this call chain. This \
                  can never resolve: each hop is waiting on the next, all the way back to itself.",
                 std::any::type_name::<Req>(),
@@ -201,16 +258,14 @@ impl Scope {
         let mut next_chain = chain;
         next_chain.push(req_type);
 
-        let correlation_id = Uuid::new_v4();
-        let envelope = RpcRequest {
-            correlation_id,
-            scope: self,
-            payload,
-            chain: next_chain,
-        };
-
         let (tx, rx) = oneshot::channel();
-        PENDING_REQUESTS.write().insert(correlation_id, tx);
+        let envelope = RpcRequest {
+            payload,
+            reply_to: ReplyTo {
+                waiting: Some(Arc::new(Mutex::new(Some(tx)))),
+                chain: next_chain,
+            },
+        };
 
         let cause = trace::current();
         invoke_on_ui(move || {
@@ -228,88 +283,18 @@ impl Scope {
                 },
             };
 
-            if let Some(tx) = PENDING_REQUESTS.write().remove(&correlation_id) {
-                let _ = tx.send(Box::new(Unanswered(unanswered)));
-            }
+            envelope.reply_to.settle(Err(unanswered));
         });
 
         match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(any_res)) => match any_res.downcast::<RpcResponse<Req::Response>>() {
-                Ok(res) => Ok(res.payload),
-                Err(other) => match other.downcast::<Unanswered>() {
-                    Ok(unanswered) => Err(anyhow::anyhow!(unanswered.0)),
-                    Err(_) => Err(anyhow::anyhow!("Type mismatch in async response")),
-                },
-            },
-            Ok(Err(_)) => Err(anyhow::anyhow!("Response channel closed")),
-            Err(_) => {
-                PENDING_REQUESTS.write().remove(&correlation_id);
-                Err(anyhow::anyhow!("RPC request timed out"))
-            }
+            Ok(Ok(Ok(response))) => Ok(response),
+            Ok(Ok(Err(unanswered))) => Err(anyhow::anyhow!(unanswered)),
+            Ok(Err(_)) => Err(anyhow::anyhow!(
+                "{} was dropped without an answer",
+                std::any::type_name::<Req>()
+            )),
+            Err(_) => Err(anyhow::anyhow!("RPC request timed out")),
         }
-    }
-}
-
-pub struct AsyncBus;
-
-impl AsyncBus {
-    /// Answers the request `correlation_id` that `scope` asked: to whoever
-    /// awaits it, and as an [`RpcResponse`] on `scope`'s bus.
-    pub fn reply<Res>(scope: Scope, correlation_id: Uuid, payload: Res)
-    where
-        Res: Clone + Send + 'static,
-    {
-        if correlation_id.is_nil() {
-            tracing::warn!(
-                reply = std::any::type_name::<Res>(),
-                "a reply from something that only hears the request went nowhere"
-            );
-            return;
-        }
-
-        let envelope = RpcResponse {
-            correlation_id,
-            payload,
-        };
-
-        if let Some(tx) = PENDING_REQUESTS.write().remove(&correlation_id) {
-            let _ = tx.send(Box::new(envelope.clone()));
-        }
-
-        scope.publish(envelope);
-    }
-
-    /// Runs `fut` to completion in a spawned task and replies to
-    /// `correlation_id`, asked by `scope`, with whatever it produces, with `fut` running
-    /// inside `chain`'s `RPC_CHAIN` scope - so any [`Scope::request`] made
-    /// from within `fut` (even transitively, on some other actor `fut`
-    /// itself makes a request to) is correctly attributed to this call
-    /// chain for cycle detection.
-    ///
-    /// This is the async-RPC-handler counterpart to `RpcHandler`'s blanket
-    /// sync impl: the only thing that calls `reply` here is this function,
-    /// after `fut` resolves, so it still holds exactly once. It exists as a
-    /// standalone entry point (rather than folded into a trait like
-    /// `RpcHandler`) because `#[handler]`'s generated async-RPC glue and any
-    /// hand-written `Handler<RpcRequest<Req>>` both need to call it the same
-    /// way, and a trait can't express "produces a value after an await" any
-    /// more precisely than `Future<Output = Req::Response>` already does.
-    /// Unlike [`Cx::spawn_bg`], this is not cut short when the actor
-    /// that answers is disposed: somebody is waiting for a value, and the
-    /// only thing a dropped future would leave them is the request's
-    /// timeout. A handler that would rather stop early has the token through
-    /// its `AsyncContext` - but it still owes an answer.
-    ///
-    /// [`Cx::spawn_bg`]: crate::actor::Cx::spawn_bg
-    pub fn spawn_reply<Res, Fut>(scope: Scope, correlation_id: Uuid, chain: Vec<TypeId>, fut: Fut)
-    where
-        Res: Clone + Send + 'static,
-        Fut: Future<Output = Res> + Send + 'static,
-    {
-        crate::executor::spawn(RPC_CHAIN.scope(chain, async move {
-            let response = fut.await;
-            AsyncBus::reply(scope, correlation_id, response);
-        }));
     }
 }
 
@@ -326,10 +311,9 @@ mod tests {
     /// and under `test-utils` `invoke_on_ui` funnels all work into one
     /// process-wide queue. A drain is therefore not scoped to the
     /// test that issued it: run two of these concurrently (cargo's default)
-    /// and one test consumes the other's queued `RpcRequest`/`RpcResponse`
-    /// deliveries, so the rightful owner never sees its reply and dies on
-    /// `RPC request timed out`. `PENDING_REQUESTS` is global for the same
-    /// reason. Serializing the module with a plain `Mutex` held for each
+    /// and one test consumes the other's queued `RpcRequest` deliveries, so
+    /// the rightful owner never sees its reply and dies on
+    /// `RPC request timed out`. Serializing the module with a plain `Mutex` held for each
     /// test's duration is enough; `into_inner` on poisoning keeps a single
     /// failing test from cascading into bogus failures everywhere else.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -351,9 +335,6 @@ mod tests {
         // the publish synchronously before that point, so one yield is
         // enough for the queued task to exist by the time we drain it.
         tokio::task::yield_now().await;
-        crate::ui_thread::run_queued();
-        // `reply()` also queues an `RpcResponse` broadcast - drain it too so
-        // it doesn't linger in the global queue for a later test.
         crate::ui_thread::run_queued();
 
         assert!(handle.await.unwrap().is_ok());
@@ -385,9 +366,8 @@ mod tests {
         let handle =
             tokio::spawn(home.tree.scope().request::<Echo>(Echo(21), StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
-        // One drain delivers `RpcRequest<Echo>` to the actor (which replies
-        // synchronously inside `handle`), a second drains the `RpcResponse`
-        // broadcast that reply also queues.
+        // One drain publishes `RpcRequest<Echo>`, a second lets the actor
+        // handle it and reply.
         crate::ui_thread::run_queued();
         crate::ui_thread::run_queued();
 
@@ -546,6 +526,43 @@ mod tests {
         assert!(error.to_string().contains("is asleep"), "{error}");
     }
 
+    #[tokio::test]
+    async fn a_request_its_answerer_drops_fails_at_once() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        use crate::actor::Addr;
+        use crate::actor::addr::TestHome;
+
+        #[derive(Clone, Debug, guinea_macros::Request)]
+        #[request(reply = Done)]
+        struct Work;
+        #[derive(Clone, Debug)]
+        struct Done;
+
+        struct Dropper;
+        impl Handler<RpcRequest<Work>> for Dropper {
+            const ANSWERS: bool = true;
+
+            fn handle(&mut self, _: RpcRequest<Work>, _cx: Cx<Self, RpcRequest<Work>>) {}
+        }
+
+        let home = TestHome::new();
+        let addr = Addr::new(Dropper, &home);
+        let _sub = home.tree.bus().subscribe::<Dropper, RpcRequest<Work>>(addr);
+
+        let handle =
+            tokio::spawn(home.tree.scope().request::<Work>(Work, StdDuration::from_secs(60)));
+        tokio::task::yield_now().await;
+        crate::ui_thread::run_queued();
+        crate::ui_thread::run_queued();
+
+        let outcome = tokio::time::timeout(StdDuration::from_secs(5), handle).await;
+        let said = match &outcome {
+            Ok(Ok(Err(error))) => error.to_string(),
+            _ => String::new(),
+        };
+        assert!(said.contains("without an answer"), "{outcome:?}");
+    }
+
     /// A requester awaiting on one OS thread reaches an answerer on another:
     /// the normal shape, answerer on the UI thread and requester on a
     /// `spawn_bg` worker. The request is published where the tree is.
@@ -637,8 +654,8 @@ mod tests {
         let double_handle =
             tokio::spawn(scope.request::<Double>(Double(21), StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
-        crate::ui_thread::run_queued(); // deliver RpcRequest<Double> -> reply queued
-        crate::ui_thread::run_queued(); // drain the RpcResponse broadcast
+        crate::ui_thread::run_queued();
+        crate::ui_thread::run_queued();
         assert_eq!(double_handle.await.unwrap().unwrap().0, 42);
 
         let add_handle = tokio::spawn(
@@ -663,7 +680,7 @@ mod tests {
     /// original request resolves). Without the `RPC_CHAIN` check in
     /// `Scope::request`, this would just sit until both requests' 5s
     /// timeouts expired. With it, the request for `ReqA` inside B's
-    /// handler must panic immediately, because `spawn_reply` carried the
+    /// handler must panic immediately, because `ReplyTo::later` carried the
     /// in-flight chain `[ReqA, ReqB]` across the `tokio::spawn` boundary
     /// into B's handler body.
     ///
@@ -673,7 +690,7 @@ mod tests {
     /// way to observe that the panic happened at all, which makes this test
     /// unsafe to run concurrently with anything else that installs its own
     /// hook - run this module with `--test-threads=1` (already required by
-    /// the rest of it, which shares the task queue and `PENDING_REQUESTS`).
+    /// the rest of it, which shares the task queue).
     #[tokio::test]
     async fn cross_actor_rpc_cycle_is_detected_immediately() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -765,7 +782,7 @@ mod tests {
 
         assert!(
             seen_the_cycle(),
-            "expected AsyncBus's cycle check to panic inside actor B's handler; \
+            "expected the cycle check to panic inside actor B's handler; \
              the panics seen were: {:?}",
             panics.lock().unwrap()
         );
@@ -774,9 +791,9 @@ mod tests {
     /// Stress test guarding against a self-deadlock: fires many concurrent
     /// `Scope::request` calls, from several OS threads at once, against a
     /// single `RpcHandler` actor pumped from yet another OS thread. Nothing
-    /// here holds a lock across an `.await` (`PENDING_REQUESTS.write()` is
-    /// always a temporary, dropped before either `request` or `reply`
-    /// yields), so this should always complete - but that invariant is easy
+    /// here holds a lock across an `.await` (the lock on a request's
+    /// `ReplyTo` is always a temporary, dropped before anything yields), so
+    /// this should always complete - but that invariant is easy
     /// to break by accident in a future edit, and a broken invariant here
     /// means the whole app wedges the next time two RPCs race. If it ever
     /// does deadlock, the test must not just hang forever (which would burn

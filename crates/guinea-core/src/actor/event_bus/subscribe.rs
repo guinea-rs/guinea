@@ -1,5 +1,5 @@
 use crate::actor::addr::Addr;
-use crate::actor::event_bus::rpc::{AsyncBus, RpcCall, RpcRequest};
+use crate::actor::event_bus::rpc::{RpcCall, RpcRequest};
 use crate::actor::traits::Handler;
 use crate::short_type_name;
 
@@ -178,14 +178,9 @@ impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
             .downcast_mut::<Letter<RpcRequest<Req>>>()
             .and_then(Letter::open);
 
-        if let Some(RpcRequest {
-            correlation_id,
-            scope,
-            payload,
-            ..
-        }) = request
-        {
-            AsyncBus::reply(scope, correlation_id, (self.answer)(payload));
+        if let Some(request) = request {
+            let (payload, reply_to) = request.into_parts();
+            reply_to.send((self.answer)(payload));
         }
     }
 

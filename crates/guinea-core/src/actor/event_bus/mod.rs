@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 pub mod rpc;
 pub mod subscribe;
-pub use rpc::{AsyncBus, Reply, RpcCall, RpcRequest, RpcResponse};
+pub use rpc::{Reply, ReplyTo, RpcCall, RpcRequest};
 pub use subscribe::Event;
 
 /// One event type on a bus and who hears it. See [`EventBus::listeners`].

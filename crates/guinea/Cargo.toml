@@ -61,7 +61,6 @@ workspace = true
 anyhow.workspace = true
 guinea-router.workspace = true
 tempfile.workspace = true
-uuid.workspace = true
 inventory.workspace = true
 guinea-core = { workspace = true, features = ["test-utils"] }
 guinea-app = { workspace = true, features = ["test-utils"] }

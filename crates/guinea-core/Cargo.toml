@@ -15,7 +15,6 @@ guinea-trace.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-uuid.workspace = true
 derive_more = { workspace = true, features = ["deref", "display", "from"] }
 futures-core.workspace = true
 inventory.workspace = true

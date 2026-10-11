@@ -192,47 +192,10 @@ impl<A: 'static> Addr<A> {
         self.0.home.clone()
     }
 
-    /// Hears `M` on the bus of its tree for as long as the actor lives:
-    /// disposing it ends the subscription.
-    ///
-    /// ```
-    /// use guinea_core::actor::event_bus::Event;
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
-    /// use guinea_core::scope::ScopeTree;
-    ///
-    /// #[derive(Clone)]
-    /// struct Saved;
-    ///
-    /// impl Event for Saved {}
-    ///
-    /// #[derive(Debug)]
-    /// struct Autosave;
-    ///
-    /// guinea_macros::actor! {
-    ///     Autosave {
-    ///         handlers { Saved }
-    ///     }
-    /// }
-    ///
-    /// impl Handler<Saved> for Autosave {
-    ///     fn handle(&mut self, _: Saved, _cx: Cx<Self, Saved>) {}
-    /// }
-    ///
-    /// let tree = ScopeTree::new();
-    /// let bus = tree.bus();
-    /// let autosave = Addr::new(Autosave, &Home::new(tree.scope()));
-    ///
-    /// autosave.subscribe::<Saved>();
-    /// assert_eq!(bus.count_subscribers::<Saved>(), 1);
-    ///
-    /// tree.remove();
-    /// assert_eq!(bus.count_subscribers::<Saved>(), 0);
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// When its tree is gone.
-    pub fn subscribe<M: Event>(&self)
+    /// Hears `M` on the bus of its tree for as long as the actor lives. What
+    /// an actor hears is its manifest's `subscribes { .. }`, which calls this
+    /// when the actor is made; nothing else does.
+    pub(crate) fn subscribe<M: Event>(&self)
     where
         A: Handler<M>,
     {

@@ -43,6 +43,7 @@ mod answering {
     actor! {
         Processes {
             handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
         }
     }
 
@@ -63,8 +64,7 @@ mod answering {
     // It answers for as long as the segment that installed it stands.
     #[installs]
     fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
-        let processes = cx.spawn(Processes { protected: vec![4] });
-        processes.subscribe::<RpcRequest<Kill>>();
+        cx.spawn(Processes { protected: vec![4] });
         Ok(Killing)
     }
     //@show-end
@@ -81,6 +81,7 @@ mod answering_later {
     actor! {
         Processes {
             handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
         }
     }
 
@@ -104,8 +105,7 @@ mod answering_later {
 
     #[installs]
     fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
-        let processes = cx.spawn(Processes { protected: vec![4] });
-        processes.subscribe::<RpcRequest<Kill>>();
+        cx.spawn(Processes { protected: vec![4] });
         Ok(Killing)
     }
 }
@@ -170,6 +170,7 @@ mod listening {
     actor! {
         Audit {
             handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
         }
     }
 
@@ -186,8 +187,7 @@ mod listening {
 
     #[installs]
     fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
-        let audit = cx.spawn(Audit::default());
-        audit.subscribe::<RpcRequest<Kill>>();
+        cx.spawn(Audit::default());
         Ok(Auditing)
     }
     //@show-end

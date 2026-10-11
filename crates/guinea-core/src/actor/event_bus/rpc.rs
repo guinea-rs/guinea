@@ -166,7 +166,9 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// # }
 /// # #[derive(Debug)]
 /// # struct Actions { transport: Option<Transport> }
-/// # guinea_macros::actor! { Actions { handlers { RpcRequest<Act> } } }
+/// # guinea_macros::actor! {
+/// #     Actions { handlers { RpcRequest<Act> } subscribes { RpcRequest<Act> } }
+/// # }
 /// #[handler]
 /// fn act(this: &mut Actions, Act(action): Act) -> Reply<Outcome> {
 ///     let Some(transport) = this.transport.clone() else {
@@ -179,8 +181,7 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// # let _entered = runtime.enter();
 /// # let ask = |transport: Option<Transport>| {
 /// #     let tree = ScopeTree::new();
-/// #     let actions = Addr::new(Actions { transport }, &Home::new(tree.scope()));
-/// #     actions.subscribe::<RpcRequest<Act>>();
+/// #     Addr::new(Actions { transport }, &Home::new(tree.scope()));
 /// #     let asked = runtime.spawn(tree.scope().request::<Act>(Act(7), Duration::from_secs(5)));
 /// #     assert!(ui.run_until(|| asked.is_finished(), Duration::from_secs(5)));
 /// #     runtime.block_on(asked).unwrap().unwrap()

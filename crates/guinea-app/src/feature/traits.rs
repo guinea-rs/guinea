@@ -241,9 +241,8 @@ impl ScopeContext {
     /// is the call, and continuing it is optional:
     ///
     /// ```ignore
-    /// let (processes, actor) = cx.state::<Processes>()
+    /// let (processes, _) = cx.state::<Processes>()
     ///     .driven_by(|push| ProcessActor::new(context.to_string(), push));
-    /// actor.subscribe::<ScanTick>();
     ///
     /// processes.emit(Refresh);
     /// ```

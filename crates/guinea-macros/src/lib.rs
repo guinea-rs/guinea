@@ -298,9 +298,9 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// Exactly one subscriber answers it: a handler that returns the reply. The
 /// generated code sends what it returns back to whoever asked, once - and the
-/// `async` form does the same after its body resolves. The feature that owns
-/// the actor subscribes it to the request on the bus, so it answers
-/// while the segment that installed it stands:
+/// `async` form does the same after its body resolves. The actor's manifest
+/// subscribes it to the request on the bus, so it answers while the segment
+/// that installed it stands:
 ///
 /// <!-- shown: the one that answers -->
 /// ```rust,ignore
@@ -312,6 +312,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// actor! {
 ///     Processes {
 ///         handlers { RpcRequest<Kill> }
+///         subscribes { RpcRequest<Kill> }
 ///     }
 /// }
 ///
@@ -332,8 +333,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// // It answers for as long as the segment that installed it stands.
 /// #[installs]
 /// fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
-///     let processes = cx.spawn(Processes { protected: vec![4] });
-///     processes.subscribe::<RpcRequest<Kill>>();
+///     cx.spawn(Processes { protected: vec![4] });
 ///     Ok(Killing)
 /// }
 /// ```
@@ -393,6 +393,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// actor! {
 ///     Audit {
 ///         handlers { RpcRequest<Kill> }
+///         subscribes { RpcRequest<Kill> }
 ///     }
 /// }
 ///
@@ -409,8 +410,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// #[installs]
 /// fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
-///     let audit = cx.spawn(Audit::default());
-///     audit.subscribe::<RpcRequest<Kill>>();
+///     cx.spawn(Audit::default());
 ///     Ok(Auditing)
 /// }
 /// ```

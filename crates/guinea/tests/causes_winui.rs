@@ -41,6 +41,7 @@ pub struct Meter {
 actor! {
     Meter {
         handlers { Sampled, Reset }
+        subscribes { Sampled }
     }
 }
 
@@ -62,8 +63,7 @@ feature! {
 
 #[installs]
 fn metering(cx: &FeatureInitContext) -> anyhow::Result<Metering> {
-    let (load, meter) = cx.state::<Load>().driven_by(|push| Meter { push });
-    meter.subscribe::<Sampled>();
+    let (load, _) = cx.state::<Load>().driven_by(|push| Meter { push });
     Ok(Metering(load))
 }
 
@@ -231,6 +231,7 @@ pub struct Ticker {
 actor! {
     Ticker {
         handlers { Ticked }
+        subscribes { Ticked }
     }
 }
 
@@ -247,8 +248,7 @@ feature! {
 
 #[installs]
 fn ticking(cx: &FeatureInitContext) -> anyhow::Result<Ticking> {
-    let (rate, ticker) = cx.state::<Rate>().driven_by(|push| Ticker { push });
-    ticker.subscribe::<Ticked>();
+    let (rate, _) = cx.state::<Rate>().driven_by(|push| Ticker { push });
     Ok(Ticking(rate))
 }
 

@@ -371,6 +371,7 @@ mod reports {
         Reader {
             handlers { Report, Announce }
             publishes { Report }
+            subscribes { Report }
         }
     }
 
@@ -392,8 +393,7 @@ mod reports {
 
     #[installs]
     fn reports(cx: &FeatureInitContext) -> anyhow::Result<Reports> {
-        let (running, reader) = cx.state::<Running>().driven_by(|push| Reader { push });
-        reader.subscribe::<Report>();
+        let (running, _) = cx.state::<Running>().driven_by(|push| Reader { push });
         Ok(Reports(running))
     }
 
@@ -515,6 +515,7 @@ mod named {
         Namer {
             handlers { Rename, Renamed }
             publishes { Renamed }
+            subscribes { Renamed }
         }
     }
 
@@ -536,8 +537,7 @@ mod named {
 
     #[installs]
     fn naming(cx: &FeatureInitContext) -> anyhow::Result<Naming> {
-        let (name, namer) = cx.state::<Name>().driven_by(|push| Namer { push });
-        namer.subscribe::<Renamed>();
+        let (name, _) = cx.state::<Name>().driven_by(|push| Namer { push });
         Ok(Naming(name))
     }
 }

@@ -64,6 +64,7 @@ pub struct Listener {
 actor! {
     Listener {
         handlers { Ping }
+        subscribes { Ping }
     }
 }
 
@@ -92,8 +93,7 @@ impl Page for Listening {
     type Params = ListeningParams;
 
     fn install(ctx: &FeatureInitContext, _params: &ListeningParams) -> anyhow::Result<()> {
-        let (_, addr) = ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
-        addr.subscribe::<Ping>();
+        ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
         Ok(())
     }
 
@@ -158,8 +158,7 @@ feature! {
 
 #[installs]
 fn pinging(cx: &FeatureInitContext) -> anyhow::Result<Pinging> {
-    let (pings, addr) = cx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
-    addr.subscribe::<Ping>();
+    let (pings, _) = cx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
     Ok(Pinging(pings))
 }
 

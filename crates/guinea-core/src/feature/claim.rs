@@ -56,9 +56,9 @@ impl<R: Reducer> Claim<R> {
     /// is inferred from what the closure returns; neither the reducer nor this
     /// call has to name it.
     ///
-    /// The address comes back for wiring that is the actor's own, such as
-    /// `addr.subscribe::<M>()`. The scope still owns the actor and disposes
-    /// it, and what it subscribed to ends with it.
+    /// What the actor hears on the bus is its manifest's `subscribes { .. }`,
+    /// heard from the moment it is made. The scope owns the actor and
+    /// disposes it, and what it hears ends with it.
     pub fn driven_by<A, F>(self, build: F) -> (Bound<R>, Addr<A>)
     where
         F: FnOnce(Push<R>) -> A,

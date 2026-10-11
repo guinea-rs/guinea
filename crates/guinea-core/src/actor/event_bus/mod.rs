@@ -2,11 +2,11 @@ use crate::actor::addr::Addr;
 use crate::actor::event_bus::subscribe::{
     AnswerFn, BusSubscription, FnSubscriber, Letter, Subscriber, SubscriptionId, UntypedSubscriber,
 };
-use crate::actor::invoke_on_ui;
 use crate::actor::short_type_name;
 use crate::actor::traits::Handler;
 use crate::observability::changes::{self, Change};
 use crate::trace::{self, Bus, Point};
+use crate::ui_thread::invoke_on_ui;
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -17,10 +17,6 @@ pub mod rpc;
 pub mod subscribe;
 pub use rpc::{AsyncBus, Reply, RpcCall, RpcRequest, RpcResponse};
 pub use subscribe::Event;
-
-#[cfg(feature = "test-utils")]
-pub static TEST_TASK_QUEUE: std::sync::LazyLock<std::sync::Mutex<Vec<Box<dyn FnOnce() + Send>>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 #[cfg(feature = "test-utils")]
 pub static ACTIVE_TASKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -754,20 +750,6 @@ mod tests {
 
 #[cfg(feature = "test-utils")]
 impl EventBus {
-    pub fn queue_test_task(task: Box<dyn FnOnce() + Send>) {
-        TEST_TASK_QUEUE.lock().unwrap().push(task);
-    }
-    pub fn process_queue() {
-        let tasks: Vec<_> = std::mem::take(&mut *TEST_TASK_QUEUE.lock().unwrap());
-        for task in tasks {
-            task();
-        }
-    }
-
-    pub fn is_queue_empty() -> bool {
-        TEST_TASK_QUEUE.lock().unwrap().is_empty()
-    }
-
     pub fn task_count() -> usize {
         ACTIVE_TASKS.load(std::sync::atomic::Ordering::SeqCst)
     }

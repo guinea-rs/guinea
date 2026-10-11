@@ -16,13 +16,13 @@ pub mod semantics;
 #[cfg(feature = "test-utils")]
 pub mod test_kit;
 pub mod trace;
+pub mod ui_thread;
 
 pub use load::Load;
 pub use shared_state::SharedState;
 pub use scope::{Reducer, Scope, StateHandle, Subscription};
-pub use actor::{
-    Addr, Cx, Handler, ManagedActor, UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher,
-};
+pub use actor::{Addr, Cx, Handler, ManagedActor};
+pub use ui_thread::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher};
 pub use actor::event_bus::subscribe::BusSubscription;
 
 /// What macro output names, so that an application does not have to depend

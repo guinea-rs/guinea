@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use guinea_core::actor::{UiLoop, invoke_on_ui};
+use guinea_core::ui_thread::{UiLoop, invoke_on_ui};
 
 #[test]
 fn a_ui_loop_runs_work_as_it_comes_until_what_it_waits_for_holds() {

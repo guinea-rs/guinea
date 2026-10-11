@@ -4,7 +4,7 @@
 //! nothing to pump here: `invoke_from_event_loop` posts to the loop the
 //! application is already running.
 
-use guinea_core::actor::{UiDispatcher, UiTask, set_ui_dispatcher};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 
 struct EventLoopDispatcher;
 

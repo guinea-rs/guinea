@@ -4,8 +4,9 @@ use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::event_bus::{EventBus, GlobalEventBus};
 use crate::actor::traits::Handler;
-use crate::actor::{AllowedSignal, ManagedActor, invoke_on_ui};
+use crate::actor::{AllowedSignal, ManagedActor};
 use crate::trace;
+use crate::ui_thread::invoke_on_ui;
 
 /// What work off the UI thread keeps of the actor that started it, from
 /// [`Cx::async_ctx`]: `Send`, where the handler's [`Cx`] is not.
@@ -177,8 +178,8 @@ impl<A: 'static> AsyncContext<A> {
     /// use std::cell::Cell;
     /// use std::rc::Rc;
     ///
-    /// use guinea_core::actor::UiLoop;
     /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::ui_thread::UiLoop;
     ///
     /// #[derive(Clone)]
     /// struct Saved;
@@ -274,8 +275,9 @@ impl<A: 'static> AsyncContext<A> {
     /// use std::cell::Cell;
     /// use std::rc::Rc;
     ///
-    /// use guinea_core::actor::{Addr, Home, UiLoop};
+    /// use guinea_core::actor::{Addr, Home};
     /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::ui_thread::UiLoop;
     ///
     /// struct Total(Rc<Cell<u32>>, Rc<RefCell<Option<AsyncContext<Total>>>>);
     ///

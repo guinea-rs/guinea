@@ -17,9 +17,9 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use guinea_core::actor::invoke_on_ui;
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::scope::Awake;
+use guinea_core::ui_thread::invoke_on_ui;
 
 /// How long between ticks.
 pub enum Period {

@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 
-use guinea_core::actor::{UiLoop, invoke_on_ui, on_ui_thread};
+use guinea_core::ui_thread::{UiLoop, invoke_on_ui, on_ui_thread};
 
 #[test]
 fn a_ui_loop_runs_what_is_handed_to_the_ui_thread_on_its_own_thread_and_only_when_asked() {

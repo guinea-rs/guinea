@@ -493,7 +493,7 @@ mod seeded {
             let ran = Arc::new(AtomicUsize::new(0));
 
             let counted = ran.clone();
-            crate::actor::invoke_on_ui(move || {
+            crate::ui_thread::invoke_on_ui(move || {
                 counted.fetch_add(1, Ordering::SeqCst);
             });
 
@@ -515,7 +515,7 @@ mod seeded {
 
                 for post in ["first", "second", "third"] {
                     let seen = seen.clone();
-                    crate::actor::invoke_on_ui(move || seen.lock().unwrap().push(post));
+                    crate::ui_thread::invoke_on_ui(move || seen.lock().unwrap().push(post));
                 }
 
                 let beside = seen.clone();

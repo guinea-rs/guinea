@@ -1,6 +1,6 @@
 //! Getting work back onto the UI thread, through the application's proxy.
 
-use guinea_core::actor::{UiDispatcher, UiTask, set_ui_dispatcher};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use windows_reactor::AppProxy;
 
 struct Proxy(AppProxy);

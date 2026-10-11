@@ -1,8 +1,9 @@
 use crate::actor::event_bus::{Answering, Event, GlobalEventBus};
 use crate::actor::shape::Declared;
 use crate::actor::traits::Handler;
-use crate::actor::{Cx, invoke_on_ui};
+use crate::actor::Cx;
 use crate::trace;
+use crate::ui_thread::invoke_on_ui;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::any::{Any, TypeId};
@@ -321,7 +322,7 @@ mod tests {
     use std::sync::mpsc as std_mpsc;
     use std::time::Duration as StdDuration;
 
-    /// Every test here drives the bus by hand via `EventBus::process_queue()`,
+    /// Every test here drives the bus by hand via `crate::ui_thread::run_queued()`,
     /// and under `test-utils` `invoke_on_ui` funnels all work into one
     /// process-wide `TEST_TASK_QUEUE`. A drain is therefore not scoped to the
     /// test that issued it: run two of these concurrently (cargo's default)
@@ -349,10 +350,10 @@ mod tests {
         // the publish synchronously before that point, so one yield is
         // enough for the queued task to exist by the time we drain it.
         tokio::task::yield_now().await;
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
         // `reply()` also queues an `RpcResponse` broadcast - drain it too so
         // it doesn't linger in the global queue for a later test.
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
 
         assert!(handle.await.unwrap().is_ok());
     }
@@ -385,8 +386,8 @@ mod tests {
         // One drain delivers `RpcRequest<Echo>` to the actor (which replies
         // synchronously inside `handle`), a second drains the `RpcResponse`
         // broadcast that reply also queues.
-        EventBus::process_queue();
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
+        crate::ui_thread::run_queued();
 
         let response = handle.await.unwrap().expect("rpc handler should have replied");
         assert_eq!(response.0, 42);
@@ -405,7 +406,7 @@ mod tests {
 
         let handle = tokio::spawn(AsyncBus::request::<Unasked>(Unasked, StdDuration::from_secs(60)));
         tokio::task::yield_now().await;
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
 
         let error = tokio::time::timeout(StdDuration::from_secs(5), handle)
             .await
@@ -495,8 +496,8 @@ mod tests {
 
         let handle = tokio::spawn(AsyncBus::request::<HowMany>(HowMany, StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
-        EventBus::process_queue();
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
+        crate::ui_thread::run_queued();
 
         assert_eq!(handle.await.unwrap().unwrap(), Count(7));
         assert!(heard.load(Ordering::SeqCst), "the listener was not told");
@@ -528,7 +529,7 @@ mod tests {
 
         let handle = tokio::spawn(AsyncBus::request::<Work>(Work, StdDuration::from_secs(60)));
         tokio::task::yield_now().await;
-        EventBus::process_queue();
+        crate::ui_thread::run_queued();
 
         let error = tokio::time::timeout(StdDuration::from_secs(5), handle)
             .await
@@ -568,7 +569,7 @@ mod tests {
             let _sub = GlobalEventBus::answer_fn(|_: Ping| Pong);
             ready_tx.send(()).unwrap();
             while stop_rx.try_recv().is_err() {
-                EventBus::process_queue();
+                crate::ui_thread::run_queued();
                 std::thread::sleep(StdDuration::from_millis(5));
             }
         });
@@ -641,8 +642,8 @@ mod tests {
         let double_handle =
             tokio::spawn(AsyncBus::request::<Double>(Double(21), StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
-        EventBus::process_queue(); // deliver RpcRequest<Double> -> reply queued
-        EventBus::process_queue(); // drain the RpcResponse broadcast
+        crate::ui_thread::run_queued(); // deliver RpcRequest<Double> -> reply queued
+        crate::ui_thread::run_queued(); // drain the RpcResponse broadcast
         assert_eq!(double_handle.await.unwrap().unwrap().0, 42);
 
         let add_handle = tokio::spawn(AsyncBus::request::<DelayedAdd>(
@@ -650,13 +651,13 @@ mod tests {
             StdDuration::from_secs(1),
         ));
         tokio::task::yield_now().await;
-        EventBus::process_queue(); // deliver RpcRequest<DelayedAdd> -> spawns the async body
+        crate::ui_thread::run_queued(); // deliver RpcRequest<DelayedAdd> -> spawns the async body
         // The async body needs actual wall-clock time (`tokio::time::sleep`)
         // before it replies, so poll the queue a few times instead of
         // draining once.
         for _ in 0..20 {
             tokio::time::sleep(StdDuration::from_millis(5)).await;
-            EventBus::process_queue();
+            crate::ui_thread::run_queued();
         }
         assert_eq!(add_handle.await.unwrap().unwrap().0, 5);
     }
@@ -755,7 +756,7 @@ mod tests {
         let deadline = std::time::Instant::now() + StdDuration::from_secs(5);
         while std::time::Instant::now() < deadline {
             tokio::task::yield_now().await;
-            EventBus::process_queue();
+            crate::ui_thread::run_queued();
             if seen_the_cycle() {
                 break;
             }
@@ -835,7 +836,7 @@ mod tests {
             let _sub = GlobalEventBus::instance().subscribe::<AddActor, RpcRequest<Add>>(addr);
             ready_tx.send(()).unwrap();
             while stop_rx.try_recv().is_err() {
-                EventBus::process_queue();
+                crate::ui_thread::run_queued();
                 std::thread::sleep(StdDuration::from_millis(2));
             }
         });

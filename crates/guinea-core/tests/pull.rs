@@ -5,10 +5,9 @@
 //! A process of its own, because the dispatcher is process-wide.
 
 use futures_core::Stream;
-use guinea_core::actor::{
-    Addr, Cx, Handler, Home, UiDispatcher, UiTask, set_ui_dispatcher,
-};
+use guinea_core::actor::{Addr, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;
+use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use guinea_core::trace::{self, Cause, Point, Trace};
 use std::cell::RefCell;
 use std::pin::Pin;

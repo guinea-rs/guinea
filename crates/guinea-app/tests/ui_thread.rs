@@ -2,7 +2,7 @@
 //! own: the dispatcher is the process's, and would reach the other tests.
 
 use guinea_app::app::GuineaApp;
-use guinea_core::actor::{UiDispatcher, UiTask, set_ui_dispatcher};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 
 struct Nowhere;
 

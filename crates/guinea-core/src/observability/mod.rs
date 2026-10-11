@@ -13,6 +13,7 @@ mod log_layer;
 pub mod panels;
 
 use crate::trace::{self, Point};
+use crate::ui_thread::try_invoke_on_ui;
 
 pub use log_layer::{LogLayer, layer};
 
@@ -167,7 +168,7 @@ pub fn mark_anywhere(point: impl FnOnce() -> Point + Send + 'static) {
         return;
     }
     let cause = trace::current();
-    let marked = crate::actor::try_invoke_on_ui(move || {
+    let marked = try_invoke_on_ui(move || {
         trace::mark_under(cause, point);
     });
     if let Err(unsent) = marked {
@@ -186,7 +187,7 @@ pub(crate) fn begin_anywhere(
         trace::begin_as(id, parent, point);
         return;
     }
-    let begun = crate::actor::try_invoke_on_ui(move || trace::begin_as(id, parent, point));
+    let begun = try_invoke_on_ui(move || trace::begin_as(id, parent, point));
     if let Err(unsent) = begun {
         unsent();
     }
@@ -198,7 +199,7 @@ pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
         trace::end(id, took);
         return;
     }
-    let ended = crate::actor::try_invoke_on_ui(move || trace::end(id, took));
+    let ended = try_invoke_on_ui(move || trace::end(id, took));
     if let Err(unsent) = ended {
         unsent();
     }
@@ -229,13 +230,13 @@ mod tests {
     }
 
     #[cfg(not(feature = "test-utils"))]
-    struct Queue(std::sync::mpsc::Sender<crate::actor::UiTask>);
+    struct Queue(std::sync::mpsc::Sender<crate::ui_thread::UiTask>);
 
     #[cfg(not(feature = "test-utils"))]
-    impl crate::actor::UiDispatcher for Queue {
+    impl crate::ui_thread::UiDispatcher for Queue {
         fn init(&self) {}
 
-        fn dispatch(&self, task: crate::actor::UiTask) {
+        fn dispatch(&self, task: crate::ui_thread::UiTask) {
             let _ = self.0.send(task);
         }
     }
@@ -249,7 +250,7 @@ mod tests {
         use super::*;
 
         let (tx, rx) = std::sync::mpsc::channel();
-        crate::actor::set_ui_dispatcher(Queue(tx));
+        crate::ui_thread::set_ui_dispatcher(Queue(tx));
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
         trace::observe(move |record| {

@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Mutex, OnceLock};
 
-use guinea_core::actor::{UiDispatcher, UiTask, set_ui_dispatcher};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 
 struct ChannelDispatcher(Sender<UiTask>);
 

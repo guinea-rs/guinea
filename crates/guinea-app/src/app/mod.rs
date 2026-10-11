@@ -116,7 +116,7 @@ impl GuineaApp {
     /// would live where the dispatcher never runs its work, and every answer
     /// from the background would be lost.
     pub fn install(self) -> anyhow::Result<AppRuntime> {
-        if guinea_core::actor::on_ui_thread() == Some(false) {
+        if guinea_core::ui_thread::on_ui_thread() == Some(false) {
             anyhow::bail!(
                 "installed off the UI thread: the dispatcher runs work on another thread, \
                  where this application's actors would not be"

@@ -1,6 +1,3 @@
-use once_cell::sync::Lazy;
-use std::sync::RwLock;
-
 pub mod addr;
 pub mod cancel;
 pub mod ctx;
@@ -8,14 +5,12 @@ pub mod envelope;
 pub mod flow;
 
 pub mod traits;
-mod ui_loop;
 
 pub use addr::*;
 pub use cancel::*;
 pub use ctx::*;
 pub use envelope::*;
 pub use traits::*;
-pub use ui_loop::UiLoop;
 
 /// What [`Cx::spawn_source`] takes: the `Stream` of `futures` and
 /// `tokio-stream`, named here so a source can be written without either.
@@ -25,77 +20,6 @@ pub mod event_bus;
 
 pub mod snapshot;
 pub mod shape;
-
-pub type UiTask = Box<dyn FnOnce() + Send>;
-
-pub trait UiDispatcher: Send + Sync {
-    fn init(&self);
-    fn dispatch(&self, task: UiTask);
-}
-
-static UI_DISPATCHER: Lazy<RwLock<Option<Box<dyn UiDispatcher>>>> = Lazy::new(|| RwLock::new(None));
-
-/// Installs the dispatcher [`invoke_on_ui`] hands work to. Called from the
-/// UI thread: the thread it is called on is the one that work runs on.
-pub fn set_ui_dispatcher(dispatcher: impl UiDispatcher + 'static) {
-    *UI_DISPATCHER.write().unwrap() = Some(Box::new(dispatcher));
-    *UI_THREAD.write().unwrap() = Some(std::thread::current().id());
-}
-
-static UI_THREAD: RwLock<Option<std::thread::ThreadId>> = RwLock::new(None);
-
-/// Whether this is the UI thread, the one [`set_ui_dispatcher`] was called
-/// on; `None` while no dispatcher is installed, as in a test.
-pub fn on_ui_thread() -> Option<bool> {
-    let ui = (*UI_THREAD.read().unwrap())?;
-    Some(ui == std::thread::current().id())
-}
-
-/// Runs `f` on the UI thread.
-///
-/// Under `test-utils` a seeded executor on this thread takes it first, then
-/// the application's dispatcher, then the test queue: the feature adds a
-/// place for work to go and takes none away, so an application built with it
-/// - `cargo build --all-targets` unifies dev-dependencies' features - still
-/// runs.
-pub fn invoke_on_ui<F>(f: F)
-where
-    F: FnOnce() + Send + 'static,
-{
-    if let Err(f) = try_invoke_on_ui(f) {
-        #[cfg(feature = "test-utils")]
-        crate::actor::event_bus::EventBus::queue_test_task(Box::new(f));
-
-        #[cfg(not(feature = "test-utils"))]
-        {
-            drop(f);
-            panic!(
-                "UiDispatcher not initialized! Call guinea_core::actor::set_ui_dispatcher at startup."
-            );
-        }
-    }
-}
-
-/// Like [`invoke_on_ui`], but hands `f` back when there is no UI thread to
-/// run it on yet.
-pub fn try_invoke_on_ui<F>(f: F) -> Result<(), F>
-where
-    F: FnOnce() + Send + 'static,
-{
-    #[cfg(feature = "test-utils")]
-    let f = match crate::executor::queue_ui(f) {
-        Ok(()) => return Ok(()),
-        Err(f) => f,
-    };
-
-    match UI_DISPATCHER.read().unwrap().as_ref() {
-        Some(dispatcher) => {
-            dispatcher.dispatch(Box::new(f));
-            Ok(())
-        }
-        None => Err(f),
-    }
-}
 
 /// The name the trace and the snapshot give `T`: its type and the module it
 /// sits in, without the rest of the path - and with its generic arguments,

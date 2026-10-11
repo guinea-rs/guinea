@@ -2,8 +2,9 @@ use super::Cx;
 use crate::actor::addr::Reach;
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
-use crate::actor::{ManagedActor, invoke_on_ui, short_type_name};
+use crate::actor::{ManagedActor, short_type_name};
 use crate::trace::{self, Cause, Point};
+use crate::ui_thread::invoke_on_ui;
 use futures_core::Stream;
 use std::time::Instant;
 
@@ -114,8 +115,9 @@ impl<A: 'static, M> Cx<A, M> {
     /// use std::task::{Context, Poll};
     /// use std::time::Duration;
     ///
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home, Stream, UiLoop};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home, Stream};
     /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::ui_thread::UiLoop;
     ///
     /// struct Countdown(u32);
     ///

@@ -5,7 +5,7 @@
 //! unifies dev-dependencies' features into the application, and the feature
 //! must add a place for work to go, not take the dispatcher away.
 
-use guinea_core::actor::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher, try_invoke_on_ui};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher, try_invoke_on_ui};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -2,8 +2,9 @@ use super::Cx;
 use crate::actor::cancel::Cancel;
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
-use crate::actor::{ManagedActor, invoke_on_ui, short_type_name};
+use crate::actor::{ManagedActor, short_type_name};
 use crate::trace::{self, Cause, Point};
+use crate::ui_thread::invoke_on_ui;
 use std::time::Instant;
 
 /// One background task as the trace sees it: whose it is, what it owes them,
@@ -138,8 +139,9 @@ impl<A: 'static, M> Cx<A, M> {
     /// use std::rc::Rc;
     /// use std::time::Duration;
     ///
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home, UiLoop};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
     /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::ui_thread::UiLoop;
     ///
     /// #[derive(Debug)]
     /// struct Weather(Rc<Cell<Option<i32>>>);
@@ -194,8 +196,9 @@ impl<A: 'static, M> Cx<A, M> {
     /// use std::sync::atomic::{AtomicBool, Ordering};
     /// use std::time::Duration;
     ///
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home, UiLoop};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
     /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::ui_thread::UiLoop;
     ///
     /// #[derive(Debug)]
     /// struct Weather(Rc<Cell<Option<i32>>>);

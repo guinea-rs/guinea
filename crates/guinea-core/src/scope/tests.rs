@@ -176,7 +176,7 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
             Change::ActorAdded {
                 root: Some(7),
                 id,
-                type_name: crate::actor::short_type_name::<Ticker>(),
+                type_name: crate::short_type_name::<Ticker>(),
                 owner: Owner {
                     scope: Some(page.key()),
                     feature: Some("app::Clock"),

@@ -62,7 +62,7 @@ impl<R: Reducer> Push<R> {
     pub fn send(&self, update: R::Update) {
         if self.scope.is_alive() {
             crate::trace::mark(|| crate::trace::Point::Push {
-                reducer: crate::actor::short_type_name::<R>(),
+                reducer: crate::short_type_name::<R>(),
             });
             self.scope.push::<R>(update);
         }
@@ -121,7 +121,7 @@ impl Dispatch {
         match found {
             Some(answer) => {
                 let _action = crate::trace::enter(|| crate::trace::Point::Action {
-                    message: crate::actor::short_type_name::<M>(),
+                    message: crate::short_type_name::<M>(),
                 });
                 answer(action)
             }
@@ -129,7 +129,7 @@ impl Dispatch {
             // wiring mistake rather than something a user did, so it says what
             // went unanswered and lets the frame stand.
             None => tracing::warn!(
-                action = crate::actor::short_type_name::<M>(),
+                action = crate::short_type_name::<M>(),
                 "the feature this dispatcher belongs to does not answer this action; dropped"
             ),
         }
@@ -295,7 +295,7 @@ impl<'a, R: Reducer> Claim<'a, R> {
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
         let home = Home::new(self.scope, self.bus);
-        let drives = Some(crate::actor::short_type_name::<R>());
+        let drives = Some(crate::short_type_name::<R>());
         let actor = Addr::listed(build(Push::new(self.scope)), &home, drives);
         A::serve(&actor, self.scope);
         (self.bound(), actor)

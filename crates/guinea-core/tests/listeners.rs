@@ -47,7 +47,7 @@ fn a_bus_says_who_hears_each_event_actors_by_id_and_callbacks_by_where_they_subs
         report.listeners[0],
         Listener {
             by: HeardBy::Actor {
-                name: guinea_core::actor::short_type_name::<Processes>(),
+                name: guinea_core::short_type_name::<Processes>(),
                 id: processes.id(),
             },
             answers: false,

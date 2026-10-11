@@ -20,8 +20,8 @@
 use serde::de::DeserializeOwned;
 
 use crate::actor::event_bus::{Event, GlobalEventBus};
-use crate::actor::short_type_name;
 use crate::scope::Scope;
+use crate::short_type_name;
 use crate::trace::{self, Point};
 
 /// Hands the decoded action to a scope if the scope answers it: `None` when

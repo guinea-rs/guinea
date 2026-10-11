@@ -170,7 +170,7 @@ impl Scope {
     ) {
         let Some(data) = self.data() else { return };
         let id = addr.id();
-        let type_name = crate::actor::short_type_name::<A>();
+        let type_name = crate::short_type_name::<A>();
         let owner = Owner {
             scope: Some(self.key()),
             feature: self.current_feature(),

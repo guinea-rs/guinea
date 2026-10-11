@@ -2,9 +2,9 @@ use crate::actor::addr::Addr;
 use crate::actor::event_bus::subscribe::{
     AnswerFn, BusSubscription, FnSubscriber, Letter, Subscriber, SubscriptionId, UntypedSubscriber,
 };
-use crate::actor::short_type_name;
 use crate::actor::traits::Handler;
 use crate::observability::changes::{self, Change};
+use crate::short_type_name;
 use crate::trace::{self, Bus, Point};
 use crate::ui_thread::invoke_on_ui;
 use std::any::TypeId;

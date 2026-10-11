@@ -16,9 +16,11 @@ pub mod semantics;
 #[cfg(feature = "test-utils")]
 pub mod test_kit;
 pub mod trace;
+mod type_name;
 pub mod ui_thread;
 
 pub use load::Load;
+pub use type_name::short_type_name;
 pub use shared_state::SharedState;
 pub use scope::{Reducer, Scope, StateHandle, Subscription};
 pub use actor::{Addr, Cx, Handler, ManagedActor};

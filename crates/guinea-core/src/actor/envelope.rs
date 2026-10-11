@@ -1,6 +1,7 @@
 use crate::actor::addr::Addr;
 use crate::actor::traits::Handler;
-use crate::actor::{Cx, short_type_name};
+use crate::actor::Cx;
+use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 
 pub trait Envelope<A> {

@@ -1,7 +1,7 @@
 use crate::actor::addr::Addr;
 use crate::actor::event_bus::rpc::{AsyncBus, RpcCall, RpcRequest};
-use crate::actor::short_type_name;
 use crate::actor::traits::Handler;
+use crate::short_type_name;
 use crate::trace::Bus;
 
 use std::any::{Any, TypeId};

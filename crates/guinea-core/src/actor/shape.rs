@@ -15,7 +15,7 @@ pub enum Channel {
 pub type Name = fn() -> &'static str;
 
 pub fn name<T: ?Sized>() -> &'static str {
-    super::short_type_name::<T>()
+    crate::short_type_name::<T>()
 }
 
 #[derive(Clone, Copy)]

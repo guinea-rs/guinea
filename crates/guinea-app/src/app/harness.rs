@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus, GlobalEventBus};
-use guinea_core::actor::short_type_name;
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
+use guinea_core::short_type_name;
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureInitContext, ScopeContext};

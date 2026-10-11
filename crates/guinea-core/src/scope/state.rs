@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::actor::shape::Declared;
 
-use super::{Scope, ScopeData};
+use super::Scope;
 
 static NEXT_SUBSCRIBER_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -95,7 +95,16 @@ pub trait Reducer: Clone + Default + std::fmt::Debug + 'static {
 /// it last.
 pub type Slot<R> = RefCell<Rc<R>>;
 
-pub(super) struct Cell {
+/// The reducers a scope holds.
+#[derive(Default)]
+pub(super) struct States {
+    cells: RefCell<HashMap<TypeId, Cell>>,
+    /// Kept apart from `cells`: a cell restored from the state cache arrives
+    /// erased, and learns its type again at the next typed access.
+    kinds: RefCell<HashMap<TypeId, Kind>>,
+}
+
+struct Cell {
     state: Rc<dyn Any>,
     listeners: RefCell<Vec<(u64, Rc<dyn Fn()>)>>,
     observers: RefCell<Vec<(u64, Rc<dyn Fn(&dyn Any)>)>>,
@@ -103,7 +112,7 @@ pub(super) struct Cell {
 
 /// What a cell holds, for printing it without knowing the type.
 #[derive(Clone, Copy)]
-pub(super) struct Kind {
+struct Kind {
     name: &'static str,
     describe: fn(&dyn Any) -> String,
 }
@@ -154,20 +163,18 @@ impl Scope {
         let Some(data) = self.data() else {
             return Vec::new();
         };
-        let cells = data.cells.borrow();
-        let kinds = data.kinds.borrow();
-        let owners = data.owners.borrow();
+        let cells = data.state.cells.borrow();
+        let kinds = data.state.kinds.borrow();
         let mut described: Vec<DescribedState> = cells
             .iter()
             .filter_map(|(type_id, cell)| {
                 let kind = kinds.get(type_id)?;
+                let claim = data.features.claimed(*type_id);
                 Some(DescribedState {
                     type_name: kind.name,
                     state: (kind.describe)(&*cell.state),
-                    feature: owners
-                        .get(type_id)
-                        .and_then(|section| data.section_name(*section)),
-                    declared: data.declarations.borrow().get(type_id).copied(),
+                    feature: claim.and_then(|claim| data.features.section_name(claim.section)),
+                    declared: claim.and_then(|claim| claim.declared),
                 })
             })
             .collect();
@@ -181,15 +188,15 @@ impl Scope {
     /// default nobody else sees.
     pub fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
         match self.data() {
-            Some(data) => data.state::<R>(),
+            Some(data) => data.state.slot::<R>(),
             None => Rc::new(Slot::new(Rc::new(R::default()))),
         }
     }
 
     pub fn peek<R: Reducer>(&self) -> Option<Rc<Slot<R>>> {
         let data = self.data()?;
-        data.note_kind::<R>();
-        let cells = data.cells.borrow();
+        data.state.note_kind::<R>();
+        let cells = data.state.cells.borrow();
         let cell = cells.get(&TypeId::of::<R>())?;
         Some(
             cell.state
@@ -204,8 +211,9 @@ impl Scope {
     /// dropping its listeners.
     pub fn seed<R: Reducer>(&self, state: R) {
         let data = self.installing("seeding a reducer");
-        data.note_kind::<R>();
+        data.state.note_kind::<R>();
         let replaced = data
+            .state
             .cells
             .borrow_mut()
             .insert(TypeId::of::<R>(), Cell::holding(Rc::new(Slot::new(Rc::new(state)))));
@@ -222,9 +230,10 @@ impl Scope {
     pub fn push<R: Reducer>(&self, update: R::Update) {
         let Some(data) = self.data() else { return };
         let carried: Option<Box<dyn Any>> = data
+            .state
             .is_observed(TypeId::of::<R>())
             .then(|| Box::new(update.clone()) as Box<dyn Any>);
-        let state = data.state::<R>();
+        let state = data.state.slot::<R>();
         drop(data);
 
         {
@@ -248,7 +257,7 @@ impl Scope {
         };
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         {
-            let mut cells = data.cells.borrow_mut();
+            let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
             cell.observers.borrow_mut().push((
                 id,
@@ -264,7 +273,7 @@ impl Scope {
         Subscription {
             unsubscribe: Some(Box::new(move || {
                 let Some(data) = scope.data() else { return };
-                if let Some(cell) = data.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
+                if let Some(cell) = data.state.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
                     cell.observers.borrow_mut().retain(|(oid, _)| *oid != id);
                 }
             })),
@@ -275,7 +284,7 @@ impl Scope {
         let Some(data) = self.data() else {
             return Vec::new();
         };
-        let cells = data.cells.borrow();
+        let cells = data.state.cells.borrow();
         cells
             .get(&cell)
             .map(|cell| cell.listeners.borrow().iter().map(|(_, f)| f.clone()).collect())
@@ -286,7 +295,7 @@ impl Scope {
         let Some(data) = self.data() else {
             return Vec::new();
         };
-        let cells = data.cells.borrow();
+        let cells = data.state.cells.borrow();
         cells
             .get(&cell)
             .map(|cell| cell.observers.borrow().iter().map(|(_, f)| f.clone()).collect())
@@ -299,7 +308,7 @@ impl Scope {
         };
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         {
-            let mut cells = data.cells.borrow_mut();
+            let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
             cell.listeners.borrow_mut().push((id, Rc::new(callback)));
         }
@@ -308,7 +317,7 @@ impl Scope {
         Subscription {
             unsubscribe: Some(Box::new(move || {
                 let Some(data) = scope.data() else { return };
-                if let Some(cell) = data.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
+                if let Some(cell) = data.state.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
                     cell.listeners.borrow_mut().retain(|(lid, _)| *lid != id);
                 }
             })),
@@ -328,7 +337,8 @@ impl Scope {
         let Some(data) = self.data() else {
             return HashMap::new();
         };
-        data.cells
+        data.state
+            .cells
             .borrow()
             .iter()
             .map(|(type_id, cell)| (*type_id, cell.state.clone()))
@@ -343,7 +353,7 @@ impl Scope {
         let data = self.installing("restoring state");
         let mut replaced = Vec::new();
         {
-            let mut cells = data.cells.borrow_mut();
+            let mut cells = data.state.cells.borrow_mut();
             for (type_id, state) in states {
                 replaced.extend(cells.insert(type_id, Cell::holding(state)));
             }
@@ -352,7 +362,7 @@ impl Scope {
     }
 }
 
-impl ScopeData {
+impl States {
     fn note_kind<R: Reducer>(&self) {
         self.kinds
             .borrow_mut()
@@ -360,7 +370,7 @@ impl ScopeData {
             .or_insert_with(Kind::of::<R>);
     }
 
-    fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
+    fn slot<R: Reducer>(&self) -> Rc<Slot<R>> {
         self.note_kind::<R>();
         let mut cells = self.cells.borrow_mut();
         let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);

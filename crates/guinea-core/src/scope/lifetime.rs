@@ -1,10 +1,25 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use tokio::task::JoinHandle;
 
 use crate::actor::event_bus::subscribe::BusSubscription;
 
-use super::{Scope, ScopeData};
+use super::Scope;
+
+/// What a scope lets go of when it goes, what it asks first, and whether it
+/// is awake meanwhile.
+#[derive(Default)]
+pub(super) struct Lifetime {
+    teardowns: RefCell<Vec<Box<dyn FnOnce()>>>,
+    /// Asked before the scope is torn down. See [`Scope::on_leave`].
+    leave_guards: RefCell<Vec<Rc<dyn Fn() -> crate::guard::Verdict>>>,
+    /// Set while a router keeps the scope without showing it. See
+    /// [`Scope::sleep`].
+    asleep: Rc<std::cell::Cell<bool>>,
+    /// Run when it is shown again. See [`Scope::on_wake`].
+    wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
+}
 
 /// Whether a scope is awake, for something it owns to ask on its own.
 ///
@@ -30,6 +45,7 @@ impl Scope {
     pub fn own<R: Teardown>(&self, resource: R) {
         match self.data() {
             Some(data) => data
+                .lifetime
                 .teardowns
                 .borrow_mut()
                 .push(Box::new(move || resource.teardown())),
@@ -45,7 +61,7 @@ impl Scope {
     /// changes" is. On the way in there is nothing to read yet.
     pub fn on_leave(&self, guard: impl Fn() -> crate::guard::Verdict + 'static) {
         let data = self.installing("guarding a leave");
-        data.leave_guards.borrow_mut().push(Rc::new(guard));
+        data.lifetime.leave_guards.borrow_mut().push(Rc::new(guard));
     }
 
     /// The guards to ask, in the order they were registered.
@@ -54,7 +70,7 @@ impl Scope {
     /// and the caller runs them while deciding.
     pub fn leave_guards(&self) -> Vec<Rc<dyn Fn() -> crate::guard::Verdict>> {
         self.data()
-            .map(|data| data.leave_guards.borrow().clone())
+            .map(|data| data.lifetime.leave_guards.borrow().clone())
             .unwrap_or_default()
     }
 
@@ -66,7 +82,7 @@ impl Scope {
     /// missed. A router does this to a `keep` segment it leaves.
     pub fn sleep(&self) {
         if let Some(data) = self.data() {
-            data.asleep.set(true);
+            data.lifetime.asleep.set(true);
         }
     }
 
@@ -74,9 +90,9 @@ impl Scope {
     /// asked.
     pub fn wake(&self) {
         let Some(data) = self.data() else { return };
-        data.asleep.set(false);
+        data.lifetime.asleep.set(false);
 
-        let hooks = data.wake_hooks.borrow().clone();
+        let hooks = data.lifetime.wake_hooks.borrow().clone();
         drop(data);
         for hook in hooks {
             hook();
@@ -85,13 +101,13 @@ impl Scope {
 
     /// Whether this scope is there and awake. A removed one is neither.
     pub fn is_awake(&self) -> bool {
-        self.data().is_some_and(|data| !data.asleep.get())
+        self.data().is_some_and(|data| !data.lifetime.asleep.get())
     }
 
     /// Whether this scope is awake, for what it owns to ask later.
     pub fn awake(&self) -> Awake {
         match self.data() {
-            Some(data) => Awake(data.asleep.clone()),
+            Some(data) => Awake(data.lifetime.asleep.clone()),
             None => Awake(Rc::new(std::cell::Cell::new(true))),
         }
     }
@@ -100,12 +116,12 @@ impl Scope {
     /// what it missed while it slept.
     pub fn on_wake(&self, hook: impl Fn() + 'static) {
         let data = self.installing("waiting for a wake");
-        data.wake_hooks.borrow_mut().push(Rc::new(hook));
+        data.lifetime.wake_hooks.borrow_mut().push(Rc::new(hook));
     }
 }
 
-impl ScopeData {
-    /// Lets go of what this scope took on, the last first: what came later
+impl Lifetime {
+    /// Lets go of what the scope took on, the last first: what came later
     /// may rest on what came before it.
     pub(super) fn tear_down(&self) {
         let teardowns = std::mem::take(&mut *self.teardowns.borrow_mut());

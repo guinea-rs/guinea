@@ -1,10 +1,7 @@
-use std::any::{Any, TypeId};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
-use crate::actor::shape::Declared;
 
 mod actors;
 mod features;
@@ -21,7 +18,9 @@ pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};
 
 use actors::Held;
-use state::{Cell, Kind};
+use features::Features;
+use lifetime::Lifetime;
+use state::States;
 use tree::{Node, NodeKey, Tree, TreeKey, tree};
 
 /// Where a segment's state, features and resources live, from the moment it
@@ -53,55 +52,12 @@ impl std::fmt::Debug for Scope {
     }
 }
 
+/// What one scope holds, by the part of guinea that keeps it.
 #[derive(Default)]
 struct ScopeData {
-    cells: RefCell<HashMap<TypeId, Cell>>,
-    /// Kept apart from `cells`: a cell restored from the state cache arrives
-    /// erased, and learns its type again at the next typed access.
-    kinds: RefCell<HashMap<TypeId, Kind>>,
-    teardowns: RefCell<Vec<Box<dyn FnOnce()>>>,
-    /// Features (identified by their `install` function's own type) that
-    /// were explicitly installed *in this scope*. Separate from `cells`
-    /// (which tracks `Reducer` state/actions) because a feature can spawn
-    /// several actors/reducers as one unit - this tracks the unit itself,
-    /// so a descendant scope can find out "has an ancestor already taken
-    /// ownership of this feature" without knowing which reducer types it
-    /// happens to use internally.
-    installed_features: RefCell<HashSet<TypeId>>,
-    /// The reducers this scope lets segments below it read. See
-    /// [`Scope::note_export`].
-    ///
-    /// Flat, unlike the answerers below: visibility is not per-instance, and
-    /// two instances of one feature export two different reducer types anyway.
-    exports: RefCell<HashSet<TypeId>>,
-    /// What this scope answers, one map per installed feature.
-    ///
-    /// Not one map: an action type is the same for every instance of a
-    /// feature, so `ListFeature<Recent>` and `ListFeature<Archived>` both
-    /// answer `Refresh`, and a flat map would let whichever installed last
-    /// answer for both. Section 0 is the segment's own, outside any feature.
-    sections: RefCell<Vec<HashMap<TypeId, Rc<dyn Any>>>>,
-    /// Which feature each section belongs to.
-    section_names: RefCell<Vec<Option<&'static str>>>,
-    /// Where each section's feature was written.
-    section_declarations: RefCell<Vec<Option<Declared>>>,
-    /// Where each reducer was claimed.
-    declarations: RefCell<HashMap<TypeId, Declared>>,
-    /// What this scope's features subscribed to.
-    listeners: RefCell<Vec<Listener>>,
-    /// Which section claimed each reducer - what turns "the state I was
-    /// reading" into "the instance that owns it".
-    owners: RefCell<HashMap<TypeId, usize>>,
-    /// The sections currently being installed, innermost last. A feature is
-    /// free to install another one.
-    installing: RefCell<Vec<usize>>,
-    /// Asked before this scope is torn down. See [`Scope::on_leave`].
-    leave_guards: RefCell<Vec<Rc<dyn Fn() -> crate::guard::Verdict>>>,
-    /// Set while a router keeps this scope without showing it. See
-    /// [`Scope::sleep`].
-    asleep: Rc<std::cell::Cell<bool>>,
-    /// Run when it is shown again. See [`Scope::on_wake`].
-    wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
+    state: States,
+    features: Features,
+    lifetime: Lifetime,
     /// The actors it owns, and lists for devtools. See [`Scope::hold`].
     actors: RefCell<Held>,
 }
@@ -140,7 +96,7 @@ impl Scope {
             return;
         };
         for data in detached {
-            data.tear_down();
+            data.lifetime.tear_down();
         }
     }
 
@@ -237,15 +193,5 @@ impl Scope {
     fn installing(&self, doing: &str) -> Rc<ScopeData> {
         self.data()
             .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
-    }
-}
-
-impl ScopeData {
-    fn section_name(&self, section: usize) -> Option<&'static str> {
-        self.section_names.borrow().get(section).copied().flatten()
-    }
-
-    fn current_section(&self) -> usize {
-        self.installing.borrow().last().copied().unwrap_or(0)
     }
 }

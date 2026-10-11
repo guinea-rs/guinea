@@ -1,5 +1,5 @@
 //! The part of an application that has no toolkit in it: plugins, features,
-//! services, actors, timers and teardown.
+//! services and teardown.
 //!
 //! Nothing here knows how anything is drawn. A backend adapter takes an
 //! [`app::App`], installs it, and hands the resulting builder a window; see
@@ -9,4 +9,3 @@ pub mod app;
 pub mod feature;
 pub mod observability;
 pub mod services;
-pub mod timers;

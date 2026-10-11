@@ -233,7 +233,8 @@ pub mod backend {
 }
 
 
-pub use guinea_app::{app, app_meta, feature, services, timers};
+pub use guinea_app::{app, app_meta, feature, services};
+pub use guinea_core::timers;
 pub use guinea_app::services::Services;
 
 pub use guinea_core as core;
@@ -269,7 +270,7 @@ pub mod prelude {
         AppFeature, Application, FeatureBuilder, GuineaApp, Installed, Plugin, PluginBuilder,
     };
     pub use guinea_app::feature::{Feature, FeatureInitContext, ScopeContext};
-    pub use guinea_app::timers::{Period, Timer};
+    pub use guinea_core::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, Reply};
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     pub use guinea_core::feature::{Bound, Dispatch, Push};

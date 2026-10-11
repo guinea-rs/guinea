@@ -1,9 +1,9 @@
-//! Timers, owned by the context that set them up.
+//! Timers, owned by the scope that set them up.
 //!
-//! An application's timers live as long as the application; a feature's, as
-//! long as its scope. There is no timer without an owner: dropping what the
-//! context holds stops it. Each remembers where it was set up, which is how
-//! devtools tell one from another, and ticks on the UI thread.
+//! A timer lives as long as its scope: the application's as long as the
+//! application, a feature's as long as the segment it is installed in. There
+//! is no timer without an owner. Each remembers where it was set up, which is
+//! how devtools tell one from another, and ticks on the UI thread.
 //!
 //! They wait on `tokio::time`, through the same executor as background work,
 //! so they need the runtime `spawn_bg` needs - and under a test harness they
@@ -17,9 +17,9 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use guinea_core::observability::changes::{self, Change};
-use guinea_core::scope::{Awake, Scope};
-use guinea_core::ui_thread::invoke_on_ui;
+use crate::observability::changes::{self, Change};
+use crate::scope::{Awake, Scope};
+use crate::ui_thread::invoke_on_ui;
 
 /// How long between ticks.
 pub enum Period {
@@ -161,7 +161,7 @@ impl Drop for Ticking {
     }
 }
 
-impl guinea_core::scope::Teardown for Ticking {
+impl crate::scope::Teardown for Ticking {
     fn teardown(self) {
         drop(self);
     }
@@ -251,9 +251,26 @@ impl Timer {
     }
 }
 
-/// Starts a timer: what keeps it running, for the context to hold, and the
+impl Scope {
+    /// Runs `run` every `period`, for as long as this scope lives.
+    #[track_caller]
+    pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
+        let (ticking, timer) = start(
+            Location::caller(),
+            self.current_feature(),
+            Some(*self),
+            period.into(),
+            run,
+        );
+        self.own(ticking);
+
+        timer
+    }
+}
+
+/// Starts a timer: what keeps it running, for its scope to hold, and the
 /// timer itself, for the caller to name.
-pub(crate) fn start(
+fn start(
     place: &'static Location<'static>,
     feature: Option<&'static str>,
     scope: Option<Scope>,
@@ -333,7 +350,7 @@ fn tick(id: u64, generation: u64) {
 
         {
             let _tick = traced.then(|| {
-                guinea_core::trace::enter(|| guinea_core::trace::Point::Tick {
+                crate::trace::enter(|| crate::trace::Point::Tick {
                     timer: id,
                     name,
                     file: place.file(),
@@ -393,7 +410,7 @@ fn wake_after(id: u64, generation: u64, after: Option<Duration>) {
         return;
     };
 
-    guinea_core::executor::spawn(async move {
+    crate::executor::spawn(async move {
         tokio::time::sleep(after).await;
         invoke_on_ui(move || tick(id, generation));
     });
@@ -408,7 +425,7 @@ pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
     let id = NEXT_PENDING.fetch_add(1, Ordering::Relaxed);
     PENDING.with(|pending| pending.borrow_mut().insert(id, Box::new(run)));
 
-    guinea_core::executor::spawn(async move {
+    crate::executor::spawn(async move {
         tokio::time::sleep(delay).await;
         invoke_on_ui(move || {
             let run = PENDING.with(|pending| pending.borrow_mut().remove(&id));
@@ -422,7 +439,7 @@ pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guinea_core::executor::{Installed, install};
+    use crate::executor::{Installed, install};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
@@ -548,9 +565,9 @@ mod tests {
         let clock = clock();
         let ticks = Rc::new(RefCell::new(Vec::new()));
         let heard = ticks.clone();
-        guinea_core::trace::observe(move |trace| {
-            if let guinea_core::trace::Trace::Begin(record) = trace
-                && let guinea_core::trace::Point::Tick { .. } = record.point
+        crate::trace::observe(move |trace| {
+            if let crate::trace::Trace::Begin(record) = trace
+                && let crate::trace::Point::Tick { .. } = record.point
             {
                 heard.borrow_mut().push(record.point.clone());
             }
@@ -560,11 +577,11 @@ mod tests {
         let (_ticking, timer) = start(place, None, None, Duration::from_millis(30).into(), || {});
         let timer = timer.named("flush");
         wait(&clock, 30);
-        guinea_core::trace::stop_observing();
+        crate::trace::stop_observing();
 
         assert_eq!(
             *ticks.borrow(),
-            [guinea_core::trace::Point::Tick {
+            [crate::trace::Point::Tick {
                 timer: timer.id().expect("running"),
                 name: Some("flush"),
                 file: place.file(),
@@ -642,7 +659,7 @@ mod tests {
     #[test]
     fn a_timer_skips_its_ticks_while_its_scope_sleeps() {
         let clock = clock();
-        let scope = guinea_core::scope::ScopeTree::new();
+        let scope = crate::scope::ScopeTree::new();
         let counter = Arc::new(AtomicUsize::new(0));
 
         let c = counter.clone();

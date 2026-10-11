@@ -3,7 +3,7 @@ use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::timers::{self, Period, Timer};
+use guinea_core::timers::{Period, Timer};
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
@@ -350,30 +350,12 @@ impl ScopeContext {
         M: Send + 'static,
     {
         let addr = addr.clone();
-        self.start_timer(Location::caller(), period.into(), move || addr.send(message()))
+        self.scope.repeat(period, move || addr.send(message()))
     }
 
     /// Runs `run` every `period`, for as long as this scope lives.
     #[track_caller]
     pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
-        self.start_timer(Location::caller(), period.into(), run)
-    }
-
-    fn start_timer(
-        &self,
-        place: &'static Location<'static>,
-        period: Period,
-        run: impl FnMut() + 'static,
-    ) -> Timer {
-        let (ticking, timer) = timers::start(
-            place,
-            self.scope.current_feature(),
-            Some(self.scope),
-            period,
-            run,
-        );
-        self.scope.own(ticking);
-
-        timer
+        self.scope.repeat(period, run)
     }
 }

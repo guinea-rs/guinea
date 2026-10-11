@@ -296,15 +296,28 @@ fn pushing_through_a_push_after_its_scope_went_is_quiet() {
 }
 
 #[test]
-fn emitting_to_a_scope_that_went_is_quiet() {
+fn emitting_to_a_scope_that_went_is_a_mistake_said_out_loud() {
     let tree = ScopeTree::new();
+    let scope = tree.scope();
     tree.section().answers::<Tick>(|_| {});
-    let dispatch = crate::feature::Dispatch::owning::<Counter>(tree.scope());
+    let dispatch = crate::feature::Dispatch::owning::<Counter>(scope);
     tree.remove();
 
     let emitted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch.emit(Tick)));
 
-    assert!(emitted.is_ok(), "a click on the last frame of a page that left is dropped");
+    let message = emitted
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    let tick = crate::short_type_name::<Tick>();
+    assert_eq!(message, Some(format!("emitting {tick} in {scope:?}, which was removed")));
+}
+
+#[test]
+fn a_dispatcher_to_nowhere_drops_what_is_emitted_to_it() {
+    let emitted = std::panic::catch_unwind(|| crate::feature::Dispatch::nowhere().emit(Tick));
+
+    assert!(emitted.is_ok(), "a view drawn without a domain has nobody to ask");
 }
 
 #[test]

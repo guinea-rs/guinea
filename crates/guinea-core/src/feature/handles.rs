@@ -77,7 +77,9 @@ pub struct Dispatch {
     /// reader was reading, and reading already found the scope and the
     /// instance. Searching upward would make two instances of one feature
     /// indistinguishable again.
-    at: Section,
+    ///
+    /// `None` only for [`Dispatch::nowhere`].
+    at: Option<Section>,
 }
 
 impl Dispatch {
@@ -86,19 +88,35 @@ impl Dispatch {
         Self::in_section(scope.section_of::<R>())
     }
 
-    /// A named section - what a feature is handed for what it claimed.
-    pub(crate) fn in_section(section: Section) -> Self {
-        Self { at: section }
+    /// A dispatcher that asks nobody, for a view drawn without a domain - a
+    /// benchmark, a preview. What is emitted to it is dropped.
+    pub fn nowhere() -> Self {
+        Self { at: None }
     }
 
-    /// Hands the action to whatever answers it in that feature. Dropped once
-    /// its scope is gone: a click on the last frame of a page that has left.
+    /// A named section - what a feature is handed for what it claimed.
+    pub(crate) fn in_section(section: Section) -> Self {
+        Self { at: Some(section) }
+    }
+
+    /// Hands the action to whatever answers it in that feature.
+    ///
+    /// # Panics
+    ///
+    /// When its scope is gone: whoever still emits to a page that has left
+    /// is holding on to it past its end.
     pub fn emit<M: 'static>(&self, action: M) {
-        if !self.at.scope().is_alive() {
-            return;
+        let Some(section) = self.at else { return };
+
+        let scope = section.scope();
+        if !scope.is_alive() {
+            panic!(
+                "emitting {} in {scope:?}, which was removed",
+                crate::short_type_name::<M>()
+            );
         }
 
-        match self.at.answerer::<M>() {
+        match section.answerer::<M>() {
             Some(answer) => {
                 let _action = crate::trace::enter(|| crate::trace::Point::Action {
                     message: crate::short_type_name::<M>(),

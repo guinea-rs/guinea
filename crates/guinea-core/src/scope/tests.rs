@@ -288,6 +288,15 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
 }
 
 #[test]
+fn a_claimed_reducer_is_not_a_feature_installed_there() {
+    let scope = ScopeTree::new();
+    scope.note_reducer_owner::<Counter>();
+
+    assert!(scope.claims::<Counter>());
+    assert!(!scope.has_feature::<Counter>());
+}
+
+#[test]
 fn a_described_state_names_the_feature_that_claimed_it() {
     #[derive(Clone, Default, Debug)]
     struct Loose;

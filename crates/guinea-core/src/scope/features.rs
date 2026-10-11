@@ -48,7 +48,6 @@ impl Scope {
 
     pub fn note_reducer_owner<R: 'static>(&self) {
         let data = self.installing("claiming a reducer");
-        data.installed_features.borrow_mut().insert(TypeId::of::<R>());
         let section = data.current_section();
         data.owners.borrow_mut().entry(TypeId::of::<R>()).or_insert(section);
     }

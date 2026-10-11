@@ -91,13 +91,52 @@ impl<A: 'static, M> Cx<A, M> {
     /// rather than be dropped by it: a loop that checks between rounds, a
     /// connection that says goodbye, a `select!` arm.
     ///
-    /// ```ignore
+    /// ```
+    /// # use std::sync::Arc;
+    /// # use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    /// # use std::time::Duration;
+    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # #[derive(Debug)]
+    /// # struct Poller { polls: Arc<AtomicUsize>, stopped: Arc<AtomicBool> }
+    /// # struct Start;
+    /// # struct Tick;
+    /// # guinea_macros::actor! { Poller { handlers { Start => { bg Tick } Tick } } }
+    /// # impl Handler<Tick> for Poller {
+    /// #     fn handle(&mut self, _: Tick, _cx: Cx<Self, Tick>) {}
+    /// # }
+    /// # impl Handler<Start> for Poller {
+    /// #     fn handle(&mut self, _: Start, cx: Cx<Self, Start>) {
+    /// #         let (polls, stopped) = (self.polls.clone(), self.stopped.clone());
+    /// #         let poll = move || {
+    /// #             let polls = polls.clone();
+    /// #             async move {
+    /// #                 tokio::time::sleep(Duration::from_millis(1)).await;
+    /// #                 polls.fetch_add(1, Ordering::SeqCst);
+    /// #             }
+    /// #         };
     /// cx.spawn_bg_with::<Tick, _, _>(|gone| async move {
     ///     while !gone.is_cancelled() {
     ///         poll().await;
     ///     }
+    ///     # stopped.store(true, Ordering::SeqCst);
     ///     Tick
     /// });
+    /// #     }
+    /// # }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let polls = Arc::new(AtomicUsize::new(0));
+    /// # let stopped = Arc::new(AtomicBool::new(false));
+    /// # let poller = Poller { polls: polls.clone(), stopped: stopped.clone() };
+    /// # Addr::new(poller, &Home::new(tree.scope())).send(Start);
+    /// # assert!(ui.run_until(|| polls.load(Ordering::SeqCst) >= 3, Duration::from_secs(5)));
+    /// # assert!(!stopped.load(Ordering::SeqCst), "it polls while the actor lives");
+    /// # tree.remove();
+    /// # assert!(ui.run_until(|| stopped.load(Ordering::SeqCst), Duration::from_secs(5)), "and stops when it goes");
     /// ```
     pub fn spawn_bg_with<Out, Fut, F>(&self, work: F)
     where

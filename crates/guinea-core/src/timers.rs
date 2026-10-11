@@ -60,10 +60,55 @@ impl Period {
     /// way [`Timer::period`] does. While `source` has nothing to read, the
     /// timer does not tick.
     ///
-    /// ```ignore
-    /// use amethystate_guinea::IntoChanging;
+    /// ```
+    /// # use std::any::Any;
+    /// # use std::cell::Cell;
+    /// # use std::rc::Rc;
+    /// # use std::sync::{Arc, Mutex};
+    /// # use std::time::Duration;
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::timers::{Changing, Period};
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// #[derive(Clone, Default)]
+    /// struct Interval(Arc<Mutex<(Option<u64>, Vec<Box<dyn Fn() + Send + Sync>>)>>);
     ///
-    /// cx.every(Period::follows(settings.ping_interval_ms().changing(), Duration::from_millis), &agent, || Ping);
+    /// impl Interval {
+    ///     fn set(&self, ms: u64) {
+    ///         let mut interval = self.0.lock().unwrap();
+    ///         interval.0 = Some(ms);
+    ///         interval.1.iter().for_each(|changed| changed());
+    ///     }
+    /// }
+    ///
+    /// impl Changing for Interval {
+    ///     type Value = u64;
+    ///
+    ///     fn now(&self) -> Option<u64> {
+    ///         self.0.lock().unwrap().0
+    ///     }
+    ///
+    ///     fn watch(&self, changed: Box<dyn Fn() + Send + Sync>) -> Box<dyn Any> {
+    ///         self.0.lock().unwrap().1.push(changed);
+    ///         Box::new(())
+    ///     }
+    /// }
+    ///
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// let interval = Interval::default();
+    /// let ticks = Rc::new(Cell::new(0));
+    /// let counted = ticks.clone();
+    /// tree.scope().section().repeat(
+    ///     Period::follows(interval.clone(), Duration::from_millis),
+    ///     move || counted.set(counted.get() + 1),
+    /// );
+    ///
+    /// assert!(!ui.run_until(|| ticks.get() > 0, Duration::from_millis(50)), "nothing to read yet");
+    ///
+    /// interval.set(5);
+    /// assert!(ui.run_until(|| ticks.get() >= 3, Duration::from_secs(5)));
     /// ```
     pub fn follows<C: Changing>(source: C, period: impl Fn(C::Value) -> Duration + 'static) -> Self {
         let source = Rc::new(source);

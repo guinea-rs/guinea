@@ -147,7 +147,26 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// A handler that answers later reads what it needs from its actor first,
 /// on the UI thread, and hands the rest to the background:
 ///
-/// ```ignore
+/// ```
+/// # use std::time::Duration;
+/// # use guinea_core::actor::{Addr, Home};
+/// # use guinea_core::actor::event_bus::{Reply, RpcRequest};
+/// # use guinea_core::scope::ScopeTree;
+/// # use guinea_core::ui_thread::UiLoop;
+/// # use guinea_macros::handler;
+/// # #[derive(Clone, Debug, guinea_macros::Request)]
+/// # #[request(reply = Outcome)]
+/// # struct Act(u32);
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # enum Outcome { Done(u32), NotConnected }
+/// # #[derive(Clone, Debug)]
+/// # struct Transport;
+/// # impl Transport {
+/// #     async fn act(&self, action: u32) -> Outcome { Outcome::Done(action) }
+/// # }
+/// # #[derive(Debug)]
+/// # struct Actions { transport: Option<Transport> }
+/// # guinea_macros::actor! { Actions { handlers { RpcRequest<Act> } } }
 /// #[handler]
 /// fn act(this: &mut Actions, Act(action): Act) -> Reply<Outcome> {
 ///     let Some(transport) = this.transport.clone() else {
@@ -155,6 +174,19 @@ impl<Req: RpcCall> RpcRequest<Req> {
 ///     };
 ///     Reply::later(async move { transport.act(action).await })
 /// }
+/// # let ui = UiLoop::install();
+/// # let runtime = tokio::runtime::Runtime::new().unwrap();
+/// # let _entered = runtime.enter();
+/// # let ask = |transport: Option<Transport>| {
+/// #     let tree = ScopeTree::new();
+/// #     let actions = Addr::new(Actions { transport }, &Home::new(tree.scope()));
+/// #     actions.subscribe::<RpcRequest<Act>>();
+/// #     let asked = runtime.spawn(tree.scope().request::<Act>(Act(7), Duration::from_secs(5)));
+/// #     assert!(ui.run_until(|| asked.is_finished(), Duration::from_secs(5)));
+/// #     runtime.block_on(asked).unwrap().unwrap()
+/// # };
+/// # assert_eq!(ask(Some(Transport)), Outcome::Done(7));
+/// # assert_eq!(ask(None), Outcome::NotConnected);
 /// ```
 ///
 /// A handler that returns the reply itself answers now; `Reply` is for

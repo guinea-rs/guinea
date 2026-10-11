@@ -586,10 +586,9 @@ mod tests {
     }
 
     #[test]
-    fn an_actor_in_a_window_hears_the_bus_of_its_tree() {
+    fn an_actor_below_the_root_hears_the_bus_of_its_tree() {
         let tree = crate::scope::ScopeTree::new();
         let window = tree.child();
-        window.set_window(7);
         let addr = Addr::bare(Counting::default(), &Home::new(window.child()));
 
         addr.subscribe::<Heard>();

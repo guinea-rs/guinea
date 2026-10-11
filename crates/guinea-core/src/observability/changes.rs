@@ -7,22 +7,18 @@ use crate::actor::snapshot::Owner;
 
 /// Something a tool lists came or went, so what it last read of it is
 /// stale. Says what to read again, not what it now reads.
-///
-/// `root` is the window a registry belongs to, as `RootId::get` numbers it;
-/// `None` for the application's own, or for one no window owns.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Change {
+    /// An actor a tool may list came. Which window it is in, if any, is the
+    /// window of `owner.scope`.
     ActorAdded {
-        root: Option<u64>,
         id: usize,
         type_name: &'static str,
         owner: Owner,
     },
-    ActorRemoved {
-        root: Option<u64>,
-        id: usize,
-    },
+    /// An actor [`Change::ActorAdded`] told of went. Ids are not reused.
+    ActorRemoved { id: usize },
     /// An actor handled a message, so its state may read differently now.
     /// Where it lives is what [`Change::ActorAdded`] said.
     ActorHandled { id: usize },

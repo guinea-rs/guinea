@@ -103,8 +103,6 @@ struct ScopeData {
     asleep: Rc<std::cell::Cell<bool>>,
     /// Run when it is shown again. See [`Scope::on_wake`].
     wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
-    /// The window this scope is the root of. See [`Scope::set_window`].
-    window: std::cell::Cell<Option<u64>>,
     /// The actors it owns, and lists for devtools. See [`Scope::hold`].
     actors: RefCell<Held>,
 }

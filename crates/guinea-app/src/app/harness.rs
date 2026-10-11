@@ -108,9 +108,8 @@ impl Harness {
     pub fn new(seed: u64) -> Self {
         let executor = executor::install(seed);
         let app = TestApp::new();
-        let root = Registration::open(app.host().scope());
         let scope = app.host().scope().child().guard();
-        scope.set_window(root.id().get());
+        let root = Registration::open(scope.scope());
 
         let segment = FeatureInitContext {
             scope_cx: ScopeContext {

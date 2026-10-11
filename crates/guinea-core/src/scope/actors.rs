@@ -27,7 +27,6 @@ struct Listing {
     type_name: &'static str,
     shape: Shape,
     owner: Owner,
-    root: Option<u64>,
     snapshot: fn(&dyn Any) -> String,
 }
 
@@ -54,11 +53,8 @@ impl Teardown for Leaving {
 impl HeldActor {
     /// Tells devtools it is gone, when they were told it came.
     fn unlisted(self, id: usize) {
-        if let Some(listing) = &self.listing {
-            changes::changed(|| Change::ActorRemoved {
-                root: listing.root,
-                id,
-            });
+        if self.listing.is_some() {
+            changes::changed(|| Change::ActorRemoved { id });
         }
     }
 
@@ -108,20 +104,6 @@ fn read_one(scopes: Vec<Scope>, id: usize) -> Option<ActorSnapshot> {
 }
 
 impl Scope {
-    /// Says this scope is the root of window `id`, as `RootId::get` numbers
-    /// it: what devtools are told the actors under it belong to.
-    pub fn set_window(&self, id: u64) {
-        if let Some(data) = self.data() {
-            data.window.set(Some(id));
-        }
-    }
-
-    /// The window this scope is under, if it is under one.
-    pub fn window(&self) -> Option<u64> {
-        std::iter::successors(Some(*self), Scope::parent)
-            .find_map(|scope| scope.data()?.window.get())
-    }
-
     /// Takes `addr` on: held until this scope goes, then disposed. What
     /// [`Addr::new`] does with the scope it is made in.
     pub(crate) fn hold<A: 'static>(&self, addr: &Addr<A>) {
@@ -176,7 +158,6 @@ impl Scope {
             feature: self.current_feature(),
             drives,
         };
-        let root = self.window();
 
         let mut actors = data.actors.borrow_mut();
         let Some(held) = actors.get_mut(&id) else { return };
@@ -184,13 +165,11 @@ impl Scope {
             type_name,
             shape: A::SHAPE,
             owner,
-            root,
             snapshot: snapshot::<A>,
         });
         drop(actors);
 
         changes::changed(|| Change::ActorAdded {
-            root,
             id,
             type_name,
             owner,

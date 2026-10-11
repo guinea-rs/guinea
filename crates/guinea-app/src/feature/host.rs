@@ -52,10 +52,8 @@ impl FeatureHost {
         services: SharedState,
         app: Option<ScopeContext>,
     ) -> Self {
-        let root = Registration::open(parent);
-        let id = root.id().get();
         let scope = parent.child();
-        scope.set_window(id);
+        let root = Registration::open(scope);
 
         Self {
             scope: scope.guard(),
@@ -149,13 +147,17 @@ mod tests {
     impl guinea_core::actor::event_bus::Event for Ping {}
 
     #[test]
-    fn what_changes_under_a_host_names_its_window() {
+    fn an_actor_added_under_a_host_is_in_its_root() {
         let host = FeatureHost::detached();
-        let root = Some(host.root().get());
+        let root = Some(host.root());
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
+        changes::watch(move |change| {
+            if let Change::ActorAdded { owner, .. } = change {
+                sink.borrow_mut().push(owner.scope.and_then(crate::app::roots::of));
+            }
+        });
 
         let scope = host
             .install(|ctx| {
@@ -167,14 +169,6 @@ mod tests {
         drop(scope);
         changes::stop_watching();
 
-        let seen = seen.take();
-        let windows: Vec<(&str, Option<u64>)> = seen
-            .iter()
-            .filter_map(|change| match change {
-                Change::ActorAdded { root, .. } => Some(("actor", *root)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(windows, [("actor", root)], "{seen:?}");
+        assert_eq!(seen.take(), [root]);
     }
 }

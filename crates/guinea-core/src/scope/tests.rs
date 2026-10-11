@@ -222,7 +222,6 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
     use crate::observability::changes::Change;
 
     let window = ScopeTree::new();
-    window.set_window(7);
     let page = window.child();
     page.open_section(Some("app::Clock"), None);
     let mut id = 0;
@@ -236,7 +235,6 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
         seen,
         [
             Change::ActorAdded {
-                root: Some(7),
                 id,
                 type_name: crate::short_type_name::<Ticker>(),
                 owner: Owner {
@@ -245,7 +243,7 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
                     drives: Some("Time"),
                 },
             },
-            Change::ActorRemoved { root: Some(7), id },
+            Change::ActorRemoved { id },
         ]
     );
 }

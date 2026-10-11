@@ -102,9 +102,7 @@ fn find(root: u64) -> Option<Rc<dyn Inspected>> {
 }
 
 /// The actor `id`, read now: one of window `root`'s, or of the application's
-/// for `None` - where [`Change::ActorAdded`] said it was.
-///
-/// [`Change::ActorAdded`]: guinea_core::observability::changes::Change::ActorAdded
+/// for `None` - the root [`roots::of`] names for the scope that owns it.
 pub fn actor(root: Option<u64>, id: usize) -> Option<ActorSnapshot> {
     match root {
         Some(root) => find(root)?.actor(id),

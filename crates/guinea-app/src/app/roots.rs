@@ -64,6 +64,18 @@ fn open_roots() -> &'static Mutex<Vec<Open>> {
 struct Open {
     id: RootId,
     label: Option<String>,
+    scope: Scope,
+}
+
+/// The root `scope` is in: the one whose own scope is `scope` or above it.
+/// `None` for a scope under no root - the application's own.
+pub fn of(scope: Scope) -> Option<RootId> {
+    let up: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
+    let open = open_roots().lock().ok()?;
+
+    up.iter()
+        .find_map(|scope| open.iter().find(|root| root.scope == *scope))
+        .map(|root| root.id)
 }
 
 /// The roots that are open, oldest first.
@@ -129,24 +141,28 @@ pub fn is_open(id: RootId) -> bool {
 #[derive(Debug)]
 pub struct Registration {
     id: RootId,
-    within: Scope,
+    scope: Scope,
 }
 
 impl Registration {
-    /// A root opened `within` a scope: its opening and closing are published
-    /// on that scope's bus.
-    pub(crate) fn open(within: Scope) -> Self {
+    /// The root whose own scope is `scope`: its opening and closing are
+    /// published on the bus of that scope's tree.
+    pub(crate) fn open(scope: Scope) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
         if let Ok(mut open) = open_roots().lock() {
-            open.push(Open { id, label: None });
+            open.push(Open {
+                id,
+                label: None,
+                scope,
+            });
         }
 
         tracing::debug!(%id, roots = count(), "root opened");
-        within.publish(RootOpened(id));
+        scope.publish(RootOpened(id));
 
-        Self { id, within }
+        Self { id, scope }
     }
 
     pub fn id(&self) -> RootId {
@@ -161,7 +177,7 @@ impl Drop for Registration {
         }
 
         tracing::debug!(id = %self.id, roots = count(), "root closed");
-        self.within.publish(RootClosed(self.id));
+        self.scope.publish(RootClosed(self.id));
     }
 }
 
@@ -181,6 +197,18 @@ mod tests {
 
         drop(root);
         assert!(!is_open(id), "closing is a drop, with nothing to remember");
+    }
+
+    #[test]
+    fn a_scope_is_in_the_root_whose_scope_it_is_under() {
+        let app = ScopeTree::new();
+        let window = app.child();
+        let root = Registration::open(window);
+        let page = window.child().child();
+
+        assert_eq!(of(page), Some(root.id()));
+        assert_eq!(of(window), Some(root.id()));
+        assert_eq!(of(app.scope()), None, "the application is in no root");
     }
 
     #[test]

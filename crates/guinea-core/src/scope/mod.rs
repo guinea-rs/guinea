@@ -22,7 +22,7 @@ pub use tree::{ScopeGuard, ScopeTree};
 
 use actors::Held;
 use state::{Cell, Kind};
-use tree::{Node, NodeKey, Tree, TreeKey, tree};
+use tree::{Node, NodeKey, Tree, TreeId, tree};
 
 /// Where a segment's state, features and resources live, from the moment it
 /// is installed until it is removed.
@@ -34,22 +34,23 @@ use tree::{Node, NodeKey, Tree, TreeKey, tree};
 /// tree, and not whenever the last of whoever happened to be holding it lets
 /// go.
 ///
-/// A removed scope's name never comes back: its keys find nothing once it is
-/// gone, even after another scope or another tree takes its place, so an old
-/// `Scope` keeps naming the scope that is gone, and
-/// [`is_alive`](Self::is_alive) says so.
+/// A removed scope's name never comes back: a tree is named once in the
+/// process, and a scope's key finds nothing once it is gone, even after
+/// another scope takes its place. So an old `Scope` keeps naming the scope
+/// that is gone, and [`is_alive`](Self::is_alive) says so.
 ///
-/// It is its own key: equal, and hashed the same, only to itself.
+/// It is its own key: equal, and hashed the same, only to itself, whichever
+/// thread it is compared on.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Scope {
-    tree: TreeKey,
+    tree: TreeId,
     node: NodeKey,
 }
 
 impl std::fmt::Debug for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use slotmap::Key;
-        write!(f, "Scope({:?}/{:?})", self.tree.data(), self.node.data())
+        write!(f, "Scope({:?}/{:?})", self.tree, self.node.data())
     }
 }
 

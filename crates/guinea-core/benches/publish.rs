@@ -24,6 +24,7 @@ struct Sink(u64);
 guinea_macros::actor! {
     Sink {
         handlers { Payload<0>, Payload<256>, Payload<4096> }
+        subscribes { Payload<0>, Payload<256>, Payload<4096> }
     }
 }
 
@@ -47,24 +48,23 @@ fn by_callbacks<const N: usize>(group: &mut BenchmarkGroup<WallTime>) {
     }
 }
 
-fn by_actors<const N: usize>(group: &mut BenchmarkGroup<WallTime>, home: &Home) {
+fn by_actors<const N: usize>(group: &mut BenchmarkGroup<WallTime>) {
     for heard_by in HEARD_BY {
-        let bus = Rc::new(EventBus::new());
-        let _subscriptions: Vec<BusSubscription> = (0..heard_by)
-            .map(|_| bus.subscribe::<Sink, Payload<N>>(Addr::new(Sink(0), home)))
-            .collect();
+        let tree = ScopeTree::new();
+        let bus = tree.bus();
+        let home = Home::new(tree.scope());
+        let _sinks: Vec<Addr<Sink>> = (0..heard_by).map(|_| Addr::new(Sink(0), &home)).collect();
 
         group.throughput(Throughput::Elements(1));
         group.bench_function(BenchmarkId::new(format!("{N}B"), heard_by), |b| {
             b.iter(|| bus.publish(black_box(Payload([0u8; N]))))
         });
+
+        tree.remove();
     }
 }
 
 fn publish(c: &mut Criterion) {
-    let tree = ScopeTree::new();
-    let home = Home::new(tree.scope());
-
     let mut group = c.benchmark_group("callbacks");
     by_callbacks::<0>(&mut group);
     by_callbacks::<256>(&mut group);
@@ -72,9 +72,9 @@ fn publish(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("actors");
-    by_actors::<0>(&mut group, &home);
-    by_actors::<256>(&mut group, &home);
-    by_actors::<4096>(&mut group, &home);
+    by_actors::<0>(&mut group);
+    by_actors::<256>(&mut group);
+    by_actors::<4096>(&mut group);
     group.finish();
 }
 

@@ -9,7 +9,7 @@ use std::hint::black_box;
 use std::rc::Rc;
 
 use guinea_core::BusSubscription;
-use guinea_core::actor::event_bus::{Event, EventBus};
+use guinea_core::actor::event_bus::Event;
 use guinea_core::actor::{Addr, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;
 
@@ -50,6 +50,7 @@ struct Sink(u64);
 guinea_macros::actor! {
     Sink {
         handlers { Saved }
+        subscribes { Saved }
     }
 }
 
@@ -63,16 +64,16 @@ impl Handler<Saved> for Sink {
 fn an_event_heard_by_callbacks_and_actors_is_published_without_allocating() {
     let tree = ScopeTree::new();
     let home = Home::new(tree.scope());
-    let bus = Rc::new(EventBus::new());
+    let bus = tree.bus();
 
     let heard = Rc::new(Cell::new(0));
-    let mut subscriptions: Vec<BusSubscription> = (0..4)
+    let _callbacks: Vec<BusSubscription> = (0..4)
         .map(|_| {
             let heard = heard.clone();
             bus.subscribe_fn(move |Saved(bytes): Saved| heard.set(heard.get() + black_box(bytes).len()))
         })
         .collect();
-    subscriptions.extend((0..4).map(|_| bus.subscribe::<Sink, Saved>(Addr::new(Sink(0), &home))));
+    let _sinks: Vec<Addr<Sink>> = (0..4).map(|_| Addr::new(Sink(0), &home)).collect();
     bus.publish(Saved([0; 256]));
 
     let allocated = allocations(|| {

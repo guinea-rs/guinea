@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use guinea_core::actor::event_bus::{EventBus, HeardBy, Listener, Listening};
+use guinea_core::actor::event_bus::{HeardBy, Listener, Listening};
 use guinea_core::actor::{Addr, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;
 
@@ -16,6 +14,7 @@ struct Processes;
 guinea_macros::actor! {
     Processes {
         handlers { Report }
+        subscribes { Report }
     }
 }
 
@@ -25,12 +24,10 @@ impl Handler<Report> for Processes {
 
 #[test]
 fn a_bus_says_who_hears_each_event_actors_by_id_and_callbacks_by_where_they_subscribed() {
-    let bus = Rc::new(EventBus::new());
     let tree = ScopeTree::new();
-    let home = Home::new(tree.scope());
-    let processes = Addr::new(Processes, &home);
+    let bus = tree.bus();
+    let processes = Addr::new(Processes, &Home::new(tree.scope()));
 
-    let _actor = bus.subscribe::<Processes, Report>(processes.clone());
     let place = std::panic::Location::caller();
     let (_callback, subscribed_at) = (bus.subscribe_fn(|_: Report| {}), line!());
     let _pressed = bus.subscribe_fn(|_: Pressed| {});

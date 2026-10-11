@@ -47,6 +47,41 @@ pub enum HeardBy {
     Unknown,
 }
 
+/// Who hears an event and who answers a request.
+///
+/// A callback joins with [`subscribe_fn`](Self::subscribe_fn) or
+/// [`answer_fn`](Self::answer_fn). An actor joins by its manifest's
+/// `subscribes { .. }`, when it is made, and nothing subscribes it by hand:
+///
+/// ```compile_fail,E0624
+/// use guinea_core::actor::event_bus::Event;
+/// use guinea_core::actor::{Addr, Cx, Handler, Home};
+/// use guinea_core::scope::ScopeTree;
+///
+/// #[derive(Clone)]
+/// struct Add(u32);
+///
+/// impl Event for Add {}
+///
+/// #[derive(Debug)]
+/// struct Total(u32);
+///
+/// guinea_macros::actor! {
+///     Total {
+///         handlers { Add }
+///     }
+/// }
+///
+/// impl Handler<Add> for Total {
+///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
+///         self.0 += n;
+///     }
+/// }
+///
+/// let tree = ScopeTree::new();
+/// let total = Addr::new(Total(0), &Home::new(tree.scope()));
+/// let _heard = tree.bus().subscribe::<Total, Add>(total);
+/// ```
 pub struct EventBus {
     /// Each list is replaced, never changed in place: a publication holds the
     /// list it started with, so one that subscribes or unsubscribes while it
@@ -97,48 +132,9 @@ impl EventBus {
         }
     }
 
-    /// `addr` hears `M` on this bus until the subscription is dropped.
-    ///
-    /// ```
-    /// use std::rc::Rc;
-    ///
-    /// use guinea_core::actor::event_bus::{Event, EventBus};
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
-    /// use guinea_core::scope::ScopeTree;
-    ///
-    /// #[derive(Clone)]
-    /// struct Add(u32);
-    ///
-    /// impl Event for Add {}
-    ///
-    /// #[derive(Debug)]
-    /// struct Total(u32);
-    ///
-    /// guinea_macros::actor! {
-    ///     Total {
-    ///         handlers { Add }
-    ///     }
-    /// }
-    ///
-    /// impl Handler<Add> for Total {
-    ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
-    ///         self.0 += n;
-    ///     }
-    /// }
-    ///
-    /// let tree = ScopeTree::new();
-    /// let total = Addr::new(Total(0), &Home::new(tree.scope()));
-    /// let bus = Rc::new(EventBus::new());
-    ///
-    /// let subscription = bus.subscribe::<Total, Add>(total.clone());
-    /// bus.publish(Add(2));
-    /// assert_eq!(total.debug_snapshot(), "Total(\n    2,\n)");
-    ///
-    /// drop(subscription);
-    /// bus.publish(Add(3));
-    /// assert_eq!(total.debug_snapshot(), "Total(\n    2,\n)", "heard nothing once unsubscribed");
-    /// ```
-    pub fn subscribe<A, M>(self: &Rc<Self>, addr: Addr<A>) -> BusSubscription
+    /// `addr` hears `M` on this bus until the subscription is dropped. Only
+    /// an actor's manifest calls this, through [`Addr::subscribe`].
+    pub(crate) fn subscribe<A, M>(self: &Rc<Self>, addr: Addr<A>) -> BusSubscription
     where
         A: Handler<M> + 'static,
         M: Event,

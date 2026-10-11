@@ -193,7 +193,7 @@ mod tests {
         let cancel = cx.cancellation();
         assert!(!cancel.is_cancelled());
 
-        addr.dispose();
+        home.tree.remove();
 
         assert!(cancel.is_cancelled(), "teardown has to reach the tasks too");
     }

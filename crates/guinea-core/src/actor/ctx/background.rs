@@ -75,7 +75,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// Runs `fut` off the UI thread and sends what it returns back to this
     /// actor.
     ///
-    /// The task lives as long as the actor: once the actor is disposed, `fut`
+    /// The task lives as long as the actor: once the actor's scope goes, `fut`
     /// is dropped where it last awaited and nothing is sent.
     pub fn spawn_bg<Out, Fut>(&self, fut: Fut)
     where
@@ -243,7 +243,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// let closed = Arc::new(AtomicBool::new(false));
     ///
     /// weather.send(Fetch(closed.clone()));
-    /// weather.dispose();
+    /// tree.remove();
     ///
     /// assert!(ui.run_until(|| closed.load(Ordering::SeqCst), Duration::from_secs(5)), "it wound down");
     /// assert!(!ui.run_until(|| shown.get().is_some(), Duration::from_millis(100)), "and answered nobody");
@@ -344,7 +344,7 @@ mod tests {
             Second
         });
 
-        addr.dispose();
+        home.tree.remove();
         for _ in 0..8 {
             tokio::task::yield_now().await;
         }
@@ -376,7 +376,7 @@ mod tests {
             Second
         });
 
-        addr.dispose();
+        home.tree.remove();
         for _ in 0..8 {
             tokio::task::yield_now().await;
         }

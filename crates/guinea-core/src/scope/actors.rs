@@ -134,15 +134,6 @@ impl Scope {
         actors.get(&id)?.addr.downcast_ref::<Addr<A>>().cloned()
     }
 
-    /// Lets go of the actor `id`, disposed before this scope went.
-    pub(crate) fn release(&self, id: usize) {
-        let Some(data) = self.data() else { return };
-        let gone = data.actors.borrow_mut().remove(&id);
-        if let Some(gone) = gone {
-            gone.unlisted(id);
-        }
-    }
-
     /// Lists `addr` for devtools, under the feature installing now, until
     /// this scope goes - and as driving `drives` when it was made to.
     pub(crate) fn list<A: ManagedActor + std::fmt::Debug>(

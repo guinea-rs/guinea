@@ -209,13 +209,14 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
+    /// let bus = tree.bus();
     /// let autosave = Addr::new(Autosave, &Home::new(tree.scope()));
     ///
     /// autosave.subscribe::<Saved>();
-    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 1);
     ///
-    /// autosave.dispose();
-    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 0);
+    /// tree.remove();
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 0);
     /// ```
     ///
     /// # Panics
@@ -337,8 +338,8 @@ impl<A: 'static> Addr<A> {
         self.0.id
     }
 
-    /// The token every task this actor spawned is guarded by; cancelled by
-    /// [`Addr::dispose`], and so by the teardown that owns the actor.
+    /// The token every task this actor spawned is guarded by; cancelled when
+    /// the actor's scope goes.
     pub fn cancellation(&self) -> Cancel {
         self.0.cancel.clone()
     }
@@ -355,11 +356,10 @@ impl<A: 'static> Addr<A> {
 
     /// Ends its background work and what it hears: what it spawned is
     /// dropped where it last awaited, instead of running on with nowhere to
-    /// answer. Its scope lets go of it, and does this itself when it goes.
-    pub fn dispose(&self) {
+    /// answer. Its scope does this as it lets go of it.
+    pub(crate) fn dispose(&self) {
         self.0.cancel.cancel();
         self.0.subscriptions.borrow_mut().clear();
-        self.0.home.scope.release(self.0.id);
     }
 }
 
@@ -517,20 +517,6 @@ mod tests {
     }
 
     #[test]
-    fn an_actor_disposed_before_its_scope_goes_is_let_go_at_once() {
-        let home = TestHome::new();
-        let addr = Addr::bare((), &home);
-        let refs = addr.refs();
-        let reach = addr.reach();
-
-        addr.dispose();
-        drop(addr);
-
-        let found = reach.addr().map(|found| found.id());
-        assert_eq!((refs.count(), found), (0, None));
-    }
-
-    #[test]
     fn an_actor_is_not_found_as_another_type() {
         let home = TestHome::new();
         let addr = Addr::bare((), &home);
@@ -598,13 +584,14 @@ mod tests {
     }
 
     #[test]
-    fn a_managed_actor_hears_its_manifest_until_it_is_disposed() {
+    fn a_managed_actor_hears_its_manifest_until_its_scope_goes() {
         let home = TestHome::new();
-        let addr = Addr::new(Listening, &home);
-        assert_eq!(home.tree.bus().count_subscribers::<Heard>(), 1);
+        let bus = home.tree.bus();
+        let _addr = Addr::new(Listening, &home);
+        assert_eq!(bus.count_subscribers::<Heard>(), 1);
 
-        addr.dispose();
+        home.tree.remove();
 
-        assert_eq!(home.tree.bus().count_subscribers::<Heard>(), 0);
+        assert_eq!(bus.count_subscribers::<Heard>(), 0);
     }
 }

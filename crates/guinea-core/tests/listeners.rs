@@ -62,6 +62,4 @@ fn a_bus_says_who_hears_each_event_actors_by_id_and_callbacks_by_where_they_subs
         ref other => panic!("a callback, not {other:?}"),
     }
     assert!(matches!(listening.as_slice(), [Listening { .. }, Listening { .. }]));
-
-    processes.dispose();
 }

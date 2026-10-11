@@ -1267,9 +1267,10 @@ mod supervising {
 
     #[handler]
     fn found(this: &mut Supervisor, found: Found, cx: Cx) {
-        let agent = Addr::new(Agent, &cx.addr().home());
+        let comes_and_goes = cx.addr().home().scope().child();
+        let agent = Addr::new(Agent, &guinea::core::actor::Home::new(comes_and_goes));
         agent.send(Ping);
-        agent.dispose();
+        comes_and_goes.remove();
 
         this.push.send(found);
     }

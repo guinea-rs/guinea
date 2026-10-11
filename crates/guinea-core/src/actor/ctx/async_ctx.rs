@@ -63,7 +63,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// let cancel = ctx.cancellation();
     ///
-    /// job.dispose();
+    /// tree.remove();
     /// assert!(cancel.is_cancelled());
     /// ```
     pub fn cancellation(&self) -> Cancel {
@@ -98,7 +98,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// assert!(!ctx.is_cancelled());
     ///
-    /// job.dispose();
+    /// tree.remove();
     /// assert!(ctx.is_cancelled());
     /// ```
     pub fn is_cancelled(&self) -> bool {
@@ -137,7 +137,7 @@ impl<A: 'static> AsyncContext<A> {
     /// let waiting = runtime.spawn(async move { ctx.cancelled().await });
     /// assert!(!waiting.is_finished(), "waits while the actor is there");
     ///
-    /// job.dispose();
+    /// tree.remove();
     /// let woken = runtime.block_on(async { tokio::time::timeout(Duration::from_secs(5), waiting).await });
     /// assert!(woken.is_ok(), "woken by the actor going");
     /// ```
@@ -173,7 +173,7 @@ impl<A: 'static> AsyncContext<A> {
     /// let runtime = tokio::runtime::Runtime::new().unwrap();
     /// assert_eq!(runtime.block_on(ctx.until_gone(async { 2 })), Some(2));
     ///
-    /// job.dispose();
+    /// tree.remove();
     /// assert_eq!(runtime.block_on(ctx.until_gone(async { 2 })), None);
     /// ```
     pub async fn until_gone<F: Future>(&self, fut: F) -> Option<F::Output> {
@@ -348,7 +348,7 @@ impl<A: 'static> AsyncContext<A> {
     /// ui.run();
     /// assert_eq!(total.get(), 2, "handled on the UI thread");
     ///
-    /// addr.dispose();
+    /// tree.remove();
     /// std::thread::spawn(move || later.send(Add(3))).join().unwrap();
     /// ui.run();
     /// assert_eq!(total.get(), 2, "nobody to handle it");

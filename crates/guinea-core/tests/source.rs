@@ -80,7 +80,7 @@ fn a_source_that_never_waits_still_stops_with_its_actor() {
     }
     let started = pulled.load(Ordering::SeqCst) > 0;
 
-    addr.dispose();
+    tree.remove();
     std::thread::sleep(Duration::from_millis(200));
     let stopped = pulled.load(Ordering::SeqCst);
     std::thread::sleep(Duration::from_millis(200));

@@ -22,7 +22,7 @@ pub use tree::{ScopeGuard, ScopeTree};
 
 use actors::Held;
 use state::{Cell, Kind};
-use tree::{Tree, tree};
+use tree::{Node, NodeKey, Tree, TreeKey, tree};
 
 /// Where a segment's state, features and resources live, from the moment it
 /// is installed until it is removed.
@@ -34,13 +34,14 @@ use tree::{Tree, tree};
 /// tree, and not whenever the last of whoever happened to be holding it lets
 /// go.
 ///
-/// A removed scope's name never comes back: every scope is numbered once, so
-/// an old `Scope` keeps naming the scope that is gone, and
+/// A removed scope's name never comes back: its keys find nothing once it is
+/// gone, even after another scope or another tree takes its place, so an old
+/// `Scope` keeps naming the scope that is gone, and
 /// [`is_alive`](Self::is_alive) says so.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Scope {
-    tree: u32,
-    index: u32,
+    tree: TreeKey,
+    node: NodeKey,
     serial: u64,
 }
 
@@ -122,16 +123,16 @@ impl Scope {
     pub fn child_in(&self, outlet: Outlet) -> Scope {
         let tree =
             tree(self.tree).unwrap_or_else(|| panic!("a child for {self:?}, whose tree is gone"));
-        let mut nodes = tree.borrow_mut();
+        let mut tree = tree.borrow_mut();
         assert!(
-            nodes.node(self.index, self.serial).is_some(),
+            tree.nodes.contains_key(self.node),
             "a child for {self:?}, which was removed"
         );
-        let (index, serial) = nodes.insert(Some(self.index), outlet);
+        let (node, serial) = tree.insert(Some(self.node), outlet);
 
         Scope {
             tree: self.tree,
-            index,
+            node,
             serial,
         }
     }
@@ -145,7 +146,7 @@ impl Scope {
         let Some(tree) = tree(self.tree) else {
             return;
         };
-        let detached = tree.borrow_mut().detach(self.index, self.serial);
+        let detached = tree.borrow_mut().detach(self.node);
         drop(tree);
 
         for data in detached {
@@ -155,14 +156,14 @@ impl Scope {
 
     /// Whether this scope is still there.
     pub fn is_alive(&self) -> bool {
-        self.read(|tree| tree.node(self.index, self.serial).is_some())
+        self.read(|tree| tree.nodes.contains_key(self.node))
             .unwrap_or(false)
     }
 
     /// The scope this one sits under, if it has one and it is still there.
     pub fn parent(&self) -> Option<Scope> {
         self.read(|tree| {
-            let parent = tree.node(self.index, self.serial)?.parent?;
+            let parent = self.node_in(tree)?.parent?;
             Some(self.named(tree, parent))
         })
         .flatten()
@@ -170,7 +171,7 @@ impl Scope {
 
     /// Which of its parent's outlets this scope sits in.
     pub fn outlet(&self) -> Option<Outlet> {
-        self.read(|tree| tree.node(self.index, self.serial).map(|node| node.outlet))
+        self.read(|tree| self.node_in(tree).map(|node| node.outlet))
             .flatten()
     }
 
@@ -182,12 +183,12 @@ impl Scope {
     /// The scopes right under this one, in `outlet`, oldest first.
     pub fn children_in(&self, outlet: Outlet) -> Vec<Scope> {
         self.read(|tree| {
-            let Some(node) = tree.node(self.index, self.serial) else {
+            let Some(node) = self.node_in(tree) else {
                 return Vec::new();
             };
             node.children
                 .iter()
-                .filter(|&&child| tree.nodes[child as usize].outlet == outlet)
+                .filter(|&&child| tree.nodes[child].outlet == outlet)
                 .map(|&child| self.named(tree, child))
                 .collect()
         })
@@ -198,12 +199,12 @@ impl Scope {
     /// first: what a layout mounts beside its chain.
     pub fn beside(&self) -> Vec<Scope> {
         self.read(|tree| {
-            let Some(node) = tree.node(self.index, self.serial) else {
+            let Some(node) = self.node_in(tree) else {
                 return Vec::new();
             };
             node.children
                 .iter()
-                .filter(|&&child| tree.nodes[child as usize].outlet != MAIN)
+                .filter(|&&child| tree.nodes[child].outlet != MAIN)
                 .map(|&child| self.named(tree, child))
                 .collect()
         })
@@ -212,15 +213,19 @@ impl Scope {
 
     fn read<T>(&self, read: impl FnOnce(&Tree) -> T) -> Option<T> {
         let tree = tree(self.tree)?;
-        let nodes = tree.borrow();
-        Some(read(&nodes))
+        let tree = tree.borrow();
+        Some(read(&tree))
     }
 
-    fn named(&self, tree: &Tree, index: u32) -> Scope {
+    fn node_in<'t>(&self, tree: &'t Tree) -> Option<&'t Node> {
+        tree.nodes.get(self.node)
+    }
+
+    fn named(&self, tree: &Tree, node: NodeKey) -> Scope {
         Scope {
             tree: self.tree,
-            index,
-            serial: tree.nodes[index as usize].serial,
+            node,
+            serial: tree.nodes[node].serial,
         }
     }
 
@@ -241,15 +246,15 @@ impl Scope {
     /// This scope and every scope under it, children first.
     pub fn subtree(&self) -> Vec<Scope> {
         self.read(|tree| {
-            if tree.node(self.index, self.serial).is_none() {
+            if self.node_in(tree).is_none() {
                 return Vec::new();
             }
 
             let mut order = Vec::new();
-            tree.collect(self.index, &mut order);
+            tree.collect(self.node, &mut order);
             order
                 .into_iter()
-                .map(|index| self.named(tree, index))
+                .map(|node| self.named(tree, node))
                 .collect()
         })
         .unwrap_or_default()
@@ -272,7 +277,7 @@ impl Scope {
     ///
     /// When this scope was removed: what it would subscribe would outlive it.
     pub fn bus(&self) -> Rc<EventBus> {
-        self.read(|tree| tree.node(self.index, self.serial).map(|_| tree.bus.clone()))
+        self.read(|tree| self.node_in(tree).map(|_| tree.bus.clone()))
             .flatten()
             .unwrap_or_else(|| panic!("the bus of {self:?}, which was removed"))
     }
@@ -284,11 +289,8 @@ impl Scope {
     }
 
     fn data(&self) -> Option<Rc<ScopeData>> {
-        self.read(|tree| {
-            tree.node(self.index, self.serial)
-                .and_then(|node| node.data.clone())
-        })
-        .flatten()
+        self.read(|tree| self.node_in(tree).map(|node| node.data.clone()))
+            .flatten()
     }
 
     fn installing(&self, doing: &str) -> Rc<ScopeData> {

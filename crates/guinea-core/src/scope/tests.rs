@@ -78,6 +78,20 @@ fn every_scope_in_a_tree_has_the_tree_s_bus() {
 }
 
 #[test]
+fn a_scope_of_a_tree_that_is_gone_reaches_no_tree_that_came_after() {
+    let gone = ScopeTree::new();
+    let stale = gone.child();
+    drop(gone);
+    let next = ScopeTree::new();
+
+    assert!(
+        stale.tree_bus().is_none(),
+        "the tree after it took its place, and the stale scope heard its bus"
+    );
+    assert!(next.is_alive());
+}
+
+#[test]
 fn removing_a_scope_tears_down_what_is_under_it_first() {
     let said = Rc::new(RefCell::new(Vec::new()));
     let root = ScopeTree::new();

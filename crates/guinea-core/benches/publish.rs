@@ -30,7 +30,7 @@ fn by_callbacks<const N: usize>(group: &mut BenchmarkGroup<WallTime>) {
     for heard_by in HEARD_BY {
         let bus = Rc::new(EventBus::new());
         let _subscriptions: Vec<BusSubscription> = (0..heard_by)
-            .map(|_| bus.subscribe_fn(|Payload(bytes): Payload<N>| drop(black_box(bytes))))
+            .map(|_| bus.subscribe_fn(|Payload(bytes): Payload<N>| _ = black_box(bytes)))
             .collect();
 
         group.throughput(Throughput::Elements(1));

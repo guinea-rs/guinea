@@ -1,6 +1,6 @@
 use crate::actor::addr::Addr;
 use crate::actor::event_bus::subscribe::{
-    AnswerFn, BusSubscription, FnSubscriber, Subscriber, SubscriptionId, UntypedSubscriber,
+    AnswerFn, BusSubscription, FnSubscriber, Letter, Subscriber, SubscriptionId, UntypedSubscriber,
 };
 use crate::actor::invoke_on_ui;
 use crate::actor::short_type_name;
@@ -81,10 +81,11 @@ pub enum HeardBy {
 }
 
 pub struct EventBus {
-    /// `Rc` rather than `Box`: delivery hands the subscribers out of the map
-    /// before telling them, so one that subscribes or unsubscribes while it
-    /// is being told does not find the map borrowed.
-    subscribers: RefCell<HashMap<TypeId, Vec<Rc<dyn UntypedSubscriber>>>>,
+    /// Each list is replaced, never changed in place: a publication holds the
+    /// list it started with, so one that subscribes or unsubscribes while it
+    /// is being told neither finds the map borrowed nor changes who hears
+    /// this one.
+    subscribers: RefCell<HashMap<TypeId, Rc<[Rc<dyn UntypedSubscriber>]>>>,
     counts: RefCell<HashMap<TypeId, usize>>,
     /// The one subscriber that answers each request type, by its `seq`.
     answerers: RefCell<HashMap<TypeId, (u64, &'static str)>>,
@@ -114,7 +115,7 @@ impl std::fmt::Debug for EventBus {
         let subscribers: usize = self
             .subscribers
             .try_borrow()
-            .map_or(0, |subscribers| subscribers.values().map(Vec::len).sum());
+            .map_or(0, |subscribers| subscribers.values().map(|list| list.len()).sum());
         f.debug_struct("EventBus")
             .field("kind", &self.kind)
             .field("subscribers", &subscribers)
@@ -266,11 +267,11 @@ impl EventBus {
         }
 
         *self.counts.borrow_mut().entry(event).or_insert(0) += 1;
-        self.subscribers
-            .borrow_mut()
-            .entry(event)
-            .or_default()
-            .push(Rc::from(subscriber));
+        {
+            let mut subscribers = self.subscribers.borrow_mut();
+            let list = subscribers.entry(event).or_insert_with(|| Rc::from([]));
+            *list = list.iter().cloned().chain([Rc::from(subscriber)]).collect();
+        }
         self.changed();
 
         BusSubscription {
@@ -295,30 +296,32 @@ impl EventBus {
             subscribers: self.count_subscribers::<M>(),
         });
 
-        // Told from a copy of the list, not from the map: a handler is free
-        // to subscribe or unsubscribe while it is being told, and either
-        // would borrow the map this delivery is walking. One that goes
-        // mid-publication still hears this one out.
-        let type_id = TypeId::of::<M>();
-        let telling: Vec<Rc<dyn UntypedSubscriber>> = self
-            .subscribers
-            .borrow()
-            .get(&type_id)
-            .cloned()
-            .unwrap_or_default();
+        // Told from the list as it was when the publication began, not from
+        // the map: a handler is free to subscribe or unsubscribe while it is
+        // being told, and either would borrow the map this delivery is
+        // walking. One that goes mid-publication still hears this one out.
+        let Some(telling) = self.subscribers.borrow().get(&TypeId::of::<M>()).cloned() else {
+            return;
+        };
 
-        for sub in telling {
+        let mut letter = Letter::new(msg);
+        for (at, sub) in telling.iter().enumerate() {
+            if at + 1 == telling.len() {
+                letter.to_the_last();
+            }
+
             // Around each one, not around the lot: the copy every subscriber
-            // is handed is made here, and time spent making it belongs to the
-            // delivery that needed it rather than to the publication as a
-            // whole. Without this it is the difference between a publication
-            // and the sum of its handlers, which is to say invisible.
+            // is handed is made as it opens the letter, and time spent making
+            // it belongs to the delivery that needed it rather than to the
+            // publication as a whole. Without this it is the difference
+            // between a publication and the sum of its handlers, which is to
+            // say invisible.
             let _delivered = trace::enter(|| Point::Deliver {
                 event: short_type_name::<M>(),
                 bus: self.kind,
             });
 
-            sub.deliver(Box::new(msg.clone()), self.kind);
+            sub.deliver(&mut letter, self.kind);
         }
     }
 
@@ -357,7 +360,7 @@ impl EventBus {
             };
 
             let before = list.len();
-            list.retain(|sub| sub.seq() != id.seq);
+            *list = list.iter().filter(|sub| sub.seq() != id.seq).cloned().collect();
             before - list.len()
         };
 
@@ -449,6 +452,29 @@ mod tests {
     #[derive(Clone)]
     struct Pong;
     impl Event for Pong {}
+
+    struct Copied(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Clone for Copied {
+        fn clone(&self) -> Self {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self(self.0.clone())
+        }
+    }
+
+    impl Event for Copied {}
+
+    #[test]
+    fn every_subscriber_but_the_last_is_handed_a_copy_and_the_last_the_event_itself() {
+        let bus = Rc::new(EventBus::new());
+        let _subscriptions: Vec<BusSubscription> =
+            (0..3).map(|_| bus.subscribe_fn(|_: Copied| {})).collect();
+        let copies = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        bus.publish(Copied(copies.clone()));
+
+        assert_eq!(copies.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
 
     #[test]
     fn a_bus_tells_a_watcher_when_what_is_subscribed_to_it_changes() {

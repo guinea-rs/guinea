@@ -66,8 +66,38 @@ pub trait Event: Clone + Send + 'static {
     }
 }
 
+/// One publication of an event on its way to who hears it: each opens a copy
+/// of it, and the last the event itself.
+pub struct Letter<M> {
+    event: Option<M>,
+    last: bool,
+}
+
+impl<M: Clone> Letter<M> {
+    pub(super) fn new(event: M) -> Self {
+        Self {
+            event: Some(event),
+            last: false,
+        }
+    }
+
+    /// Whoever is handed the letter next is the last to be.
+    pub(super) fn to_the_last(&mut self) {
+        self.last = true;
+    }
+
+    /// The event, as a copy unless this is the last to hear it.
+    pub fn open(&mut self) -> Option<M> {
+        match self.last {
+            true => self.event.take(),
+            false => self.event.clone(),
+        }
+    }
+}
+
 pub trait UntypedSubscriber: 'static {
-    fn deliver(&self, msg: Box<dyn Any>, bus: Bus);
+    /// Hands over `letter`, a [`Letter`] of the event this subscriber hears.
+    fn deliver(&self, letter: &mut dyn Any, bus: Bus);
     fn seq(&self) -> u64;
     fn event(&self) -> &'static str;
 
@@ -98,15 +128,15 @@ where
     A: Handler<M> + 'static,
     M: Event,
 {
-    fn deliver(&self, msg: Box<dyn Any>, _bus: Bus) {
+    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
         if self.addr.is_asleep() {
             return;
         }
 
-        if let Ok(concrete_msg) = msg.downcast::<M>() {
+        if let Some(event) = letter.downcast_mut::<Letter<M>>().and_then(Letter::open) {
             let message = match <A as Handler<M>>::ANSWERS {
-                true => *concrete_msg,
-                false => concrete_msg.overheard(),
+                true => event,
+                false => event.overheard(),
             };
             self.addr.send(message);
         }
@@ -144,13 +174,17 @@ pub struct AnswerFn<Req: RpcCall> {
 }
 
 impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
-    fn deliver(&self, msg: Box<dyn Any>, _bus: Bus) {
-        if let Ok(request) = msg.downcast::<RpcRequest<Req>>() {
-            let RpcRequest {
-                correlation_id,
-                payload,
-                ..
-            } = *request;
+    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
+        let request = letter
+            .downcast_mut::<Letter<RpcRequest<Req>>>()
+            .and_then(Letter::open);
+
+        if let Some(RpcRequest {
+            correlation_id,
+            payload,
+            ..
+        }) = request
+        {
             AsyncBus::reply(correlation_id, (self.answer)(payload));
         }
     }
@@ -181,9 +215,9 @@ pub struct FnSubscriber<M: Event> {
 impl<M: Event> UntypedSubscriber for FnSubscriber<M> {
     /// No `Deliver` of its own: the publication marks one around every
     /// subscriber, so one here would be the same span twice.
-    fn deliver(&self, msg: Box<dyn Any>, _bus: Bus) {
-        if let Ok(concrete_msg) = msg.downcast::<M>() {
-            (self.callback)(concrete_msg.overheard());
+    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
+        if let Some(event) = letter.downcast_mut::<Letter<M>>().and_then(Letter::open) {
+            (self.callback)(event.overheard());
         }
     }
 

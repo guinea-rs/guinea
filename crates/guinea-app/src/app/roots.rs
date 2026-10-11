@@ -16,10 +16,13 @@
 //! can hold several webviews and a root belongs to the webview. A window is
 //! what a shell puts a root in, and guinea does not need to know.
 //!
+//! Kept per thread, like the scope trees it names: a root is open on the
+//! thread its tree is on, and nowhere else.
+//!
 //! [`FeatureHost`]: crate::feature::FeatureHost
 
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 use guinea_core::actor::event_bus::Event;
 use guinea_core::scope::Scope;
@@ -55,9 +58,13 @@ pub struct RootClosed(pub RootId);
 impl Event for RootOpened {}
 impl Event for RootClosed {}
 
-fn open_roots() -> &'static Mutex<Vec<Open>> {
-    static OPEN: OnceLock<Mutex<Vec<Open>>> = OnceLock::new();
-    OPEN.get_or_init(|| Mutex::new(Vec::new()))
+thread_local! {
+    static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
+}
+
+fn open_roots<T: Default>(read: impl FnOnce(&mut Vec<Open>) -> T) -> T {
+    OPEN.try_with(|open| read(&mut open.borrow_mut()))
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug)]
@@ -71,19 +78,17 @@ struct Open {
 /// `None` for a scope under no root - the application's own.
 pub fn of(scope: Scope) -> Option<RootId> {
     let up: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
-    let open = open_roots().lock().ok()?;
 
-    up.iter()
-        .find_map(|scope| open.iter().find(|root| root.scope == *scope))
-        .map(|root| root.id)
+    open_roots(|open| {
+        up.iter()
+            .find_map(|scope| open.iter().find(|root| root.scope == *scope))
+            .map(|root| root.id)
+    })
 }
 
-/// The roots that are open, oldest first.
+/// The roots open on this thread, oldest first.
 pub fn roots() -> Vec<RootId> {
-    open_roots()
-        .lock()
-        .map(|open| open.iter().map(|root| root.id).collect())
-        .unwrap_or_default()
+    open_roots(|open| open.iter().map(|root| root.id).collect())
 }
 
 /// What this root is called, if the shell named it.
@@ -92,18 +97,20 @@ pub fn roots() -> Vec<RootId> {
 /// that remembers something *about* a window between runs - where it was, how
 /// big it was - has to key on the name, because tomorrow's ids are new.
 pub fn label(id: RootId) -> Option<String> {
-    let open = open_roots().lock().ok()?;
-    open.iter()
-        .find(|root| root.id == id)
-        .and_then(|root| root.label.clone())
+    open_roots(|open| {
+        open.iter()
+            .find(|root| root.id == id)
+            .and_then(|root| root.label.clone())
+    })
 }
 
 /// The open root called `label`, if there is one.
 pub fn labelled(label: &str) -> Option<RootId> {
-    let open = open_roots().lock().ok()?;
-    open.iter()
-        .find(|root| root.label.as_deref() == Some(label))
-        .map(|root| root.id)
+    open_roots(|open| {
+        open.iter()
+            .find(|root| root.label.as_deref() == Some(label))
+            .map(|root| root.id)
+    })
 }
 
 /// Names a root, for whoever opened it: `"main"`, `"settings"`, `"log"`.
@@ -113,24 +120,21 @@ pub fn labelled(label: &str) -> Option<RootId> {
 /// with the older one.
 pub fn set_label(id: RootId, label: impl Into<String>) {
     let label = label.into();
-    if let Ok(mut open) = open_roots().lock()
-        && let Some(root) = open.iter_mut().find(|root| root.id == id)
-    {
-        root.label = Some(label);
-    }
+    open_roots(|open| {
+        if let Some(root) = open.iter_mut().find(|root| root.id == id) {
+            root.label = Some(label);
+        }
+    });
 }
 
 /// How many roots are open. `0` before the first one, and again after the
 /// last one closes.
 pub fn count() -> usize {
-    open_roots().lock().map(|open| open.len()).unwrap_or(0)
+    open_roots(|open| open.len())
 }
 
 pub fn is_open(id: RootId) -> bool {
-    open_roots()
-        .lock()
-        .map(|open| open.iter().any(|root| root.id == id))
-        .unwrap_or(false)
+    open_roots(|open| open.iter().any(|root| root.id == id))
 }
 
 /// A root's place in the registry, held by whoever owns the root.
@@ -151,13 +155,13 @@ impl Registration {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
-        if let Ok(mut open) = open_roots().lock() {
+        open_roots(|open| {
             open.push(Open {
                 id,
                 label: None,
                 scope,
-            });
-        }
+            })
+        });
 
         tracing::debug!(%id, roots = count(), "root opened");
         scope.publish(RootOpened(id));
@@ -172,9 +176,7 @@ impl Registration {
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        if let Ok(mut open) = open_roots().lock() {
-            open.retain(|root| root.id != self.id);
-        }
+        open_roots(|open| open.retain(|root| root.id != self.id));
 
         tracing::debug!(id = %self.id, roots = count(), "root closed");
         self.scope.publish(RootClosed(self.id));
@@ -209,6 +211,25 @@ mod tests {
         assert_eq!(of(page), Some(root.id()));
         assert_eq!(of(window), Some(root.id()));
         assert_eq!(of(app.scope()), None, "the application is in no root");
+    }
+
+    #[test]
+    fn a_root_opened_on_another_thread_is_not_one_of_this_thread_s() {
+        let (opened, id) = std::sync::mpsc::channel();
+        let (close, closing) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || {
+            let app = ScopeTree::new();
+            let root = Registration::open(app.scope());
+            opened.send(root.id()).expect("the test is listening");
+            closing.recv().ok();
+        });
+        let id = id.recv().expect("the other thread opened a root");
+
+        let seen = (is_open(id), roots().contains(&id));
+        close.send(()).ok();
+        other.join().expect("the other thread closed its root");
+
+        assert_eq!(seen, (false, false));
     }
 
     #[test]
@@ -254,9 +275,6 @@ mod tests {
 
     #[test]
     fn roots_are_listed_side_by_side_and_leave_one_at_a_time() {
-        // Counted by identity and not by how many there are: the registry is
-        // process-wide, and the other tests in this binary open roots of their
-        // own on other threads.
         let app = ScopeTree::new();
         let one = Registration::open(app.scope());
         let two = Registration::open(app.scope());

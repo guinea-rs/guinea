@@ -13,9 +13,7 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Where an actor is made: the scope that owns it, and the bus of its tree.
 #[derive(Clone)]
@@ -143,7 +141,7 @@ impl<A: 'static> Addr<A> {
     /// do not list it.
     pub(crate) fn bare(state: A, home: &Home) -> Self {
         let addr = Self(Rc::new(Actor {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: crate::scope::next_key(),
             state: RefCell::new(state),
             queue: RefCell::new(VecDeque::new()),
             is_processing: Cell::new(false),

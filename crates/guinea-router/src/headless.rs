@@ -100,25 +100,15 @@ fn install_page<P: Page>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, P::install(ctx, crate::router::narrow::<P::Params, P>(params)?)?);
+    ctx.scope.hold_installed(P::install(ctx, crate::router::narrow::<P::Params, P>(params)?)?);
     Ok(())
-}
-
-/// Hands what a segment installed to its scope.
-///
-/// A feature is a unit with its own lifetime, and this is where it gets one:
-/// dropping the returned value here would end that lifetime at the end of
-/// `install`, taking with it anything the feature kept in itself and nothing
-/// else happened to hold.
-fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
-    ctx.scope.own(guinea_core::scope::DropGuard(installed));
 }
 
 fn install_layout<L: Layout>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, L::install(ctx, crate::router::narrow::<L::Params, L>(params)?)?);
+    ctx.scope.hold_installed(L::install(ctx, crate::router::narrow::<L::Params, L>(params)?)?);
     Ok(())
 }
 

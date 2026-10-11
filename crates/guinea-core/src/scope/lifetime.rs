@@ -1,17 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use tokio::task::JoinHandle;
-
-use crate::actor::event_bus::subscribe::BusSubscription;
-
 use super::Scope;
 
-/// What a scope lets go of when it goes, what it asks first, and whether it
-/// is awake meanwhile.
+/// What a scope asks before it goes, and whether it is awake meanwhile.
 #[derive(Default)]
 pub(super) struct Lifetime {
-    teardowns: RefCell<Vec<Box<dyn FnOnce()>>>,
     /// Asked before the scope is torn down. See [`Scope::on_leave`].
     leave_guards: RefCell<Vec<Rc<dyn Fn() -> crate::guard::Verdict>>>,
     /// Set while a router keeps the scope without showing it. See
@@ -36,23 +30,6 @@ impl Awake {
 }
 
 impl Scope {
-    pub fn own_subscription(&self, subscription: BusSubscription) {
-        self.own(DropGuard(subscription));
-    }
-
-    /// Binds any [`Teardown`] resource to this scope's lifetime: it is torn
-    /// down when the scope is - at once, if the scope is already gone.
-    pub fn own<R: Teardown>(&self, resource: R) {
-        match self.data() {
-            Some(data) => data
-                .lifetime
-                .teardowns
-                .borrow_mut()
-                .push(Box::new(move || resource.teardown())),
-            None => resource.teardown(),
-        }
-    }
-
     /// Asked before this scope is torn down by a navigation.
     ///
     /// Registered during `install`, which is the whole reason leaving and
@@ -117,39 +94,5 @@ impl Scope {
     pub fn on_wake(&self, hook: impl Fn() + 'static) {
         let data = self.installing("waiting for a wake");
         data.lifetime.wake_hooks.borrow_mut().push(Rc::new(hook));
-    }
-}
-
-impl Lifetime {
-    /// Lets go of what the scope took on, the last first: what came later
-    /// may rest on what came before it.
-    pub(super) fn tear_down(&self) {
-        let teardowns = std::mem::take(&mut *self.teardowns.borrow_mut());
-        for teardown in teardowns.into_iter().rev() {
-            teardown();
-        }
-    }
-}
-
-/// A resource whose lifetime can be bound to a [`Scope`] via [`Scope::own`].
-/// Implement per resource kind; the "blanket" over arbitrary `T` is the
-/// [`DropGuard`] newtype, so specialized teardowns never overlap.
-pub trait Teardown: 'static {
-    fn teardown(self);
-}
-
-impl Teardown for JoinHandle<()> {
-    fn teardown(self) {
-        self.abort();
-    }
-}
-
-/// Blanket teardown for resources that just need dropping
-/// (`scope.own(DropGuard(resource))` when no specialized impl exists).
-pub struct DropGuard<T: 'static>(pub T);
-
-impl<T: 'static> Teardown for DropGuard<T> {
-    fn teardown(self) {
-        drop(self.0);
     }
 }

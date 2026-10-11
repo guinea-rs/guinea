@@ -168,15 +168,9 @@ fn install_page<P: Page>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
-    own(ctx, P::install(ctx, params)?);
+    ctx.scope.hold_installed(P::install(ctx, params)?);
     ctx.scope.keep(P::init(ctx, params));
     Ok(())
-}
-
-/// Hands what a segment installed to its scope - a feature's lifetime is the
-/// segment's, and dropping this here would end it at the end of `install`.
-fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
-    ctx.scope.own(guinea_core::scope::DropGuard(installed));
 }
 
 fn install_layout<L: Layout>(
@@ -184,7 +178,7 @@ fn install_layout<L: Layout>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
-    own(ctx, L::install(ctx, params)?);
+    ctx.scope.hold_installed(L::install(ctx, params)?);
     ctx.scope.keep(L::init(ctx, params));
     Ok(())
 }

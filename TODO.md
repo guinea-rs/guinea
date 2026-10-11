@@ -229,13 +229,12 @@ What uniproc shows is most likely the design: its domain features are
 installed by the area layouts (`processes_area` installs
 `ProcessesFeature`), so every visit to an area installs a new actor that
 subscribes anew, and leaving tears it down. An area that should keep its
-actor across visits is `mounted::keep`.
+actor across visits is a `keep` segment.
 
-Still open, since the strong `Addr` in the registry makes it possible: an
-actor made with `Addr::new` and never disposed lives forever, whoever lets
-go of it. Nothing in guinea, the plugins or uniproc does that today. If a
-leak shows up again, measure it first: `ALIVE` counters on the actor's state,
-or the leak report `AppHost::shutdown` logs at exit.
+An actor lives exactly as long as the scope it was made in: the scope holds
+it and disposes it when it goes, and nothing else can. One that outlives
+what it was made for was made in a scope that lives too long. If a leak shows
+up again, measure it first: `ALIVE` counters on the actor's state.
 
 ### Background work where only the latest run counts (uniproc)
 
@@ -356,7 +355,8 @@ What the snapshot does not show yet:
 - live background tasks - today devtools rebuild them from the trace
   (`tasks.rs`), so after a reconnect, or with the trace off, they are gone;
 - plugins and the `provide` / `require` graph;
-- what a scope will tear down (`own` / `Teardown`);
+- what a scope will let go of (its `Taken`: actors, subscriptions, timers,
+  installed features, cleanups);
 - held navigation (`Held` between `drawing` and `settle`) and the
   `notify::turn` queue.
 

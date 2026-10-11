@@ -4,8 +4,8 @@ use std::rc::{Rc, Weak};
 use slotmap::{SlotMap, new_key_type};
 
 use super::Scope;
-use super::actors::Held;
 use super::features::Features;
+use super::held::Held;
 use super::kept::Kept;
 use super::lifetime::Lifetime;
 use super::state::States;
@@ -38,8 +38,8 @@ pub(super) struct ScopeData {
     pub(super) features: Features,
     pub(super) lifetime: Lifetime,
     pub(super) kept: Kept,
-    /// The actors it owns, and lists for devtools. See [`Scope::hold`].
-    pub(super) actors: RefCell<Held>,
+    /// What it took on - its actors among them - until it goes.
+    pub(super) held: Held,
 }
 
 /// Every scope in one [`ScopeTree`], which sits under which, and the bus they

@@ -1,6 +1,4 @@
 use std::any::Any;
-use std::collections::BTreeMap;
-use std::rc::{Rc, Weak};
 
 use crate::actor::Addr;
 use crate::actor::snapshot::{ActorSnapshot, Owner};
@@ -8,11 +6,9 @@ use crate::actor::shape::Shape;
 use crate::actor::traits::ManagedActor;
 use crate::observability::changes::{self, Change};
 
-use super::{Scope, ScopeData, Teardown};
-
-/// The actors a scope owns, by id: ids grow as actors are made, so this is
-/// also the order they were.
-pub(super) type Held = BTreeMap<usize, HeldActor>;
+use super::Scope;
+use super::held::Taken;
+use super::tree::ScopeData;
 
 /// An actor its scope owns: the only strong hold on it once whoever made it
 /// lets go of its address.
@@ -30,29 +26,12 @@ struct Listing {
     snapshot: fn(&dyn Any) -> String,
 }
 
-/// An actor's scope going: the actor is taken out of it, disposed, and no
-/// longer listed.
-struct Leaving {
-    data: Weak<ScopeData>,
-    id: usize,
-}
-
-impl Teardown for Leaving {
-    fn teardown(self) {
-        let Some(data) = self.data.upgrade() else { return };
-        let gone = data.actors.borrow_mut().remove(&self.id);
-        drop(data);
-
-        if let Some(gone) = gone {
-            (gone.dispose)(&*gone.addr);
-            gone.unlisted(self.id);
-        }
-    }
-}
-
 impl HeldActor {
-    /// Tells devtools it is gone, when they were told it came.
-    fn unlisted(self, id: usize) {
+    /// Disposes it, and tells devtools it is gone when they were told it
+    /// came.
+    pub(super) fn let_go(self, id: usize) {
+        (self.dispose)(&*self.addr);
+
         if self.listing.is_some() {
             changes::changed(|| Change::ActorRemoved { id });
         }
@@ -82,15 +61,26 @@ fn snapshot<A: std::fmt::Debug + 'static>(addr: &dyn Any) -> String {
         .unwrap_or_default()
 }
 
+fn with_actor<R>(data: &ScopeData, id: usize, with: impl FnOnce(&mut HeldActor) -> R) -> Option<R> {
+    match data.held.0.borrow_mut().get_mut(&id)? {
+        Taken::Actor(actor) => Some(with(actor)),
+        _ => None,
+    }
+}
+
 fn read_all(scopes: Vec<Scope>) -> Vec<ActorSnapshot> {
     scopes
         .into_iter()
         .filter_map(|scope| scope.data())
         .flat_map(|data| {
-            data.actors
+            data.held
+                .0
                 .borrow()
                 .iter()
-                .filter_map(|(id, actor)| actor.read(*id))
+                .filter_map(|(id, taken)| match taken {
+                    Taken::Actor(actor) => actor.read(*id),
+                    _ => None,
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -100,27 +90,23 @@ fn read_one(scopes: Vec<Scope>, id: usize) -> Option<ActorSnapshot> {
     scopes
         .into_iter()
         .filter_map(|scope| scope.data())
-        .find_map(|data| data.actors.borrow().get(&id)?.read(id))
+        .find_map(|data| with_actor(&data, id, |actor| actor.read(id)).flatten())
 }
 
 impl Scope {
     /// Takes `addr` on: held until this scope goes, then disposed. What
     /// [`Addr::new`] does with the scope it is made in.
     pub(crate) fn hold<A: 'static>(&self, addr: &Addr<A>) {
-        let data = self.installing("making an actor");
+        self.installing("making an actor");
 
-        data.actors.borrow_mut().insert(
+        self.take(
             addr.id(),
-            HeldActor {
+            Taken::Actor(HeldActor {
                 addr: Box::new(addr.clone()),
                 dispose: dispose::<A>,
                 listing: None,
-            },
+            }),
         );
-
-        let id = addr.id();
-        let data = Rc::downgrade(&data);
-        self.own(Leaving { data, id });
     }
 
     /// The actor `id` this scope holds, if it still does and it is an `A`.
@@ -130,8 +116,12 @@ impl Scope {
     /// handlers that make or dispose actors - finds the table free.
     pub(crate) fn held<A: 'static>(&self, id: usize) -> Option<Addr<A>> {
         let data = self.data()?;
-        let actors = data.actors.borrow();
-        actors.get(&id)?.addr.downcast_ref::<Addr<A>>().cloned()
+        let held = data.held.0.borrow();
+
+        match held.get(&id)? {
+            Taken::Actor(actor) => actor.addr.downcast_ref::<Addr<A>>().cloned(),
+            _ => None,
+        }
     }
 
     /// Lists `addr` for devtools, under the feature installing now, until
@@ -150,15 +140,17 @@ impl Scope {
             drives,
         };
 
-        let mut actors = data.actors.borrow_mut();
-        let Some(held) = actors.get_mut(&id) else { return };
-        held.listing = Some(Listing {
-            type_name,
-            shape: A::SHAPE,
-            owner,
-            snapshot: snapshot::<A>,
+        let listed = with_actor(&data, id, |held| {
+            held.listing = Some(Listing {
+                type_name,
+                shape: A::SHAPE,
+                owner,
+                snapshot: snapshot::<A>,
+            });
         });
-        drop(actors);
+        if listed.is_none() {
+            return;
+        }
 
         changes::changed(|| Change::ActorAdded {
             id,

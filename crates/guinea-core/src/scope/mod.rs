@@ -4,6 +4,7 @@ use crate::actor::event_bus::EventBus;
 
 mod actors;
 mod features;
+mod held;
 mod kept;
 mod lifetime;
 mod state;
@@ -13,11 +14,12 @@ mod tree;
 mod tests;
 
 pub use features::{Installed, Listener};
-pub use lifetime::{Awake, DropGuard, Teardown};
+pub use lifetime::Awake;
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};
 
-use tree::{Node, NodeKey, ScopeData, Tree, TreeKey, tree};
+pub(crate) use held::next_key;
+use tree::{Node, NodeKey, Tree, TreeKey, tree};
 
 /// Where a segment's state, features and resources live, from the moment it
 /// is installed until it is removed.
@@ -82,7 +84,7 @@ impl Scope {
             return;
         };
         for data in detached {
-            data.lifetime.tear_down();
+            data.held.let_go();
         }
     }
 

@@ -1,7 +1,5 @@
 use super::*;
 use std::cell::RefCell;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::actor::Addr;
 use crate::actor::snapshot::Owner;
@@ -26,12 +24,11 @@ impl Reducer for Counter {
     }
 }
 
-struct Said(&'static str, Rc<RefCell<Vec<&'static str>>>);
+type Said = Rc<RefCell<Vec<&'static str>>>;
 
-impl Teardown for Said {
-    fn teardown(self) {
-        self.1.borrow_mut().push(self.0);
-    }
+fn says(said: &Said, name: &'static str) -> impl FnOnce() + 'static {
+    let said = said.clone();
+    move || said.borrow_mut().push(name)
 }
 
 #[test]
@@ -40,8 +37,8 @@ fn a_tree_takes_every_scope_in_it_along_when_its_owner_lets_go() {
     let tree = ScopeTree::new();
     let window = tree.child();
     let page = window.child();
-    tree.own(Said("application", said.clone()));
-    page.own(Said("page", said.clone()));
+    tree.on_teardown(says(&said, "application"));
+    page.on_teardown(says(&said, "page"));
 
     drop(tree);
 
@@ -116,7 +113,7 @@ fn removing_a_scope_tears_down_what_is_under_it_first() {
         (below, "below"),
         (newer, "newer"),
     ] {
-        scope.own(Said(name, said.clone()));
+        scope.on_teardown(says(&said, name));
     }
     root.remove();
 
@@ -124,15 +121,25 @@ fn removing_a_scope_tears_down_what_is_under_it_first() {
 }
 
 #[test]
-fn a_scope_lets_go_of_what_it_holds_in_the_reverse_of_the_order_it_took_it() {
+fn a_scope_lets_go_of_what_it_holds_in_the_reverse_of_the_order_it_took_it_whatever_it_is() {
+    use crate::observability::changes::{self, Change};
+
     let said = Rc::new(RefCell::new(Vec::new()));
     let scope = ScopeTree::new();
-    scope.own(Said("store", said.clone()));
-    scope.own(Said("actor reading the store", said.clone()));
+    scope.on_teardown(says(&said, "store"));
+    let _actor = Addr::new(Ticker(0), &home(scope.scope()));
+    scope.on_teardown(says(&said, "reading the store"));
 
+    let heard = said.clone();
+    changes::watch(move |change| {
+        if let Change::ActorRemoved { .. } = change {
+            heard.borrow_mut().push("actor");
+        }
+    });
     scope.remove();
+    changes::stop_watching();
 
-    assert_eq!(*said.borrow(), ["actor reading the store", "store"]);
+    assert_eq!(*said.borrow(), ["reading the store", "actor", "store"]);
 }
 
 #[test]
@@ -154,7 +161,7 @@ fn a_scope_goes_when_it_is_removed_however_many_name_it() {
     let tree = ScopeTree::new();
     let scope = tree.child();
     let named_elsewhere = scope;
-    scope.own(Said("torn down", said.clone()));
+    scope.on_teardown(says(&said, "torn down"));
 
     scope.remove();
 
@@ -168,7 +175,7 @@ fn what_a_removed_scope_is_handed_is_torn_down_at_once() {
     let scope = ScopeTree::new();
     scope.remove();
 
-    scope.own(Said("at once", said.clone()));
+    scope.on_teardown(says(&said, "at once"));
 
     assert_eq!(*said.borrow(), ["at once"]);
 }
@@ -420,26 +427,5 @@ fn push_notifies_subscribers_and_unsubscribe_stops_it() {
         *seen.borrow(),
         vec![1, 2],
         "no further notifications after the Subscription is dropped"
-    );
-}
-
-#[tokio::test]
-async fn removing_the_store_aborts_owned_tasks() {
-    let ran_to_completion = Arc::new(AtomicBool::new(false));
-    let flag = ran_to_completion.clone();
-
-    let store = ScopeTree::new();
-    let handle = tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        flag.store(true, Ordering::SeqCst);
-    });
-    store.own(handle);
-
-    store.remove();
-
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    assert!(
-        !ran_to_completion.load(Ordering::SeqCst),
-        "task should have been aborted when its owning scope was removed"
     );
 }

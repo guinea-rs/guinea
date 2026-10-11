@@ -948,7 +948,7 @@ fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
 
 pub(crate) fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
-    own(ctx, P::install(ctx, params)?);
+    ctx.scope.hold_installed(P::install(ctx, params)?);
     stage_node(ctx, P::init(ctx, params), P::leaving);
     Ok(())
 }
@@ -985,15 +985,9 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
     stage(ctx, node);
 }
 
-/// Hands what a segment installed to its scope - a feature's lifetime is the
-/// segment's, and dropping this here would end it at the end of `install`.
-fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
-    ctx.scope.own(guinea_core::scope::DropGuard(installed));
-}
-
 pub(crate) fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
-    own(ctx, L::install(ctx, params)?);
+    ctx.scope.hold_installed(L::install(ctx, params)?);
     stage_node(ctx, L::init(ctx, params), L::leaving);
     Ok(())
 }

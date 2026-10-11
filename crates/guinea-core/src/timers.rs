@@ -161,12 +161,6 @@ impl Drop for Ticking {
     }
 }
 
-impl crate::scope::Teardown for Ticking {
-    fn teardown(self) {
-        drop(self);
-    }
-}
-
 /// A timer that was set up, for saying more about it.
 ///
 /// Holding it does not keep the timer running, and dropping it does not stop
@@ -262,7 +256,7 @@ impl Scope {
             period.into(),
             run,
         );
-        self.own(ticking);
+        self.hold_timer(ticking);
 
         timer
     }

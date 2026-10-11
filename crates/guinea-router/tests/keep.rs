@@ -13,7 +13,7 @@ use std::rc::Rc;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::actor::event_bus::Event;
 use guinea_core::guard::Verdict;
-use guinea_core::scope::{DropGuard, Scope};
+use guinea_core::scope::Scope;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
@@ -29,14 +29,6 @@ fn said() -> Vec<String> {
     SAID.with(|said| said.take())
 }
 
-struct Gone(&'static str);
-
-impl Drop for Gone {
-    fn drop(&mut self) {
-        say(format!("gone {}", self.0));
-    }
-}
-
 #[derive(Clone)]
 struct Ping;
 
@@ -44,7 +36,7 @@ impl Event for Ping {}
 
 fn installed(cx: &FeatureInitContext, name: &'static str) {
     say(format!("install {name}"));
-    cx.scope.own(DropGuard(Gone(name)));
+    cx.scope.on_teardown(move || say(format!("gone {name}")));
 }
 
 struct Shell;

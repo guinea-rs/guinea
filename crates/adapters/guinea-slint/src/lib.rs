@@ -41,7 +41,7 @@ use std::rc::Rc;
 
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::binding::ReducerBinding;
-use guinea_core::scope::{DropGuard, Reducer};
+use guinea_core::scope::Reducer;
 use guinea_router::router::{
     Mount, NavigateHandle, RouteChain, SegmentEntry, SegmentProps, Ui, single_entry_chain,
 };
@@ -171,7 +171,7 @@ fn install_page<P: Page>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, P::install(ctx, guinea_router::router::narrow::<P::Params, P>(params)?)?);
+    ctx.scope.hold_installed(P::install(ctx, guinea_router::router::narrow::<P::Params, P>(params)?)?);
     P::bind(PageCx {
         at: Where::of(ctx),
         page: PhantomData,
@@ -179,17 +179,11 @@ fn install_page<P: Page>(
     Ok(())
 }
 
-/// Hands what a segment installed to its scope - a feature's lifetime is the
-/// segment's, and dropping this here would end it at the end of `install`.
-fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
-    ctx.scope.own(DropGuard(installed));
-}
-
 fn install_layout<L: Layout>(
     ctx: &FeatureInitContext,
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
-    own(ctx, L::install(ctx, guinea_router::router::narrow::<L::Params, L>(params)?)?);
+    ctx.scope.hold_installed(L::install(ctx, guinea_router::router::narrow::<L::Params, L>(params)?)?);
     L::bind(LayoutCx {
         at: Where::of(ctx),
         layout: PhantomData,
@@ -234,10 +228,6 @@ impl Where {
             })
             .binding::<R>()
     }
-
-    fn own<T: 'static>(&self, resource: T) {
-        self.scope.own(DropGuard(resource))
-    }
 }
 
 /// What a page's wiring is handed.
@@ -274,11 +264,6 @@ impl<P> PageCx<P> {
         R: RouteChain<Slint> + Clone + PartialEq + 'static,
     {
         nav::current::<R>()
-    }
-
-    /// Drops `resource` when the router drops this page.
-    pub fn own<T: 'static>(&self, resource: T) {
-        self.at.own(resource)
     }
 }
 
@@ -369,10 +354,6 @@ impl<L> LayoutCx<L> {
         R: RouteChain<Slint> + Clone + PartialEq + 'static,
     {
         nav::current::<R>()
-    }
-
-    pub fn own<T: 'static>(&self, resource: T) {
-        self.at.own(resource)
     }
 }
 

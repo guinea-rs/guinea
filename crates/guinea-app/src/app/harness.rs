@@ -7,7 +7,7 @@ use std::time::Duration;
 use guinea_core::actor::event_bus::{Event, EventBus};
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
-use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
+use guinea_core::scope::{Reducer, Scope, ScopeGuard};
 use guinea_core::short_type_name;
 use guinea_core::trace::{self, Cause, Point};
 
@@ -325,7 +325,7 @@ impl<'h> Segment<'h> {
     /// Installs `F` here, for as long as the segment lives.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<()> {
         let installed = self.cx.install::<F>(params)?;
-        self.cx.scope.own(DropGuard(installed));
+        self.cx.scope.hold_installed(installed);
         Ok(())
     }
 

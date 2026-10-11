@@ -10,7 +10,7 @@ use std::cell::Ref;
 use std::rc::Rc;
 
 use crate::feature::Dispatch;
-use crate::scope::{DropGuard, Reducer, Scope, Slot, Subscription};
+use crate::scope::{Reducer, Scope, Slot, Subscription};
 
 /// A handle to one reducer's state and actions inside one scope.
 ///
@@ -82,7 +82,7 @@ impl<R: Reducer> ReducerBinding<R> {
     /// scope - for backends with no effect system to hang a cleanup on.
     pub fn on_change_owned(&self, f: impl Fn(&R) + 'static) {
         let subscription = self.on_change(f);
-        self.owner.own(DropGuard(subscription));
+        self.owner.hold_watching(subscription);
     }
 
     /// Calls `f` immediately with the current state, then after every change.

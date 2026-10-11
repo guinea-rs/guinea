@@ -44,12 +44,6 @@ impl Drop for BusSubscription {
     }
 }
 
-impl crate::scope::Teardown for BusSubscription {
-    fn teardown(self) {
-        drop(self);
-    }
-}
-
 /// A type that travels over a bus, where subscribers find it by its
 /// `TypeId` alone.
 ///

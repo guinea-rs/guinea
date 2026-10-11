@@ -1071,14 +1071,6 @@ mod navigating {
 
     pub struct Greeting(pub &'static str);
 
-    struct Gone;
-
-    impl Drop for Gone {
-        fn drop(&mut self) {
-            AREAS_GONE.with(|gone| gone.set(gone.get() + 1));
-        }
-    }
-
     /// The shell: where the application is, a way to the list, and a clock
     /// that lives as long as the shell does.
     #[derive(Default)]
@@ -1133,7 +1125,8 @@ mod navigating {
             ctx: &FeatureInitContext,
             _params: &AreaParams,
         ) -> anyhow::Result<list_clock::ListClock> {
-            ctx.scope.own(guinea::core::scope::DropGuard(Gone));
+            ctx.scope
+                .on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
             ctx.install(&())
         }
 

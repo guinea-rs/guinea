@@ -1,4 +1,4 @@
-use guinea_core::scope::{Scope, ScopeTree, Teardown};
+use guinea_core::scope::{Scope, ScopeTree};
 
 /// What hosts the application: the tree of scopes every window sits in.
 ///
@@ -8,14 +8,6 @@ use guinea_core::scope::{Scope, ScopeTree, Teardown};
 /// windows first, then what the application set up, the last first.
 pub struct AppHost {
     tree: ScopeTree,
-}
-
-struct Cleanup(Box<dyn FnOnce()>);
-
-impl Teardown for Cleanup {
-    fn teardown(self) {
-        (self.0)();
-    }
 }
 
 impl Default for AppHost {
@@ -37,7 +29,7 @@ impl AppHost {
     }
 
     pub(crate) fn on_cleanup(&self, run: impl FnOnce() + 'static) {
-        self.tree.own(Cleanup(Box::new(run)));
+        self.tree.on_teardown(run);
     }
 
     /// Removes the application's scope: everything in it, the last first.
@@ -48,19 +40,14 @@ impl AppHost {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use guinea_core::scope::DropGuard;
+    use std::rc::Rc;
+    use std::cell::Cell;
 
     use super::*;
 
-    struct DropCheck(Arc<AtomicUsize>);
-
-    impl Drop for DropCheck {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
+    fn counting(counter: &Rc<Cell<u32>>) -> impl FnOnce() + 'static {
+        let counter = counter.clone();
+        move || counter.set(counter.get() + 1)
     }
 
     #[derive(Clone)]
@@ -71,33 +58,33 @@ mod tests {
     #[test]
     fn what_the_application_holds_goes_with_its_shutdown() {
         let host = AppHost::new();
-        let counter = Arc::new(AtomicUsize::new(0));
+        let counter = Rc::new(Cell::new(0));
 
-        host.scope().own(DropGuard(DropCheck(counter.clone())));
-        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        host.on_cleanup(counting(&counter));
+        assert_eq!(counter.get(), 0);
 
         host.shutdown();
 
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        assert_eq!(counter.get(), 1);
     }
 
     #[test]
     fn an_application_let_go_of_without_a_shutdown_is_torn_down_all_the_same() {
         let host = AppHost::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-        host.scope().own(DropGuard(DropCheck(counter.clone())));
+        let counter = Rc::new(Cell::new(0));
+        host.on_cleanup(counting(&counter));
 
         drop(host);
 
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        assert_eq!(counter.get(), 1);
     }
 
     #[test]
     fn subscriptions_the_application_holds_end_with_it() {
         let host = AppHost::new();
         let bus = host.scope().bus();
-        host.scope().own_subscription(bus.subscribe_fn(|_: Ping| {}));
-        host.scope().own_subscription(bus.subscribe_fn(|_: Ping| {}));
+        host.scope().hold_hearing(bus.subscribe_fn(|_: Ping| {}));
+        host.scope().hold_hearing(bus.subscribe_fn(|_: Ping| {}));
 
         assert_eq!(bus.count_subscribers::<Ping>(), 2);
 

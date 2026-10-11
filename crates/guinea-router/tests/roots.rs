@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use guinea_app::app::roots;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::scope::{DropGuard, Reducer};
+use guinea_core::scope::Reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Page, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
 
@@ -30,15 +30,6 @@ impl Reducer for Marker {
     }
 }
 
-/// Notes its own teardown, the way an actor's `dispose` would.
-struct Tombstone;
-
-impl Drop for Tombstone {
-    fn drop(&mut self) {
-        TORN_DOWN.with(|torn| torn.set(true));
-    }
-}
-
 struct Processes;
 
 impl Page for Processes {
@@ -47,7 +38,7 @@ impl Page for Processes {
 
     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
         ctx.state::<Marker>().seed(Marker(1)).plain();
-        ctx.scope.own(DropGuard(Tombstone));
+        ctx.scope.on_teardown(|| TORN_DOWN.with(|torn| torn.set(true)));
         Ok(())
     }
 

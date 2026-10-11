@@ -11,7 +11,7 @@ use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
-use guinea_core::scope::{DropGuard, Reducer, Scope};
+use guinea_core::scope::{Reducer, Scope};
 
 pub struct AppFeatureDeinitContext<'a> {
     pub shared: &'a SharedState,
@@ -305,11 +305,11 @@ impl ScopeContext {
         });
 
         let awake = self.scope.awake();
-        self.scope.own(DropGuard(owner.observe::<R>(move |update| {
+        self.scope.hold_watching(owner.observe::<R>(move |update| {
             if awake.now() {
                 callback(update);
             }
-        })));
+        }));
     }
 
     /// Hears `M` on the bus of this scope's tree, for as long as this scope
@@ -318,7 +318,7 @@ impl ScopeContext {
     pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None);
         self.scope
-            .own(self.scope.bus().subscribe_fn(self.while_awake(callback)));
+            .hold_hearing(self.scope.bus().subscribe_fn(self.while_awake(callback)));
     }
 
     pub(crate) fn while_awake<M>(&self, callback: impl Fn(M) + 'static) -> impl Fn(M) + 'static {

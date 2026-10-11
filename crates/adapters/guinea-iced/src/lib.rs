@@ -541,17 +541,11 @@ fn stage_node<Node: Default + 'static>(
     );
 }
 
-/// Hands what a segment installed to its scope - a feature's lifetime is the
-/// segment's, and dropping this here would end it at the end of `install`.
-fn own<T: 'static>(ctx: &FeatureInitContext, installed: T) {
-    ctx.scope.own(guinea_core::scope::DropGuard(installed));
-}
-
 fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = narrow::<P::Params, P>(params)?;
     // Features first: `init` may read what they seeded, and an observer must
     // find the reducer it is being attached to.
-    own(ctx, P::install(ctx, params)?);
+    ctx.scope.hold_installed(P::install(ctx, params)?);
     stage_node(
         ctx,
         P::init(ctx, params),
@@ -565,7 +559,7 @@ fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::
 
 fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = narrow::<L::Params, L>(params)?;
-    own(ctx, L::install(ctx, params)?);
+    ctx.scope.hold_installed(L::install(ctx, params)?);
     stage_node(
         ctx,
         L::init(ctx, params),

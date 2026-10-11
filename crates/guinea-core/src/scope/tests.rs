@@ -142,6 +142,49 @@ fn a_scope_lets_go_of_what_it_holds_in_the_reverse_of_the_order_it_took_it_whate
     assert_eq!(*said.borrow(), ["reading the store", "actor", "store"]);
 }
 
+struct Says(Said, &'static str);
+
+impl Drop for Says {
+    fn drop(&mut self) {
+        self.0.borrow_mut().push(self.1);
+    }
+}
+
+#[tokio::test]
+async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_took_them() {
+    use crate::observability::changes::{self, Change};
+
+    let said = Rc::new(RefCell::new(Vec::new()));
+    let scope = ScopeTree::new();
+
+    scope.hold_installed(Says(said.clone(), "installed"));
+    let hearing = Says(said.clone(), "hearing");
+    scope.hold_hearing(scope.bus().subscribe_fn(move |_: Ping| {
+        let _ = &hearing;
+    }));
+    let watching = Says(said.clone(), "watching");
+    scope.hold_watching(scope.subscribe::<Counter>(move || {
+        let _ = &watching;
+    }));
+    scope.section().repeat(std::time::Duration::from_secs(60), || {});
+    let _actor = Addr::new(Ticker(0), &home(scope.scope()));
+    scope.on_teardown(says(&said, "cleanup"));
+
+    let heard = said.clone();
+    changes::watch(move |change| match change {
+        Change::ActorRemoved { .. } => heard.borrow_mut().push("actor"),
+        Change::TimerStopped { .. } => heard.borrow_mut().push("timer"),
+        _ => {}
+    });
+    scope.remove();
+    changes::stop_watching();
+
+    assert_eq!(
+        *said.borrow(),
+        ["cleanup", "actor", "timer", "watching", "hearing", "installed"]
+    );
+}
+
 #[test]
 fn a_removed_scope_stays_gone_and_its_slot_names_another_one() {
     let root = ScopeTree::new();

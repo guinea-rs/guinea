@@ -265,13 +265,13 @@ impl Scope {
             ));
         }
 
-        let scope = *self;
+        let held = Rc::downgrade(&data);
         Subscription {
             unsubscribe: Some(Box::new(move || {
-                let Some(data) = scope.data() else { return };
-                if let Some(cell) = data.state.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
-                    cell.observers.borrow_mut().retain(|(oid, _)| *oid != id);
-                }
+                let Some(data) = held.upgrade() else { return };
+                let observer = data.state.unobserve(TypeId::of::<R>(), id);
+                drop(data);
+                drop(observer);
             })),
         }
     }
@@ -307,13 +307,13 @@ impl Scope {
             cell.listeners.borrow_mut().push((id, Rc::new(callback)));
         }
 
-        let scope = *self;
+        let held = Rc::downgrade(&data);
         Subscription {
             unsubscribe: Some(Box::new(move || {
-                let Some(data) = scope.data() else { return };
-                if let Some(cell) = data.state.cells.borrow_mut().get_mut(&TypeId::of::<R>()) {
-                    cell.listeners.borrow_mut().retain(|(lid, _)| *lid != id);
-                }
+                let Some(data) = held.upgrade() else { return };
+                let listener = data.state.unlisten(TypeId::of::<R>(), id);
+                drop(data);
+                drop(listener);
             })),
         }
     }
@@ -372,6 +372,20 @@ impl States {
             .clone()
             .downcast::<Slot<R>>()
             .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R")
+    }
+
+    fn unlisten(&self, cell: TypeId, id: u64) -> Option<Rc<dyn Fn()>> {
+        let cells = self.cells.borrow();
+        let mut listeners = cells.get(&cell)?.listeners.borrow_mut();
+        let at = listeners.iter().position(|(listener, _)| *listener == id)?;
+        Some(listeners.remove(at).1)
+    }
+
+    fn unobserve(&self, cell: TypeId, id: u64) -> Option<Rc<dyn Fn(&dyn Any)>> {
+        let cells = self.cells.borrow();
+        let mut observers = cells.get(&cell)?.observers.borrow_mut();
+        let at = observers.iter().position(|(observer, _)| *observer == id)?;
+        Some(observers.remove(at).1)
     }
 
     fn is_observed(&self, cell: TypeId) -> bool {

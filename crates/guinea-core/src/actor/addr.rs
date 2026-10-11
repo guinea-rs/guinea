@@ -33,12 +33,20 @@ impl Home {
     }
 
     /// A home in `section`.
+    ///
+    /// # Panics
+    ///
+    /// When its scope is already gone.
     pub fn in_section(section: Section) -> Self {
-        let bus = section.scope().tree_bus();
+        let scope = section.scope();
+        let bus = scope
+            .tree_bus()
+            .filter(|_| scope.is_alive())
+            .unwrap_or_else(|| panic!("a home in {scope:?}, which was removed"));
 
         Self {
             section,
-            bus: bus.as_ref().map(Rc::downgrade).unwrap_or_default(),
+            bus: Rc::downgrade(&bus),
         }
     }
 
@@ -533,6 +541,34 @@ mod tests {
             .map(|message| *message);
         let expected = format!("making an actor in {:?}, which was removed", home.scope());
         assert_eq!(message, Some(expected));
+    }
+
+    fn homeless(scope: Scope) -> Option<String> {
+        let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Home::new(scope);
+        }));
+
+        made.err()
+            .and_then(|panic| panic.downcast::<String>().ok())
+            .map(|message| *message)
+    }
+
+    #[test]
+    fn a_home_in_a_removed_scope_is_a_mistake_said_out_loud() {
+        let tree = crate::scope::ScopeTree::new();
+        let gone = tree.child();
+        gone.remove();
+
+        assert_eq!(homeless(gone), Some(format!("a home in {gone:?}, which was removed")));
+    }
+
+    #[test]
+    fn a_home_in_a_tree_that_is_gone_is_a_mistake_said_out_loud() {
+        let tree = crate::scope::ScopeTree::new();
+        let gone = tree.scope();
+        drop(tree);
+
+        assert_eq!(homeless(gone), Some(format!("a home in {gone:?}, which was removed")));
     }
 
     #[derive(Clone)]

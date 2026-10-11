@@ -18,7 +18,14 @@ struct Payload<const N: usize>([u8; N]);
 
 impl<const N: usize> Event for Payload<N> {}
 
+#[derive(Debug)]
 struct Sink(u64);
+
+guinea_macros::actor! {
+    Sink {
+        handlers { Payload<0>, Payload<256>, Payload<4096> }
+    }
+}
 
 impl<const N: usize> Handler<Payload<N>> for Sink {
     fn handle(&mut self, Payload(bytes): Payload<N>, _cx: Cx<Self, Payload<N>>) {

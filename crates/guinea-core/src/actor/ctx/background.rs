@@ -178,7 +178,7 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// let tree = ScopeTree::new();
     /// let shown = Rc::new(Cell::new(None));
-    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
     ///
     /// weather.send(Fetch);
     /// assert_eq!(shown.get(), None, "the answer comes later, on the UI thread");
@@ -239,7 +239,7 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// let tree = ScopeTree::new();
     /// let shown = Rc::new(Cell::new(None));
-    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
     /// let closed = Arc::new(AtomicBool::new(false));
     ///
     /// weather.send(Fetch(closed.clone()));
@@ -333,7 +333,7 @@ mod tests {
         });
 
         let log = Rc::new(RefCell::new(Vec::new()));
-        let addr = Addr::new_managed(
+        let addr = Addr::new(
             Chain { log: log.clone() },
             &home,
         );
@@ -358,7 +358,7 @@ mod tests {
     #[tokio::test]
     async fn work_that_listens_for_the_token_is_left_to_wind_itself_down() {
         let home = TestHome::new();
-        let addr = Addr::new_managed(
+        let addr = Addr::new(
             Chain {
                 log: Rc::new(RefCell::new(Vec::new())),
             },

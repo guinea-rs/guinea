@@ -333,7 +333,7 @@ impl ScopeContext {
     /// Creates `actor`, subscribes it to what it listens for, and makes it
     /// this scope's: listed for devtools, and disposed when the scope goes.
     pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
-        Addr::new_managed(actor, &Home::new(self.scope))
+        Addr::new(actor, &Home::new(self.scope))
     }
 
     /// Sends `message()` to `addr` every `period`, for as long as this scope

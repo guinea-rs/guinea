@@ -114,6 +114,12 @@ impl EventBus {
     /// #[derive(Debug)]
     /// struct Total(u32);
     ///
+    /// guinea_macros::actor! {
+    ///     Total {
+    ///         handlers { Add }
+    ///     }
+    /// }
+    ///
     /// impl Handler<Add> for Total {
     ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
     ///         self.0 += n;

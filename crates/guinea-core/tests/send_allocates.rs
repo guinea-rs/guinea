@@ -36,9 +36,16 @@ fn allocations(during: impl FnOnce()) -> usize {
     ALLOCATED.with(Cell::get) - before
 }
 
+#[derive(Debug)]
 struct Sink(u64);
 
 struct Payload([u8; 64]);
+
+guinea_macros::actor! {
+    Sink {
+        handlers { Payload }
+    }
+}
 
 impl Handler<Payload> for Sink {
     fn handle(&mut self, Payload(bytes): Payload, _cx: Cx<Self, Payload>) {
@@ -46,9 +53,16 @@ impl Handler<Payload> for Sink {
     }
 }
 
+#[derive(Debug)]
 struct Echoes(Rc<RefCell<Vec<u32>>>);
 
 struct Echo(u32);
+
+guinea_macros::actor! {
+    Echoes {
+        handlers { Echo }
+    }
+}
 
 impl Handler<Echo> for Echoes {
     fn handle(&mut self, Echo(left): Echo, cx: Cx<Self, Echo>) {

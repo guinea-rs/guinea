@@ -108,51 +108,10 @@ impl Refs {
 }
 
 impl<A: 'static> Addr<A> {
-    /// An actor living in `home`: its scope owns it, and disposes it when
-    /// the scope goes.
-    ///
-    /// ```
-    /// use guinea_core::actor::{Addr, Home};
-    /// use guinea_core::scope::ScopeTree;
-    ///
-    /// let tree = ScopeTree::new();
-    /// let refs = Addr::new(0u32, &Home::new(tree.scope())).refs();
-    /// assert_eq!(refs.count(), 1, "held by its scope");
-    ///
-    /// tree.remove();
-    /// assert_eq!(refs.count(), 0);
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// When the scope of `home` is already gone.
-    ///
-    /// ```should_panic
-    /// use guinea_core::actor::{Addr, Home};
-    /// use guinea_core::scope::ScopeTree;
-    ///
-    /// let tree = ScopeTree::new();
-    /// tree.remove();
-    ///
-    /// Addr::new(0u32, &Home::new(tree.scope()));
-    /// ```
-    pub fn new(state: A, home: &Home) -> Self {
-        let addr = Self(Rc::new(Actor {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-            state: RefCell::new(state),
-            queue: RefCell::new(VecDeque::new()),
-            is_processing: Cell::new(false),
-            cancel: Cancel::new(),
-            subscriptions: RefCell::new(Vec::new()),
-            home: home.clone(),
-        }));
-
-        home.scope.hold(&addr);
-        addr
-    }
-
-    /// An actor `actor!` declared: subscribed to its manifest until it is
-    /// disposed, and listed for devtools under the feature installing now.
+    /// An actor living in `home`, as `actor!` declared it: its scope owns it
+    /// and disposes it when the scope goes, it hears what its manifest
+    /// subscribes to until then, and devtools list it under the feature
+    /// installing now.
     ///
     /// ```
     /// use guinea_core::actor::event_bus::Event;
@@ -179,17 +138,42 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let autosave = Addr::new_managed(Autosave, &Home::new(tree.scope()));
-    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
+    /// let bus = tree.bus();
+    /// let refs = Addr::new(Autosave, &Home::new(tree.scope())).refs();
+    /// assert_eq!(refs.count(), 2, "held by its scope, and by what it hears");
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 1);
     ///
-    /// autosave.dispose();
-    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 0);
+    /// tree.remove();
+    /// assert_eq!(refs.count(), 0);
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 0);
     /// ```
-    pub fn new_managed(state: A, home: &Home) -> Self
+    ///
+    /// # Panics
+    ///
+    /// When the scope of `home` is already gone.
+    pub fn new(state: A, home: &Home) -> Self
     where
         A: ManagedActor + Debug,
     {
         Self::listed(state, home, None)
+    }
+
+    /// An actor with no declaration behind it: held by its scope, and nothing
+    /// else - it hears nothing it did not subscribe to by hand, and devtools
+    /// do not list it.
+    pub(crate) fn bare(state: A, home: &Home) -> Self {
+        let addr = Self(Rc::new(Actor {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            state: RefCell::new(state),
+            queue: RefCell::new(VecDeque::new()),
+            is_processing: Cell::new(false),
+            cancel: Cancel::new(),
+            subscriptions: RefCell::new(Vec::new()),
+            home: home.clone(),
+        }));
+
+        home.scope.hold(&addr);
+        addr
     }
 
     /// Where it lives: what an actor it makes lives in too, when it is the
@@ -211,7 +195,14 @@ impl<A: 'static> Addr<A> {
     ///
     /// impl Event for Saved {}
     ///
+    /// #[derive(Debug)]
     /// struct Autosave;
+    ///
+    /// guinea_macros::actor! {
+    ///     Autosave {
+    ///         handlers { Saved }
+    ///     }
+    /// }
     ///
     /// impl Handler<Saved> for Autosave {
     ///     fn handle(&mut self, _: Saved, _cx: Cx<Self, Saved>) {}
@@ -260,6 +251,12 @@ impl<A: 'static> Addr<A> {
     ///
     /// struct Add(u32);
     ///
+    /// guinea_macros::actor! {
+    ///     Total {
+    ///         handlers { Add }
+    ///     }
+    /// }
+    ///
     /// impl Handler<Add> for Total {
     ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
     ///         self.0 += n;
@@ -285,6 +282,12 @@ impl<A: 'static> Addr<A> {
     /// struct Countdown(Vec<u32>);
     ///
     /// struct From(u32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Countdown {
+    ///         handlers { From }
+    ///     }
+    /// }
     ///
     /// impl Handler<From> for Countdown {
     ///     fn handle(&mut self, From(n): From, cx: Cx<Self, From>) {
@@ -361,12 +364,12 @@ impl<A: 'static> Addr<A> {
 }
 
 impl<A: 'static> Addr<A> {
-    /// [`Addr::new_managed`] for the actor that drives the reducer `drives`.
+    /// [`Addr::new`] for the actor that drives the reducer `drives`.
     pub(crate) fn listed(state: A, home: &Home, drives: Option<&'static str>) -> Self
     where
         A: ManagedActor + Debug,
     {
-        let addr = Self::new(state, home);
+        let addr = Self::bare(state, home);
         A::Bus::subscribe_into(&addr);
         home.scope.list(&addr, drives);
         addr
@@ -479,7 +482,7 @@ mod tests {
     #[test]
     fn an_actor_whose_scope_was_removed_hears_nothing_more() {
         let home = TestHome::new();
-        let addr = Addr::new((), &home);
+        let addr = Addr::bare((), &home);
 
         home.tree.remove();
 
@@ -489,7 +492,7 @@ mod tests {
     #[test]
     fn an_actor_is_held_by_its_scope_alone() {
         let home = TestHome::new();
-        let addr = Addr::new((), &home);
+        let addr = Addr::bare((), &home);
         let refs = addr.refs();
         drop(addr);
 
@@ -503,7 +506,7 @@ mod tests {
     #[test]
     fn work_off_the_ui_thread_finds_its_actor_until_the_scope_goes() {
         let home = TestHome::new();
-        let addr = Addr::new((), &home);
+        let addr = Addr::bare((), &home);
         let reach = addr.reach();
 
         let while_there = reach.addr().map(|found| found.id());
@@ -516,7 +519,7 @@ mod tests {
     #[test]
     fn an_actor_disposed_before_its_scope_goes_is_let_go_at_once() {
         let home = TestHome::new();
-        let addr = Addr::new((), &home);
+        let addr = Addr::bare((), &home);
         let refs = addr.refs();
         let reach = addr.reach();
 
@@ -530,7 +533,7 @@ mod tests {
     #[test]
     fn an_actor_is_not_found_as_another_type() {
         let home = TestHome::new();
-        let addr = Addr::new((), &home);
+        let addr = Addr::bare((), &home);
 
         let found = home.scope().held::<u8>(addr.id()).map(|found| found.id());
 
@@ -543,7 +546,7 @@ mod tests {
         home.tree.remove();
 
         let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            Addr::new((), &home);
+            Addr::bare((), &home);
         }));
 
         let message = made
@@ -587,7 +590,7 @@ mod tests {
         let tree = crate::scope::ScopeTree::new();
         let window = tree.child();
         window.set_window(7);
-        let addr = Addr::new(Counting::default(), &Home::new(window.child()));
+        let addr = Addr::bare(Counting::default(), &Home::new(window.child()));
 
         addr.subscribe::<Heard>();
         tree.bus().publish(Heard);
@@ -598,7 +601,7 @@ mod tests {
     #[test]
     fn a_managed_actor_hears_its_manifest_until_it_is_disposed() {
         let home = TestHome::new();
-        let addr = Addr::new_managed(Listening, &home);
+        let addr = Addr::new(Listening, &home);
         assert_eq!(home.tree.bus().count_subscribers::<Heard>(), 1);
 
         addr.dispose();

@@ -16,6 +16,12 @@ pub struct AsyncContext<A: 'static> {
     cancel: Cancel,
 }
 
+impl<A: 'static> std::fmt::Debug for AsyncContext<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AsyncContext<{}>", crate::short_type_name::<A>())
+    }
+}
+
 impl<A: 'static> Clone for AsyncContext<A> {
     fn clone(&self) -> Self {
         Self {
@@ -37,8 +43,14 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::rc::Rc;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
+    /// # guinea_macros::actor! {
+    /// #     Job {
+    /// #         handlers { Begin }
+    /// #     }
+    /// # }
     /// # impl Handler<Begin> for Job {
     /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
     /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
@@ -66,8 +78,14 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::rc::Rc;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
+    /// # guinea_macros::actor! {
+    /// #     Job {
+    /// #         handlers { Begin }
+    /// #     }
+    /// # }
     /// # impl Handler<Begin> for Job {
     /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
     /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
@@ -95,8 +113,14 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::rc::Rc;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
+    /// # guinea_macros::actor! {
+    /// #     Job {
+    /// #         handlers { Begin }
+    /// #     }
+    /// # }
     /// # impl Handler<Begin> for Job {
     /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
     /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
@@ -128,8 +152,14 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::rc::Rc;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
+    /// # guinea_macros::actor! {
+    /// #     Job {
+    /// #         handlers { Begin }
+    /// #     }
+    /// # }
     /// # impl Handler<Begin> for Job {
     /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
     /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
@@ -158,6 +188,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
     /// # guinea_macros::actor! {
@@ -217,8 +248,14 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::rc::Rc;
     /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
     /// # use guinea_core::scope::ScopeTree;
+    /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
     /// # struct Begin;
+    /// # guinea_macros::actor! {
+    /// #     Job {
+    /// #         handlers { Begin }
+    /// #     }
+    /// # }
     /// # impl Handler<Begin> for Job {
     /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
     /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
@@ -279,9 +316,16 @@ impl<A: 'static> AsyncContext<A> {
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///
+    /// #[derive(Debug)]
     /// struct Total(Rc<Cell<u32>>, Rc<RefCell<Option<AsyncContext<Total>>>>);
     ///
     /// struct Add(u32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Total {
+    ///         handlers { Add, Begin }
+    ///     }
+    /// }
     ///
     /// impl Handler<Add> for Total {
     ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {

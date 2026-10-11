@@ -360,7 +360,7 @@ mod tests {
         }
 
         let home = TestHome::new();
-        let addr = Addr::new(EchoActor, &home);
+        let addr = Addr::bare(EchoActor, &home);
         let _sub = home.tree.bus().subscribe::<EchoActor, RpcRequest<Echo>>(addr);
 
         let handle =
@@ -441,8 +441,8 @@ mod tests {
 
         let home = TestHome::new();
         let bus = Rc::new(EventBus::new());
-        let _service = bus.subscribe::<Service, RpcRequest<Question>>(Addr::new(Service, &home));
-        let _monitor = bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::new(Monitor, &home));
+        let _service = bus.subscribe::<Service, RpcRequest<Question>>(Addr::bare(Service, &home));
+        let _monitor = bus.subscribe::<Monitor, RpcRequest<Question>>(Addr::bare(Monitor, &home));
     }
 
     #[test]
@@ -509,7 +509,7 @@ mod tests {
         }
 
         let home = TestHome::new();
-        let addr = Addr::new(Worker, &home);
+        let addr = Addr::bare(Worker, &home);
         let _sub = home.tree.bus().subscribe::<Worker, RpcRequest<Work>>(addr);
         home.tree.sleep();
 
@@ -546,7 +546,7 @@ mod tests {
         }
 
         let home = TestHome::new();
-        let addr = Addr::new(Dropper, &home);
+        let addr = Addr::bare(Dropper, &home);
         let _sub = home.tree.bus().subscribe::<Dropper, RpcRequest<Work>>(addr);
 
         let handle =
@@ -645,7 +645,7 @@ mod tests {
         }
 
         let home = TestHome::new();
-        let addr = Addr::new(MathActor, &home);
+        let addr = Addr::bare(MathActor, &home);
         let bus = home.tree.bus();
         let scope = home.tree.scope();
         let _sub_double = bus.subscribe::<MathActor, RpcRequest<Double>>(addr.clone());
@@ -754,8 +754,8 @@ mod tests {
         };
 
         let home = TestHome::new();
-        let addr_a = Addr::new(ActorA, &home);
-        let addr_b = Addr::new(ActorB, &home);
+        let addr_a = Addr::bare(ActorA, &home);
+        let addr_b = Addr::bare(ActorB, &home);
         let _sub_a = home.tree.bus().subscribe::<ActorA, RpcRequest<ReqA>>(addr_a);
         let _sub_b = home.tree.bus().subscribe::<ActorB, RpcRequest<ReqB>>(addr_b);
 
@@ -846,7 +846,7 @@ mod tests {
         // queue on an interval.
         let ui_thread = std::thread::spawn(move || {
             let home = TestHome::new();
-            let addr = Addr::new(AddActor, &home);
+            let addr = Addr::bare(AddActor, &home);
             let _sub = home.tree.bus().subscribe::<AddActor, RpcRequest<Add>>(addr);
             ready_tx.send(home.tree.scope()).unwrap();
             while stop_rx.try_recv().is_err() {

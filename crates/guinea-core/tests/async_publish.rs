@@ -72,7 +72,7 @@ fn an_event_published_off_the_ui_thread_reaches_the_subscribers_of_the_actor_s_t
     });
 
     let handed: Arc<Mutex<Option<AsyncContext<Refresher>>>> = Arc::default();
-    let addr = Addr::new_managed(
+    let addr = Addr::new(
         Refresher {
             handed: handed.clone(),
         },

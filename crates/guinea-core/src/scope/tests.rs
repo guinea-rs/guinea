@@ -243,8 +243,8 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
 fn a_window_reads_the_actors_under_it_and_one_by_id_without_the_rest() {
     let window = ScopeTree::new();
     let page = window.child();
-    let other = Addr::new_managed(Ticker(0), &home(window.scope()));
-    let bumped = Addr::new_managed(Ticker(0), &home(page));
+    let other = Addr::new(Ticker(0), &home(window.scope()));
+    let bumped = Addr::new(Ticker(0), &home(page));
     bumped.send(Tick);
 
     let mut held: Vec<usize> = window.actors().iter().map(|actor| actor.id).collect();

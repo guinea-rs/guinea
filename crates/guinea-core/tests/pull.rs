@@ -96,7 +96,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
         .unwrap();
     runtime.block_on(async {
         let tree = ScopeTree::new();
-        let addr = Addr::new_managed(Maker, &Home::new(tree.scope()));
+        let addr = Addr::new(Maker, &Home::new(tree.scope()));
         addr.send(Open(Making { left: 2 }));
 
         for _ in 0..20 {

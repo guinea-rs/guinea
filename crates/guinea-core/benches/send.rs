@@ -13,9 +13,19 @@ use guinea_core::trace;
 
 const BURST: usize = 1000;
 
+#[derive(Debug)]
 struct Sink(u64);
 
 struct Payload<const N: usize>([u8; N]);
+
+guinea_macros::actor! {
+    Sink {
+        handlers {
+            Payload<0>, Payload<16>, Payload<64>, Payload<256>, Payload<1024>, Payload<4096>,
+            Burst<0>, Burst<16>, Burst<64>, Burst<256>, Burst<1024>, Burst<4096>
+        }
+    }
+}
 
 impl<const N: usize> Handler<Payload<N>> for Sink {
     fn handle(&mut self, Payload(bytes): Payload<N>, _cx: Cx<Self, Payload<N>>) {

@@ -44,7 +44,14 @@ struct Saved([u8; 256]);
 
 impl Event for Saved {}
 
+#[derive(Debug)]
 struct Sink(u64);
+
+guinea_macros::actor! {
+    Sink {
+        handlers { Saved }
+    }
+}
 
 impl Handler<Saved> for Sink {
     fn handle(&mut self, Saved(bytes): Saved, _cx: Cx<Self, Saved>) {

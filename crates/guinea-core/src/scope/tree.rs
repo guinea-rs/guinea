@@ -61,23 +61,22 @@ impl Tree {
 
     /// Takes the scope at `node` and everything under it out of the tree,
     /// children before their parent and the newest child first, and hands
-    /// back what they held in that order.
-    pub(super) fn detach(&mut self, node: NodeKey) -> Vec<Rc<ScopeData>> {
-        let Some(parent) = self.nodes.get(node).map(|node| node.parent) else {
-            return Vec::new();
-        };
-        if let Some(parent) = parent {
+    /// back what they held in that order. `None` when `node` is no longer in
+    /// the tree.
+    pub(super) fn detach(&mut self, node: NodeKey) -> Option<Vec<Rc<ScopeData>>> {
+        if let Some(parent) = self.nodes.get(node)?.parent {
             self.nodes[parent].children.retain(|child| *child != node);
         }
 
         let mut order = Vec::new();
         self.collect(node, &mut order);
 
-        order
+        let detached = order
             .into_iter()
             .filter_map(|node| self.nodes.remove(node))
             .map(|node| node.data)
-            .collect()
+            .collect();
+        Some(detached)
     }
 
     pub(super) fn collect(&self, node: NodeKey, order: &mut Vec<NodeKey>) {

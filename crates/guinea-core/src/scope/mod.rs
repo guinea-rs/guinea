@@ -138,6 +138,9 @@ impl Scope {
         let detached = tree.borrow_mut().detach(self.node);
         drop(tree);
 
+        let Some(detached) = detached else {
+            return;
+        };
         for data in detached {
             data.tear_down();
         }

@@ -3,8 +3,8 @@ use crate::scope::{Reducer, Scope, Section};
 /// The way back into a reducer, for whoever changes it.
 ///
 /// Handed to an actor as a parameter rather than fetched by name. It names its
-/// scope and does not keep it: the scope goes when it is removed, and this
-/// quietly stops.
+/// scope and does not keep it: the scope goes when it is removed, and with it
+/// the actor and whatever else was meant to push.
 pub struct Push<R: Reducer> {
     scope: Scope,
     reducer: std::marker::PhantomData<R>,
@@ -38,15 +38,17 @@ impl<R: Reducer> Push<R> {
         }
     }
 
-    /// Applies an update. A no-op once the scope is gone, which is what
-    /// happens to work an actor finishes after its page has been left.
+    /// Applies an update.
+    ///
+    /// # Panics
+    ///
+    /// When its scope is gone: whatever still pushes outlived the page it
+    /// was pushing to.
     pub fn send(&self, update: R::Update) {
-        if self.scope.is_alive() {
-            crate::trace::mark(|| crate::trace::Point::Push {
-                reducer: crate::short_type_name::<R>(),
-            });
-            self.scope.push::<R>(update);
-        }
+        crate::trace::mark(|| crate::trace::Point::Push {
+            reducer: crate::short_type_name::<R>(),
+        });
+        self.scope.push::<R>(update);
     }
 }
 

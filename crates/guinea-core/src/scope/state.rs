@@ -14,14 +14,6 @@ pub struct Subscription {
     unsubscribe: Option<Box<dyn FnOnce()>>,
 }
 
-impl Subscription {
-    /// A subscription to something that no longer exists - dropping it does
-    /// nothing.
-    pub(crate) fn inert() -> Self {
-        Self { unsubscribe: None }
-    }
-}
-
 impl Drop for Subscription {
     fn drop(&mut self) {
         if let Some(unsubscribe) = self.unsubscribe.take() {

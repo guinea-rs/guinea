@@ -16,7 +16,7 @@ use crate::scope::{Reducer, Scope, Slot, Subscription};
 ///
 /// Names the scope and holds the state cell: reading keeps working after the
 /// scope is removed (the last frame of a page being navigated away from still
-/// renders), while pushing and subscribing quietly stop.
+/// renders). Pushing or subscribing after that is a mistake, and says so.
 pub struct ReducerBinding<R: Reducer> {
     owner: Scope,
     state: Rc<Slot<R>>,
@@ -58,12 +58,13 @@ impl<R: Reducer> ReducerBinding<R> {
         self.dispatch.clone()
     }
 
-    /// Applies an update directly, without an actor in between. A no-op once
-    /// the owning scope is gone.
+    /// Applies an update directly, without an actor in between.
+    ///
+    /// # Panics
+    ///
+    /// When the owning scope is gone.
     pub fn push(&self, update: R::Update) {
-        if self.owner.is_alive() {
-            self.owner.push::<R>(update);
-        }
+        self.owner.push::<R>(update);
     }
 
     /// Calls `f` after every change, until the returned [`Subscription`] is
@@ -71,13 +72,12 @@ impl<R: Reducer> ReducerBinding<R> {
     ///
     /// The caller owns the lifetime, which is what a reconciler needs: the
     /// subscription must end with the component instance, not with the scope,
-    /// or unmounted components accumulate as live listeners. Once the scope
-    /// is gone there is nothing left to change, and nothing is called.
+    /// or unmounted components accumulate as live listeners.
+    ///
+    /// # Panics
+    ///
+    /// When the owning scope is gone.
     pub fn on_change(&self, f: impl Fn(&R) + 'static) -> Subscription {
-        if !self.owner.is_alive() {
-            return Subscription::inert();
-        }
-
         let state = self.state.clone();
         self.owner.subscribe::<R>(move || {
             let now = state.borrow().clone();
@@ -126,22 +126,7 @@ mod tests {
         scope.remove();
 
         assert_eq!(binding.peek().0, 1, "the state cell outlives the scope");
-        binding.push(1);
-        assert_eq!(binding.peek().0, 1, "pushing into a removed scope is a no-op");
-    }
-
-    #[test]
-    fn subscribing_to_a_removed_scope_hears_nothing() {
-        let scope = ScopeTree::new();
-        let binding = scope.binding::<Counter>();
-        scope.remove();
-
-        let seen = Rc::new(Cell::new(false));
-        let recorder = seen.clone();
-        let _subscription = binding.on_change(move |_| recorder.set(true));
-        binding.push(1);
-
-        assert!(!seen.get());
+        assert_eq!(binding.get().0, 1);
     }
 
     #[test]

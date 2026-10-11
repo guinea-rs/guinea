@@ -436,7 +436,7 @@ pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-utils"))]
 mod tests {
     use super::*;
     use crate::executor::{Installed, install};

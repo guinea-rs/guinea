@@ -169,7 +169,7 @@ fn install_page<P: Page>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
     own(ctx, P::install(ctx, params)?);
-    guinea_router::mounted::keep(&ctx.scope, P::init(ctx, params));
+    ctx.scope.keep(P::init(ctx, params));
     Ok(())
 }
 
@@ -185,7 +185,7 @@ fn install_layout<L: Layout>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
     own(ctx, L::install(ctx, params)?);
-    guinea_router::mounted::keep(&ctx.scope, L::init(ctx, params));
+    ctx.scope.keep(L::init(ctx, params));
     Ok(())
 }
 
@@ -200,7 +200,7 @@ impl<P: Page> Mount<Egui> for MountPage<P> {
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            guinea_router::mounted::with::<P, _>(&at, |page| {
+            at.kept::<P, _>(|page| {
                 page.render(&mut PageCx {
                     ui,
                     props,
@@ -217,7 +217,7 @@ impl<L: Layout> Mount<Egui> for MountLayout<L> {
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            guinea_router::mounted::with::<L, _>(&at, |layout| {
+            at.kept::<L, _>(|layout| {
                 layout.render(&mut LayoutCx {
                     ui,
                     props,

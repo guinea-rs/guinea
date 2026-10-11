@@ -6,6 +6,7 @@ use slotmap::{SlotMap, new_key_type};
 use super::Scope;
 use super::actors::Held;
 use super::features::Features;
+use super::kept::Kept;
 use super::lifetime::Lifetime;
 use super::state::States;
 use crate::actor::event_bus::EventBus;
@@ -36,6 +37,7 @@ pub(super) struct ScopeData {
     pub(super) state: States,
     pub(super) features: Features,
     pub(super) lifetime: Lifetime,
+    pub(super) kept: Kept,
     /// The actors it owns, and lists for devtools. See [`Scope::hold`].
     pub(super) actors: RefCell<Held>,
 }

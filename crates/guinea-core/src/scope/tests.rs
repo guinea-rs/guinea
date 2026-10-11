@@ -289,6 +289,65 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
 }
 
 #[test]
+fn what_a_scope_keeps_is_handed_back_as_it_was_left() {
+    let scope = ScopeTree::new();
+    scope.keep(1u32);
+
+    scope.kept::<u32, _>(|kept| *kept += 1);
+
+    assert_eq!(scope.kept::<u32, _>(|kept| *kept), 2);
+}
+
+#[test]
+fn with_nothing_kept_a_call_gets_a_default_that_lasts_it() {
+    let scope = ScopeTree::new();
+
+    scope.kept::<u32, _>(|kept| *kept += 5);
+
+    assert_eq!(scope.kept::<u32, _>(|kept| *kept), 0);
+}
+
+#[derive(Default)]
+struct Counted(Option<Rc<std::cell::Cell<u32>>>);
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        if let Some(dropped) = &self.0 {
+            dropped.set(dropped.get() + 1);
+        }
+    }
+}
+
+#[test]
+fn what_a_scope_keeps_goes_with_it() {
+    let dropped = Rc::new(std::cell::Cell::new(0));
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    page.keep(Counted(Some(dropped.clone())));
+
+    let while_there = dropped.get();
+    page.remove();
+
+    assert_eq!((while_there, dropped.get()), (0, 1));
+}
+
+#[test]
+fn what_a_scope_removed_during_the_call_kept_goes_after_it() {
+    let dropped = Rc::new(std::cell::Cell::new(0));
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    page.keep(Counted(Some(dropped.clone())));
+
+    let during = page.kept::<Counted, _>(|_| {
+        page.remove();
+        dropped.get()
+    });
+
+    assert_eq!((during, dropped.get()), (0, 1));
+    assert_eq!(page.kept::<Counted, _>(|kept| kept.0.is_some()), false);
+}
+
+#[test]
 fn a_claimed_reducer_is_not_a_feature_installed_there() {
     let scope = ScopeTree::new();
     scope.claim::<Counter>(None);

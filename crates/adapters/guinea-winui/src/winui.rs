@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
-use guinea_core::scope::{Reducer, Scope};
+use guinea_core::scope::Reducer;
 use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
@@ -926,50 +926,24 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<WinUi> {
     .written(L::DECLARED)
 }
 
-thread_local! {
-    /// Nodes built by `install`, by the scope they were installed into.
-    ///
-    /// `init` needs the feature context, which exists while the router is
-    /// installing; a component is created later, when the reconciler reaches
-    /// it, and is handed no such thing. So the node is built where the context
-    /// is and found where it is needed.
-    ///
-    /// Kept for as long as the scope is, not taken once: a component the
-    /// reconciler drops and makes again in the same scope - a part a fill
-    /// covered and uncovered - is the same segment, and gets the same node.
-    static STAGED: RefCell<HashMap<Scope, Box<dyn Any>>> = RefCell::new(HashMap::new());
-}
-
-/// Forgets a scope's node when the scope goes.
-struct Unstage(Scope);
-
-impl Drop for Unstage {
-    fn drop(&mut self) {
-        let _gone = STAGED.try_with(|staged| staged.borrow_mut().remove(&self.0));
-    }
-}
-
+/// Keeps the node `install` built in its scope, for the component to find.
+///
+/// `init` needs the feature context, which exists while the router is
+/// installing; a component is created later, when the reconciler reaches it,
+/// and is handed no such thing. So the node is built where the context is and
+/// found where it is needed.
+///
+/// Kept for as long as the scope is, not taken once: a component the
+/// reconciler drops and makes again in the same scope - a part a fill covered
+/// and uncovered - is the same segment, and gets the same node.
 fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
-    let key = ctx.scope;
-    STAGED.with(|staged| {
-        staged.borrow_mut().insert(key, Box::new(node));
-    });
-    ctx.scope.own(guinea_core::scope::DropGuard(Unstage(key)));
+    ctx.scope.keep(node);
 }
 
 /// The node installed into the scope at `props`, or a default one - which is
 /// what a page mounted outside a route tree gets.
 fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
-    let key = props.scope();
-    STAGED
-        .with(|staged| {
-            staged
-                .borrow()
-                .get(&key)
-                .and_then(|node| node.downcast_ref::<Shared<N>>())
-                .cloned()
-        })
-        .unwrap_or_default()
+    props.scope().kept::<Shared<N>, _>(|node| node.clone())
 }
 
 pub(crate) fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {

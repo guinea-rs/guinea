@@ -243,7 +243,7 @@ fn install_page<P: Page>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
     own(ctx, P::install(ctx, params)?);
-    guinea_router::mounted::keep(&ctx.scope, P::init(ctx, params));
+    ctx.scope.keep(P::init(ctx, params));
     Ok(())
 }
 
@@ -259,7 +259,7 @@ fn install_layout<L: Layout>(
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
     own(ctx, L::install(ctx, params)?);
-    guinea_router::mounted::keep(&ctx.scope, L::init(ctx, params));
+    ctx.scope.keep(L::init(ctx, params));
     Ok(())
 }
 
@@ -274,7 +274,7 @@ impl<P: Page> Mount<Tui> for MountPage<P> {
 
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            guinea_router::mounted::with::<P, _>(&at, |page| {
+            at.kept::<P, _>(|page| {
                 page.render(&mut PageCx {
                     frame,
                     area,
@@ -298,7 +298,7 @@ impl<P: Page> TuiMount for MountPage<P> {
             segment: std::marker::PhantomData,
         };
 
-        guinea_router::mounted::with::<P, _>(&at, |page| match input {
+        at.kept::<P, _>(|page| match input {
             Input::Key(key) => page.on_key(&mut cx, key),
             Input::Paste(text) => page.on_paste(&mut cx, text),
         })
@@ -317,7 +317,7 @@ impl<L: Layout> TuiMount for MountLayout<L> {
             segment: std::marker::PhantomData,
         };
 
-        guinea_router::mounted::with::<L, _>(&at, |layout| match input {
+        at.kept::<L, _>(|layout| match input {
             Input::Key(key) => layout.on_key(&mut cx, key),
             Input::Paste(text) => layout.on_paste(&mut cx, text),
         })
@@ -330,7 +330,7 @@ impl<L: Layout> Mount<Tui> for MountLayout<L> {
 
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            guinea_router::mounted::with::<L, _>(&at, |layout| {
+            at.kept::<L, _>(|layout| {
                 layout.render(&mut LayoutCx {
                     frame,
                     area,

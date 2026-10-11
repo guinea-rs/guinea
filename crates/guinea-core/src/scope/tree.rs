@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use slotmap::{SlotMap, new_key_type};
 
-use super::{MAIN, Outlet, Scope, ScopeData};
+use super::{Scope, ScopeData};
 use crate::actor::event_bus::EventBus;
 
 new_key_type! {
@@ -25,7 +25,6 @@ pub(super) struct Node {
     pub(super) serial: u64,
     pub(super) data: Rc<ScopeData>,
     pub(super) parent: Option<NodeKey>,
-    pub(super) outlet: Outlet,
     pub(super) children: Vec<NodeKey>,
 }
 
@@ -44,13 +43,12 @@ impl Tree {
         }
     }
 
-    pub(super) fn insert(&mut self, parent: Option<NodeKey>, outlet: Outlet) -> (NodeKey, u64) {
+    pub(super) fn insert(&mut self, parent: Option<NodeKey>) -> (NodeKey, u64) {
         let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
         let node = self.nodes.insert(Node {
             serial,
             data: Rc::new(ScopeData::default()),
             parent,
-            outlet,
             children: Vec::new(),
         });
 
@@ -149,7 +147,7 @@ pub struct ScopeTree {
 impl ScopeTree {
     pub fn new() -> Self {
         let tree = Rc::new(RefCell::new(Tree::new()));
-        let (node, serial) = tree.borrow_mut().insert(None, MAIN);
+        let (node, serial) = tree.borrow_mut().insert(None);
 
         Self {
             root: Scope {

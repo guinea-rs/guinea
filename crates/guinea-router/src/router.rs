@@ -81,7 +81,6 @@ pub struct SegmentEntry<U: Ui> {
 /// layout's slot when nothing below fills it.
 pub struct Part<U: Ui> {
     pub slot: fn() -> TypeId,
-    pub slot_name: fn() -> &'static str,
     /// The layout's chain down to it, then the part: what the part reads
     /// through.
     pub chain: &'static [SegmentEntry<U>],
@@ -91,7 +90,6 @@ impl<U: Ui> Part<U> {
     pub const fn new<S: crate::slot::Slot>(chain: &'static [SegmentEntry<U>]) -> Self {
         Self {
             slot: TypeId::of::<S>,
-            slot_name: std::any::type_name::<S>,
             chain,
         }
     }
@@ -113,11 +111,32 @@ pub trait Mount<U: Ui>: 'static {
     fn view<'a>(&self, props: SegmentProps<U>, nodes: &'a U::Nodes) -> U::View<'a>;
 }
 
-/// Where a segment sits while it renders: the chain it belongs to, the scope
-/// stack that chain installed, and which of the two this segment is.
+/// A segment as it stands: the scope it was installed in, and the scopes of
+/// the parts it mounts in its slots, in the order its entry lists them.
+///
+/// The parts are the router's to remember: each sits under the segment's
+/// scope, so it goes when that does, but nothing in the scope says which
+/// child is a part and which is the next segment down.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Placed {
+    pub scope: Scope,
+    pub parts: Vec<Scope>,
+}
+
+impl From<Scope> for Placed {
+    fn from(scope: Scope) -> Self {
+        Self {
+            scope,
+            parts: Vec::new(),
+        }
+    }
+}
+
+/// Where a segment sits while it renders: the chain it belongs to, the
+/// segments that chain installed, and which of the two this segment is.
 pub struct SegmentProps<U: Ui> {
     pub chain: &'static [SegmentEntry<U>],
-    pub scopes: Rc<Vec<Scope>>,
+    pub scopes: Rc<Vec<Placed>>,
     pub cursor: usize,
 }
 
@@ -174,7 +193,7 @@ impl<U: Ui> SegmentProps<U> {
         (self.cursor..chain.len().min(scopes.len())).map(move |cursor| SegmentIdentity {
             cursor,
             segment: (chain[cursor].type_id)(),
-            scope: scopes[cursor].key(),
+            scope: scopes[cursor].scope.key(),
         })
     }
 
@@ -182,13 +201,13 @@ impl<U: Ui> SegmentProps<U> {
         SegmentIdentity {
             cursor: self.cursor,
             segment: (self.chain[self.cursor].type_id)(),
-            scope: self.scopes[self.cursor].key(),
+            scope: self.scope().key(),
         }
     }
 
     /// The scope this segment runs in.
     pub fn scope(&self) -> Scope {
-        self.scopes[self.cursor]
+        self.scopes[self.cursor].scope
     }
 
     /// The scope that owns `R`, and a binding to its state.
@@ -204,7 +223,7 @@ impl<U: Ui> SegmentProps<U> {
     /// this segment. So it panics rather than silently treating the current
     /// scope as the owner.
     pub fn binding<R: Reducer>(&self) -> ReducerBinding<R> {
-        let here = self.scopes[self.cursor];
+        let here = self.scope();
         let owner = here.owner_of::<R>().unwrap_or_else(|| {
             if !here.is_alive() {
                 panic!(
@@ -232,7 +251,7 @@ impl<U: Ui> SegmentProps<U> {
 
         let kept = (0..self.cursor)
             .rev()
-            .filter(|&at| self.scopes[at].claims::<R>())
+            .filter(|&at| self.scopes[at].scope.claims::<R>())
             .map(|at| name(&self.chain[at]))
             .collect::<Vec<_>>();
         if kept.is_empty() {
@@ -252,16 +271,15 @@ impl<U: Ui> SegmentProps<U> {
     /// Where the part this layout mounts in slot `S` renders, if it has one:
     /// under this layout's scopes, so it reads what this layout reads.
     pub fn part<S: crate::slot::Slot>(&self) -> Option<SegmentProps<U>> {
-        let part = self.chain[self.cursor]
+        let (at, part) = self.chain[self.cursor]
             .parts
             .iter()
-            .find(|part| (part.slot)() == TypeId::of::<S>())?;
-        let scope = *self.scopes[self.cursor]
-            .children_in((part.slot_name)())
-            .first()?;
+            .enumerate()
+            .find(|(_, part)| (part.slot)() == TypeId::of::<S>())?;
+        let scope = *self.scopes[self.cursor].parts.get(at)?;
 
         let mut scopes = self.scopes[..=self.cursor].to_vec();
-        scopes.push(scope);
+        scopes.push(Placed::from(scope));
         Some(SegmentProps {
             chain: part.chain,
             scopes: Rc::new(scopes),
@@ -778,7 +796,7 @@ where
 /// the raw `Context`.
 pub(crate) struct ActiveChain<U: Ui> {
     pub(crate) entries: &'static [SegmentEntry<U>],
-    pub(crate) scopes: Rc<Vec<Scope>>,
+    pub(crate) scopes: Rc<Vec<Placed>>,
     /// What each segment was installed with, kept so the next navigation can
     /// ask which of them changed - and so a cached state can refuse to come
     /// back to a segment that captured something else.
@@ -826,9 +844,9 @@ impl<U: Ui> Drop for Router<U> {
 /// before what it reads. Each scope sits under the one before it, so removing
 /// the outermost would take the rest with it in that order anyway; going
 /// from the inside says so.
-fn unwind(scopes: &[Scope]) {
-    for scope in scopes.iter().rev() {
-        scope.remove();
+fn unwind(scopes: &[Placed]) {
+    for placed in scopes.iter().rev() {
+        placed.scope.remove();
     }
 }
 
@@ -914,14 +932,14 @@ impl StateCache {
     }
 }
 
-/// A `keep` segment a navigation left: its scope, asleep, and what it needs
-/// to be woken as the same segment.
+/// A `keep` segment a navigation left: its scope and its parts, asleep, and
+/// what it needs to be woken as the same segment.
 ///
 /// The scope stays where it was in the tree, under the scope it was installed
 /// under - so it goes when that one does, and it wakes only under that very
 /// one: what it inherited from above is theirs.
 struct Sleeping {
-    scope: Scope,
+    placed: Placed,
     /// What it had captured. Woken only for the same capture.
     params: Box<dyn Any>,
 }
@@ -1402,7 +1420,7 @@ impl<U: Ui> Router<U> {
                 .scopes
                 .iter()
                 .skip(kept_until(active.entries, shared_len))
-                .copied()
+                .map(|placed| placed.scope)
                 .collect(),
             None => return Verdict::Allow,
         };
@@ -1521,7 +1539,7 @@ impl<U: Ui> Router<U> {
         let prev = self.active.borrow_mut().take();
 
         let mut previous = None;
-        let scopes: Vec<Scope> = match prev {
+        let scopes: Vec<Placed> = match prev {
             None => Vec::new(),
             Some(ActiveChain {
                 entries,
@@ -1535,7 +1553,7 @@ impl<U: Ui> Router<U> {
                     captured.into_iter().map(Some).collect();
                 {
                     let mut cache = self.state_cache.borrow_mut();
-                    for (index, (entry, scope)) in
+                    for (index, (entry, placed)) in
                         entries.iter().zip(scopes.iter()).enumerate().skip(keeping)
                     {
                         if entry.cache_state
@@ -1544,7 +1562,7 @@ impl<U: Ui> Router<U> {
                             cache.insert(
                                 cache_key(entries, index),
                                 Cached {
-                                    states: scope.snapshot_states(),
+                                    states: placed.scope.snapshot_states(),
                                     params: captured,
                                 },
                             );
@@ -1590,35 +1608,35 @@ impl<U: Ui> Router<U> {
     fn leave(
         &self,
         entries: &[SegmentEntry<U>],
-        scopes: Rc<Vec<Scope>>,
+        scopes: Rc<Vec<Placed>>,
         mut captured: Vec<Option<Box<dyn Any>>>,
         shared_len: usize,
         keeping: usize,
-    ) -> Vec<Scope> {
+    ) -> Vec<Placed> {
         let mut standing = scopes.to_vec();
 
         while standing.len() > shared_len {
-            let scope = standing.pop().expect("longer than what stays");
+            let placed = standing.pop().expect("longer than what stays");
             let index = standing.len();
             let params = (index < keeping)
                 .then(|| captured.get_mut(index).and_then(Option::take))
                 .flatten();
 
             let Some(params) = params else {
-                self.forget(scope);
+                self.forget(placed.scope);
                 continue;
             };
 
-            scope.sleep();
-            for part in scope.beside() {
+            placed.scope.sleep();
+            for part in &placed.parts {
                 part.sleep();
             }
             let replaced = self
                 .sleeping
                 .borrow_mut()
-                .insert(cache_key(entries, index), Sleeping { scope, params });
+                .insert(cache_key(entries, index), Sleeping { placed, params });
             if let Some(replaced) = replaced {
-                self.forget(replaced.scope);
+                self.forget(replaced.placed.scope);
             }
         }
 
@@ -1627,7 +1645,7 @@ impl<U: Ui> Router<U> {
 
     /// Tears `scopes` down to the first `shared_len`, with whatever sleeps
     /// below the ones that go.
-    fn tear_down(&self, scopes: Vec<Scope>, shared_len: usize) -> Vec<Scope> {
+    fn tear_down(&self, scopes: Vec<Placed>, shared_len: usize) -> Vec<Placed> {
         self.leave(&[], Rc::new(scopes), Vec::new(), shared_len, shared_len)
     }
 
@@ -1638,26 +1656,28 @@ impl<U: Ui> Router<U> {
         &self,
         chain: &'static [SegmentEntry<U>],
         index: usize,
-        standing: &[Scope],
+        standing: &[Placed],
         captured: &dyn Any,
-    ) -> Option<Scope> {
+    ) -> Option<Placed> {
         let entry = &chain[index];
         let sleeping = self.sleeping.borrow_mut().remove(&cache_key(chain, index))?;
 
         if entry.keep
-            && sleeping.scope.parent() == Some(self.parent_of(standing))
+            && sleeping.placed.scope.parent() == Some(self.parent_of(standing))
             && (entry.same_params)(&*sleeping.params, captured)
         {
-            return Some(sleeping.scope);
+            return Some(sleeping.placed);
         }
 
-        self.forget(sleeping.scope);
+        self.forget(sleeping.placed.scope);
         None
     }
 
     /// The scope the next segment below `standing` goes under.
-    fn parent_of(&self, standing: &[Scope]) -> Scope {
-        standing.last().copied().unwrap_or_else(|| self.host.scope())
+    fn parent_of(&self, standing: &[Placed]) -> Scope {
+        standing
+            .last()
+            .map_or_else(|| self.host.scope(), |placed| placed.scope)
     }
 
     /// Wakes what the active chain woke up with, outermost first, once the
@@ -1667,9 +1687,9 @@ impl<U: Ui> Router<U> {
             return;
         };
 
-        for scope in scopes.iter().filter(|scope| !scope.is_awake()) {
-            scope.wake();
-            for part in scope.beside() {
+        for placed in scopes.iter().filter(|placed| !placed.scope.is_awake()) {
+            placed.scope.wake();
+            for part in &placed.parts {
                 part.wake();
             }
         }
@@ -1681,7 +1701,7 @@ impl<U: Ui> Router<U> {
         scope.remove();
         self.sleeping
             .borrow_mut()
-            .retain(|_, sleeping| sleeping.scope.is_alive());
+            .retain(|_, sleeping| sleeping.placed.scope.is_alive());
     }
 
     /// Removes everything asleep.
@@ -1689,7 +1709,7 @@ impl<U: Ui> Router<U> {
         let Ok(mut sleeping) = self.sleeping.try_borrow_mut() else {
             return;
         };
-        let all: Vec<Scope> = sleeping.drain().map(|(_, sleeping)| sleeping.scope).collect();
+        let all: Vec<Scope> = sleeping.drain().map(|(_, sleeping)| sleeping.placed.scope).collect();
         drop(sleeping);
 
         for scope in all {
@@ -1701,11 +1721,11 @@ impl<U: Ui> Router<U> {
     fn stand(
         &self,
         chain: &'static [SegmentEntry<U>],
-        scopes: Vec<Scope>,
+        scopes: Vec<Placed>,
         params: Vec<Box<dyn Any>>,
         again: Option<Again>,
     ) -> Scope {
-        let leaf = *scopes.last().expect("chain is non-empty");
+        let leaf = scopes.last().expect("chain is non-empty").scope;
         *self.active.borrow_mut() = Some(ActiveChain {
             entries: chain,
             scopes: Rc::new(scopes),
@@ -1723,9 +1743,9 @@ impl<U: Ui> Router<U> {
     fn build(
         &self,
         chain: &'static [SegmentEntry<U>],
-        mut scopes: Vec<Scope>,
+        mut scopes: Vec<Placed>,
         params: &[Box<dyn Any>],
-    ) -> Result<Vec<Scope>, (anyhow::Error, Vec<Scope>)> {
+    ) -> Result<Vec<Placed>, (anyhow::Error, Vec<Placed>)> {
         let standing = scopes.len();
 
         for (index, entry) in chain.iter().enumerate().skip(standing) {
@@ -1754,31 +1774,33 @@ impl<U: Ui> Router<U> {
 
             let ctx = self.host.context(scope, index);
 
-            let installed =
-                (entry.install)(&ctx, captured).and_then(|()| self.install_parts(entry, scope, index));
-            if let Err(error) = installed {
-                scopes.push(scope);
-                let kept = self.tear_down(scopes, standing);
+            let mut parts = Vec::with_capacity(entry.parts.len());
+            let installed = (entry.install)(&ctx, captured)
+                .and_then(|()| self.install_parts(entry, scope, index, &mut parts));
+            scopes.push(Placed { scope, parts });
 
+            if let Err(error) = installed {
+                let kept = self.tear_down(scopes, standing);
                 return Err((error, kept));
             }
-
-            scopes.push(scope);
         }
 
         Ok(scopes)
     }
 
-    /// Installs what `entry` mounts in its slots, each under `layout` in the
-    /// slot's own outlet - so each goes when the layout does.
+    /// Installs what `entry` mounts in its slots, each under `layout` - so
+    /// each goes when the layout does - into `parts`, in the order the entry
+    /// lists them.
     fn install_parts(
         &self,
         entry: &SegmentEntry<U>,
         layout: Scope,
         index: usize,
+        parts: &mut Vec<Scope>,
     ) -> anyhow::Result<()> {
         for part in entry.parts {
-            let scope = layout.child_in((part.slot_name)());
+            let scope = layout.child();
+            parts.push(scope);
             (part.entry().install)(&self.host.context(scope, index + 1), &())?;
         }
         Ok(())
@@ -1846,7 +1868,7 @@ impl<U: Ui> Router<U> {
         self.active
             .borrow()
             .as_ref()
-            .and_then(|active| active.scopes.get(cursor).copied())
+            .and_then(|active| active.scopes.get(cursor).map(|placed| placed.scope))
     }
 
     /// The route the router is on, if it is the type asked for.
@@ -1914,7 +1936,7 @@ impl<U: Ui> Router<U> {
         self.active.borrow().as_ref().map(|active| active.entries)
     }
 
-    pub fn active_scopes(&self) -> Option<Rc<Vec<Scope>>> {
+    pub fn active_scopes(&self) -> Option<Rc<Vec<Placed>>> {
         self.active
             .borrow()
             .as_ref()
@@ -1922,7 +1944,10 @@ impl<U: Ui> Router<U> {
     }
 
     pub fn active_scope(&self) -> Option<Scope> {
-        self.active.borrow().as_ref().and_then(|a| a.scopes.last().copied())
+        self.active
+            .borrow()
+            .as_ref()
+            .and_then(|active| active.scopes.last().map(|placed| placed.scope))
     }
     
     /// The active chain, mounted.

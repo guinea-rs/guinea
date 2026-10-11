@@ -23,7 +23,7 @@ fn reading_from_a_torn_down_segment_says_it_was_torn_down() {
     page.remove();
     let props = SegmentProps::<Headless> {
         chain: &[],
-        scopes: Rc::new(vec![page]),
+        scopes: Rc::new(vec![page.into()]),
         cursor: 0,
     };
 

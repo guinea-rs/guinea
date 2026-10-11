@@ -143,6 +143,7 @@ impl<U: Ui> Inspected for Router<U> {
             (Some(chain), Some(scopes)) => chain
                 .iter()
                 .zip(scopes.iter())
+                .map(|(entry, placed)| (entry, placed.scope))
                 .map(|(entry, scope)| SegmentView {
                     name: short((entry.type_name)()),
                     scope: scope.key(),
@@ -184,7 +185,7 @@ impl<U: Ui> Inspected for Router<U> {
 
     fn scopes(&self) -> Vec<guinea_core::scope::Scope> {
         self.active_scopes()
-            .map(|scopes| scopes.to_vec())
+            .map(|scopes| scopes.iter().map(|placed| placed.scope).collect())
             .unwrap_or_default()
     }
 }

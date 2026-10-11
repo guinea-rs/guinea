@@ -64,7 +64,7 @@ thread_local! {
 /// Before a segment draws: what it placed and filled last time is forgotten
 /// unless it says so again.
 pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
-    let key = props.scopes[props.cursor].key();
+    let key = props.scope().key();
 
     BOARD.with(|board| {
         let mut board = board.borrow_mut();
@@ -79,7 +79,7 @@ pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
 
 /// After a segment draws: a fill it did not make again is withdrawn.
 pub(crate) fn drawn(props: &SegmentProps<WinUi>) {
-    let key = props.scopes[props.cursor].key();
+    let key = props.scope().key();
     withdraw(key, |fill| !fill.made);
 }
 
@@ -112,7 +112,7 @@ fn withdraw(filler: usize, going: impl Fn(&Fill) -> bool) {
 
 /// The placeholder for `S`, where the layout at `props` draws it.
 pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
-    let placer = props.scopes[props.cursor].key();
+    let placer = props.scope().key();
     let slot = TypeId::of::<S>();
 
     BOARD.with(|board| {
@@ -138,12 +138,12 @@ pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
 /// Hands `view` to the nearest layout above `props` that placed `S`.
 pub(crate) fn fill<S: Slot>(props: &SegmentProps<WinUi>, view: View) {
     let slot = TypeId::of::<S>();
-    let filler = props.scopes[props.cursor].key();
+    let filler = props.scope().key();
 
     let placer = BOARD.with(|board| {
         let board = board.borrow();
         (0..props.cursor).rev().find_map(|at| {
-            let placer = props.scopes[at].key();
+            let placer = props.scopes[at].scope.key();
             board
                 .placed
                 .get(&placer)

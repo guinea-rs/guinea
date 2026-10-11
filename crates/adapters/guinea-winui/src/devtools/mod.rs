@@ -34,7 +34,7 @@ pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
         return;
     }
 
-    let Some(&scope) = props.scopes.get(props.cursor) else {
+    let Some(scope) = props.scopes.get(props.cursor).map(|placed| placed.scope) else {
         return;
     };
     let text = format!("{view:?}");
@@ -67,8 +67,8 @@ fn panel(router: &Router<WinUi>) -> Panel {
                 chain
                     .iter()
                     .zip(scopes.iter())
-                    .map(|(entry, scope)| {
-                        let record = records.get(scope);
+                    .map(|(entry, placed)| {
+                        let record = records.get(&placed.scope);
                         (
                             short((entry.type_name)()),
                             record.map_or(0, |record| record.renders),

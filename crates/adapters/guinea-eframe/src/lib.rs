@@ -196,7 +196,7 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 
 impl<P: Page> Mount<Egui> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
@@ -213,7 +213,7 @@ impl<P: Page> Mount<Egui> for MountPage<P> {
 
 impl<L: Layout> Mount<Egui> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
 
         Node::new(move |ui| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());

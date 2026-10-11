@@ -960,7 +960,7 @@ fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
 /// The node installed into the scope at `props`, or a default one - which is
 /// what a page mounted outside a route tree gets.
 fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
-    let key = props.scopes[props.cursor].key();
+    let key = props.scope().key();
     STAGED
         .with(|staged| {
             staged
@@ -1269,13 +1269,13 @@ pub(crate) fn caused<C: Component>(cx: &mut ViewContext<C>) -> guinea_core::trac
 /// chain that follows takes its place. A message for the page is dropped the
 /// same way: `update` would read a scope that is gone.
 fn left(props: &SegmentProps<WinUi>) -> bool {
-    !props.scopes[props.cursor].is_alive()
+    !props.scope().is_alive()
 }
 
 /// Withdraws what a segment filled, and the slots it placed, when it leaves
 /// the screen or is installed again elsewhere.
 fn leaves_its_fills<C: Component>(props: &SegmentProps<WinUi>, cx: &mut ViewContext<C>) {
-    let filler = props.scopes[props.cursor].key();
+    let filler = props.scope().key();
     cx.use_effect("guinea.fills", props.identity(), move || {
         Some(Box::new(move || crate::slots::left(filler)) as Box<dyn FnOnce()>)
     });

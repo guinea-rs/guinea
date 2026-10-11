@@ -29,7 +29,7 @@ use guinea_core::feature::Dispatch;
 use guinea_core::mark::Mark;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
+    Mount, NavigateHandle, Placed, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
 };
 use windows_reactor::{
     Border, Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
@@ -504,7 +504,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         let props = SegmentProps {
             chain: chain::<S, K>(depth),
-            scopes: Rc::new(scopes),
+            scopes: Rc::new(scopes.into_iter().map(Placed::from).collect()),
             cursor: depth - 1,
         };
 
@@ -1740,9 +1740,9 @@ where
     /// The segment of the mounted tree that claimed `S`, or the harness's own.
     fn owning<St: Reducer>(&self) -> Segment<'h> {
         let mut mounted: Vec<Scope> = Vec::new();
-        for scope in self.routed_router().active_scopes().iter().flat_map(|scopes| scopes.iter()) {
-            mounted.push(*scope);
-            mounted.extend(scope.beside().iter().flat_map(Scope::subtree));
+        for placed in self.routed_router().active_scopes().iter().flat_map(|scopes| scopes.iter()) {
+            mounted.push(placed.scope);
+            mounted.extend(placed.parts.iter().flat_map(Scope::subtree));
         }
 
         let claiming: Vec<Scope> = mounted.into_iter().filter(Scope::claims::<St>).collect();

@@ -270,7 +270,7 @@ pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
 
 impl<P: Page> Mount<Tui> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
 
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
@@ -291,7 +291,7 @@ impl<P: Page> TuiMount for MountPage<P> {
         let Some(input) = input(event) else {
             return Handled::No;
         };
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
         let mut cx = InputCx {
             props,
             nav,
@@ -310,7 +310,7 @@ impl<L: Layout> TuiMount for MountLayout<L> {
         let Some(input) = input(event) else {
             return Handled::No;
         };
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
         let mut cx = InputCx {
             props,
             nav,
@@ -326,7 +326,7 @@ impl<L: Layout> TuiMount for MountLayout<L> {
 
 impl<L: Layout> Mount<Tui> for MountLayout<L> {
     fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
-        let at = props.scopes[props.cursor];
+        let at = props.scope();
 
         Node::new(move |frame, area| {
             let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());

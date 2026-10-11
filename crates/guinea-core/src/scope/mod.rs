@@ -51,13 +51,6 @@ impl std::fmt::Debug for Scope {
     }
 }
 
-/// Which of its parent's outlets a scope sits in. A layout has one today,
-/// [`MAIN`].
-pub type Outlet = &'static str;
-
-/// The outlet a scope sits in unless it is said otherwise.
-pub const MAIN: Outlet = "main";
-
 #[derive(Default)]
 struct ScopeData {
     cells: RefCell<HashMap<TypeId, Cell>>,
@@ -116,11 +109,6 @@ struct ScopeData {
 impl Scope {
     /// A new scope under this one, removed when this one is.
     pub fn child(&self) -> Scope {
-        self.child_in(MAIN)
-    }
-
-    /// A new scope under this one, in `outlet`.
-    pub fn child_in(&self, outlet: Outlet) -> Scope {
         let tree =
             tree(self.tree).unwrap_or_else(|| panic!("a child for {self:?}, whose tree is gone"));
         let mut tree = tree.borrow_mut();
@@ -128,7 +116,7 @@ impl Scope {
             tree.nodes.contains_key(self.node),
             "a child for {self:?}, which was removed"
         );
-        let (node, serial) = tree.insert(Some(self.node), outlet);
+        let (node, serial) = tree.insert(Some(self.node));
 
         Scope {
             tree: self.tree,
@@ -169,46 +157,9 @@ impl Scope {
         .flatten()
     }
 
-    /// Which of its parent's outlets this scope sits in.
-    pub fn outlet(&self) -> Option<Outlet> {
-        self.read(|tree| self.node_in(tree).map(|node| node.outlet))
-            .flatten()
-    }
-
     /// The scopes above this one, the nearest first.
     pub fn ancestors(&self) -> Vec<Scope> {
         std::iter::successors(self.parent(), Scope::parent).collect()
-    }
-
-    /// The scopes right under this one, in `outlet`, oldest first.
-    pub fn children_in(&self, outlet: Outlet) -> Vec<Scope> {
-        self.read(|tree| {
-            let Some(node) = self.node_in(tree) else {
-                return Vec::new();
-            };
-            node.children
-                .iter()
-                .filter(|&&child| tree.nodes[child].outlet == outlet)
-                .map(|&child| self.named(tree, child))
-                .collect()
-        })
-        .unwrap_or_default()
-    }
-
-    /// The scopes right under this one in any outlet but [`MAIN`], oldest
-    /// first: what a layout mounts beside its chain.
-    pub fn beside(&self) -> Vec<Scope> {
-        self.read(|tree| {
-            let Some(node) = self.node_in(tree) else {
-                return Vec::new();
-            };
-            node.children
-                .iter()
-                .filter(|&&child| tree.nodes[child].outlet != MAIN)
-                .map(|&child| self.named(tree, child))
-                .collect()
-        })
-        .unwrap_or_default()
     }
 
     fn read<T>(&self, read: impl FnOnce(&Tree) -> T) -> Option<T> {

@@ -56,10 +56,12 @@ impl<T> From<Rc<RefCell<T>>> for StateHandle<T> {
 /// because the struct is already there and already named. Two items, both
 /// about state; a reducer cannot know who asked, only what changed.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_core::scope::Reducer;
 /// #[derive(Clone, Debug, Default)]
 /// pub struct Processes { pub items: Vec<String> }
 ///
+/// #[derive(Clone)]
 /// pub enum Refreshed { Items(Vec<String>) }
 ///
 /// impl Reducer for Processes {
@@ -69,6 +71,9 @@ impl<T> From<Rc<RefCell<T>>> for StateHandle<T> {
 ///         match update { Refreshed::Items(items) => self.items = items }
 ///     }
 /// }
+/// # let mut processes = Processes::default();
+/// # processes.reduce(Refreshed::Items(vec!["guinea".into()]));
+/// # assert_eq!(processes.items, ["guinea"]);
 /// ```
 ///
 /// Usually it is written as a function instead - `#[reducer] fn processes(this:

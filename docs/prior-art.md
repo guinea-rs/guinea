@@ -648,9 +648,10 @@ once proposal 3 exists. Ship tier 1 as documentation or a helper first.
 4. **Exhaustive tests** (TCA's `TestStore`): assert every update and fail on
    background work still in flight at the end of a test. It would complement
    guinea's seeded determinism.
-5. **Dependency overrides for tests.** uniproc's
-   `ProcessesDeps { windows: fn(), shell: fn() }` is a hand-rolled TCA
-   `@Dependency`. A recurring pattern is worth a framework answer.
+5. ~~**Dependency overrides for tests.**~~ Already answered: a test hands
+   its own value to `Harness::provide`, and the feature reads it with
+   `require_or_default`, so uniproc's `ProcessesDeps` is a TCA `@Dependency`
+   built on the framework's own mechanism, not a hand-rolled one.
 6. **A guard on UI-originated navigation** (`dropUnlessResumed`): ignore a
    navigation fired from a scope that is no longer active, such as a double
    click during a transition. guinea's routing guards may already cover it;

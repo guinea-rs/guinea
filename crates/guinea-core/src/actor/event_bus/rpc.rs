@@ -300,13 +300,7 @@ impl AsyncBus {
         Res: Clone + Send + 'static,
         Fut: Future<Output = Res> + Send + 'static,
     {
-        #[cfg(feature = "test-utils")]
-        let counted = crate::actor::event_bus::Counted::new();
-
         crate::executor::spawn(RPC_CHAIN.scope(chain, async move {
-            #[cfg(feature = "test-utils")]
-            let _counted = counted;
-
             let response = fut.await;
             AsyncBus::reply(correlation_id, response);
         }));

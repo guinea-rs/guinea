@@ -260,9 +260,6 @@ impl<A: 'static, M> Cx<A, M> {
         let task = Task::new::<A>(reach.id(), short_type_name::<Out>());
         let spawned = trace::mark(|| task.spawn());
 
-        #[cfg(feature = "test-utils")]
-        let counted = crate::actor::event_bus::Counted::new();
-
         crate::executor::spawn(async move {
             let running = trace::within(Some(spawned), fut);
             let result = match listens {
@@ -276,9 +273,6 @@ impl<A: 'static, M> Cx<A, M> {
             };
 
             let return_task = move || {
-                #[cfg(feature = "test-utils")]
-                let _counted = counted;
-
                 let settled = trace::mark_under(Some(spawned), || task.settled());
 
                 if let Some(addr) = reach.addr() {
@@ -298,13 +292,7 @@ impl<A: 'static, M> Cx<A, M> {
         let task = Task::new::<A>(self.addr.id(), "()");
         let spawned = trace::mark(|| task.spawn());
 
-        #[cfg(feature = "test-utils")]
-        let counted = crate::actor::event_bus::Counted::new();
-
         crate::executor::spawn(async move {
-            #[cfg(feature = "test-utils")]
-            let _counted = counted;
-
             let running = trace::within(Some(spawned), fut);
             let ran = if listens {
                 running.await;

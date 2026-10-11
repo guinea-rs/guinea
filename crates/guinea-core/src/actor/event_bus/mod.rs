@@ -18,36 +18,6 @@ pub mod subscribe;
 pub use rpc::{AsyncBus, Reply, RpcCall, RpcRequest, RpcResponse};
 pub use subscribe::Event;
 
-#[cfg(feature = "test-utils")]
-pub static ACTIVE_TASKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-/// One background task, counted in [`ACTIVE_TASKS`] until this is dropped -
-/// whether the task answered or was cancelled.
-#[cfg(feature = "test-utils")]
-pub struct Counted;
-
-#[cfg(feature = "test-utils")]
-impl Counted {
-    pub fn new() -> Self {
-        ACTIVE_TASKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Self
-    }
-}
-
-#[cfg(feature = "test-utils")]
-impl Default for Counted {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(feature = "test-utils")]
-impl Drop for Counted {
-    fn drop(&mut self) {
-        ACTIVE_TASKS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
 /// One event type on a bus and who hears it. See [`EventBus::listeners`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listening {
@@ -745,12 +715,5 @@ mod tests {
         bus.subscribe_fn(|_: Ping| {}).leak();
 
         assert_eq!(bus.count_subscribers::<Ping>(), 1);
-    }
-}
-
-#[cfg(feature = "test-utils")]
-impl EventBus {
-    pub fn task_count() -> usize {
-        ACTIVE_TASKS.load(std::sync::atomic::Ordering::SeqCst)
     }
 }

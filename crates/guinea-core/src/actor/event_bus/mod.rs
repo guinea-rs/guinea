@@ -129,7 +129,216 @@ impl EventBus {
         Self::of_kind(Bus::Window)
     }
 
+    /// `addr` hears `M` on this bus until the subscription is dropped.
+    ///
+    /// ```
+    /// use std::rc::Rc;
+    ///
+    /// use guinea_core::actor::event_bus::{Event, EventBus};
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// use guinea_core::scope::ScopeTree;
+    ///
+    /// #[derive(Clone)]
+    /// struct Add(u32);
+    ///
+    /// impl Event for Add {}
+    ///
+    /// #[derive(Debug)]
+    /// struct Total(u32);
+    ///
+    /// impl Handler<Add> for Total {
+    ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
+    ///         self.0 += n;
+    ///     }
+    /// }
+    ///
+    /// let tree = ScopeTree::new();
+    /// let total = Addr::new(Total(0), &Home::new(tree.scope(), None));
+    /// let bus = Rc::new(EventBus::new());
+    ///
+    /// let subscription = bus.subscribe::<Total, Add>(total.clone());
+    /// bus.publish(Add(2));
+    /// assert_eq!(total.debug_snapshot(), "Total(\n    2,\n)");
+    ///
+    /// drop(subscription);
+    /// bus.publish(Add(3));
+    /// assert_eq!(total.debug_snapshot(), "Total(\n    2,\n)", "heard nothing once unsubscribed");
+    /// ```
+    pub fn subscribe<A, M>(self: &Rc<Self>, addr: Addr<A>) -> BusSubscription
+    where
+        A: Handler<M> + 'static,
+        M: Event,
+    {
+        let seq = self.next_id();
+        self.insert::<M>(Box::new(Subscriber {
+            seq,
+            addr,
+            _marker: std::marker::PhantomData,
+        }))
+    }
+
+    /// `callback` hears `M` on this bus until the subscription is dropped.
+    ///
+    /// ```
+    /// use std::cell::Cell;
+    /// use std::rc::Rc;
+    ///
+    /// use guinea_core::actor::event_bus::{Event, EventBus};
+    ///
+    /// #[derive(Clone)]
+    /// struct Add(u32);
+    ///
+    /// impl Event for Add {}
+    ///
+    /// let bus = Rc::new(EventBus::new());
+    /// let total = Rc::new(Cell::new(0));
+    ///
+    /// let adding = total.clone();
+    /// let subscription = bus.subscribe_fn(move |Add(n)| adding.set(adding.get() + n));
+    /// bus.publish(Add(2));
+    /// assert_eq!(total.get(), 2);
+    ///
+    /// drop(subscription);
+    /// bus.publish(Add(3));
+    /// assert_eq!(total.get(), 2, "heard nothing once unsubscribed");
+    /// ```
+    #[track_caller]
+    pub fn subscribe_fn<M: Event>(
+        self: &Rc<Self>,
+        callback: impl Fn(M) + 'static,
+    ) -> BusSubscription {
+        let seq = self.next_id();
+        self.insert::<M>(Box::new(FnSubscriber {
+            seq,
+            callback: Arc::new(callback),
+            at: std::panic::Location::caller(),
+        }))
+    }
+
+    /// Tells everyone subscribed to `M`, in the order they subscribed, before
+    /// it returns. Who subscribes or goes while they are being told does not
+    /// change who hears this one.
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    /// use std::rc::Rc;
+    ///
+    /// use guinea_core::actor::event_bus::{Event, EventBus};
+    ///
+    /// #[derive(Clone)]
+    /// struct Saved;
+    ///
+    /// impl Event for Saved {}
+    ///
+    /// let bus = Rc::new(EventBus::new());
+    /// let heard = Rc::new(RefCell::new(Vec::new()));
+    /// let late = Rc::new(RefCell::new(None));
+    ///
+    /// let (first, joining, joined) = (heard.clone(), bus.clone(), heard.clone());
+    /// let _first = bus.subscribe_fn(move |_: Saved| {
+    ///     first.borrow_mut().push("first");
+    ///     let joined = joined.clone();
+    ///     *late.borrow_mut() = Some(joining.subscribe_fn(move |_: Saved| joined.borrow_mut().push("late")));
+    /// });
+    /// let second = heard.clone();
+    /// let _second = bus.subscribe_fn(move |_: Saved| second.borrow_mut().push("second"));
+    ///
+    /// bus.publish(Saved);
+    /// assert_eq!(*heard.borrow(), ["first", "second"], "the one that joined meanwhile heard nothing");
+    /// ```
+    pub fn publish<M: Event>(&self, msg: M) {
+        let _published = trace::enter(|| Point::Publish {
+            event: short_type_name::<M>(),
+            bus: self.kind,
+            subscribers: self.count_subscribers::<M>(),
+        });
+
+        // Told from the list as it was when the publication began, not from
+        // the map: a handler is free to subscribe or unsubscribe while it is
+        // being told, and either would borrow the map this delivery is
+        // walking. One that goes mid-publication still hears this one out.
+        let Some(telling) = self.subscribers.borrow().get(&TypeId::of::<M>()).cloned() else {
+            return;
+        };
+
+        let mut letter = Letter::new(msg);
+        for (at, sub) in telling.iter().enumerate() {
+            if at + 1 == telling.len() {
+                letter.to_the_last();
+            }
+
+            // Around each one, not around the lot: the copy every subscriber
+            // is handed is made as it opens the letter, and time spent making
+            // it belongs to the delivery that needed it rather than to the
+            // publication as a whole. Without this it is the difference
+            // between a publication and the sum of its handlers, which is to
+            // say invisible.
+            let _delivered = trace::enter(|| Point::Deliver {
+                event: short_type_name::<M>(),
+                bus: self.kind,
+            });
+
+            sub.deliver(&mut letter, self.kind);
+        }
+    }
+
+    /// How many hear `M` on this bus now.
+    ///
+    /// ```
+    /// use std::rc::Rc;
+    ///
+    /// use guinea_core::actor::event_bus::{Event, EventBus};
+    ///
+    /// #[derive(Clone)]
+    /// struct Saved;
+    ///
+    /// impl Event for Saved {}
+    ///
+    /// let bus = Rc::new(EventBus::new());
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 0);
+    ///
+    /// let one = bus.subscribe_fn(|_: Saved| {});
+    /// let other = bus.subscribe_fn(|_: Saved| {});
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 2);
+    ///
+    /// drop(one);
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 1);
+    /// # drop(other);
+    /// ```
+    pub fn count_subscribers<M: Event>(&self) -> usize {
+        let type_id = TypeId::of::<M>();
+        *self.counts.borrow().get(&type_id).unwrap_or(&0)
+    }
+
+    /// Whether anyone hears `M` on this bus now.
+    ///
+    /// ```
+    /// use std::rc::Rc;
+    ///
+    /// use guinea_core::actor::event_bus::{Event, EventBus};
+    ///
+    /// #[derive(Clone)]
+    /// struct Saved;
+    ///
+    /// impl Event for Saved {}
+    ///
+    /// let bus = Rc::new(EventBus::new());
+    /// assert!(!bus.has_subscribers::<Saved>());
+    ///
+    /// let subscription = bus.subscribe_fn(|_: Saved| {});
+    /// assert!(bus.has_subscribers::<Saved>());
+    ///
+    /// drop(subscription);
+    /// assert!(!bus.has_subscribers::<Saved>());
+    /// ```
+    pub fn has_subscribers<M: Event>(&self) -> bool {
+        self.count_subscribers::<M>() > 0
+    }
+}
+
+impl EventBus {
     /// The bus of window `root`, as `RootId::get` numbers it.
+    #[doc(hidden)]
     pub fn for_root(root: u64) -> Self {
         Self {
             root: Some(root),
@@ -137,30 +346,9 @@ impl EventBus {
         }
     }
 
-    fn of_kind(kind: Bus) -> Self {
-        Self {
-            subscribers: RefCell::new(HashMap::new()),
-            counts: RefCell::new(HashMap::new()),
-            answerers: RefCell::new(HashMap::new()),
-            next_id: Cell::new(0),
-            kind,
-            root: None,
-        }
-    }
-
-    fn changed(&self) {
-        changes::changed(|| Change::Subscriptions {
-            bus: self.kind,
-            root: self.root,
-        });
-    }
-
-    pub fn kind(&self) -> Bus {
-        self.kind
-    }
-
     /// The event types something is subscribed to, with how many subscribers
     /// each has.
+    #[doc(hidden)]
     pub fn subscriptions(&self) -> Vec<(&'static str, usize)> {
         let subscribers = self.subscribers.borrow();
         let mut listed: Vec<(&'static str, usize)> = subscribers
@@ -174,6 +362,7 @@ impl EventBus {
 
     /// Every event type something is subscribed to, with who hears it, in the
     /// order they subscribed.
+    #[doc(hidden)]
     pub fn listeners(&self) -> Vec<Listening> {
         let answerers = self.answerers.borrow();
         let subscribers = self.subscribers.borrow();
@@ -198,42 +387,34 @@ impl EventBus {
         listed
     }
 
+    fn of_kind(kind: Bus) -> Self {
+        Self {
+            subscribers: RefCell::new(HashMap::new()),
+            counts: RefCell::new(HashMap::new()),
+            answerers: RefCell::new(HashMap::new()),
+            next_id: Cell::new(0),
+            kind,
+            root: None,
+        }
+    }
+
+    fn changed(&self) {
+        changes::changed(|| Change::Subscriptions {
+            bus: self.kind,
+            root: self.root,
+        });
+    }
+
     fn next_id(&self) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         id
     }
 
-    pub fn subscribe<A, M>(self: &Rc<Self>, addr: Addr<A>) -> BusSubscription
-    where
-        A: Handler<M> + 'static,
-        M: Event,
-    {
-        let seq = self.next_id();
-        self.insert::<M>(Box::new(Subscriber {
-            seq,
-            addr,
-            _marker: std::marker::PhantomData,
-        }))
-    }
-
-    #[track_caller]
-    pub fn subscribe_fn<M: Event>(
-        self: &Rc<Self>,
-        callback: impl Fn(M) + 'static,
-    ) -> BusSubscription {
-        let seq = self.next_id();
-        self.insert::<M>(Box::new(FnSubscriber {
-            seq,
-            callback: Arc::new(callback),
-            at: std::panic::Location::caller(),
-        }))
-    }
-
     /// Answers `Req` with `answer`: the callback counterpart of an actor's
     /// handler that returns the reply.
     #[track_caller]
-    pub fn answer_fn<Req: RpcCall>(
+    pub(crate) fn answer_fn<Req: RpcCall>(
         self: &Rc<Self>,
         answer: impl Fn(Req) -> Req::Response + 'static,
     ) -> BusSubscription {
@@ -280,51 +461,6 @@ impl EventBus {
         }
     }
 
-    pub fn count_subscribers<M: Event>(&self) -> usize {
-        let type_id = TypeId::of::<M>();
-        *self.counts.borrow().get(&type_id).unwrap_or(&0)
-    }
-
-    pub fn has_subscribers<M: Event>(&self) -> bool {
-        self.count_subscribers::<M>() > 0
-    }
-
-    pub fn publish<M: Event>(&self, msg: M) {
-        let _published = trace::enter(|| Point::Publish {
-            event: short_type_name::<M>(),
-            bus: self.kind,
-            subscribers: self.count_subscribers::<M>(),
-        });
-
-        // Told from the list as it was when the publication began, not from
-        // the map: a handler is free to subscribe or unsubscribe while it is
-        // being told, and either would borrow the map this delivery is
-        // walking. One that goes mid-publication still hears this one out.
-        let Some(telling) = self.subscribers.borrow().get(&TypeId::of::<M>()).cloned() else {
-            return;
-        };
-
-        let mut letter = Letter::new(msg);
-        for (at, sub) in telling.iter().enumerate() {
-            if at + 1 == telling.len() {
-                letter.to_the_last();
-            }
-
-            // Around each one, not around the lot: the copy every subscriber
-            // is handed is made as it opens the letter, and time spent making
-            // it belongs to the delivery that needed it rather than to the
-            // publication as a whole. Without this it is the difference
-            // between a publication and the sum of its handlers, which is to
-            // say invisible.
-            let _delivered = trace::enter(|| Point::Deliver {
-                event: short_type_name::<M>(),
-                bus: self.kind,
-            });
-
-            sub.deliver(&mut letter, self.kind);
-        }
-    }
-
     /// Whether a request `M` published now would be answered, and if not, why.
     pub(crate) fn answering<M: Event>(&self) -> Answering {
         let event = TypeId::of::<M>();
@@ -353,16 +489,17 @@ impl EventBus {
             }
         }
 
-        let removed = {
+        let (removed, gone) = {
             let mut subscribers = self.subscribers.borrow_mut();
             let Some(list) = subscribers.get_mut(&id.event) else {
                 return;
             };
 
-            let before = list.len();
-            *list = list.iter().filter(|sub| sub.seq() != id.seq).cloned().collect();
-            before - list.len()
+            let kept: Rc<[Rc<dyn UntypedSubscriber>]> =
+                list.iter().filter(|sub| sub.seq() != id.seq).cloned().collect();
+            (list.len() - kept.len(), std::mem::replace(list, kept))
         };
+        drop(gone);
 
         if removed == 0 {
             return;
@@ -463,6 +600,19 @@ mod tests {
     }
 
     impl Event for Copied {}
+
+    #[test]
+    fn a_subscriber_that_ends_another_subscription_as_it_goes_finds_the_bus_free() {
+        let bus = Rc::new(EventBus::new());
+        let inner = bus.subscribe_fn(|_: Pong| {});
+        let outer = bus.subscribe_fn(move |_: Ping| {
+            let _ = &inner;
+        });
+
+        let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(outer)));
+
+        assert_eq!((dropped.is_ok(), bus.subscriptions()), (true, Vec::new()));
+    }
 
     #[test]
     fn every_subscriber_but_the_last_is_handed_a_copy_and_the_last_the_event_itself() {

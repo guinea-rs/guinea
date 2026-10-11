@@ -188,14 +188,8 @@ impl Scope {
     }
 
     /// `R`'s state here, created from `R::default()` on first read.
-    ///
-    /// A removed scope has no state to hand out: what comes back is a fresh
-    /// default nobody else sees.
     pub fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
-        match self.data() {
-            Some(data) => data.state.slot::<R>(),
-            None => Rc::new(Slot::new(Rc::new(R::default()))),
-        }
+        self.alive("reading a reducer").state.slot::<R>()
     }
 
     pub fn peek<R: Reducer>(&self) -> Option<Rc<Slot<R>>> {
@@ -215,7 +209,7 @@ impl Scope {
     /// anything else touches `R` in this scope - overwrites any existing cell,
     /// dropping its listeners.
     pub fn seed<R: Reducer>(&self, state: R) {
-        let data = self.installing("seeding a reducer");
+        let data = self.alive("seeding a reducer");
         data.state.note_kind::<R>();
         let replaced = data
             .state
@@ -230,10 +224,9 @@ impl Scope {
     ///
     /// The state is current the moment this returns; what waits is the
     /// redraw. Nothing a listener does - navigating, dropping scopes, sending
-    /// to another actor - happens on the stack of whoever pushed. A no-op once
-    /// the scope is removed.
+    /// to another actor - happens on the stack of whoever pushed.
     pub fn push<R: Reducer>(&self, update: R::Update) {
-        let Some(data) = self.data() else { return };
+        let data = self.alive("pushing an update");
         let carried: Option<Box<dyn Any>> = data
             .state
             .is_observed(TypeId::of::<R>())
@@ -257,9 +250,7 @@ impl Scope {
     /// drain, before any listener, so state that depends on this one has
     /// settled by the time anything draws.
     pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) -> Subscription {
-        let Some(data) = self.data() else {
-            return Subscription::inert();
-        };
+        let data = self.alive("observing a reducer");
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         {
             let mut cells = data.state.cells.borrow_mut();
@@ -308,9 +299,7 @@ impl Scope {
     }
 
     pub fn subscribe<R: Reducer>(&self, callback: impl Fn() + 'static) -> Subscription {
-        let Some(data) = self.data() else {
-            return Subscription::inert();
-        };
+        let data = self.alive("listening to a reducer");
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         {
             let mut cells = data.state.cells.borrow_mut();
@@ -355,7 +344,7 @@ impl Scope {
     /// remounted, restoring its state before `install` runs lets the page find
     /// ready data instead of defaults.
     pub fn restore_states(&self, states: HashMap<TypeId, Rc<dyn Any>>) {
-        let data = self.installing("restoring state");
+        let data = self.alive("restoring state");
         let mut replaced = Vec::new();
         {
             let mut cells = data.state.cells.borrow_mut();

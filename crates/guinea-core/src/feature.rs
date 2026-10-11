@@ -108,8 +108,13 @@ impl Dispatch {
         Self { at: Some(section) }
     }
 
-    /// Hands the action to whatever answers it in that feature.
+    /// Hands the action to whatever answers it in that feature. Dropped once
+    /// its scope is gone: a click on the last frame of a page that has left.
     pub fn emit<M: 'static>(&self, action: M) {
+        if self.at.is_some_and(|section| !section.scope().is_alive()) {
+            return;
+        }
+
         let found = self.at.and_then(|section| section.answerer::<M>());
 
         match found {

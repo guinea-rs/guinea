@@ -14,7 +14,7 @@ impl Scope {
     /// Keeps `value` for as long as this scope is there, in place of any `T`
     /// kept here before.
     pub fn keep<T: 'static>(&self, value: T) {
-        let data = self.installing("keeping a value");
+        let data = self.alive("keeping a value");
         let replaced = data
             .kept
             .values

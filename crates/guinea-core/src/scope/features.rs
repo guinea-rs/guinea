@@ -119,7 +119,7 @@ impl Section {
     /// Claims `R` here, as written at `declared`. The first claim in the
     /// scope wins.
     pub fn claim<R: 'static>(&self, declared: Option<Declared>) {
-        let data = self.scope.installing("claiming a reducer");
+        let data = self.scope.alive("claiming a reducer");
 
         data.features
             .claims
@@ -138,7 +138,7 @@ impl Section {
     /// for each handler it lists; a domain that runs on tasks, or a channel,
     /// or a plain closure over a `RefCell`, calls it itself.
     pub fn answers<M: 'static>(&self, answer: impl Fn(M) + 'static) {
-        let data = self.scope.installing("answering an action");
+        let data = self.scope.alive("answering an action");
         let answer: Rc<dyn Fn(M)> = Rc::new(answer);
 
         data.features.sections.borrow_mut()[self.index]
@@ -154,7 +154,7 @@ impl Section {
     /// Notes that this section listens to `event` - through `actor` when an
     /// actor does the listening.
     pub fn note_listener(&self, event: &'static str, actor: Option<&'static str>) {
-        let Some(data) = self.scope.data() else { return };
+        let data = self.scope.alive("noting a listener");
         let feature = data.features.section_name(self.index);
         data.features.listeners.borrow_mut().push(Listener {
             event,
@@ -176,7 +176,7 @@ impl Scope {
     /// Opens a section for what is about to install here - the feature
     /// `name`, or something that is not a feature, such as a plugin.
     pub fn open_section(&self, name: Option<&'static str>, declared: Option<Declared>) -> Section {
-        let data = self.installing("installing a feature");
+        let data = self.alive("installing a feature");
         let mut sections = data.features.sections.borrow_mut();
         sections.push(SectionData {
             name,
@@ -196,7 +196,7 @@ impl Scope {
     /// feature in the same scope is a setup bug, not something to merge
     /// silently.
     pub fn mark_feature_installed<F: 'static>(&self) {
-        let data = self.installing("installing a feature");
+        let data = self.alive("installing a feature");
         let newly_inserted = data.features.installed.borrow_mut().insert(TypeId::of::<F>());
         assert!(
             newly_inserted,
@@ -264,7 +264,7 @@ impl Scope {
     /// visible to the feature itself and invisible from below - which is the
     /// whole difference between a feature and a folder.
     pub fn note_export<R: 'static>(&self) {
-        let data = self.installing("exporting a reducer");
+        let data = self.alive("exporting a reducer");
         data.features.exports.borrow_mut().insert(TypeId::of::<R>());
     }
 

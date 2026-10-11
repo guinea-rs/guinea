@@ -61,7 +61,9 @@ impl<R: Reducer> ReducerBinding<R> {
     /// Applies an update directly, without an actor in between. A no-op once
     /// the owning scope is gone.
     pub fn push(&self, update: R::Update) {
-        self.owner.push::<R>(update);
+        if self.owner.is_alive() {
+            self.owner.push::<R>(update);
+        }
     }
 
     /// Calls `f` after every change, until the returned [`Subscription`] is
@@ -69,8 +71,13 @@ impl<R: Reducer> ReducerBinding<R> {
     ///
     /// The caller owns the lifetime, which is what a reconciler needs: the
     /// subscription must end with the component instance, not with the scope,
-    /// or unmounted components accumulate as live listeners.
+    /// or unmounted components accumulate as live listeners. Once the scope
+    /// is gone there is nothing left to change, and nothing is called.
     pub fn on_change(&self, f: impl Fn(&R) + 'static) -> Subscription {
+        if !self.owner.is_alive() {
+            return Subscription::inert();
+        }
+
         let state = self.state.clone();
         self.owner.subscribe::<R>(move || {
             let now = state.borrow().clone();

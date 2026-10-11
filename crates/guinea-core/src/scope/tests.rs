@@ -180,6 +180,106 @@ fn what_a_removed_scope_is_handed_is_torn_down_at_once() {
     assert_eq!(*said.borrow(), ["at once"]);
 }
 
+fn refused_in_a_removed_scope(doing: &str, act: impl FnOnce(Scope)) {
+    let tree = ScopeTree::new();
+    let scope = tree.scope();
+    tree.remove();
+
+    let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| act(scope)));
+
+    let message = done
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    assert_eq!(message, Some(format!("{doing} in {scope:?}, which was removed")));
+}
+
+#[test]
+fn pushing_into_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("pushing an update", |scope| {
+        scope.push::<Counter>(CounterMsg::Set(1))
+    });
+}
+
+#[test]
+fn listening_in_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("listening to a reducer", |scope| {
+        drop(scope.subscribe::<Counter>(|| {}))
+    });
+}
+
+#[test]
+fn observing_in_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("observing a reducer", |scope| {
+        drop(scope.observe::<Counter>(|_| {}))
+    });
+}
+
+#[test]
+fn reading_a_reducer_of_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("reading a reducer", |scope| {
+        drop(scope.state::<Counter>())
+    });
+}
+
+#[test]
+fn putting_a_removed_scope_to_sleep_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("putting to sleep", |scope| scope.sleep());
+}
+
+#[test]
+fn waking_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("waking", |scope| scope.wake());
+}
+
+#[test]
+fn noting_a_listener_in_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("noting a listener", |scope| {
+        scope.section().note_listener("Ping", None)
+    });
+}
+
+#[test]
+fn pushing_through_a_push_after_its_scope_went_is_quiet() {
+    let tree = ScopeTree::new();
+    let push = crate::feature::Push::<Counter>::new(tree.scope());
+    tree.remove();
+
+    let sent = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        push.send(CounterMsg::Set(1))
+    }));
+
+    assert!(sent.is_ok(), "work an actor finishes after its page left is dropped");
+}
+
+#[test]
+fn emitting_to_a_scope_that_went_is_quiet() {
+    let tree = ScopeTree::new();
+    tree.section().answers::<Tick>(|_| {});
+    let dispatch = crate::feature::Dispatch::owning::<Counter>(tree.scope());
+    tree.remove();
+
+    let emitted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch.emit(Tick)));
+
+    assert!(emitted.is_ok(), "a click on the last frame of a page that left is dropped");
+}
+
+#[test]
+fn a_binding_made_before_its_scope_went_is_quiet_after() {
+    let tree = ScopeTree::new();
+    let binding = tree.binding::<Counter>();
+    tree.remove();
+
+    let used = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        binding.push(CounterMsg::Set(1));
+        drop(binding.on_change(|_| {}));
+        binding.on_change_owned(|_| {});
+        binding.get().value
+    }));
+
+    assert_eq!(used.ok(), Some(0));
+}
+
 #[derive(Debug)]
 struct Ticker(u32);
 

@@ -67,8 +67,10 @@ impl Scope {
     }
 
     /// What this scope holds, for `doing` something that cannot be done in a
-    /// scope that is gone.
-    pub(super) fn installing(&self, doing: &str) -> Rc<ScopeData> {
+    /// scope that is gone. Reaching a removed scope here is guinea's own
+    /// mistake: what callers hold says no to a scope that went before it
+    /// gets this far.
+    pub(super) fn alive(&self, doing: &str) -> Rc<ScopeData> {
         self.data()
             .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }

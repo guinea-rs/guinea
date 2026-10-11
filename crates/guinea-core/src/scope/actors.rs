@@ -97,7 +97,7 @@ impl Scope {
     /// Takes `addr` on: held until this scope goes, then disposed. What
     /// [`Addr::new`] does with the scope it is made in.
     pub(crate) fn hold<A: 'static>(&self, addr: &Addr<A>) {
-        self.installing("making an actor");
+        self.alive("making an actor");
 
         self.take(
             addr.id(),
@@ -155,7 +155,7 @@ impl Section {
         addr: &Addr<A>,
         drives: Option<&'static str>,
     ) {
-        let Some(data) = self.scope().data() else { return };
+        let data = self.scope().alive("listing an actor");
         let id = addr.id();
         let type_name = crate::short_type_name::<A>();
         let owner = Owner {

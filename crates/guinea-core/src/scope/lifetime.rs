@@ -37,7 +37,7 @@ impl Scope {
     /// exists, so the guard can read its own state - which is what "unsaved
     /// changes" is. On the way in there is nothing to read yet.
     pub fn on_leave(&self, guard: impl Fn() -> crate::guard::Verdict + 'static) {
-        let data = self.installing("guarding a leave");
+        let data = self.alive("guarding a leave");
         data.lifetime.leave_guards.borrow_mut().push(Rc::new(guard));
     }
 
@@ -58,15 +58,13 @@ impl Scope {
     /// carry - and nothing is queued for later: what happened meanwhile is
     /// missed. A router does this to a `keep` segment it leaves.
     pub fn sleep(&self) {
-        if let Some(data) = self.data() {
-            data.lifetime.asleep.set(true);
-        }
+        self.alive("putting to sleep").lifetime.asleep.set(true);
     }
 
     /// Wakes this scope, then runs what asked to hear of it, in the order it
     /// asked.
     pub fn wake(&self) {
-        let Some(data) = self.data() else { return };
+        let data = self.alive("waking");
         data.lifetime.asleep.set(false);
 
         let hooks = data.lifetime.wake_hooks.borrow().clone();
@@ -92,7 +90,7 @@ impl Scope {
     /// Runs `hook` every time this scope wakes: for a feature to catch up on
     /// what it missed while it slept.
     pub fn on_wake(&self, hook: impl Fn() + 'static) {
-        let data = self.installing("waiting for a wake");
+        let data = self.alive("waiting for a wake");
         data.lifetime.wake_hooks.borrow_mut().push(Rc::new(hook));
     }
 }

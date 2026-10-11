@@ -92,10 +92,7 @@ impl FeatureHost {
     /// of its chain.
     pub fn context(&self, scope: Scope, cursor: usize) -> FeatureInitContext {
         FeatureInitContext {
-            scope_cx: ScopeContext {
-                scope,
-                services: self.services.clone(),
-            },
+            scope_cx: ScopeContext::new(scope, self.services.clone()),
             cursor,
             root: self.root.id(),
         }

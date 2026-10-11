@@ -1267,10 +1267,10 @@ mod supervising {
 
     #[handler]
     fn found(this: &mut Supervisor, found: Found, cx: Cx) {
-        let comes_and_goes = cx.addr().home().scope().child();
-        let agent = Addr::new(Agent, &guinea::core::actor::Home::new(comes_and_goes));
+        let comes_and_goes = cx.addr().home().child();
+        let agent = Addr::new(Agent, &comes_and_goes);
         agent.send(Ping);
-        comes_and_goes.remove();
+        comes_and_goes.scope().remove();
 
         this.push.send(found);
     }
@@ -1286,6 +1286,83 @@ mod supervising {
         let (agents, _) = cx.state::<Agents>().driven_by(|push| Supervisor { push });
         Ok(Supervising(agents))
     }
+}
+
+/// A feature's actor that makes another actor after the feature installed.
+mod hiring {
+    use super::*;
+
+    #[derive(Clone, Debug)]
+    pub struct Hire;
+
+    #[derive(Debug)]
+    pub struct Worker;
+
+    actor! {
+        Worker {
+            handlers { Hire }
+        }
+    }
+
+    #[handler]
+    fn work(_this: &mut Worker, _: Hire) {}
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Staff(pub u32);
+
+    impl Reducer for Staff {
+        type Update = u32;
+
+        fn reduce(&mut self, staff: u32) {
+            self.0 = staff;
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Boss {
+        pub push: Push<Staff>,
+    }
+
+    actor! {
+        Boss {
+            handlers { Hire }
+        }
+    }
+
+    #[handler]
+    fn hire(this: &mut Boss, _: Hire, cx: Cx) {
+        let _worker = Addr::new(Worker, &cx.addr().home());
+        this.push.send(1);
+    }
+
+    feature! {
+        pub Hiring {
+            exports { Staff }
+        }
+    }
+
+    #[installs]
+    fn hiring(cx: &FeatureInitContext) -> anyhow::Result<Hiring> {
+        let (staff, _) = cx.state::<Staff>().driven_by(|push| Boss { push });
+        Ok(Hiring(staff))
+    }
+}
+
+#[guinea::test(iterations = 1)]
+fn an_actor_a_feature_s_actor_makes_later_is_the_feature_s(h: &mut Harness) {
+    h.install::<hiring::Hiring>(&()).unwrap();
+    h.act::<hiring::Staff>(hiring::Hire).settle();
+
+    let actors = h.segment().context().scope.actors_here();
+    let feature_of = |actor: &str| {
+        actors
+            .iter()
+            .find(|listed| listed.type_name.ends_with(actor))
+            .map(|listed| listed.owner.feature)
+    };
+
+    assert_eq!(feature_of("Worker"), feature_of("Boss"));
+    assert!(feature_of("Boss").flatten().is_some());
 }
 
 #[guinea::test(iterations = 8)]

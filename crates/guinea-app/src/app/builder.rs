@@ -32,10 +32,7 @@ pub struct FeatureBuilder {
 impl PluginBuilder {
     pub(crate) fn new(host: AppHost) -> Self {
         Self {
-            cx: ScopeContext {
-                scope: host.scope(),
-                services: SharedState::new(),
-            },
+            cx: ScopeContext::new(host.scope(), SharedState::new()),
             host,
             registry: Rc::new(RefCell::new(Registry::default())),
         }
@@ -130,12 +127,13 @@ impl PluginBuilder {
         }
 
         self.registry.borrow_mut().enter(Unit::Plugin(id));
-        self.scope.open_section(None, None);
+        let inner = self.cx.in_section(self.scope.open_section(None, None));
+        let outer = std::mem::replace(&mut self.cx, inner);
         let outcome = plugin
             .build_boxed(self)
             .and_then(|()| settle(self.scope, id))
             .with_context(|| format!("plugin `{id}` failed to build"));
-        self.scope.close_section();
+        self.cx = outer;
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();
@@ -179,12 +177,13 @@ impl FeatureBuilder {
         }
 
         self.registry.borrow_mut().enter(Unit::Feature(name));
-        self.scope.open_section(Some(name), None);
+        let inner = self.inner.cx.in_section(self.scope.open_section(Some(name), None));
+        let outer = std::mem::replace(&mut self.inner.cx, inner);
         let outcome = feature
             .install_boxed(self)
             .and_then(|()| settle(self.scope, name))
             .with_context(|| format!("feature `{name}` failed to install"));
-        self.scope.close_section();
+        self.inner.cx = outer;
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();

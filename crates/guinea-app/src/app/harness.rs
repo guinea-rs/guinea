@@ -111,10 +111,7 @@ impl Harness {
         let root = Registration::open(scope.scope());
 
         let segment = FeatureInitContext {
-            scope_cx: ScopeContext {
-                scope: scope.scope(),
-                services: app.services.clone(),
-            },
+            scope_cx: ScopeContext::new(scope.scope(), app.services.clone()),
             cursor: 0,
             root: root.id(),
         };
@@ -232,10 +229,7 @@ impl Harness {
         Segment {
             harness: self,
             cx: FeatureInitContext {
-                scope_cx: ScopeContext {
-                    scope,
-                    ..self.segment.scope_cx.clone()
-                },
+                scope_cx: ScopeContext::new(scope, self.segment.services.clone()),
                 ..self.segment.clone()
             },
             _owned: None,
@@ -380,10 +374,7 @@ impl<'h> Segment<'h> {
         Segment {
             harness: self.harness,
             cx: FeatureInitContext {
-                scope_cx: ScopeContext {
-                    scope: scope.scope(),
-                    ..self.cx.scope_cx.clone()
-                },
+                scope_cx: ScopeContext::new(scope.scope(), self.cx.services.clone()),
                 cursor: self.cx.cursor + 1,
                 ..self.cx.clone()
             },

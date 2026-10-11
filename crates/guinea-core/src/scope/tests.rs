@@ -220,11 +220,11 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
 
     let window = ScopeTree::new();
     let page = window.child();
-    page.open_section(Some("app::Clock"), None);
+    let clock = page.open_section(Some("app::Clock"), None);
     let mut id = 0;
 
     let seen = watched(|| {
-        id = Addr::listed(Ticker(0), &home(page), Some("Time")).id();
+        id = Addr::listed(Ticker(0), &crate::actor::Home::in_section(clock), Some("Time")).id();
         window.remove();
     });
 
@@ -282,12 +282,12 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
     let root = ScopeTree::new();
     let layout = root.child();
     let page = layout.child();
-    root.claim::<Counter>(None);
+    root.section().claim::<Counter>(None);
     root.note_export::<Counter>();
-    layout.claim::<Counter>(None);
+    layout.section().claim::<Counter>(None);
     layout.note_export::<Counter>();
-    layout.claim::<Hidden>(None);
-    page.claim::<Hidden>(None);
+    layout.section().claim::<Hidden>(None);
+    page.section().claim::<Hidden>(None);
 
     assert_eq!(page.owner_of::<Counter>(), Some(layout), "the nearest export wins");
     assert_eq!(page.owner_of::<Hidden>(), Some(page), "what it claimed is its own");
@@ -357,7 +357,7 @@ fn what_a_scope_removed_during_the_call_kept_goes_after_it() {
 #[test]
 fn a_claimed_reducer_is_not_a_feature_installed_there() {
     let scope = ScopeTree::new();
-    scope.claim::<Counter>(None);
+    scope.section().claim::<Counter>(None);
 
     assert!(scope.claims::<Counter>());
     assert!(!scope.has_feature::<Counter>());
@@ -375,10 +375,9 @@ fn a_described_state_names_the_feature_that_claimed_it() {
     }
 
     let scope = ScopeTree::new();
-    scope.open_section(Some("app::CounterFeature"), None);
-    scope.claim::<Counter>(None);
+    let counting = scope.open_section(Some("app::CounterFeature"), None);
+    counting.claim::<Counter>(None);
     scope.state::<Counter>();
-    scope.close_section();
     scope.state::<Loose>();
 
     let described = scope.describe_states();

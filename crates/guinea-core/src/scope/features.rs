@@ -24,6 +24,18 @@ pub struct Installed {
     pub declared: Option<Declared>,
 }
 
+/// One installed feature's corner of a scope, or the scope's own outside any
+/// feature: what it claims, answers, makes and hears is its own.
+///
+/// Named, not kept, like the [`Scope`] it is in. Whoever registers something
+/// says which section it is for - a feature's context, an actor's home - so
+/// what is made after the feature installed is still the feature's.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Section {
+    scope: Scope,
+    index: usize,
+}
+
 /// What the features installed in a scope brought: which they are, what each
 /// answers, the reducers they claimed and the ones they let below.
 pub(super) struct Features {
@@ -34,12 +46,9 @@ pub(super) struct Features {
     /// an ancestor already taken ownership of this feature" without knowing
     /// which reducer types it happens to use internally.
     installed: RefCell<HashSet<TypeId>>,
-    /// One per feature installed, in the order they were. Section 0 is the
-    /// segment's own, outside any feature.
-    sections: RefCell<Vec<Section>>,
-    /// The sections currently being installed, innermost last. A feature is
-    /// free to install another one.
-    installing: RefCell<Vec<usize>>,
+    /// One per section opened, in the order they were. Section 0 is the
+    /// scope's own.
+    sections: RefCell<Vec<SectionData>>,
     /// The reducers claimed here.
     claims: RefCell<HashMap<TypeId, Claimed>>,
     /// The reducers this scope lets segments below it read. See
@@ -56,8 +65,7 @@ impl Default for Features {
     fn default() -> Self {
         Self {
             installed: RefCell::default(),
-            sections: RefCell::new(vec![Section::default()]),
-            installing: RefCell::default(),
+            sections: RefCell::new(vec![SectionData::default()]),
             claims: RefCell::default(),
             exports: RefCell::default(),
             listeners: RefCell::default(),
@@ -66,8 +74,8 @@ impl Default for Features {
 }
 
 #[derive(Default)]
-struct Section {
-    /// The feature it belongs to; `None` for the segment's own.
+struct SectionData {
+    /// The feature it belongs to; `None` for the scope's own, or a plugin's.
     name: Option<&'static str>,
     /// Where the feature was written.
     declared: Option<Declared>,
@@ -90,7 +98,98 @@ pub(super) struct Claimed {
     pub(super) declared: Option<Declared>,
 }
 
+impl Section {
+    /// The scope it is a section of.
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+
+    /// The feature it belongs to; `None` for the scope's own, or a plugin's.
+    pub fn feature(&self) -> Option<&'static str> {
+        self.scope.data()?.features.section_name(self.index)
+    }
+
+    /// Where its feature was written, when that is known.
+    pub fn declared(&self) -> Option<Declared> {
+        let data = self.scope.data()?;
+        let sections = data.features.sections.borrow();
+        sections.get(self.index)?.declared
+    }
+
+    /// Claims `R` here, as written at `declared`. The first claim in the
+    /// scope wins.
+    pub fn claim<R: 'static>(&self, declared: Option<Declared>) {
+        let data = self.scope.installing("claiming a reducer");
+
+        data.features
+            .claims
+            .borrow_mut()
+            .entry(TypeId::of::<R>())
+            .or_insert(Claimed {
+                section: self.index,
+                declared,
+            });
+    }
+
+    /// Says that this section answers `M`, and how.
+    ///
+    /// Keyed by the action, not by whoever answers it - which is what keeps
+    /// the answerer out of every signature the UI touches. `actor!` calls this
+    /// for each handler it lists; a domain that runs on tasks, or a channel,
+    /// or a plain closure over a `RefCell`, calls it itself.
+    pub fn answers<M: 'static>(&self, answer: impl Fn(M) + 'static) {
+        let data = self.scope.installing("answering an action");
+        let answer: Rc<dyn Fn(M)> = Rc::new(answer);
+
+        data.features.sections.borrow_mut()[self.index]
+            .answers
+            .insert(TypeId::of::<M>(), Rc::new(answer) as Rc<dyn Any>);
+    }
+
+    /// What answers `M` here, if anything does.
+    pub fn answerer<M: 'static>(&self) -> Option<Rc<dyn Fn(M)>> {
+        self.scope.data()?.features.answerer::<M>(self.index)
+    }
+
+    /// Notes that this section listens to `event` - through `actor` when an
+    /// actor does the listening.
+    pub fn note_listener(&self, event: &'static str, actor: Option<&'static str>) {
+        let Some(data) = self.scope.data() else { return };
+        let feature = data.features.section_name(self.index);
+        data.features.listeners.borrow_mut().push(Listener {
+            event,
+            actor,
+            feature,
+        });
+    }
+}
+
 impl Scope {
+    /// This scope's own section, outside any feature.
+    pub fn section(&self) -> Section {
+        Section {
+            scope: *self,
+            index: 0,
+        }
+    }
+
+    /// Opens a section for what is about to install here - the feature
+    /// `name`, or something that is not a feature, such as a plugin.
+    pub fn open_section(&self, name: Option<&'static str>, declared: Option<Declared>) -> Section {
+        let data = self.installing("installing a feature");
+        let mut sections = data.features.sections.borrow_mut();
+        sections.push(SectionData {
+            name,
+            declared,
+            answers: HashMap::new(),
+        });
+
+        Section {
+            scope: *self,
+            index: sections.len() - 1,
+        }
+    }
+
     /// Marks feature `F` (its `install` function, used purely as a type
     /// identity) as owned by this scope. `F` must not already be marked
     /// here - two different call sites both claiming ownership of the same
@@ -113,48 +212,18 @@ impl Scope {
             .is_some_and(|data| data.features.claimed(TypeId::of::<R>()).is_some())
     }
 
-    /// Claims `R` for the feature installing now, as written at `declared`.
-    /// The first claim wins.
-    pub fn claim<R: 'static>(&self, declared: Option<Declared>) {
-        let data = self.installing("claiming a reducer");
-        let section = data.features.current_section();
+    /// The section that claimed `R` - the instance whose dispatcher a reader
+    /// of `R` should be handed - or this scope's own when none did.
+    pub fn section_of<R: 'static>(&self) -> Section {
+        let index = self
+            .data()
+            .and_then(|data| data.features.claimed(TypeId::of::<R>()))
+            .map_or(0, |claim| claim.section);
 
-        data.features
-            .claims
-            .borrow_mut()
-            .entry(TypeId::of::<R>())
-            .or_insert(Claimed { section, declared });
-    }
-
-    /// The manifest directory of the feature installing now, for a claim that
-    /// only knows the file the compiler gave it.
-    pub fn current_crate_dir(&self) -> Option<&'static str> {
-        let data = self.data()?;
-        let section = data.features.current_section();
-        let sections = data.features.sections.borrow();
-
-        sections[section].declared.map(|declared| declared.crate_dir)
-    }
-
-    /// Opens a section for what is about to install - the feature `name`, or
-    /// something that is not a feature, such as a plugin. Returns its index.
-    pub fn open_section(&self, name: Option<&'static str>, declared: Option<Declared>) -> usize {
-        let data = self.installing("installing a feature");
-        let mut sections = data.features.sections.borrow_mut();
-        sections.push(Section {
-            name,
-            declared,
-            answers: HashMap::new(),
-        });
-        let index = sections.len() - 1;
-
-        data.features.installing.borrow_mut().push(index);
-        index
-    }
-
-    /// The feature a section belongs to; `None` for the segment's own.
-    pub fn section_name(&self, section: usize) -> Option<&'static str> {
-        self.data()?.features.section_name(section)
+        Section {
+            scope: *self,
+            index,
+        }
     }
 
     /// Every feature installed here, in the order they were.
@@ -176,47 +245,10 @@ impl Scope {
             .collect()
     }
 
-    /// The feature being installed right now, if any.
-    pub fn current_feature(&self) -> Option<&'static str> {
-        let data = self.data()?;
-        data.features.section_name(data.features.current_section())
-    }
-
-    /// Notes that whatever is installing listens to `event` - through `actor`
-    /// when an actor does the listening.
-    pub fn note_listener(&self, event: &'static str, actor: Option<&'static str>) {
-        let Some(data) = self.data() else { return };
-        let feature = data.features.section_name(data.features.current_section());
-        data.features.listeners.borrow_mut().push(Listener {
-            event,
-            actor,
-            feature,
-        });
-    }
-
     pub fn listeners(&self) -> Vec<Listener> {
         self.data()
             .map(|data| data.features.listeners.borrow().clone())
             .unwrap_or_default()
-    }
-
-    pub fn close_section(&self) {
-        if let Some(data) = self.data() {
-            data.features.installing.borrow_mut().pop();
-        }
-    }
-
-    /// The section being installed, or the segment's own when none is.
-    pub fn current_section(&self) -> usize {
-        self.data().map_or(0, |data| data.features.current_section())
-    }
-
-    /// Which section owns `R` - the instance whose dispatcher a reader of `R`
-    /// should be handed.
-    pub fn section_of<R: 'static>(&self) -> usize {
-        self.data()
-            .and_then(|data| data.features.claimed(TypeId::of::<R>()))
-            .map_or(0, |claim| claim.section)
     }
 
     /// Whether feature `F` was marked installed in *this exact* scope.
@@ -242,29 +274,8 @@ impl Scope {
             .is_some_and(|data| data.features.exports.borrow().contains(&TypeId::of::<R>()))
     }
 
-    /// Says that this scope answers `M`, and how.
-    ///
-    /// Keyed by the action, not by whoever answers it - which is what keeps
-    /// the answerer out of every signature the UI touches. `actor!` calls this
-    /// for each handler it lists; a domain that runs on tasks, or a channel,
-    /// or a plain closure over a `RefCell`, calls it itself.
-    pub fn answers<M: 'static>(&self, answer: impl Fn(M) + 'static) {
-        let data = self.installing("answering an action");
-        let answer: Rc<dyn Fn(M)> = Rc::new(answer);
-        let section = data.features.current_section();
-
-        data.features.sections.borrow_mut()[section]
-            .answers
-            .insert(TypeId::of::<M>(), Rc::new(answer) as Rc<dyn Any>);
-    }
-
-    /// What answers `M` in one section of this scope, if anything does.
-    pub fn answerer<M: 'static>(&self, section: usize) -> Option<Rc<dyn Fn(M)>> {
-        self.data()?.features.answerer::<M>(section)
-    }
-
-    /// What answers `M` anywhere in this scope - the first feature that does,
-    /// in the order they installed. For a sender that knows the action and
+    /// What answers `M` anywhere in this scope - the first section that does,
+    /// in the order they were opened. For a sender that knows the action and
     /// not which state it was reading.
     pub fn first_answerer<M: 'static>(&self) -> Option<Rc<dyn Fn(M)>> {
         let data = self.data()?;
@@ -274,10 +285,6 @@ impl Scope {
 }
 
 impl Features {
-    pub(super) fn current_section(&self) -> usize {
-        self.installing.borrow().last().copied().unwrap_or(0)
-    }
-
     pub(super) fn section_name(&self, section: usize) -> Option<&'static str> {
         self.sections.borrow().get(section)?.name
     }

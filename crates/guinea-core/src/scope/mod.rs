@@ -13,7 +13,7 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
-pub use features::{Installed, Listener};
+pub use features::{Installed, Listener, Section};
 pub use lifetime::Awake;
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};

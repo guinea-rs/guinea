@@ -408,7 +408,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     let served = handlers.iter().map(|decl| {
         let msg = &decl.msg;
         quote! {
-            scope.answers::<#msg>({
+            section.answers::<#msg>({
                 let addr = addr.clone();
                 move |action| addr.send(action)
             });
@@ -546,7 +546,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         impl #impl_generics #gc::feature::Serves for #self_ty #where_clause {
             fn serve(
                 addr: &#gc::actor::Addr<Self>,
-                scope: #gc::scope::Scope,
+                section: #gc::scope::Section,
             ) {
                 #(#served)*
             }

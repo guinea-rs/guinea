@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::observability::changes::{self, Change};
-use crate::scope::{Awake, Scope};
+use crate::scope::{Awake, Scope, Section};
 use crate::ui_thread::invoke_on_ui;
 
 /// How long between ticks.
@@ -245,18 +245,19 @@ impl Timer {
     }
 }
 
-impl Scope {
-    /// Runs `run` every `period`, for as long as this scope lives.
+impl Section {
+    /// Runs `run` every `period`, for as long as this section's scope lives.
     #[track_caller]
     pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
+        let scope = self.scope();
         let (ticking, timer) = start(
             Location::caller(),
-            self.current_feature(),
-            Some(*self),
+            self.feature(),
+            Some(scope),
             period.into(),
             run,
         );
-        self.hold_timer(ticking);
+        scope.hold_timer(ticking);
 
         timer
     }

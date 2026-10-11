@@ -5,7 +5,7 @@ use crate::actor::event_bus::EventBus;
 use crate::actor::shape::name;
 use crate::actor::traits::{EventSubscription, Handler};
 use crate::actor::ManagedActor;
-use crate::scope::Scope;
+use crate::scope::{Scope, Section};
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 use std::cell::{Cell, RefCell};
@@ -15,24 +15,48 @@ use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
 
-/// Where an actor is made: the scope that owns it, and the bus of its tree.
+/// Where an actor is made: the section of the scope that owns it, and the bus
+/// of its tree.
+///
+/// What an actor makes lives where it does, so a feature's actor making
+/// another one after the feature installed still makes it the feature's.
 #[derive(Clone)]
 pub struct Home {
-    scope: Scope,
+    section: Section,
     bus: Weak<EventBus>,
 }
 
 impl Home {
+    /// A home in `scope`'s own section, outside any feature.
     pub fn new(scope: Scope) -> Self {
+        Self::in_section(scope.section())
+    }
+
+    /// A home in `section`.
+    pub fn in_section(section: Section) -> Self {
+        let bus = section.scope().tree_bus();
+
         Self {
-            scope,
-            bus: scope.tree_bus().as_ref().map(Rc::downgrade).unwrap_or_default(),
+            section,
+            bus: bus.as_ref().map(Rc::downgrade).unwrap_or_default(),
         }
+    }
+
+    /// A home in a new scope under this one, for something that comes and
+    /// goes: removing that scope ends it, and it is still the same feature's.
+    pub fn child(&self) -> Home {
+        let scope = self.scope().child();
+        Self::in_section(scope.open_section(self.section.feature(), self.section.declared()))
     }
 
     /// The scope that owns what is made here.
     pub fn scope(&self) -> Scope {
-        self.scope
+        self.section.scope()
+    }
+
+    /// The section what is made here belongs to.
+    pub fn section(&self) -> Section {
+        self.section
     }
 }
 
@@ -150,7 +174,7 @@ impl<A: 'static> Addr<A> {
             home: home.clone(),
         }));
 
-        home.scope.hold(&addr);
+        home.scope().hold(&addr);
         addr
     }
 
@@ -212,7 +236,7 @@ impl<A: 'static> Addr<A> {
             )
         });
 
-        self.0.home.scope.note_listener(name::<M>(), Some(name::<A>()));
+        self.0.home.section.note_listener(name::<M>(), Some(name::<A>()));
 
         let subscription = bus.subscribe::<A, M>(self.clone());
         self.0.subscriptions.borrow_mut().push(subscription);
@@ -339,14 +363,14 @@ impl<A: 'static> Addr<A> {
     {
         let addr = Self::bare(state, home);
         A::Bus::subscribe_into(&addr);
-        home.scope.list(&addr, drives);
+        home.section.list(&addr, drives);
         addr
     }
 
     /// How work off the UI thread finds this actor again.
     pub(crate) fn reach(&self) -> Reach<A> {
         Reach {
-            scope: self.0.home.scope,
+            scope: self.0.home.scope(),
             id: self.0.id,
             actor: PhantomData,
         }
@@ -360,7 +384,7 @@ impl<A: 'static> Addr<A> {
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
     /// is not for it.
     pub(crate) fn is_asleep(&self) -> bool {
-        !self.0.home.scope.is_awake()
+        !self.0.home.scope().is_awake()
     }
 
     /// Sends `msg` as caused by `parent`: for a message whose cause crossed a

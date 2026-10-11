@@ -19,7 +19,7 @@ impl Reducer for Count {
 fn reading_from_a_torn_down_segment_says_it_was_torn_down() {
     let tree = ScopeTree::new();
     let page = tree.child();
-    page.claim::<Count>(None);
+    page.section().claim::<Count>(None);
     page.remove();
     let props = SegmentProps::<Headless> {
         chain: &[],

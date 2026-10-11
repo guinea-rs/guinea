@@ -15,7 +15,7 @@
 
 use crate::actor::shape::Declared;
 use crate::actor::{Addr, Home, ManagedActor};
-use crate::scope::{Reducer, Scope};
+use crate::scope::{Reducer, Scope, Section};
 
 /// The way back into a reducer, for whoever changes it.
 ///
@@ -94,27 +94,23 @@ pub struct Dispatch {
     /// reader was reading, and reading already found the scope and the
     /// instance. Searching upward would make two instances of one feature
     /// indistinguishable again.
-    at: Option<(Scope, usize)>,
+    at: Option<Section>,
 }
 
 impl Dispatch {
     /// The section that owns `R` - what a reader of `R` is handed.
     pub fn owning<R: 'static>(scope: Scope) -> Self {
-        Self::in_section(scope, scope.section_of::<R>())
+        Self::in_section(scope.section_of::<R>())
     }
 
-    /// A named section - what a feature is handed while it is installing.
-    pub(crate) fn in_section(scope: Scope, section: usize) -> Self {
-        Self {
-            at: Some((scope, section)),
-        }
+    /// A named section - what a feature is handed for what it claimed.
+    pub(crate) fn in_section(section: Section) -> Self {
+        Self { at: Some(section) }
     }
 
     /// Hands the action to whatever answers it in that feature.
     pub fn emit<M: 'static>(&self, action: M) {
-        let found = self
-            .at
-            .and_then(|(scope, section)| scope.answerer::<M>(section));
+        let found = self.at.and_then(|section| section.answerer::<M>());
 
         match found {
             Some(answer) => {
@@ -237,7 +233,7 @@ exported!(A, B, C, D, E, F, G, H, I, J, K, L);
 /// unwired. Implementing it by hand is not the alternative to having an actor
 /// - `cx.answers::<M>(..)` is.
 pub trait Serves: Sized + 'static {
-    fn serve(addr: &Addr<Self>, scope: Scope);
+    fn serve(addr: &Addr<Self>, section: Section);
 }
 
 /// A reducer being claimed, and what may still be said about it.
@@ -247,17 +243,17 @@ pub trait Serves: Sized + 'static {
 /// the UI owns outright, and the type says so: nothing drives it, so nothing
 /// can be emitted to it.
 pub struct Claim<R: Reducer> {
-    scope: Scope,
+    section: Section,
     reducer: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<R: Reducer> Claim<R> {
-    /// For a context that hands features their scope - the contexts in
+    /// For a context that hands features their section - the contexts in
     /// `guinea-app`, and nothing else.
-    pub fn new(scope: Scope, declared: Declared) -> Self {
-        scope.claim::<R>(Some(declared));
+    pub fn new(section: Section, declared: Declared) -> Self {
+        section.claim::<R>(Some(declared));
         Self {
-            scope,
+            section,
             reducer: std::marker::PhantomData,
         }
     }
@@ -267,8 +263,9 @@ impl<R: Reducer> Claim<R> {
     /// For a synchronous read - a setting already on disk - so the first frame
     /// shows real data instead of defaults followed by a round trip.
     pub fn seed(self, state: R) -> Self {
-        if self.scope.peek::<R>().is_none() {
-            self.scope.seed::<R>(state);
+        let scope = self.section.scope();
+        if scope.peek::<R>().is_none() {
+            scope.seed::<R>(state);
         }
         self
     }
@@ -289,10 +286,10 @@ impl<R: Reducer> Claim<R> {
         F: FnOnce(Push<R>) -> A,
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
-        let home = Home::new(self.scope);
+        let home = Home::in_section(self.section);
         let drives = Some(crate::short_type_name::<R>());
-        let actor = Addr::listed(build(Push::new(self.scope)), &home, drives);
-        A::serve(&actor, self.scope);
+        let actor = Addr::listed(build(Push::new(self.section.scope())), &home, drives);
+        A::serve(&actor, self.section);
         (self.bound(), actor)
     }
 
@@ -306,10 +303,10 @@ impl<R: Reducer> Claim<R> {
 
     fn bound(self) -> Bound<R> {
         Bound {
-            push: Push::new(self.scope),
-            // The section being installed: a feature's own handle answers
+            push: Push::new(self.section.scope()),
+            // The section that claimed it: a feature's own handle answers
             // through itself, not through whatever else the scope holds.
-            dispatch: Dispatch::in_section(self.scope, self.scope.current_section()),
+            dispatch: Dispatch::in_section(self.section),
         }
     }
 }

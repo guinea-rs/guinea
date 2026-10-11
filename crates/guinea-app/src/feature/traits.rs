@@ -11,7 +11,7 @@ use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
-use guinea_core::scope::{Reducer, Scope};
+use guinea_core::scope::{Reducer, Scope, Section};
 
 pub struct AppFeatureDeinitContext<'a> {
     pub shared: &'a SharedState,
@@ -28,8 +28,36 @@ pub struct AppFeatureDeinitContext<'a> {
 #[derive(Clone)]
 pub struct ScopeContext {
     pub scope: Scope,
+    /// Whose what is registered through this context is: the feature or
+    /// plugin installing, or the scope's own. A section of `scope`.
+    section: Section,
     /// What plugins provided during application startup.
     pub services: SharedState,
+}
+
+impl ScopeContext {
+    /// A context for `scope`'s own section.
+    pub fn new(scope: Scope, services: SharedState) -> Self {
+        Self {
+            scope,
+            section: scope.section(),
+            services,
+        }
+    }
+
+    /// This context for `section`, and the scope it is in.
+    pub(crate) fn in_section(&self, section: Section) -> Self {
+        Self {
+            scope: section.scope(),
+            section,
+            services: self.services.clone(),
+        }
+    }
+
+    /// Whose what is registered through this context is.
+    pub fn section(&self) -> Section {
+        self.section
+    }
 }
 
 /// What a segment's feature is handed: the [`ScopeContext`] of its scope, and
@@ -120,9 +148,12 @@ impl FeatureInitContext {
 
         // Its own corner of the scope, so that two instances of one feature
         // answering the same action type do not become one.
-        self.scope.open_section(Some(name::<F>()), F::DECLARED);
-        let installed = F::install(self, params);
-        self.scope.close_section();
+        let section = self.scope.open_section(Some(name::<F>()), F::DECLARED);
+        let cx = FeatureInitContext {
+            scope_cx: self.scope_cx.in_section(section),
+            ..self.clone()
+        };
+        let installed = F::install(&cx, params);
 
         // After the body, because only the body can claim anything. An export
         // the feature never claimed would otherwise be read below as the
@@ -226,10 +257,14 @@ impl ScopeContext {
             file: at.file(),
             line: at.line(),
             column: at.column(),
-            crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
+            crate_dir: self
+                .section
+                .declared()
+                .map(|declared| declared.crate_dir)
+                .unwrap_or_default(),
         };
 
-        Claim::new(self.scope, declared)
+        Claim::new(self.section, declared)
     }
 
     /// Says this scope answers `M`, and how.
@@ -245,7 +280,7 @@ impl ScopeContext {
         &self,
         answer: impl Fn(M) + 'static,
     ) {
-        self.scope.answers(answer);
+        self.section.answers(answer);
     }
 
     /// A service a plugin provided at startup.
@@ -316,7 +351,7 @@ impl ScopeContext {
     /// lives and while it is awake.
     #[track_caller]
     pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
-        self.scope.note_listener(name::<M>(), None);
+        self.section.note_listener(name::<M>(), None);
         self.scope
             .hold_hearing(self.scope.bus().subscribe_fn(self.while_awake(callback)));
     }
@@ -333,7 +368,7 @@ impl ScopeContext {
     /// Creates `actor`, subscribes it to what it listens for, and makes it
     /// this scope's: listed for devtools, and disposed when the scope goes.
     pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
-        Addr::new(actor, &Home::new(self.scope))
+        Addr::new(actor, &Home::in_section(self.section))
     }
 
     /// Sends `message()` to `addr` every `period`, for as long as this scope
@@ -350,12 +385,12 @@ impl ScopeContext {
         M: Send + 'static,
     {
         let addr = addr.clone();
-        self.scope.repeat(period, move || addr.send(message()))
+        self.section.repeat(period, move || addr.send(message()))
     }
 
     /// Runs `run` every `period`, for as long as this scope lives.
     #[track_caller]
     pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
-        self.scope.repeat(period, run)
+        self.section.repeat(period, run)
     }
 }

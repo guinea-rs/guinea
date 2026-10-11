@@ -6,7 +6,7 @@ use crate::actor::shape::Shape;
 use crate::actor::traits::ManagedActor;
 use crate::observability::changes::{self, Change};
 
-use super::Scope;
+use super::{Scope, Section};
 use super::held::Taken;
 use super::tree::ScopeData;
 
@@ -124,41 +124,6 @@ impl Scope {
         }
     }
 
-    /// Lists `addr` for devtools, under the feature installing now, until
-    /// this scope goes - and as driving `drives` when it was made to.
-    pub(crate) fn list<A: ManagedActor + std::fmt::Debug>(
-        &self,
-        addr: &Addr<A>,
-        drives: Option<&'static str>,
-    ) {
-        let Some(data) = self.data() else { return };
-        let id = addr.id();
-        let type_name = crate::short_type_name::<A>();
-        let owner = Owner {
-            scope: Some(*self),
-            feature: self.current_feature(),
-            drives,
-        };
-
-        let listed = with_actor(&data, id, |held| {
-            held.listing = Some(Listing {
-                type_name,
-                shape: A::SHAPE,
-                owner,
-                snapshot: snapshot::<A>,
-            });
-        });
-        if listed.is_none() {
-            return;
-        }
-
-        changes::changed(|| Change::ActorAdded {
-            id,
-            type_name,
-            owner,
-        });
-    }
-
     /// The actors this scope and every scope under it hold, read now.
     pub fn actors(&self) -> Vec<ActorSnapshot> {
         read_all(self.subtree())
@@ -179,5 +144,42 @@ impl Scope {
     /// The actor `id`, if this scope holds it itself, read now.
     pub fn actor_here(&self, id: usize) -> Option<ActorSnapshot> {
         read_one(vec![*self], id)
+    }
+}
+
+impl Section {
+    /// Lists `addr` for devtools as this section's, until its scope goes -
+    /// and as driving `drives` when it was made to.
+    pub(crate) fn list<A: ManagedActor + std::fmt::Debug>(
+        &self,
+        addr: &Addr<A>,
+        drives: Option<&'static str>,
+    ) {
+        let Some(data) = self.scope().data() else { return };
+        let id = addr.id();
+        let type_name = crate::short_type_name::<A>();
+        let owner = Owner {
+            scope: Some(self.scope()),
+            feature: self.feature(),
+            drives,
+        };
+
+        let listed = with_actor(&data, id, |held| {
+            held.listing = Some(Listing {
+                type_name,
+                shape: A::SHAPE,
+                owner,
+                snapshot: snapshot::<A>,
+            });
+        });
+        if listed.is_none() {
+            return;
+        }
+
+        changes::changed(|| Change::ActorAdded {
+            id,
+            type_name,
+            owner,
+        });
     }
 }

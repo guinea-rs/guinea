@@ -46,16 +46,15 @@ impl Scope {
             .is_some_and(|data| data.owners.borrow().contains_key(&TypeId::of::<R>()))
     }
 
-    pub fn note_reducer_owner<R: 'static>(&self) {
+    /// Claims `R` for the feature installing now, as written at `declared`.
+    /// The first claim wins.
+    pub fn claim<R: 'static>(&self, declared: Option<Declared>) {
         let data = self.installing("claiming a reducer");
         let section = data.current_section();
         data.owners.borrow_mut().entry(TypeId::of::<R>()).or_insert(section);
-    }
-
-    /// Notes where reducer `R` was claimed, the first claim winning.
-    pub fn note_reducer_declared<R: 'static>(&self, declared: Declared) {
-        let data = self.installing("claiming a reducer");
-        data.declarations.borrow_mut().entry(TypeId::of::<R>()).or_insert(declared);
+        if let Some(declared) = declared {
+            data.declarations.borrow_mut().entry(TypeId::of::<R>()).or_insert(declared);
+        }
     }
 
     /// The manifest directory of the feature installing now, for a claim that

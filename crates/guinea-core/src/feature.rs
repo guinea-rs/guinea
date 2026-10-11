@@ -13,6 +13,7 @@
 //! used rather than in the name of a method that fetches it. Nothing is left
 //! to wire, so nothing can be left unwired.
 
+use crate::actor::shape::Declared;
 use crate::actor::{Addr, Home, ManagedActor};
 use crate::scope::{Reducer, Scope};
 
@@ -253,8 +254,8 @@ pub struct Claim<R: Reducer> {
 impl<R: Reducer> Claim<R> {
     /// For a context that hands features their scope - the contexts in
     /// `guinea-app`, and nothing else.
-    pub fn new(scope: Scope) -> Self {
-        scope.note_reducer_owner::<R>();
+    pub fn new(scope: Scope, declared: Declared) -> Self {
+        scope.claim::<R>(Some(declared));
         Self {
             scope,
             reducer: std::marker::PhantomData,

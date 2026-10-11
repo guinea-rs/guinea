@@ -274,12 +274,12 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
     let root = ScopeTree::new();
     let layout = root.child();
     let page = layout.child();
-    root.note_reducer_owner::<Counter>();
+    root.claim::<Counter>(None);
     root.note_export::<Counter>();
-    layout.note_reducer_owner::<Counter>();
+    layout.claim::<Counter>(None);
     layout.note_export::<Counter>();
-    layout.note_reducer_owner::<Hidden>();
-    page.note_reducer_owner::<Hidden>();
+    layout.claim::<Hidden>(None);
+    page.claim::<Hidden>(None);
 
     assert_eq!(page.owner_of::<Counter>(), Some(layout), "the nearest export wins");
     assert_eq!(page.owner_of::<Hidden>(), Some(page), "what it claimed is its own");
@@ -290,7 +290,7 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
 #[test]
 fn a_claimed_reducer_is_not_a_feature_installed_there() {
     let scope = ScopeTree::new();
-    scope.note_reducer_owner::<Counter>();
+    scope.claim::<Counter>(None);
 
     assert!(scope.claims::<Counter>());
     assert!(!scope.has_feature::<Counter>());
@@ -309,7 +309,7 @@ fn a_described_state_names_the_feature_that_claimed_it() {
 
     let scope = ScopeTree::new();
     scope.open_section(Some("app::CounterFeature"), None);
-    scope.note_reducer_owner::<Counter>();
+    scope.claim::<Counter>(None);
     scope.state::<Counter>();
     scope.close_section();
     scope.state::<Loose>();

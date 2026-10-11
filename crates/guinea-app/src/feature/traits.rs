@@ -222,14 +222,14 @@ impl ScopeContext {
     #[track_caller]
     pub fn state<R: Reducer>(&self) -> Claim<R> {
         let at = Location::caller();
-        self.scope.note_reducer_declared::<R>(Declared {
+        let declared = Declared {
             file: at.file(),
             line: at.line(),
             column: at.column(),
             crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
-        });
+        };
 
-        Claim::new(self.scope)
+        Claim::new(self.scope, declared)
     }
 
     /// Says this scope answers `M`, and how.

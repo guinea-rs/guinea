@@ -6,7 +6,7 @@ use std::rc::{Rc, Weak};
 
 use guinea_app::app::roots::{self, RootId};
 use guinea_core::actor::event_bus::Listening;
-use guinea_core::actor::registry::ActorSnapshot;
+use guinea_core::actor::snapshot::ActorSnapshot;
 use guinea_core::actor::shape::Declared;
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::observability::panels::{self, Panel};

@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::actor::registry::Owner;
+use crate::actor::snapshot::Owner;
 use crate::trace;
 
 /// Something a tool lists came or went, so what it last read of it is

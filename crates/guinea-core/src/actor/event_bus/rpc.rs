@@ -1,4 +1,5 @@
 use crate::actor::event_bus::{Answering, Event, GlobalEventBus};
+use crate::actor::shape::Declared;
 use crate::actor::traits::Handler;
 use crate::actor::{Cx, invoke_on_ui};
 use crate::trace;
@@ -137,7 +138,7 @@ impl<T: Clone + Send + 'static> Reply<T> {
 /// `handle_rpc` returned: at once, or when its [`Reply::later`] is done.
 pub trait RpcHandler<Req: RpcCall>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
-    const DECLARED: Option<crate::actor::shape::Declared> = None;
+    const DECLARED: Option<Declared> = None;
 
     fn handle_rpc(&mut self, req: Req, cx: Cx<Self, Req>) -> Reply<Req::Response>
     where
@@ -149,7 +150,7 @@ where
     A: RpcHandler<Req> + 'static,
     Req: RpcCall,
 {
-    const DECLARED: Option<crate::actor::shape::Declared> = <A as RpcHandler<Req>>::DECLARED;
+    const DECLARED: Option<Declared> = <A as RpcHandler<Req>>::DECLARED;
 
     const ANSWERS: bool = true;
 

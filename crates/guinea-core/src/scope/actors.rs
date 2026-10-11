@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::rc::{Rc, Weak};
 
 use crate::actor::Addr;
-use crate::actor::registry::{ActorSnapshot, Owner};
+use crate::actor::snapshot::{ActorSnapshot, Owner};
 use crate::actor::shape::Shape;
 use crate::actor::traits::ManagedActor;
 use crate::observability::changes::{self, Change};

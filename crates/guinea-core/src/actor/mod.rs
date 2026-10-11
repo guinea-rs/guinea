@@ -23,7 +23,7 @@ pub use futures_core::Stream;
 
 pub mod event_bus;
 
-pub mod registry;
+pub mod snapshot;
 pub mod shape;
 
 pub type UiTask = Box<dyn FnOnce() + Send>;

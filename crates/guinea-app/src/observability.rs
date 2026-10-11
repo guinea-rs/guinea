@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_core::actor::registry::ActorSnapshot;
+use guinea_core::actor::snapshot::ActorSnapshot;
 use guinea_core::scope::Scope;
 
 use crate::app::registry::Registry;

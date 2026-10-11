@@ -1,10 +1,11 @@
 use crate::actor::event_bus::subscribe::Event;
+use crate::actor::shape::{Declared, Shape};
 use crate::actor::{Addr, Cx};
 use crate::trace::Bus;
 
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
-    const DECLARED: Option<crate::actor::shape::Declared> = None;
+    const DECLARED: Option<Declared> = None;
 
     /// Whether handling `M` answers it: set for a request's handler, the one
     /// that returns the reply. A bus lets one subscriber answer each request
@@ -22,7 +23,7 @@ pub trait ManagedActor: Sized + 'static {
     /// Declared outgoing messages per handler, or `Open` when undeclared.
     type Flow;
     /// What `actor!` declared, for devtools.
-    const SHAPE: crate::actor::shape::Shape = crate::actor::shape::Shape::UNKNOWN;
+    const SHAPE: Shape = Shape::UNKNOWN;
 }
 
 /// What an actor's manifest subscribes to on the global bus. `actor!` writes

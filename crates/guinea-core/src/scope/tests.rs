@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::actor::Addr;
-use crate::actor::registry::Owner;
+use crate::actor::snapshot::Owner;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 struct Counter {

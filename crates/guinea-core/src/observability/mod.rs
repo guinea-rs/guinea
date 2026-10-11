@@ -5,7 +5,6 @@
 //!   [`mark_anywhere`] for something off the UI thread;
 //! - what came or went: [`changes`];
 //! - what a backend or a plugin knows about itself: [`panels`];
-//! - where a frame went: [`profiling`];
 //! - the application's own `tracing` events: [`layer`].
 
 pub mod changes;
@@ -63,86 +62,15 @@ impl Drop for EveryRender {
 pub struct Rendering {
     segment: &'static str,
     started: std::time::Instant,
-    /// Held for as long as the drawing lasts; the profiler reads it on drop.
-    #[cfg(feature = "profiling")]
-    _zone: Option<puffin::ProfilerScope>,
 }
 
 impl Rendering {
     pub fn of(segment: &'static str) -> Option<Rendering> {
-        #[cfg(feature = "profiling")]
-        {
-            let zone = profiling::zone(segment);
-            if !trace::is_observed_anywhere() && zone.is_none() {
-                return None;
-            }
-
-            return Some(Rendering {
-                segment,
-                started: std::time::Instant::now(),
-                _zone: zone,
-            });
-        }
-
-        #[cfg(not(feature = "profiling"))]
         trace::is_observed_anywhere().then(|| Rendering {
             segment,
             started: std::time::Instant::now(),
         })
     }
-}
-
-/// The puffin profiler, when it was compiled in and switched on.
-///
-/// A profiler is a second reader of the same moments the trace marks: the
-/// trace says what happened and why, the profiler says where the frame went.
-pub mod profiling {
-    /// Whether zones are being recorded. Always `false` without the
-    /// `profiling` feature.
-    pub fn on() -> bool {
-        #[cfg(feature = "profiling")]
-        {
-            puffin::are_scopes_on()
-        }
-        #[cfg(not(feature = "profiling"))]
-        {
-            false
-        }
-    }
-
-    /// Starts or stops recording. Does nothing without the feature.
-    pub fn record(on: bool) {
-        #[cfg(feature = "profiling")]
-        puffin::set_scopes_on(on);
-        #[cfg(not(feature = "profiling"))]
-        let _ = on;
-    }
-
-    /// Ends the frame the profiler is collecting. A backend calls this once
-    /// per frame it draws.
-    pub fn frame_done() {
-        #[cfg(feature = "profiling")]
-        puffin::GlobalProfiler::lock().new_frame();
-    }
-
-    /// A `render` zone for as long as the returned value lives, the segment
-    /// as its data - which is how puffin carries a name that changes.
-    #[cfg(feature = "profiling")]
-    pub(super) fn zone(segment: &'static str) -> Option<puffin::ProfilerScope> {
-        if !puffin::are_scopes_on() {
-            return None;
-        }
-
-        static SCOPE: std::sync::OnceLock<puffin::ScopeId> = std::sync::OnceLock::new();
-        let scope = *SCOPE.get_or_init(|| {
-            puffin::ThreadProfiler::call(|profiler| {
-                profiler.register_named_scope("render", "guinea", file!(), line!())
-            })
-        });
-
-        Some(puffin::ProfilerScope::new(scope, segment))
-    }
-
 }
 
 impl Drop for Rendering {

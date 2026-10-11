@@ -25,19 +25,20 @@ Left:
   the tools. A session picks its tools up at startup, so registering one only
   reaches the next session, not the one that registered it.
 
-### The puffin profiler, half done
+### A profiler, as the backend's
 
-Done: zones around every page's and layout's `render` (`observability::Rendering`),
-a frame boundary per backend, `Capability::Profiler`, `Command::Profiler`,
-`Report::Profiler`, and a `puffin_http` server the plugin starts on request.
+The puffin profiler is cut from core. It zoned only `Rendering`, and only
+eframe and winui ended a frame, so it was a puffin stub for two backends
+living in the core every backend builds on.
 
-Left: devtools' own half - keep the address the application reports, a command
-route on the HTTP API, and a page that connects with `puffin_http::Client` and
-draws the frames. `puffin_egui` is no use: it is on egui 0.33 and devtools are
-on 0.36, so the flame graph is ours to draw.
+What a frame is and where it goes is the backend's to know: a toolkit's own
+profiler (puffin for egui, XAML's for WinUI, Slint's) or a frame boundary the
+backend reports. To decide: whether core offers anything here beyond the trace,
+which already times handlers, pulls, background work and rendering.
 
-Also worth doing: let devtools profile themselves, which is the same page
-reading the in-process `GlobalProfiler` instead of a socket.
+Devtools still has `Capability::Profiler`, `Command::Profiler`,
+`Report::Profiler` and a `puffin_http` server behind its `profiling` feature,
+which named `guinea-core/profiling`.
 
 ## Deep links
 

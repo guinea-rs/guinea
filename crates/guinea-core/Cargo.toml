@@ -21,7 +21,6 @@ futures-core.workspace = true
 inventory.workspace = true
 once_cell.workspace = true
 parking_lot.workspace = true
-puffin = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 
@@ -42,9 +41,6 @@ harness = false
 # The test queue for `invoke_on_ui`, and the seeded executor whose clock is a
 # paused tokio runtime - which is tokio's `test-util`.
 test-utils = ["tokio/test-util"]
-# Zones for the puffin profiler, around the same places the trace marks. Off
-# until something switches them on, and free to leave compiled in.
-profiling = ["dep:puffin"]
 
 
 

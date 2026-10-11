@@ -1147,11 +1147,6 @@ impl<P: Page> Component for PageNode<P> {
     }
 
     fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        // The root segment starts the frame the profiler collects; the ones
-        // under it draw inside the same one.
-        if input.cursor == 0 {
-            guinea_core::observability::profiling::frame_done();
-        }
         if left(input) {
             return marked::<P>(Grid::new().into());
         }
@@ -1217,9 +1212,6 @@ impl<L: Layout> Component for LayoutNode<L> {
     }
 
     fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        if input.cursor == 0 {
-            guinea_core::observability::profiling::frame_done();
-        }
         if left(input) {
             return marked::<L>(Grid::new().into());
         }

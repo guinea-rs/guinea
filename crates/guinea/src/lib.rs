@@ -45,7 +45,7 @@ pub use guinea_router::sample;
 ///   events, into the trace.
 pub mod observability {
     pub use guinea_core::observability::{
-        LogLayer, Rendering, changes, is_observed, layer, mark_anywhere, panels, profiling,
+        LogLayer, Rendering, changes, is_observed, layer, mark_anywhere, panels,
     };
     pub use guinea_core::trace;
     pub use guinea_router::observability::act;

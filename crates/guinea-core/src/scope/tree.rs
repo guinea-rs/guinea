@@ -29,26 +29,34 @@ pub(super) struct Tree {
     pub(super) bus: Rc<EventBus>,
 }
 
-impl Tree {
-    fn new() -> Self {
+impl Node {
+    fn under(parent: Option<NodeKey>) -> Self {
         Self {
-            nodes: SlotMap::with_key(),
-            bus: Rc::new(EventBus::new()),
-        }
-    }
-
-    pub(super) fn insert(&mut self, parent: Option<NodeKey>) -> NodeKey {
-        let node = self.nodes.insert(Node {
             data: Rc::new(ScopeData::default()),
             parent,
             children: Vec::new(),
-        });
-
-        if let Some(parent) = parent {
-            self.nodes[parent].children.push(node);
         }
+    }
+}
 
-        node
+impl Tree {
+    /// A tree of one scope, and that scope.
+    fn rooted() -> (Self, NodeKey) {
+        let mut nodes = SlotMap::with_key();
+        let root = nodes.insert(Node::under(None));
+
+        let tree = Self {
+            nodes,
+            bus: Rc::new(EventBus::new()),
+        };
+        (tree, root)
+    }
+
+    /// A new scope under `parent`, its newest child.
+    pub(super) fn child_of(&mut self, parent: NodeKey) -> NodeKey {
+        let child = self.nodes.insert(Node::under(Some(parent)));
+        self.nodes[parent].children.push(child);
+        child
     }
 
     /// Takes the scope at `node` and everything under it out of the tree,
@@ -138,13 +146,13 @@ pub struct ScopeTree {
 
 impl ScopeTree {
     pub fn new() -> Self {
-        let tree = Rc::new(RefCell::new(Tree::new()));
-        let node = tree.borrow_mut().insert(None);
+        let (tree, root) = Tree::rooted();
+        let tree = Rc::new(RefCell::new(tree));
 
         Self {
             root: Scope {
                 tree: register(&tree),
-                node,
+                node: root,
             },
             _tree: tree,
         }

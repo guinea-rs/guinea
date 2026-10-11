@@ -118,7 +118,7 @@ impl Scope {
             tree.nodes.contains_key(self.node),
             "a child for {self:?}, which was removed"
         );
-        let node = tree.insert(Some(self.node));
+        let node = tree.child_of(self.node);
 
         Scope {
             tree: self.tree,

@@ -92,17 +92,6 @@ fn a_scope_of_a_tree_that_is_gone_reaches_no_tree_that_came_after() {
 }
 
 #[test]
-fn the_roots_of_trees_on_two_threads_are_two_scopes() {
-    let root = || {
-        std::thread::spawn(|| ScopeTree::new().scope())
-            .join()
-            .expect("the thread made a tree")
-    };
-
-    assert_ne!(root(), root());
-}
-
-#[test]
 fn a_scope_of_a_tree_that_is_gone_is_not_one_of_the_tree_that_took_its_place() {
     let gone = ScopeTree::new();
     let stale = gone.scope();

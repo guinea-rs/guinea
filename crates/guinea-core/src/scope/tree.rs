@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use slotmap::{SlotMap, new_key_type};
 
@@ -11,15 +10,11 @@ new_key_type! {
     /// Where a scope sits in its tree. A removed scope's key finds nothing,
     /// even once its slot holds another scope.
     pub(super) struct NodeKey;
+
+    /// Where a tree is listed on its thread. A tree that is gone is found by
+    /// nothing, even once its slot lists another tree.
+    pub(super) struct TreeKey;
 }
-
-/// Names one tree, and no other on any thread, for as long as the process
-/// runs: a `Scope` crosses threads, so what it is equal to has to hold
-/// across them too.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(super) struct TreeId(u64);
-
-static NEXT_TREE: AtomicU64 = AtomicU64::new(1);
 
 pub(super) struct Node {
     pub(super) data: Rc<ScopeData>,
@@ -93,32 +88,23 @@ impl Tree {
 }
 
 thread_local! {
-    /// Where a `Scope` finds its tree: the trees made on this thread, an
-    /// application's and the odd one a window or a test holds - a few, so a
-    /// list. Weak: each tree is its [`ScopeTree`]'s, and the thread ending
-    /// lets go of nothing here but names.
-    static TREES: RefCell<Vec<(TreeId, Weak<RefCell<Tree>>)>> = const { RefCell::new(Vec::new()) };
+    /// Where a `Scope` finds its tree. Weak: each tree is its [`ScopeTree`]'s,
+    /// and the thread ending lets go of nothing here but names.
+    static TREES: RefCell<SlotMap<TreeKey, Weak<RefCell<Tree>>>> =
+        RefCell::new(SlotMap::with_key());
 }
 
-fn register(tree: &Rc<RefCell<Tree>>) -> TreeId {
-    let id = TreeId(NEXT_TREE.fetch_add(1, Ordering::Relaxed));
-    TREES.with(|trees| trees.borrow_mut().push((id, Rc::downgrade(tree))));
-    id
+fn register(tree: &Rc<RefCell<Tree>>) -> TreeKey {
+    TREES.with(|trees| trees.borrow_mut().insert(Rc::downgrade(tree)))
 }
 
-fn unregister(id: TreeId) {
-    let _ = TREES.try_with(|trees| trees.borrow_mut().retain(|(tree, _)| *tree != id));
+fn unregister(key: TreeKey) {
+    let _ = TREES.try_with(|trees| trees.borrow_mut().remove(key));
 }
 
-pub(super) fn tree(id: TreeId) -> Option<Rc<RefCell<Tree>>> {
+pub(super) fn tree(key: TreeKey) -> Option<Rc<RefCell<Tree>>> {
     TREES
-        .try_with(|trees| {
-            trees
-                .borrow()
-                .iter()
-                .find(|(tree, _)| *tree == id)
-                .and_then(|(_, tree)| tree.upgrade())
-        })
+        .try_with(|trees| trees.borrow().get(key).and_then(Weak::upgrade))
         .ok()
         .flatten()
 }

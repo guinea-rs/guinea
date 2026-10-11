@@ -54,7 +54,7 @@ fn services(cx: &FeatureInitContext) -> anyhow::Result<ServicesFeature> {
     // case the actor model is *an* answer to rather than the answer.
     let catalogue = Rc::new(RefCell::new(Catalogue {
         scans: 0,
-        push: services.port(),
+        push: services.pusher(),
     }));
 
     // Answering an action is a closure. `dispatch.emit(Refresh)` from any

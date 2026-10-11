@@ -58,7 +58,7 @@ impl FeatureHost {
         services: SharedState,
         app: Option<ScopeContext>,
     ) -> Self {
-        let root = Registration::open();
+        let root = Registration::open(parent);
         let id = root.id().get();
         let scope = parent.child();
         scope.set_window(id);

@@ -81,7 +81,7 @@ where
     // The window belongs to this root, and stops belonging to it below, when
     // the loop is over.
     let root_id = router.root();
-    shell.attach(root_id, &window);
+    shell.attach(root_id, context.scope, &window);
 
     // Named, so that anything remembering something about this window between
     // runs has a key that outlives the id. One window per `run`, so it is the

@@ -186,6 +186,11 @@ impl<U: Ui> SegmentProps<U> {
         }
     }
 
+    /// The scope this segment runs in.
+    pub fn scope(&self) -> Scope {
+        self.scopes[self.cursor]
+    }
+
     /// The scope that owns `R`, and a binding to its state.
     ///
     /// This segment's own scope counts whatever it claimed; an ancestor counts

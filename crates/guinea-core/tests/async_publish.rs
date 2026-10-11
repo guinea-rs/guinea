@@ -1,10 +1,9 @@
 //! An async handler publishes from a runtime worker, the way the application
-//! runs it: the event has to reach the UI thread's global bus, not the
-//! worker's own empty one.
+//! runs it: the event has to reach the bus of the actor's tree on the UI
+//! thread, and no other tree's.
 //!
 //! A process of its own, because the dispatcher is process-wide.
 
-use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;
 use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
@@ -55,18 +54,24 @@ impl UiDispatcher for Channel {
 }
 
 #[test]
-fn an_event_published_off_the_ui_thread_reaches_the_ui_thread_s_subscribers() {
+fn an_event_published_off_the_ui_thread_reaches_the_subscribers_of_the_actor_s_tree() {
     let (to_ui, ui) = mpsc::channel();
     set_ui_dispatcher(Channel(Mutex::new(to_ui)));
 
+    let tree = ScopeTree::new();
+    let other = ScopeTree::new();
     let heard = Rc::new(RefCell::new(Vec::new()));
+
     let hearing = heard.clone();
-    let _subscription = GlobalEventBus::subscribe_fn(move |Refreshed(n): Refreshed| {
+    let _subscription = tree.bus().subscribe_fn(move |Refreshed(n): Refreshed| {
         hearing.borrow_mut().push(n);
+    });
+    let elsewhere = heard.clone();
+    let _other = other.bus().subscribe_fn(move |Refreshed(n): Refreshed| {
+        elsewhere.borrow_mut().push(n + 100);
     });
 
     let handed: Arc<Mutex<Option<AsyncContext<Refresher>>>> = Arc::default();
-    let tree = ScopeTree::new();
     let addr = Addr::new_managed(
         Refresher {
             handed: handed.clone(),

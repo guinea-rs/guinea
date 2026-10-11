@@ -1,7 +1,7 @@
 use crate::actor::cancel::Cancel;
 use crate::actor::envelope::{self, Envelope, MessageEnvelope};
 use crate::actor::event_bus::subscribe::{BusSubscription, Event};
-use crate::actor::event_bus::{EventBus, GlobalEventBus};
+use crate::actor::event_bus::EventBus;
 use crate::actor::shape::name;
 use crate::actor::traits::{EventSubscription, Handler};
 use crate::actor::ManagedActor;
@@ -17,11 +17,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Where an actor is made: the scope that owns it, and the window bus it can
-/// hear when it is in a window.
+/// Where an actor is made: the scope that owns it, its tree's bus, and the
+/// window bus it can hear when it is in a window.
 #[derive(Clone)]
 pub struct Home {
     scope: Scope,
+    global: Weak<EventBus>,
     bus: Weak<EventBus>,
 }
 
@@ -29,6 +30,7 @@ impl Home {
     pub fn new(scope: Scope, bus: Option<&Rc<EventBus>>) -> Self {
         Self {
             scope,
+            global: scope.tree_bus().as_ref().map(Rc::downgrade).unwrap_or_default(),
             bus: bus.map(Rc::downgrade).unwrap_or_default(),
         }
     }
@@ -63,6 +65,10 @@ impl<A: 'static> Reach<A> {
 
     pub(crate) fn id(&self) -> usize {
         self.id
+    }
+
+    pub(crate) fn scope(&self) -> Scope {
+        self.scope
     }
 }
 
@@ -152,7 +158,7 @@ impl<A: 'static> Addr<A> {
     /// disposed, and listed for devtools under the feature installing now.
     ///
     /// ```
-    /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::actor::event_bus::Event;
     /// use guinea_core::actor::{Addr, Cx, Handler, Home};
     /// use guinea_core::scope::ScopeTree;
     ///
@@ -177,10 +183,10 @@ impl<A: 'static> Addr<A> {
     ///
     /// let tree = ScopeTree::new();
     /// let autosave = Addr::new_managed(Autosave, &Home::new(tree.scope(), None));
-    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 1);
+    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
     ///
     /// autosave.dispose();
-    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 0);
+    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 0);
     /// ```
     pub fn new_managed(state: A, home: &Home) -> Self
     where
@@ -199,7 +205,7 @@ impl<A: 'static> Addr<A> {
     /// the subscription.
     ///
     /// ```
-    /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::actor::event_bus::Event;
     /// use guinea_core::actor::{Addr, Cx, Handler, Home};
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::trace::Bus;
@@ -219,10 +225,10 @@ impl<A: 'static> Addr<A> {
     /// let autosave = Addr::new(Autosave, &Home::new(tree.scope(), None));
     ///
     /// autosave.subscribe_on::<Saved>(Bus::Global);
-    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 1);
+    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
     ///
     /// autosave.dispose();
-    /// assert_eq!(GlobalEventBus::count_subscribers::<Saved>(), 0);
+    /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 0);
     /// ```
     ///
     /// # Panics
@@ -233,7 +239,13 @@ impl<A: 'static> Addr<A> {
         A: Handler<M>,
     {
         let on = match bus {
-            Bus::Global => GlobalEventBus::bus(),
+            Bus::Global => self.0.home.global.upgrade().unwrap_or_else(|| {
+                panic!(
+                    "{} lives in a tree that is gone, so there is no bus to hear {} on",
+                    short_type_name::<A>(),
+                    short_type_name::<M>()
+                )
+            }),
             Bus::Window => self.0.home.bus.upgrade().unwrap_or_else(|| {
                 panic!(
                     "{} lives in no window, so there is no window bus to hear {} on",
@@ -380,6 +392,11 @@ impl<A: 'static> Addr<A> {
             id: self.0.id,
             actor: PhantomData,
         }
+    }
+
+    /// The bus of the tree it lives in, while the tree is there.
+    pub(crate) fn tree_bus(&self) -> Option<Rc<EventBus>> {
+        self.0.home.global.upgrade()
     }
 
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
@@ -573,10 +590,10 @@ mod tests {
     fn a_managed_actor_hears_its_manifest_until_it_is_disposed() {
         let home = TestHome::new();
         let addr = Addr::new_managed(Listening, &home);
-        assert_eq!(GlobalEventBus::count_subscribers::<Heard>(), 1);
+        assert_eq!(home.tree.bus().count_subscribers::<Heard>(), 1);
 
         addr.dispose();
 
-        assert_eq!(GlobalEventBus::count_subscribers::<Heard>(), 0);
+        assert_eq!(home.tree.bus().count_subscribers::<Heard>(), 0);
     }
 }

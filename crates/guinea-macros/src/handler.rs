@@ -67,7 +67,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     let passed_cx = takes_cx.then(|| quote!(, cx));
 
     // A return type is the signal that this handler answers an
-    // `AsyncBus::request` rather than reacting to a fire-and-forget event.
+    // `Scope::request` rather than reacting to a fire-and-forget event.
     // The generated impl is the only code path that can call
     // `AsyncBus::reply` for this message, so "replies exactly once" holds
     // by construction regardless of which of the four branches below fires.
@@ -208,6 +208,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                         let actx = cx.async_ctx();
                         let payload = msg.payload;
                         #gc::actor::event_bus::AsyncBus::spawn_reply::<#ret_ty, _>(
+                            msg.scope,
                             msg.correlation_id,
                             msg.chain,
                             async move { #fn_name(actx, payload).await },

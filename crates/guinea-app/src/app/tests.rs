@@ -179,13 +179,14 @@ fn a_feature_may_pull_plugins_and_read_what_they_provide() {
 
 #[test]
 fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
-    use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    use guinea_core::actor::event_bus::Event;
 
     #[derive(Clone)]
     struct Tick;
     impl Event for Tick {}
 
     let app = PluginBuilder::new(AppHost::new());
+    let bus = app.host().scope().bus();
     let seen = Rc::new(RefCell::new(0usize));
 
     {
@@ -193,11 +194,11 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
         app.subscribe_global::<Tick>(move |_| *seen.borrow_mut() += 1);
     }
 
-    assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 1);
+    assert_eq!(bus.count_subscribers::<Tick>(), 1);
 
     app.host().shutdown();
 
-    assert_eq!(GlobalEventBus::count_subscribers::<Tick>(), 0);
+    assert_eq!(bus.count_subscribers::<Tick>(), 0);
 }
 
 struct Greeting(&'static str);

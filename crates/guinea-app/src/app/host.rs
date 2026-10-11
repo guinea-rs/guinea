@@ -80,7 +80,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use guinea_core::actor::event_bus::GlobalEventBus;
     use guinea_core::scope::DropGuard;
 
     use super::*;
@@ -163,17 +162,16 @@ mod tests {
     #[test]
     fn subscriptions_the_application_holds_end_with_it() {
         let host = AppHost::new();
-        host.scope()
-            .own_subscription(GlobalEventBus::subscribe_fn(|_: Ping| {}));
-        host.scope()
-            .own_subscription(GlobalEventBus::subscribe_fn(|_: Ping| {}));
+        let bus = host.scope().bus();
+        host.scope().own_subscription(bus.subscribe_fn(|_: Ping| {}));
+        host.scope().own_subscription(bus.subscribe_fn(|_: Ping| {}));
 
-        assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 2);
+        assert_eq!(bus.count_subscribers::<Ping>(), 2);
 
         host.shutdown();
 
         assert_eq!(
-            GlobalEventBus::count_subscribers::<Ping>(),
+            bus.count_subscribers::<Ping>(),
             0,
             "the bus itself must be left empty, not merely the host"
         );

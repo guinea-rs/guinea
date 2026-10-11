@@ -18,7 +18,7 @@ use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{
     Done, Geometry, Position, Size, Unsupported, WindowChanged, Windows, fit,
 };
-use guinea_core::actor::event_bus::GlobalEventBus;
+use guinea_core::scope::Scope;
 use slint::{ComponentHandle, LogicalSize, PhysicalPosition};
 
 use crate::monitors;
@@ -40,20 +40,25 @@ pub(crate) struct SlintWindows {
 
 struct Entry {
     window: Box<dyn Handle>,
+    /// Where what the window does is published.
+    app: Scope,
     /// The last geometry published, so a poll that finds nothing new says
     /// nothing.
     last: Option<Geometry>,
 }
 
 impl SlintWindows {
-    /// Puts a root's window on the register.
+    /// Puts a root's window on the register, its changes published on the
+    /// bus of `app`.
     pub(crate) fn attach<W: ComponentHandle + 'static>(
         self: &std::sync::Arc<Self>,
         root: RootId,
+        app: Scope,
         window: &W,
     ) {
         let entry = Entry {
             window: Box::new(window.as_weak()),
+            app,
             last: None,
         };
 
@@ -110,7 +115,7 @@ impl SlintWindows {
 
             entry.last = Some(geometry);
             tracing::debug!(%root, ?geometry, "window changed");
-            GlobalEventBus::publish(WindowChanged {
+            entry.app.publish(WindowChanged {
                 root: *root,
                 geometry,
             });

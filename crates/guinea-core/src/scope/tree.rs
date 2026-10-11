@@ -3,6 +3,7 @@ use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{MAIN, Outlet, Scope, ScopeData};
+use crate::actor::event_bus::EventBus;
 
 /// Numbers every scope once, from 1: a node that holds no scope is numbered 0.
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
@@ -15,14 +16,23 @@ pub(super) struct Node {
     pub(super) children: Vec<u32>,
 }
 
-/// Every scope in one [`ScopeTree`], and which sits under which.
-#[derive(Default)]
+/// Every scope in one [`ScopeTree`], which sits under which, and the bus they
+/// share.
 pub(super) struct Tree {
     pub(super) nodes: Vec<Node>,
     free: Vec<u32>,
+    pub(super) bus: Rc<EventBus>,
 }
 
 impl Tree {
+    fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            free: Vec::new(),
+            bus: Rc::new(EventBus::global()),
+        }
+    }
+
     pub(super) fn insert(&mut self, parent: Option<u32>, outlet: Outlet) -> (u32, u64) {
         let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
         let data = Some(Rc::new(ScopeData::default()));
@@ -164,7 +174,7 @@ pub struct ScopeTree {
 
 impl ScopeTree {
     pub fn new() -> Self {
-        let tree = Rc::new(RefCell::new(Tree::default()));
+        let tree = Rc::new(RefCell::new(Tree::new()));
         let (index, serial) = tree.borrow_mut().insert(None, MAIN);
 
         Self {

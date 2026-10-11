@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use crate::actor::event_bus::EventBus;
 use crate::actor::shape::Declared;
 
 mod actors;
@@ -262,6 +263,24 @@ impl Scope {
     /// Identifies this scope, and never another one.
     pub fn key(&self) -> usize {
         self.serial as usize
+    }
+
+    /// The bus of this scope's tree: every scope in it publishes there and
+    /// hears there.
+    ///
+    /// # Panics
+    ///
+    /// When this scope was removed: what it would subscribe would outlive it.
+    pub fn bus(&self) -> Rc<EventBus> {
+        self.read(|tree| tree.node(self.index, self.serial).map(|_| tree.bus.clone()))
+            .flatten()
+            .unwrap_or_else(|| panic!("the bus of {self:?}, which was removed"))
+    }
+
+    /// The bus of this scope's tree while the tree is there, whether or not
+    /// this scope still is.
+    pub(crate) fn tree_bus(&self) -> Option<Rc<EventBus>> {
+        self.read(|tree| tree.bus.clone())
     }
 
     fn data(&self) -> Option<Rc<ScopeData>> {

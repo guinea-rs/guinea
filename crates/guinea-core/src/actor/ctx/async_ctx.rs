@@ -2,11 +2,12 @@ use super::Cx;
 use crate::actor::addr::Reach;
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
-use crate::actor::event_bus::{EventBus, GlobalEventBus};
+use crate::actor::event_bus::{EventBus, RpcCall};
 use crate::actor::traits::Handler;
 use crate::actor::{AllowedSignal, ManagedActor};
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
+use std::time::Duration;
 
 /// What work off the UI thread keeps of the actor that started it, from
 /// [`Cx::async_ctx`]: `Send`, where the handler's [`Cx`] is not.
@@ -149,9 +150,9 @@ impl<A: 'static> AsyncContext<A> {
         self.cancel.guard(fut).await
     }
 
-    /// Publishes `msg` on the global bus, from whichever thread this runs on:
-    /// the bus lives on the UI thread, and the event goes there with its
-    /// cause.
+    /// Publishes `msg` on the bus of the actor's tree, from whichever thread
+    /// this runs on: the bus lives on the UI thread, and the event goes there
+    /// with its cause.
     ///
     /// ```
     /// # use std::cell::RefCell;
@@ -178,7 +179,7 @@ impl<A: 'static> AsyncContext<A> {
     /// use std::cell::Cell;
     /// use std::rc::Rc;
     ///
-    /// use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+    /// use guinea_core::actor::event_bus::Event;
     /// use guinea_core::ui_thread::UiLoop;
     ///
     /// #[derive(Clone)]
@@ -190,7 +191,7 @@ impl<A: 'static> AsyncContext<A> {
     /// let heard_on = Rc::new(Cell::new(None));
     /// let heard = heard_on.clone();
     /// let _subscription =
-    ///     GlobalEventBus::subscribe_fn(move |_: Saved| heard.set(Some(std::thread::current().id())));
+    ///     tree.bus().subscribe_fn(move |_: Saved| heard.set(Some(std::thread::current().id())));
     ///
     /// std::thread::spawn(move || ctx.publish(Saved)).join().unwrap();
     /// assert_eq!(heard_on.get(), None, "not heard where it was published");
@@ -204,7 +205,7 @@ impl<A: 'static> AsyncContext<A> {
         M: Event,
         A::Signals: AllowedSignal<M>,
     {
-        GlobalEventBus::publish(msg);
+        self.reach.scope().publish(msg);
     }
 
     /// Publishes `msg` on `bus`, a window's: on the UI thread, where the bus
@@ -257,6 +258,56 @@ impl<A: 'static> AsyncContext<A> {
         A::Signals: AllowedSignal<M>,
     {
         bus.publish(msg);
+    }
+
+    /// Asks `payload` on the bus of the actor's tree and waits for its one
+    /// answer, from whichever thread this runs on.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
+    /// # struct Begin;
+    /// # impl Handler<Begin> for Job {
+    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
+    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     }
+    /// # }
+    /// # let tree = ScopeTree::new();
+    /// # let slot = Rc::new(RefCell::new(None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # job.send(Begin);
+    /// # let ctx = slot.borrow_mut().take().unwrap();
+    /// use std::time::Duration;
+    ///
+    /// use guinea_core::ui_thread::UiLoop;
+    ///
+    /// #[derive(Clone, guinea_macros::Request)]
+    /// #[request(reply = Doubled)]
+    /// struct Double(u32);
+    ///
+    /// #[derive(Clone)]
+    /// struct Doubled(u32);
+    ///
+    /// let ui = UiLoop::install();
+    /// let _answers = tree.bus().answer_fn(|Double(n)| Doubled(n * 2));
+    ///
+    /// let asking = std::thread::spawn(move || {
+    ///     let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    ///     runtime.block_on(ctx.request(Double(21), Duration::from_secs(5)))
+    /// });
+    ///
+    /// assert!(ui.run_until(|| asking.is_finished(), Duration::from_secs(5)));
+    /// assert_eq!(asking.join().unwrap().unwrap().0, 42);
+    /// ```
+    pub async fn request<Req: RpcCall>(
+        &self,
+        payload: Req,
+        timeout: Duration,
+    ) -> anyhow::Result<Req::Response> {
+        self.reach.scope().request(payload, timeout).await
     }
 
     /// Sends `msg` to the actor from whichever thread this runs on, with its

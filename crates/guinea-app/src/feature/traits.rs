@@ -9,7 +9,7 @@ use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
 use guinea_core::trace::Bus;
-use guinea_core::actor::event_bus::{EventBus, GlobalEventBus};
+use guinea_core::actor::event_bus::EventBus;
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
@@ -344,13 +344,13 @@ impl ScopeContext {
         })));
     }
 
-    /// Hears `M` on the global bus, for as long as this scope lives and while
-    /// it is awake.
+    /// Hears `M` on the bus of this scope's tree, the application's, for as
+    /// long as this scope lives and while it is awake.
     #[track_caller]
     pub fn subscribe_global<M: Event>(&self, callback: impl Fn(M) + 'static) {
         self.scope.note_listener(name::<M>(), None, Bus::Global);
         self.scope
-            .own(GlobalEventBus::subscribe_fn(self.while_awake(callback)));
+            .own(self.scope.bus().subscribe_fn(self.while_awake(callback)));
     }
 
     pub(crate) fn while_awake<M>(&self, callback: impl Fn(M) + 'static) -> impl Fn(M) + 'static {

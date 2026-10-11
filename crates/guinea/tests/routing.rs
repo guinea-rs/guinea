@@ -712,7 +712,6 @@ mod routing {
 
     #[test]
     fn navigating_away_from_page_disposes_actor_subscribed_to_global_bus() {
-        use guinea_core::actor::event_bus::GlobalEventBus;
         use guinea_macros::{Event, actor, handler};
         use std::cell::RefCell;
         use std::rc::Rc;
@@ -823,12 +822,13 @@ mod routing {
         }
 
         let router = Rc::new(Router::<WinUi>::new(FeatureHost::detached()));
+        let bus = router.host().scope().bus();
 
         router
             .navigate(ProbeRoute::ProbePage {})
             .expect("navigate to probe");
         assert!(
-            GlobalEventBus::has_subscribers::<ProbeEvent>(),
+            bus.has_subscribers::<ProbeEvent>(),
             "actor must be subscribed to the global bus while the page is active"
         );
 
@@ -842,7 +842,7 @@ mod routing {
         );
 
         assert!(
-            !GlobalEventBus::has_subscribers::<ProbeEvent>(),
+            !bus.has_subscribers::<ProbeEvent>(),
             "global bus subscription must be removed when the page scope drops"
         );
     }

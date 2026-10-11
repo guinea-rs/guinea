@@ -339,7 +339,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// ```
 /// <!-- /shown -->
 ///
-/// Asking is `AsyncBus::request`, awaited off the UI thread. It resolves to
+/// Asking is `AsyncContext::request`, awaited off the UI thread. It resolves to
 /// the reply, or to an error saying why there is none: nothing answers the
 /// request, the one that does sleeps in a `keep` segment, or the timeout ran
 /// out. The first two are known before anything is published, so they come
@@ -365,7 +365,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// // returned - or with why there was nothing to wait for.
 /// #[handler]
 /// async fn ask(cx: AsyncContext<Asker>, Ask(pid): Ask) {
-///     let said = match AsyncBus::request(Kill(pid), Duration::from_secs(5)).await {
+///     let said = match cx.request(Kill(pid), Duration::from_secs(5)).await {
 ///         Ok(outcome) => format!("{outcome:?}"),
 ///         Err(error) => error.to_string(),
 ///     };
@@ -418,7 +418,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// A second answerer on the same bus is a setup bug, and is refused - with a
 /// panic naming both - when it subscribes, rather than racing the first one
-/// for every request. A closure answers with `GlobalEventBus::answer_fn`.
+/// for every request. A closure answers with `EventBus::answer_fn`.
 #[proc_macro_derive(Request, attributes(request))]
 pub fn request(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);
@@ -554,7 +554,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// ```
 /// <!-- /shown -->
 ///
-/// A return type makes the handler an answer to `AsyncBus::request`: the
+/// A return type makes the handler an answer to a request: the
 /// value it returns is the reply, sent exactly once, by the generated code and
 /// nothing else. That holds for both the plain and the `async` form. A plain
 /// handler whose answer needs background work returns `Reply<T>`: it reads

@@ -13,13 +13,14 @@
 //!
 //! An action goes to whichever scope answers it, the way a page's
 //! [`Dispatch`](crate::feature::Dispatch) would send it; an event goes out on
-//! the global bus as if it had arrived on the UI thread. Either is one
+//! the bus of the scope it is published in as if it had arrived on the UI
+//! thread. Either is one
 //! [`Point::Action`](crate::trace::Point::Action), and its id is handed back,
 //! so what it set off can be followed in the trace.
 
 use serde::de::DeserializeOwned;
 
-use crate::actor::event_bus::{Event, GlobalEventBus};
+use crate::actor::event_bus::Event;
 use crate::scope::Scope;
 use crate::short_type_name;
 use crate::trace::{self, Point};
@@ -43,7 +44,7 @@ pub struct RemoteAction {
 pub struct RemoteEvent {
     pub name: &'static str,
     pub path: &'static str,
-    pub publish: fn(&str) -> Result<u64, String>,
+    pub publish: fn(Scope, &str) -> Result<u64, String>,
 }
 
 inventory::collect!(RemoteAction);
@@ -92,8 +93,8 @@ pub fn act_in(scopes: &[Scope], named: &str, json: &str) -> Result<u64, String> 
 }
 
 /// Publishes the event `named` - a short name or a path - decoded from
-/// `json`, on the global bus. On the UI thread, where the bus lives.
-pub fn publish(named: &str, json: &str) -> Result<u64, String> {
+/// `json`, on `scope`'s bus. On the UI thread, where the bus lives.
+pub fn publish(scope: Scope, named: &str, json: &str) -> Result<u64, String> {
     let candidates: Vec<&RemoteEvent> = inventory::iter::<RemoteEvent>()
         .filter(|event| event.name == named || event.path == named)
         .collect();
@@ -103,7 +104,7 @@ pub fn publish(named: &str, json: &str) -> Result<u64, String> {
             "no event is registered as {named:?} - these are: {:?}",
             events()
         )),
-        [one] => (one.publish)(json),
+        [one] => (one.publish)(scope, json),
         several => {
             let paths: Vec<&str> = several.iter().map(|event| event.path).collect();
             Err(format!(
@@ -160,9 +161,9 @@ pub fn emit_json<M: DeserializeOwned + 'static>(
     Some(Ok(cause))
 }
 
-/// What the derive registers for an event. On the UI thread, where the global
-/// bus lives.
-pub fn publish_json<M: Event + DeserializeOwned>(json: &str) -> Result<u64, String> {
+/// What the derive registers for an event. On the UI thread, where the bus
+/// lives.
+pub fn publish_json<M: Event + DeserializeOwned>(scope: Scope, json: &str) -> Result<u64, String> {
     let event: M = serde_json::from_str(json)
         .map_err(|error| format!("{}: {error}", short_type_name::<M>()))?;
 
@@ -170,7 +171,7 @@ pub fn publish_json<M: Event + DeserializeOwned>(json: &str) -> Result<u64, Stri
         message: short_type_name::<M>(),
     });
     let cause = entered.id().get();
-    GlobalEventBus::bus().publish(event);
+    scope.bus().publish(event);
 
     Ok(cause)
 }

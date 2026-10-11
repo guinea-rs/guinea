@@ -49,6 +49,34 @@ fn a_tree_takes_every_scope_in_it_along_when_its_owner_lets_go() {
     assert!(!page.is_alive());
 }
 
+#[derive(Clone)]
+struct Ping;
+
+impl crate::actor::event_bus::Event for Ping {}
+
+#[test]
+fn two_trees_on_one_thread_hear_only_what_is_published_on_their_own_bus() {
+    let ours = ScopeTree::new();
+    let theirs = ScopeTree::new();
+    let heard = Rc::new(std::cell::Cell::new(0));
+
+    let hearing = heard.clone();
+    let _subscription = ours.child().bus().subscribe_fn(move |_: Ping| hearing.set(hearing.get() + 1));
+
+    theirs.bus().publish(Ping);
+    ours.bus().publish(Ping);
+
+    assert_eq!(heard.get(), 1);
+}
+
+#[test]
+fn every_scope_in_a_tree_has_the_tree_s_bus() {
+    let tree = ScopeTree::new();
+    let page = tree.child().child();
+
+    assert!(Rc::ptr_eq(&tree.bus(), &page.bus()));
+}
+
 #[test]
 fn removing_a_scope_tears_down_what_is_under_it_first() {
     let said = Rc::new(RefCell::new(Vec::new()));

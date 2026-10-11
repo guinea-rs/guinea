@@ -181,11 +181,12 @@ impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
 
         if let Some(RpcRequest {
             correlation_id,
+            scope,
             payload,
             ..
         }) = request
         {
-            AsyncBus::reply(correlation_id, (self.answer)(payload));
+            AsyncBus::reply(scope, correlation_id, (self.answer)(payload));
         }
     }
 

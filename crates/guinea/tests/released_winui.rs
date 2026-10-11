@@ -6,7 +6,7 @@
 use std::cell::Cell;
 
 use guinea::app::Harness;
-use guinea::core::actor::event_bus::{Event, GlobalEventBus};
+use guinea::core::actor::event_bus::Event;
 use guinea::core::trace::Bus;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
@@ -131,8 +131,9 @@ impl Page for Menu {
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let away = cx.on(|message: Dismiss| message);
+        let bus = cx.bus();
         cx.use_effect_guard("released::menu_closes_on_press_away", (), move || {
-            GlobalEventBus::subscribe_fn(move |_: PressedAway| away.call(Dismiss))
+            bus.subscribe_fn(move |_: PressedAway| away.call(Dismiss))
         });
         TextBlock::new().text("menu").into()
     }
@@ -255,11 +256,11 @@ fn a_layout_s_feature_goes_with_the_area_every_time(h: &mut Harness) {
         app.settle();
         assert!(app.find_text("pings 1").is_some(), "visit {visit}: the page heard its ping");
         assert_eq!(alive(), 1, "visit {visit}: one actor while the area is open");
-        assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
+        assert_eq!(h.bus().count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
 
         app.navigate(Route::Quiet {});
         assert_eq!(alive(), 0, "visit {visit}: the actor outlived its area");
-        assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its area");
+        assert_eq!(h.bus().count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its area");
 
         app.navigate(Route::Reading {});
     }
@@ -274,11 +275,11 @@ fn a_page_s_actor_and_its_subscription_go_with_the_page_every_time(h: &mut Harne
         app.settle();
         assert!(app.find_text("pings 1").is_some(), "visit {visit}: the page heard its ping");
         assert_eq!(alive(), 1, "visit {visit}: one actor while the page is open");
-        assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
+        assert_eq!(h.bus().count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
 
         app.navigate(Route::Elsewhere {});
         assert_eq!(alive(), 0, "visit {visit}: the actor outlived its page");
-        assert_eq!(GlobalEventBus::count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its page");
+        assert_eq!(h.bus().count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its page");
 
         app.navigate(Route::Listening {});
     }

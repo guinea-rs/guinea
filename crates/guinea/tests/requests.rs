@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use guinea::app::Harness;
-use guinea::core::actor::event_bus::{AsyncBus, RpcRequest};
+use guinea::core::actor::event_bus::RpcRequest;
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -132,7 +132,7 @@ mod asking {
     // returned - or with why there was nothing to wait for.
     #[handler]
     async fn ask(cx: AsyncContext<Asker>, Ask(pid): Ask) {
-        let said = match AsyncBus::request(Kill(pid), Duration::from_secs(5)).await {
+        let said = match cx.request(Kill(pid), Duration::from_secs(5)).await {
             Ok(outcome) => format!("{outcome:?}"),
             Err(error) => error.to_string(),
         };

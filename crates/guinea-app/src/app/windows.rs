@@ -160,7 +160,7 @@ pub type Done = Result<(), Unsupported>;
 
 /// A window moved, was resized, or changed how it is shown.
 ///
-/// Published on the global bus by whoever owns the window, which is the only
+/// Published on the application's bus by whoever owns the window, which is the only
 /// party that can know. Carries the whole geometry rather than what changed:
 /// what listens is code that stores it, and storing half of it is worse than
 /// storing it whole.
@@ -292,7 +292,8 @@ mod tests {
     #[test]
     fn a_shell_answers_for_what_it_has_and_says_so_for_the_rest() {
         let service = WindowService::new(Meagre);
-        let root = super::super::roots::Registration::open();
+        let app = guinea_core::scope::ScopeTree::new();
+        let root = super::super::roots::Registration::open(app.scope());
 
         let geometry = service.geometry(root.id()).expect("this one it knows");
         assert_eq!(geometry.size.unwrap().width, 420.0);

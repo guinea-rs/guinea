@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use guinea_core::actor::event_bus::{Event, EventBus, GlobalEventBus};
+use guinea_core::actor::event_bus::{Event, EventBus};
 use guinea_core::executor::{self, Installed};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{DropGuard, Reducer, Scope, ScopeGuard};
@@ -107,9 +107,8 @@ const HORIZON: Duration = Duration::from_secs(24 * 60 * 60);
 impl Harness {
     pub fn new(seed: u64) -> Self {
         let executor = executor::install(seed);
-        GlobalEventBus::replace_for_test();
         let app = TestApp::new();
-        let root = Registration::open();
+        let root = Registration::open(app.host().scope());
         let scope = app.host().scope().child().guard();
         scope.set_window(root.id().get());
 
@@ -185,10 +184,16 @@ impl Harness {
         Ok(self)
     }
 
-    /// Publishes `event` on the global bus the way it lands on the UI thread,
-    /// and hands back what it set off.
+    /// Publishes `event` on the application's bus the way it lands on the UI
+    /// thread, and hands back what it set off.
     pub fn publish<M: Event>(&self, event: M) -> Act<'_> {
-        self.record(short_type_name::<M>(), || GlobalEventBus::bus().publish(event))
+        self.record(short_type_name::<M>(), || self.bus().publish(event))
+    }
+
+    /// The application's bus: the bus of the tree the harness's scopes are
+    /// in.
+    pub fn bus(&self) -> Rc<EventBus> {
+        self.app.host().scope().bus()
     }
 
     /// Runs `done` as one action called `name`, and hands back what it set
@@ -450,7 +455,7 @@ impl Act<'_> {
     /// set off runs as well.
     ///
     /// What is ready runs before the action is judged finished. A hop to the
-    /// UI thread - `GlobalEventBus::publish` from an actor takes one - is not
+    /// UI thread - `AsyncContext::publish` from an actor takes one - is not
     /// traced as work of its own, so until it has run, nothing says the
     /// action is waiting on it.
     pub fn settle(&self) -> &Self {

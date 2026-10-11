@@ -2,8 +2,8 @@
 //!
 //! A *root* is one instance of an application's tree: its own [`FeatureHost`],
 //! its own event bus, and - when there is routing - its own router and stack
-//! of scopes. What is above it is the process: plugins, services, the global
-//! scope, the global bus.
+//! of scopes. What is above it is the application: plugins, services, the
+//! application's scope and the bus of its tree.
 //!
 //! That is the split guinea has always had; opening a second window is what
 //! makes it visible. `bootstrap` guards installation per process, because
@@ -21,7 +21,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use guinea_core::actor::event_bus::{Event, GlobalEventBus};
+use guinea_core::actor::event_bus::Event;
+use guinea_core::scope::Scope;
 
 /// Names one root for as long as it is open.
 ///
@@ -128,10 +129,13 @@ pub fn is_open(id: RootId) -> bool {
 #[derive(Debug)]
 pub struct Registration {
     id: RootId,
+    within: Scope,
 }
 
 impl Registration {
-    pub(crate) fn open() -> Self {
+    /// A root opened `within` a scope: its opening and closing are published
+    /// on that scope's bus.
+    pub(crate) fn open(within: Scope) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
@@ -140,9 +144,9 @@ impl Registration {
         }
 
         tracing::debug!(%id, roots = count(), "root opened");
-        GlobalEventBus::publish(RootOpened(id));
+        within.publish(RootOpened(id));
 
-        Self { id }
+        Self { id, within }
     }
 
     pub fn id(&self) -> RootId {
@@ -157,17 +161,19 @@ impl Drop for Registration {
         }
 
         tracing::debug!(id = %self.id, roots = count(), "root closed");
-        GlobalEventBus::publish(RootClosed(self.id));
+        self.within.publish(RootClosed(self.id));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use guinea_core::scope::ScopeTree;
 
     #[test]
     fn a_root_is_open_while_its_registration_lives() {
-        let root = Registration::open();
+        let app = ScopeTree::new();
+        let root = Registration::open(app.scope());
         let id = root.id();
 
         assert!(is_open(id));
@@ -181,7 +187,8 @@ mod tests {
     fn a_name_outlives_the_id_it_was_given_to() {
         // What a plugin restoring a window's size needs: today's id is new,
         // yesterday's name is the same.
-        let first = Registration::open();
+        let app = ScopeTree::new();
+        let first = Registration::open(app.scope());
         set_label(first.id(), "main");
         assert_eq!(label(first.id()).as_deref(), Some("main"));
         assert_eq!(labelled("main"), Some(first.id()));
@@ -189,24 +196,26 @@ mod tests {
 
         assert_eq!(labelled("main"), None, "a name is only for an open root");
 
-        let again = Registration::open();
+        let again = Registration::open(app.scope());
         set_label(again.id(), "main");
         assert_eq!(labelled("main"), Some(again.id()));
     }
 
     #[test]
     fn an_unnamed_root_has_no_name() {
-        let root = Registration::open();
+        let app = ScopeTree::new();
+        let root = Registration::open(app.scope());
         assert_eq!(label(root.id()), None);
     }
 
     #[test]
     fn ids_are_not_reused() {
-        let first = Registration::open();
+        let app = ScopeTree::new();
+        let first = Registration::open(app.scope());
         let id = first.id();
         drop(first);
 
-        let second = Registration::open();
+        let second = Registration::open(app.scope());
 
         assert_ne!(
             second.id(),
@@ -220,8 +229,9 @@ mod tests {
         // Counted by identity and not by how many there are: the registry is
         // process-wide, and the other tests in this binary open roots of their
         // own on other threads.
-        let one = Registration::open();
-        let two = Registration::open();
+        let app = ScopeTree::new();
+        let one = Registration::open(app.scope());
+        let two = Registration::open(app.scope());
         let (first, second) = (one.id(), two.id());
 
         let open = roots();

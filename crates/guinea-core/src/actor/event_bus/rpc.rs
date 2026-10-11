@@ -1,7 +1,8 @@
-use crate::actor::event_bus::{Answering, Event, GlobalEventBus};
+use crate::actor::event_bus::{Answering, Event};
 use crate::actor::shape::Declared;
 use crate::actor::traits::Handler;
 use crate::actor::Cx;
+use crate::scope::Scope;
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
 use once_cell::sync::Lazy;
@@ -17,9 +18,9 @@ tokio::task_local! {
     /// The chain of `RpcCall` types whose replies are currently pending
     /// somewhere up this task's ancestry, oldest first. Set by
     /// `AsyncBus::spawn_reply` around a handler body when it starts running,
-    /// so that any `AsyncBus::request` called from within that body - even
+    /// so that any `Scope::request` called from within that body - even
     /// transitively, through further `spawn_reply`d handlers on other
-    /// actors - sees it. See `AsyncBus::request`'s cycle check below for why
+    /// actors - sees it. See `Scope::request`'s cycle check below for why
     /// this exists.
     static RPC_CHAIN: Vec<TypeId>;
 }
@@ -31,6 +32,8 @@ fn current_rpc_chain() -> Vec<TypeId> {
 #[derive(Clone)]
 pub struct RpcRequest<T> {
     pub correlation_id: Uuid,
+    /// Who asked: the [`RpcResponse`] is published on its bus.
+    pub scope: Scope,
     pub payload: T,
     /// See `RPC_CHAIN`. Only meaningful to `AsyncBus::spawn_reply` - a
     /// hand-written `Handler<RpcRequest<Req>>` that spawns its own reply
@@ -61,7 +64,7 @@ pub struct RpcResponse<T> {
 
 impl<T: Clone + Send + 'static> Event for RpcResponse<T> {}
 
-/// A request on the global bus, and what answers it. Written with
+/// A request on a tree's bus, and what answers it. Written with
 /// `#[derive(guinea::Request)]` and `#[request(reply = Type)]`.
 ///
 /// One subscriber answers it - a handler that returns `Response`, or
@@ -74,7 +77,7 @@ pub trait RpcCall: Clone + Send + 'static {
 
 impl<Req: RpcCall> RpcRequest<Req> {
     pub fn reply(self, response: Req::Response) {
-        AsyncBus::reply(self.correlation_id, response);
+        AsyncBus::reply(self.scope, self.correlation_id, response);
     }
 }
 
@@ -122,10 +125,10 @@ impl<T> From<T> for Reply<T> {
 }
 
 impl<T: Clone + Send + 'static> Reply<T> {
-    fn send(self, correlation_id: Uuid, chain: Vec<TypeId>) {
+    fn send(self, scope: Scope, correlation_id: Uuid, chain: Vec<TypeId>) {
         match self.0 {
-            Answer::Now(value) => AsyncBus::reply(correlation_id, value),
-            Answer::Later(work) => AsyncBus::spawn_reply(correlation_id, chain, work),
+            Answer::Now(value) => AsyncBus::reply(scope, correlation_id, value),
+            Answer::Later(work) => AsyncBus::spawn_reply(scope, correlation_id, chain, work),
         }
     }
 }
@@ -157,17 +160,19 @@ where
 
     fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
         self.handle_rpc(msg.payload, cx.handling())
-            .send(msg.correlation_id, msg.chain);
+            .send(msg.scope, msg.correlation_id, msg.chain);
     }
 }
 
 static PENDING_REQUESTS: Lazy<RwLock<HashMap<Uuid, oneshot::Sender<Box<dyn Any + Send>>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub struct AsyncBus;
-
-impl AsyncBus {
-    pub async fn request<Req>(payload: Req, timeout: Duration) -> anyhow::Result<Req::Response>
+impl Scope {
+    /// Asks `payload` on this scope's [`bus`](Scope::bus) and waits for the
+    /// one answer, from whichever thread this runs on: the request is
+    /// published on the UI thread, and fails at once when nothing awake
+    /// answers it.
+    pub async fn request<Req>(self, payload: Req, timeout: Duration) -> anyhow::Result<Req::Response>
     where
         Req: RpcCall,
     {
@@ -199,6 +204,7 @@ impl AsyncBus {
         let correlation_id = Uuid::new_v4();
         let envelope = RpcRequest {
             correlation_id,
+            scope: self,
             payload,
             chain: next_chain,
         };
@@ -206,24 +212,20 @@ impl AsyncBus {
         let (tx, rx) = oneshot::channel();
         PENDING_REQUESTS.write().insert(correlation_id, tx);
 
-        // Must go through the UI-thread dispatcher, not
-        // `GlobalEventBus::instance().publish(...)` directly - the bus is
-        // thread_local, and `request` is typically awaited from a
-        // `spawn_bg` future running on a background tokio thread. Publishing
-        // there would hit an empty, subscriber-less bus instance and always
-        // time out.
         let cause = trace::current();
         invoke_on_ui(move || {
             let _resumed = trace::resume(cause);
-            let bus = GlobalEventBus::instance();
 
-            let unanswered = match bus.answering::<RpcRequest<Req>>() {
-                Answering::Awake => return bus.publish(envelope),
-                Answering::Nobody => format!("nobody answers {}", std::any::type_name::<Req>()),
-                Answering::Asleep(answerer) => format!(
-                    "{answerer}, which answers {}, is asleep",
-                    std::any::type_name::<Req>()
-                ),
+            let unanswered = match self.tree_bus() {
+                None => "the tree it was asked in is gone".to_string(),
+                Some(bus) => match bus.answering::<RpcRequest<Req>>() {
+                    Answering::Awake => return bus.publish(envelope),
+                    Answering::Nobody => format!("nobody answers {}", std::any::type_name::<Req>()),
+                    Answering::Asleep(answerer) => format!(
+                        "{answerer}, which answers {}, is asleep",
+                        std::any::type_name::<Req>()
+                    ),
+                },
             };
 
             if let Some(tx) = PENDING_REQUESTS.write().remove(&correlation_id) {
@@ -246,8 +248,14 @@ impl AsyncBus {
             }
         }
     }
+}
 
-    pub fn reply<Res>(correlation_id: Uuid, payload: Res)
+pub struct AsyncBus;
+
+impl AsyncBus {
+    /// Answers the request `correlation_id` that `scope` asked: to whoever
+    /// awaits it, and as an [`RpcResponse`] on `scope`'s bus.
+    pub fn reply<Res>(scope: Scope, correlation_id: Uuid, payload: Res)
     where
         Res: Clone + Send + 'static,
     {
@@ -268,14 +276,12 @@ impl AsyncBus {
             let _ = tx.send(Box::new(envelope.clone()));
         }
 
-        // Same reasoning as in `request`: route through the UI-thread
-        // dispatcher rather than the calling thread's own bus instance.
-        GlobalEventBus::publish(envelope);
+        scope.publish(envelope);
     }
 
     /// Runs `fut` to completion in a spawned task and replies to
-    /// `correlation_id` with whatever it produces, with `fut` running
-    /// inside `chain`'s `RPC_CHAIN` scope - so any `AsyncBus::request` made
+    /// `correlation_id`, asked by `scope`, with whatever it produces, with `fut` running
+    /// inside `chain`'s `RPC_CHAIN` scope - so any [`Scope::request`] made
     /// from within `fut` (even transitively, on some other actor `fut`
     /// itself makes a request to) is correctly attributed to this call
     /// chain for cycle detection.
@@ -295,14 +301,14 @@ impl AsyncBus {
     /// its `AsyncContext` - but it still owes an answer.
     ///
     /// [`Cx::spawn_bg`]: crate::actor::Cx::spawn_bg
-    pub fn spawn_reply<Res, Fut>(correlation_id: Uuid, chain: Vec<TypeId>, fut: Fut)
+    pub fn spawn_reply<Res, Fut>(scope: Scope, correlation_id: Uuid, chain: Vec<TypeId>, fut: Fut)
     where
         Res: Clone + Send + 'static,
         Fut: Future<Output = Res> + Send + 'static,
     {
         crate::executor::spawn(RPC_CHAIN.scope(chain, async move {
             let response = fut.await;
-            AsyncBus::reply(correlation_id, response);
+            AsyncBus::reply(scope, correlation_id, response);
         }));
     }
 }
@@ -318,7 +324,7 @@ mod tests {
 
     /// Every test here drives the bus by hand via `crate::ui_thread::run_queued()`,
     /// and under `test-utils` `invoke_on_ui` funnels all work into one
-    /// process-wide `TEST_TASK_QUEUE`. A drain is therefore not scoped to the
+    /// process-wide queue. A drain is therefore not scoped to the
     /// test that issued it: run two of these concurrently (cargo's default)
     /// and one test consumes the other's queued `RpcRequest`/`RpcResponse`
     /// deliveries, so the rightful owner never sees its reply and dies on
@@ -337,9 +343,10 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Pong;
 
-        let _sub = GlobalEventBus::answer_fn(|_: Ping| Pong);
+        let tree = crate::scope::ScopeTree::new();
+        let _sub = tree.bus().answer_fn(|_: Ping| Pong);
 
-        let handle = tokio::spawn(AsyncBus::request::<Ping>(Ping, StdDuration::from_secs(1)));
+        let handle = tokio::spawn(tree.scope().request::<Ping>(Ping, StdDuration::from_secs(1)));
         // Let the spawned task run up to its `rx.await` - `request` queues
         // the publish synchronously before that point, so one yield is
         // enough for the queued task to exist by the time we drain it.
@@ -373,9 +380,10 @@ mod tests {
 
         let home = TestHome::new();
         let addr = Addr::new(EchoActor, &home);
-        let _sub = GlobalEventBus::instance().subscribe::<EchoActor, RpcRequest<Echo>>(addr);
+        let _sub = home.tree.bus().subscribe::<EchoActor, RpcRequest<Echo>>(addr);
 
-        let handle = tokio::spawn(AsyncBus::request::<Echo>(Echo(21), StdDuration::from_secs(1)));
+        let handle =
+            tokio::spawn(home.tree.scope().request::<Echo>(Echo(21), StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
         // One drain delivers `RpcRequest<Echo>` to the actor (which replies
         // synchronously inside `handle`), a second drains the `RpcResponse`
@@ -396,9 +404,11 @@ mod tests {
         #[derive(Clone, Debug)]
         struct NeverReplied;
 
-        let _hears = GlobalEventBus::instance().subscribe_fn(|_: RpcRequest<Unasked>| {});
+        let tree = crate::scope::ScopeTree::new();
+        let _hears = tree.bus().subscribe_fn(|_: RpcRequest<Unasked>| {});
 
-        let handle = tokio::spawn(AsyncBus::request::<Unasked>(Unasked, StdDuration::from_secs(60)));
+        let handle =
+            tokio::spawn(tree.scope().request::<Unasked>(Unasked, StdDuration::from_secs(60)));
         tokio::task::yield_now().await;
         crate::ui_thread::run_queued();
 
@@ -480,15 +490,17 @@ mod tests {
         #[derive(Clone, Debug, PartialEq)]
         struct Count(u32);
 
+        let tree = crate::scope::ScopeTree::new();
         let heard = Arc::new(AtomicBool::new(false));
         let hearing = heard.clone();
-        let _listener = GlobalEventBus::subscribe_fn(move |request: RpcRequest<HowMany>| {
+        let _listener = tree.bus().subscribe_fn(move |request: RpcRequest<HowMany>| {
             hearing.store(true, Ordering::SeqCst);
             request.reply(Count(0));
         });
-        let _answerer = GlobalEventBus::answer_fn(|_: HowMany| Count(7));
+        let _answerer = tree.bus().answer_fn(|_: HowMany| Count(7));
 
-        let handle = tokio::spawn(AsyncBus::request::<HowMany>(HowMany, StdDuration::from_secs(1)));
+        let handle =
+            tokio::spawn(tree.scope().request::<HowMany>(HowMany, StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
         crate::ui_thread::run_queued();
         crate::ui_thread::run_queued();
@@ -518,10 +530,11 @@ mod tests {
 
         let home = TestHome::new();
         let addr = Addr::new(Worker, &home);
-        let _sub = GlobalEventBus::instance().subscribe::<Worker, RpcRequest<Work>>(addr);
+        let _sub = home.tree.bus().subscribe::<Worker, RpcRequest<Work>>(addr);
         home.tree.sleep();
 
-        let handle = tokio::spawn(AsyncBus::request::<Work>(Work, StdDuration::from_secs(60)));
+        let handle =
+            tokio::spawn(home.tree.scope().request::<Work>(Work, StdDuration::from_secs(60)));
         tokio::task::yield_now().await;
         crate::ui_thread::run_queued();
 
@@ -533,16 +546,9 @@ mod tests {
         assert!(error.to_string().contains("is asleep"), "{error}");
     }
 
-    /// Regression test for the bug fixed alongside this: `request`/`reply`
-    /// used to call `GlobalEventBus::instance().publish(...)` directly,
-    /// which resolves the thread_local bus of whichever OS thread happens
-    /// to run that code. A requester awaiting from one OS thread and a
-    /// subscriber registered on another (the normal shape - subscriber on
-    /// the UI thread, requester on a `spawn_bg` worker) would silently miss
-    /// each other and every request would time out. Going through
-    /// `GlobalEventBus::publish`, which routes through the shared
-    /// dispatcher queue, fixes that regardless of which thread each side
-    /// runs on.
+    /// A requester awaiting on one OS thread reaches an answerer on another:
+    /// the normal shape, answerer on the UI thread and requester on a
+    /// `spawn_bg` worker. The request is published where the tree is.
     #[test]
     fn request_resolves_when_subscriber_is_on_a_different_os_thread() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -552,31 +558,26 @@ mod tests {
         #[derive(Clone, Debug)]
         struct Pong;
 
-        let (ready_tx, ready_rx) = std_mpsc::channel::<()>();
+        let (ready_tx, ready_rx) = std_mpsc::channel::<Scope>();
         let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
 
-        // Stands in for the real UI thread: owns its own thread_local
-        // `EventBus` instance, subscribes there, and pumps the shared
-        // dispatcher queue on an interval - the same shape a real
-        // `UiDispatcher` runs in production.
         let ui_thread = std::thread::spawn(move || {
-            let _sub = GlobalEventBus::answer_fn(|_: Ping| Pong);
-            ready_tx.send(()).unwrap();
+            let tree = crate::scope::ScopeTree::new();
+            let _sub = tree.bus().answer_fn(|_: Ping| Pong);
+            ready_tx.send(tree.scope()).unwrap();
             while stop_rx.try_recv().is_err() {
                 crate::ui_thread::run_queued();
                 std::thread::sleep(StdDuration::from_millis(5));
             }
         });
 
-        ready_rx.recv().unwrap();
+        let scope = ready_rx.recv().unwrap();
 
-        // Deliberately a different OS thread than `ui_thread` above.
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .unwrap();
-        let result =
-            rt.block_on(AsyncBus::request::<Ping>(Ping, StdDuration::from_secs(2)));
+        let result = rt.block_on(scope.request::<Ping>(Ping, StdDuration::from_secs(2)));
 
         stop_tx.send(()).unwrap();
         ui_thread.join().unwrap();
@@ -628,22 +629,21 @@ mod tests {
 
         let home = TestHome::new();
         let addr = Addr::new(MathActor, &home);
-        let _sub_double =
-            GlobalEventBus::instance().subscribe::<MathActor, RpcRequest<Double>>(addr.clone());
-        let _sub_add = GlobalEventBus::instance()
-            .subscribe::<MathActor, RpcRequest<DelayedAdd>>(addr.clone());
+        let bus = home.tree.bus();
+        let scope = home.tree.scope();
+        let _sub_double = bus.subscribe::<MathActor, RpcRequest<Double>>(addr.clone());
+        let _sub_add = bus.subscribe::<MathActor, RpcRequest<DelayedAdd>>(addr.clone());
 
         let double_handle =
-            tokio::spawn(AsyncBus::request::<Double>(Double(21), StdDuration::from_secs(1)));
+            tokio::spawn(scope.request::<Double>(Double(21), StdDuration::from_secs(1)));
         tokio::task::yield_now().await;
         crate::ui_thread::run_queued(); // deliver RpcRequest<Double> -> reply queued
         crate::ui_thread::run_queued(); // drain the RpcResponse broadcast
         assert_eq!(double_handle.await.unwrap().unwrap().0, 42);
 
-        let add_handle = tokio::spawn(AsyncBus::request::<DelayedAdd>(
-            DelayedAdd(2, 3),
-            StdDuration::from_secs(1),
-        ));
+        let add_handle = tokio::spawn(
+            scope.request::<DelayedAdd>(DelayedAdd(2, 3), StdDuration::from_secs(1)),
+        );
         tokio::task::yield_now().await;
         crate::ui_thread::run_queued(); // deliver RpcRequest<DelayedAdd> -> spawns the async body
         // The async body needs actual wall-clock time (`tokio::time::sleep`)
@@ -661,8 +661,8 @@ mod tests {
     /// the *same request type* A is still waiting on - a genuine cross-actor
     /// deadlock (A can't reply until B replies, B can't reply until A's
     /// original request resolves). Without the `RPC_CHAIN` check in
-    /// `AsyncBus::request`, this would just sit until both requests' 5s
-    /// timeouts expired. With it, `AsyncBus::request::<ReqA>` inside B's
+    /// `Scope::request`, this would just sit until both requests' 5s
+    /// timeouts expired. With it, the request for `ReqA` inside B's
     /// handler must panic immediately, because `spawn_reply` carried the
     /// in-flight chain `[ReqA, ReqB]` across the `tokio::spawn` boundary
     /// into B's handler body.
@@ -673,7 +673,7 @@ mod tests {
     /// way to observe that the panic happened at all, which makes this test
     /// unsafe to run concurrently with anything else that installs its own
     /// hook - run this module with `--test-threads=1` (already required by
-    /// the rest of it, which shares `GlobalEventBus`/`PENDING_REQUESTS`).
+    /// the rest of it, which shares the task queue and `PENDING_REQUESTS`).
     #[tokio::test]
     async fn cross_actor_rpc_cycle_is_detected_immediately() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -699,17 +699,19 @@ mod tests {
         struct ActorB;
 
         #[handler]
-        async fn handle_req_a(_ctx: AsyncContext<ActorA>, req: ReqA) -> RespA {
-            let RespB(n) = AsyncBus::request::<ReqB>(ReqB(req.0), StdDuration::from_secs(5))
+        async fn handle_req_a(ctx: AsyncContext<ActorA>, req: ReqA) -> RespA {
+            let RespB(n) = ctx
+                .request::<ReqB>(ReqB(req.0), StdDuration::from_secs(5))
                 .await
                 .expect("should never resolve normally - the cycle panics first");
             RespA(n)
         }
 
         #[handler]
-        async fn handle_req_b(_ctx: AsyncContext<ActorB>, req: ReqB) -> RespB {
+        async fn handle_req_b(ctx: AsyncContext<ActorB>, req: ReqB) -> RespB {
             // Closes the loop: same `ReqA` type is already on the chain.
-            let RespA(n) = AsyncBus::request::<ReqA>(ReqA(req.0), StdDuration::from_secs(5))
+            let RespA(n) = ctx
+                .request::<ReqA>(ReqA(req.0), StdDuration::from_secs(5))
                 .await
                 .expect("should never resolve normally - the cycle panics first");
             RespB(n)
@@ -737,10 +739,11 @@ mod tests {
         let home = TestHome::new();
         let addr_a = Addr::new(ActorA, &home);
         let addr_b = Addr::new(ActorB, &home);
-        let _sub_a = GlobalEventBus::instance().subscribe::<ActorA, RpcRequest<ReqA>>(addr_a);
-        let _sub_b = GlobalEventBus::instance().subscribe::<ActorB, RpcRequest<ReqB>>(addr_b);
+        let _sub_a = home.tree.bus().subscribe::<ActorA, RpcRequest<ReqA>>(addr_a);
+        let _sub_b = home.tree.bus().subscribe::<ActorB, RpcRequest<ReqB>>(addr_b);
 
-        let handle = tokio::spawn(AsyncBus::request::<ReqA>(ReqA(1), StdDuration::from_secs(5)));
+        let handle =
+            tokio::spawn(home.tree.scope().request::<ReqA>(ReqA(1), StdDuration::from_secs(5)));
 
         // Bounded, not open-ended - a regression where the cycle silently
         // stops being detected must fail this test quickly, not hang it.
@@ -769,7 +772,7 @@ mod tests {
     }
 
     /// Stress test guarding against a self-deadlock: fires many concurrent
-    /// `AsyncBus::request` calls, from several OS threads at once, against a
+    /// `Scope::request` calls, from several OS threads at once, against a
     /// single `RpcHandler` actor pumped from yet another OS thread. Nothing
     /// here holds a lock across an `.await` (`PENDING_REQUESTS.write()` is
     /// always a temporary, dropped before either `request` or `reply`
@@ -818,7 +821,7 @@ mod tests {
             std::process::abort();
         });
 
-        let (ready_tx, ready_rx) = std_mpsc::channel::<()>();
+        let (ready_tx, ready_rx) = std_mpsc::channel::<Scope>();
         let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
 
         // Stands in for the UI thread, same shape as the cross-thread test
@@ -827,15 +830,15 @@ mod tests {
         let ui_thread = std::thread::spawn(move || {
             let home = TestHome::new();
             let addr = Addr::new(AddActor, &home);
-            let _sub = GlobalEventBus::instance().subscribe::<AddActor, RpcRequest<Add>>(addr);
-            ready_tx.send(()).unwrap();
+            let _sub = home.tree.bus().subscribe::<AddActor, RpcRequest<Add>>(addr);
+            ready_tx.send(home.tree.scope()).unwrap();
             while stop_rx.try_recv().is_err() {
                 crate::ui_thread::run_queued();
                 std::thread::sleep(StdDuration::from_millis(2));
             }
         });
 
-        ready_rx.recv().unwrap();
+        let scope = ready_rx.recv().unwrap();
 
         const REQUESTER_THREADS: u32 = 8;
         const REQUESTS_PER_THREAD: u32 = 25;
@@ -849,9 +852,9 @@ mod tests {
                         .unwrap();
                     rt.block_on(async {
                         for i in 0..REQUESTS_PER_THREAD {
-                            let result =
-                                AsyncBus::request::<Add>(Add(t, i), StdDuration::from_secs(5))
-                                    .await
+                            let result = scope
+                                .request::<Add>(Add(t, i), StdDuration::from_secs(5))
+                                .await
                                     .unwrap_or_else(|e| panic!("request {t}/{i} failed: {e}"));
                             assert_eq!(result.0, t + i);
                         }

@@ -1792,6 +1792,11 @@ impl<P: Page> PageCx<'_, '_, P> {
     pub fn fill<S: Slot>(&mut self, view: View) {
         crate::slots::fill::<S>(&self.props, view);
     }
+
+    /// The bus of the application this page is in.
+    pub fn bus(&self) -> Rc<guinea_core::actor::event_bus::EventBus> {
+        self.props.scope().bus()
+    }
 }
 
 impl<P: Page> PageCx<'_, '_, P> {

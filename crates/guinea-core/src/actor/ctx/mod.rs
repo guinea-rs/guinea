@@ -1,6 +1,6 @@
 use crate::actor::addr::Addr;
 use crate::actor::cancel::Cancel;
-use crate::actor::event_bus::{EventBus, GlobalEventBus};
+use crate::actor::event_bus::EventBus;
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
@@ -71,7 +71,9 @@ impl<A: 'static, M> Cx<A, M> {
         E: Event,
         A::Signals: AllowedSignal<E>,
     {
-        GlobalEventBus::instance().publish(msg);
+        if let Some(bus) = self.addr.tree_bus() {
+            bus.publish(msg);
+        }
     }
 
     pub fn publish_local<E>(&self, bus: &EventBus, msg: E)

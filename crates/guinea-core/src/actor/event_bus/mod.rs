@@ -4,6 +4,7 @@ use crate::actor::event_bus::subscribe::{
 };
 use crate::actor::traits::Handler;
 use crate::observability::changes::{self, Change};
+use crate::scope::Scope;
 use crate::short_type_name;
 use crate::trace::{self, Bus, Point};
 use crate::ui_thread::invoke_on_ui;
@@ -181,6 +182,21 @@ impl EventBus {
         }))
     }
 
+    /// Answers `Req` with `answer` until the subscription is dropped: the
+    /// callback counterpart of an actor's handler that returns the reply.
+    #[track_caller]
+    pub fn answer_fn<Req: RpcCall>(
+        self: &Rc<Self>,
+        answer: impl Fn(Req) -> Req::Response + 'static,
+    ) -> BusSubscription {
+        let seq = self.next_id();
+        self.insert::<RpcRequest<Req>>(Box::new(AnswerFn {
+            seq,
+            answer: Box::new(answer),
+            at: std::panic::Location::caller(),
+        }))
+    }
+
     /// Tells everyone subscribed to `M`, in the order they subscribed, before
     /// it returns. Who subscribes or goes while they are being told does not
     /// change who hears this one.
@@ -353,6 +369,12 @@ impl EventBus {
         listed
     }
 
+    /// The bus a [`ScopeTree`](crate::scope::ScopeTree) shares among its
+    /// scopes.
+    pub(crate) fn global() -> Self {
+        Self::of_kind(Bus::Global)
+    }
+
     fn of_kind(kind: Bus) -> Self {
         Self {
             subscribers: RefCell::new(HashMap::new()),
@@ -375,21 +397,6 @@ impl EventBus {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
         id
-    }
-
-    /// Answers `Req` with `answer`: the callback counterpart of an actor's
-    /// handler that returns the reply.
-    #[track_caller]
-    pub(crate) fn answer_fn<Req: RpcCall>(
-        self: &Rc<Self>,
-        answer: impl Fn(Req) -> Req::Response + 'static,
-    ) -> BusSubscription {
-        let seq = self.next_id();
-        self.insert::<RpcRequest<Req>>(Box::new(AnswerFn {
-            seq,
-            answer: Box::new(answer),
-            at: std::panic::Location::caller(),
-        }))
     }
 
     fn insert<M: Event>(self: &Rc<Self>, subscriber: Box<dyn UntypedSubscriber>) -> BusSubscription {
@@ -477,70 +484,19 @@ impl EventBus {
     }
 }
 
-pub struct GlobalEventBus;
-
-thread_local! {
-    static GLOBAL: RefCell<Rc<EventBus>> = RefCell::new(Rc::new(EventBus::of_kind(Bus::Global)));
-}
-
-impl GlobalEventBus {
-    pub(crate) fn instance() -> Rc<EventBus> {
-        GLOBAL.with(|bus| bus.borrow().clone())
-    }
-
-    /// Puts an empty global bus in place of this thread's, so a test starts
-    /// with no subscriber a test before it left behind.
-    #[cfg(feature = "test-utils")]
-    pub fn replace_for_test() {
-        GLOBAL.with(|bus| *bus.borrow_mut() = Rc::new(EventBus::of_kind(Bus::Global)));
-    }
-
-    /// The global bus, for reading what is subscribed to it.
-    pub fn bus() -> Rc<EventBus> {
-        Self::instance()
-    }
-
-    /// Publishes the event on the UI thread's global event bus.
-    ///
-    /// The global event bus lives on the UI thread, so this call is redirected
-    /// there via the UI dispatcher. It is safe to call from any thread.
-    pub fn publish<M: Event>(msg: M) {
+impl Scope {
+    /// Publishes `msg` on this scope's [`bus`](Scope::bus) from whichever
+    /// thread this runs on: on the UI thread, where the bus lives, with its
+    /// cause, and not at all once the tree is gone.
+    pub fn publish<M: Event>(self, msg: M) {
         let cause = trace::current();
         invoke_on_ui(move || {
             let _resumed = trace::resume(cause);
-            Self::instance().publish(msg);
+            if let Some(bus) = self.tree_bus() {
+                bus.publish(msg);
+            }
         });
     }
-
-    pub fn subscribe<A, M>(addr: Addr<A>) -> BusSubscription
-    where
-        A: Handler<M> + 'static,
-        M: Event,
-    {
-        Self::instance().subscribe(addr)
-    }
-
-    #[track_caller]
-    pub fn subscribe_fn<M: Event>(callback: impl Fn(M) + 'static) -> BusSubscription {
-        Self::instance().subscribe_fn(callback)
-    }
-
-    /// See [`EventBus::answer_fn`].
-    #[track_caller]
-    pub fn answer_fn<Req: RpcCall>(
-        answer: impl Fn(Req) -> Req::Response + 'static,
-    ) -> BusSubscription {
-        Self::instance().answer_fn(answer)
-    }
-
-    pub fn count_subscribers<M: Event>() -> usize {
-        Self::instance().count_subscribers::<M>()
-    }
-
-    pub fn has_subscribers<M: Event>() -> bool {
-        Self::instance().has_subscribers::<M>()
-    }
-
 }
 
 #[cfg(test)]

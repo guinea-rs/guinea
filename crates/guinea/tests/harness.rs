@@ -370,6 +370,7 @@ mod reports {
     actor! {
         Reader {
             handlers { Report, Announce }
+            publishes { Report }
         }
     }
 
@@ -379,8 +380,8 @@ mod reports {
     }
 
     #[handler]
-    fn announce(_this: &mut Reader, Announce(text): Announce) {
-        GlobalEventBus::publish(Report(text));
+    fn announce(_this: &mut Reader, Announce(text): Announce, cx: Cx) {
+        cx.async_ctx().publish(Report(text));
     }
 
     feature! {
@@ -513,12 +514,13 @@ mod named {
     actor! {
         Namer {
             handlers { Rename, Renamed }
+            publishes { Renamed }
         }
     }
 
     #[handler]
-    fn rename(_this: &mut Namer, Rename(name): Rename) {
-        GlobalEventBus::publish(Renamed(name));
+    fn rename(_this: &mut Namer, Rename(name): Rename, cx: Cx) {
+        cx.publish(Renamed(name));
     }
 
     #[handler]
@@ -650,13 +652,13 @@ fn two_actions_of_one_name_in_one_scope_are_told_apart_by_path(h: &mut Harness) 
 }
 
 #[guinea::test(iterations = 4)]
-fn an_event_sent_as_json_goes_out_on_the_global_bus(h: &mut Harness) {
+fn an_event_sent_as_json_goes_out_on_the_application_s_bus(h: &mut Harness) {
     use guinea::core::remote;
 
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::events().contains(&"Renamed"), "{:?}", remote::events());
 
-    remote::publish("Renamed", r#""code""#).unwrap();
+    remote::publish(h.application().scope, "Renamed", r#""code""#).unwrap();
     h.settled();
     assert_eq!(h.state::<named::Name>().0, "code");
 }
@@ -713,10 +715,10 @@ mod listening {
 fn an_actor_hears_the_bus_until_its_page_is_left(h: &mut Harness) {
     let page = h.child();
     page.install::<reports::Reports>(&()).unwrap();
-    assert_eq!(GlobalEventBus::bus().subscriptions(), [("reports::Report", 1)]);
+    assert_eq!(h.bus().subscriptions(), [("reports::Report", 1)]);
 
     page.leave();
-    assert!(GlobalEventBus::bus().subscriptions().is_empty(), "the actor went, and so did its subscription");
+    assert!(h.bus().subscriptions().is_empty(), "the actor went, and so did its subscription");
 }
 
 #[guinea::test(iterations = 1)]
@@ -727,7 +729,7 @@ fn a_callback_a_feature_subscribes_is_listed_where_the_feature_subscribed_it(h: 
     let subscribed_at = line!() + 1;
     page.context().subscribe_global(|_: reports::Report| {});
 
-    let listening = GlobalEventBus::bus().listeners();
+    let listening = h.bus().listeners();
     let at = match listening[0].listeners[0].by {
         HeardBy::Callback(at) => at,
         ref other => panic!("a callback, not {other:?}"),
@@ -744,13 +746,13 @@ fn what_an_actor_s_manifest_subscribes_to_it_hears_and_lets_go_with_its_page(h: 
     assert_eq!(page.state::<listening::Heard>().0, 1);
 
     page.leave();
-    assert!(GlobalEventBus::bus().subscriptions().is_empty(), "the manifest's subscription outlived the page");
+    assert!(h.bus().subscriptions().is_empty(), "the manifest's subscription outlived the page");
 }
 
-/// The actor publishes through `GlobalEventBus::publish`, which hops to the
+/// The actor publishes through `AsyncContext::publish`, which hops to the
 /// UI thread; settling the action waits for the hop and what it set off.
 #[guinea::test(iterations = 20)]
-fn settling_an_action_waits_for_what_it_published_on_the_global_bus(h: &mut Harness) {
+fn settling_an_action_waits_for_what_it_published_on_the_application_s_bus(h: &mut Harness) {
     h.install::<reports::Reports>(&()).unwrap();
 
     let announced = h.act::<reports::Running>(reports::Announce(vec!["code"]));
@@ -763,16 +765,16 @@ fn settling_an_action_waits_for_what_it_published_on_the_global_bus(h: &mut Harn
 /// Each seed leaves a subscription behind on purpose; the next one must not
 /// hear it.
 #[guinea::test(iterations = 3)]
-fn every_harness_starts_on_an_empty_global_bus(h: &mut Harness) {
+fn every_harness_starts_on_an_empty_bus(h: &mut Harness) {
     assert!(
-        GlobalEventBus::bus().subscriptions().is_empty(),
+        h.bus().subscriptions().is_empty(),
         "an earlier seed's subscribers are still on the bus"
     );
 
     h.install::<reports::Reports>(&()).unwrap();
-    std::mem::forget(GlobalEventBus::subscribe_fn(|_: reports::Report| {}));
+    std::mem::forget(h.bus().subscribe_fn(|_: reports::Report| {}));
 
-    assert_eq!(GlobalEventBus::bus().subscriptions(), [("reports::Report", 2)]);
+    assert_eq!(h.bus().subscriptions(), [("reports::Report", 2)]);
 }
 
 #[guinea::test(iterations = 2)]

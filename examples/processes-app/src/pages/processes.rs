@@ -81,17 +81,13 @@ impl Page for Processes {
             ColumnSpec::new(Column::Name, "Process", 280.0, |row: &Row| {
                 TextBlock::new().text(row.label.clone()).into()
             }),
-            ColumnSpec::new(Column::Actions, "", 80.0, {
-                let dispatch = dispatch.clone();
-                move |row: &Row| {
-                    let pid = row.pid;
-                    let dispatch = dispatch.clone();
-                    Button::new()
-                        .mark(Marks::Kill)
-                        .on_click(move || dispatch.emit(Kill(pid)))
-                        .content(TextBlock::new().text("Kill"))
-                        .into()
-                }
+            ColumnSpec::new(Column::Actions, "", 80.0, move |row: &Row| {
+                let pid = row.pid;
+                Button::new()
+                    .mark(Marks::Kill)
+                    .on_click(move || dispatch.emit(Kill(pid)))
+                    .content(TextBlock::new().text("Kill"))
+                    .into()
             }),
         ];
 

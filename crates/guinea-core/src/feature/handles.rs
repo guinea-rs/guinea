@@ -12,12 +12,11 @@ pub struct Push<R: Reducer> {
 
 impl<R: Reducer> Clone for Push<R> {
     fn clone(&self) -> Self {
-        Self {
-            scope: self.scope,
-            reducer: std::marker::PhantomData,
-        }
+        *self
     }
 }
+
+impl<R: Reducer> Copy for Push<R> {}
 
 impl<R: Reducer> std::fmt::Debug for Push<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,7 +69,7 @@ impl<R: Reducer> Push<R> {
 /// asserts `Handler<M>` for every action it lists, so an action nobody answers
 /// fails to compile *inside the domain*. What is left to run time is whether
 /// the feature is installed here at all - which was never a type's question.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Dispatch {
     /// One installed feature's corner of one scope. Named, not kept: a
     /// dispatcher a widget captured answers nothing once its page is removed.
@@ -133,5 +132,54 @@ impl Dispatch {
                 "the feature this dispatcher belongs to does not answer this action; dropped"
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::marker::PhantomData;
+
+    struct Probe<T>(PhantomData<T>);
+
+    #[allow(dead_code)]
+    trait NotCopy {
+        fn is_copy(&self) -> bool {
+            false
+        }
+    }
+
+    impl<T> NotCopy for Probe<T> {}
+
+    impl<T: Copy> Probe<T> {
+        fn is_copy(&self) -> bool {
+            true
+        }
+    }
+
+    #[derive(Clone, Default, Debug)]
+    struct Count(u32);
+
+    impl Reducer for Count {
+        type Update = u32;
+
+        fn reduce(&mut self, by: u32) {
+            self.0 += by;
+        }
+    }
+
+    #[test]
+    fn a_push_is_handed_on_by_copy_whatever_it_pushes_into() {
+        assert!(Probe::<Push<Count>>(PhantomData).is_copy());
+    }
+
+    #[test]
+    fn a_dispatcher_is_handed_on_by_copy() {
+        assert!(Probe::<Dispatch>(PhantomData).is_copy());
+    }
+
+    #[test]
+    fn what_a_feature_keeps_of_its_reducer_is_handed_on_by_copy() {
+        assert!(Probe::<crate::feature::Bound<Count>>(PhantomData).is_copy());
     }
 }

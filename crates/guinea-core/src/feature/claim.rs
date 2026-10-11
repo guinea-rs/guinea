@@ -101,12 +101,11 @@ pub struct Bound<R: Reducer> {
 
 impl<R: Reducer> Clone for Bound<R> {
     fn clone(&self) -> Self {
-        Self {
-            push: self.push.clone(),
-            dispatch: self.dispatch.clone(),
-        }
+        *self
     }
 }
+
+impl<R: Reducer> Copy for Bound<R> {}
 
 impl<R: Reducer> Bound<R> {
     pub fn push(&self, update: R::Update) {
@@ -120,6 +119,6 @@ impl<R: Reducer> Bound<R> {
     /// The way in, for handing to something that is not an actor - a timer, a
     /// stream, a callback from a library.
     pub fn pusher(&self) -> Push<R> {
-        self.push.clone()
+        self.push
     }
 }

@@ -28,7 +28,7 @@ impl<R: Reducer> Clone for ReducerBinding<R> {
         Self {
             owner: self.owner,
             state: self.state.clone(),
-            dispatch: self.dispatch.clone(),
+            dispatch: self.dispatch,
         }
     }
 }
@@ -55,7 +55,7 @@ impl<R: Reducer> ReducerBinding<R> {
 
     /// What may be asked of the actors in the scope that owns this reducer.
     pub fn dispatch(&self) -> Dispatch {
-        self.dispatch.clone()
+        self.dispatch
     }
 
     /// Applies an update directly, without an actor in between.

@@ -349,8 +349,7 @@ mod asking_a_feature {
     fn searching(cx: &FeatureInitContext) -> anyhow::Result<Searching> {
         let results = cx.state::<Results>().plain();
 
-        let answering = results.clone();
-        cx.answers(move |Search(query): Search| answering.push(format!("found {query}")));
+        cx.answers(move |Search(query): Search| results.push(format!("found {query}")));
 
         Ok(Searching(results))
     }
@@ -496,8 +495,7 @@ mod shell {
     fn chrome(cx: &FeatureInitContext) -> anyhow::Result<Chrome> {
         let sidebar = cx.state::<Sidebar>().seed(Sidebar { open: true }).plain();
 
-        let setting = sidebar.clone();
-        cx.answers(move |SetOpen(open): SetOpen| setting.push(open));
+        cx.answers(move |SetOpen(open): SetOpen| sidebar.push(open));
 
         Ok(Chrome(sidebar))
     }

@@ -56,8 +56,7 @@ mod clock {
     fn clock(cx: &FeatureInitContext) -> anyhow::Result<Clock> {
         let time = cx.state::<Time>().plain();
 
-        let refreshed = time.clone();
-        cx.answers::<Refresh>(move |_| refreshed.push(1));
+        cx.answers::<Refresh>(move |_| time.push(1));
         cx.subscribe(|_: Tick| {});
         cx.spawn(Hand);
         cx.repeat(Duration::from_secs(60), || {});
@@ -101,8 +100,7 @@ mod weather {
     fn weather(cx: &FeatureInitContext) -> anyhow::Result<Weather> {
         let forecast = cx.state::<Forecast>().plain();
 
-        let refreshed = forecast.clone();
-        cx.answers::<Refresh>(move |_| refreshed.push(1));
+        cx.answers::<Refresh>(move |_| forecast.push(1));
         cx.subscribe(|_: Tick| {});
         cx.spawn(Cloud);
         cx.repeat(Duration::from_secs(600), || {});
@@ -149,8 +147,7 @@ mod dashboard {
 
         let pinned = cx.state::<Pinned>().plain();
 
-        let refreshed = pinned.clone();
-        cx.answers::<Refresh>(move |_| refreshed.push(1));
+        cx.answers::<Refresh>(move |_| pinned.push(1));
         cx.subscribe(|_: Tick| {});
         cx.spawn(Pin);
         cx.repeat(Duration::from_secs(5), || {});

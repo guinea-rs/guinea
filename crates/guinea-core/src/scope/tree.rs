@@ -3,7 +3,11 @@ use std::rc::{Rc, Weak};
 
 use slotmap::{SlotMap, new_key_type};
 
-use super::{Scope, ScopeData};
+use super::Scope;
+use super::actors::Held;
+use super::features::Features;
+use super::lifetime::Lifetime;
+use super::state::States;
 use crate::actor::event_bus::EventBus;
 
 new_key_type! {
@@ -22,6 +26,20 @@ pub(super) struct Node {
     pub(super) children: Vec<NodeKey>,
 }
 
+/// What one scope holds, by the part of guinea that keeps it.
+///
+/// Behind an `Rc` in its node: a scope's code runs with it taken out of the
+/// tree, so that what it calls is free to change the tree, and a scope that
+/// is removed is torn down after the tree lets go of it.
+#[derive(Default)]
+pub(super) struct ScopeData {
+    pub(super) state: States,
+    pub(super) features: Features,
+    pub(super) lifetime: Lifetime,
+    /// The actors it owns, and lists for devtools. See [`Scope::hold`].
+    pub(super) actors: RefCell<Held>,
+}
+
 /// Every scope in one [`ScopeTree`], which sits under which, and the bus they
 /// share.
 pub(super) struct Tree {
@@ -36,6 +54,21 @@ impl Node {
             parent,
             children: Vec::new(),
         }
+    }
+}
+
+impl Scope {
+    /// What this scope holds, while it is there.
+    pub(super) fn data(&self) -> Option<Rc<ScopeData>> {
+        self.read(|tree| self.node_in(tree).map(|node| node.data.clone()))
+            .flatten()
+    }
+
+    /// What this scope holds, for `doing` something that cannot be done in a
+    /// scope that is gone.
+    pub(super) fn installing(&self, doing: &str) -> Rc<ScopeData> {
+        self.data()
+            .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }
 }
 

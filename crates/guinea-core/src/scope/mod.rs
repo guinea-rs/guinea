@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
@@ -17,11 +16,7 @@ pub use lifetime::{Awake, DropGuard, Teardown};
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};
 
-use actors::Held;
-use features::Features;
-use lifetime::Lifetime;
-use state::States;
-use tree::{Node, NodeKey, Tree, TreeKey, tree};
+use tree::{Node, NodeKey, ScopeData, Tree, TreeKey, tree};
 
 /// Where a segment's state, features and resources live, from the moment it
 /// is installed until it is removed.
@@ -50,16 +45,6 @@ impl std::fmt::Debug for Scope {
         use slotmap::Key;
         write!(f, "Scope({:?}/{:?})", self.tree.data(), self.node.data())
     }
-}
-
-/// What one scope holds, by the part of guinea that keeps it.
-#[derive(Default)]
-struct ScopeData {
-    state: States,
-    features: Features,
-    lifetime: Lifetime,
-    /// The actors it owns, and lists for devtools. See [`Scope::hold`].
-    actors: RefCell<Held>,
 }
 
 impl Scope {
@@ -183,15 +168,5 @@ impl Scope {
     /// this scope still is.
     pub(crate) fn tree_bus(&self) -> Option<Rc<EventBus>> {
         self.read(|tree| tree.bus.clone())
-    }
-
-    fn data(&self) -> Option<Rc<ScopeData>> {
-        self.read(|tree| self.node_in(tree).map(|node| node.data.clone()))
-            .flatten()
-    }
-
-    fn installing(&self, doing: &str) -> Rc<ScopeData> {
-        self.data()
-            .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }
 }

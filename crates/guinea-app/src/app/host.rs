@@ -1,10 +1,6 @@
-use std::cell::RefCell;
-
-use guinea_core::actor::addr::{Addr, Refs};
 use guinea_core::scope::{Scope, ScopeTree, Teardown};
 
-/// What hosts the application: the tree of scopes every window sits in, and
-/// the actors to count once that tree is gone.
+/// What hosts the application: the tree of scopes every window sits in.
 ///
 /// The application's own scope is the tree's root. What plugins and features
 /// set up is owned by it, the windows are scopes under it, and letting go of
@@ -12,7 +8,6 @@ use guinea_core::scope::{Scope, ScopeTree, Teardown};
 /// windows first, then what the application set up, the last first.
 pub struct AppHost {
     tree: ScopeTree,
-    counted: RefCell<Vec<Refs>>,
 }
 
 struct Cleanup(Box<dyn FnOnce()>);
@@ -31,11 +26,8 @@ impl Default for AppHost {
 
 impl AppHost {
     pub fn new() -> Self {
-        let tree = ScopeTree::new();
-
         Self {
-            tree,
-            counted: RefCell::new(Vec::new()),
+            tree: ScopeTree::new(),
         }
     }
 
@@ -48,30 +40,9 @@ impl AppHost {
         self.tree.own(Cleanup(Box::new(run)));
     }
 
-    /// Counts `addr` among the actors that must be gone once the application
-    /// is.
-    pub(crate) fn count<A: 'static>(&self, addr: &Addr<A>) {
-        self.counted.borrow_mut().push(addr.refs());
-    }
-
-    /// Removes the application's scope - everything in it the last first - and
-    /// returns the actors still referenced afterwards.
-    pub fn shutdown(&self) -> Vec<(&'static str, usize)> {
+    /// Removes the application's scope: everything in it, the last first.
+    pub fn shutdown(&self) {
         self.tree.remove();
-
-        let counted = std::mem::take(&mut *self.counted.borrow_mut());
-        let leaked: Vec<(&'static str, usize)> = counted
-            .into_iter()
-            .filter_map(|refs| {
-                let held = refs.count();
-                (held > 0).then_some((refs.actor(), held))
-            })
-            .collect();
-
-        for (actor, refs) in &leaked {
-            tracing::error!(actor = %actor, refs, "an actor outlived the application");
-        }
-        leaked
     }
 }
 
@@ -83,7 +54,6 @@ mod tests {
     use guinea_core::scope::DropGuard;
 
     use super::*;
-    use crate::app::PluginBuilder;
 
     struct DropCheck(Arc<AtomicUsize>);
 
@@ -97,43 +67,6 @@ mod tests {
     struct Ping;
 
     impl guinea_core::actor::event_bus::Event for Ping {}
-
-    #[derive(Debug)]
-    struct Probe;
-
-    guinea_macros::actor! {
-        Probe {
-            handlers { Ping }
-        }
-    }
-
-    #[guinea_macros::handler]
-    fn probe_ping(_this: &mut Probe, _: Ping) {}
-
-    fn plugin_builder() -> PluginBuilder {
-        PluginBuilder::new(AppHost::new())
-    }
-
-    #[test]
-    fn an_actor_the_application_holds_is_not_reported_as_leaked() {
-        let app = plugin_builder();
-        app.spawn(Probe);
-
-        assert!(app.host().shutdown().is_empty());
-    }
-
-    #[test]
-    fn an_address_kept_past_shutdown_is_reported_once() {
-        let app = plugin_builder();
-        let kept = app.spawn(Probe);
-
-        let leaked = app.host().shutdown();
-
-        assert_eq!(leaked.len(), 1, "one actor, reported once");
-        assert!(leaked[0].0.ends_with("Probe"), "got {}", leaked[0].0);
-        assert_eq!(leaked[0].1, 1);
-        drop(kept);
-    }
 
     #[test]
     fn what_the_application_holds_goes_with_its_shutdown() {

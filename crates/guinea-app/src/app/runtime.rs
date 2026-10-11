@@ -29,8 +29,8 @@ pub fn install_runtime(runtime: AppRuntime) {
     RUNTIME.with(|slot| *slot.borrow_mut() = Some(runtime));
 }
 
-/// Runs cleanups and reports actors that outlived them. Called from the
-/// reactor's exit callback, on the UI thread.
+/// Tears the application down. Called from the reactor's exit callback, on
+/// the UI thread.
 pub fn shutdown_current() {
     let Some(runtime) = RUNTIME.with(|slot| slot.borrow_mut().take()) else {
         return;
@@ -39,6 +39,6 @@ pub fn shutdown_current() {
     teardown(&runtime.builder);
 }
 
-pub(crate) fn teardown(builder: &FeatureBuilder) -> Vec<(&'static str, usize)> {
-    builder.host().shutdown()
+pub(crate) fn teardown(builder: &FeatureBuilder) {
+    builder.host().shutdown();
 }

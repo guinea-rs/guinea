@@ -116,12 +116,9 @@ impl PluginBuilder {
     }
 
     /// Creates `actor` in the application's scope. See
-    /// [`ScopeContext::spawn`]; an application's actor is also counted, and
-    /// reported if anything still holds it once the application is gone.
+    /// [`ScopeContext::spawn`].
     pub fn spawn<A: ManagedActor + std::fmt::Debug + 'static>(&self, actor: A) -> Addr<A> {
-        let addr = self.cx.spawn(actor);
-        self.host.count(&addr);
-        addr
+        self.cx.spawn(actor)
     }
 
     fn install_plugin(&mut self, plugin: Box<dyn ErasedPlugin>) -> anyhow::Result<()> {

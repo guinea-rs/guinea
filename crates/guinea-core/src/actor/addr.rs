@@ -88,25 +88,6 @@ impl<A: 'static> Clone for Addr<A> {
     }
 }
 
-/// How many addresses of an actor are still held, without holding one.
-pub struct Refs {
-    actor: &'static str,
-    addr: Weak<dyn std::any::Any>,
-}
-
-impl Refs {
-    /// The actor's type, by its module and name.
-    pub fn actor(&self) -> &'static str {
-        self.actor
-    }
-
-    /// The addresses held now, its scope's among them: none once the actor
-    /// is gone.
-    pub fn count(&self) -> usize {
-        self.addr.strong_count()
-    }
-}
-
 impl<A: 'static> Addr<A> {
     /// An actor living in `home`, as `actor!` declared it: its scope owns it
     /// and disposes it when the scope goes, it hears what its manifest
@@ -139,12 +120,11 @@ impl<A: 'static> Addr<A> {
     ///
     /// let tree = ScopeTree::new();
     /// let bus = tree.bus();
-    /// let refs = Addr::new(Autosave, &Home::new(tree.scope())).refs();
-    /// assert_eq!(refs.count(), 2, "held by its scope, and by what it hears");
-    /// assert_eq!(bus.count_subscribers::<Saved>(), 1);
+    /// let id = Addr::new(Autosave, &Home::new(tree.scope())).id();
+    /// assert!(tree.actor(id).is_some(), "held by its scope");
+    /// assert_eq!(bus.count_subscribers::<Saved>(), 1, "hearing its manifest");
     ///
     /// tree.remove();
-    /// assert_eq!(refs.count(), 0);
     /// assert_eq!(bus.count_subscribers::<Saved>(), 0);
     /// ```
     ///
@@ -324,16 +304,6 @@ impl<A: 'static> Addr<A> {
         crate::test_kit::Interaction::new(())
     }
 
-    /// Counts the addresses of this actor that are still held.
-    pub fn refs(&self) -> Refs {
-        let addr: Rc<dyn std::any::Any> = self.0.clone();
-
-        Refs {
-            actor: short_type_name::<A>(),
-            addr: Rc::downgrade(&addr),
-        }
-    }
-
     pub fn id(&self) -> usize {
         self.0.id
     }
@@ -493,12 +463,12 @@ mod tests {
     fn an_actor_is_held_by_its_scope_alone() {
         let home = TestHome::new();
         let addr = Addr::bare((), &home);
-        let refs = addr.refs();
+        let held = Rc::downgrade(&addr.0);
         drop(addr);
 
-        let while_there = refs.count();
+        let while_there = held.strong_count();
         home.tree.remove();
-        let after = refs.count();
+        let after = held.strong_count();
 
         assert_eq!((while_there, after), (1, 0));
     }

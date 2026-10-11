@@ -52,10 +52,9 @@ impl TestApp {
         Ok(self)
     }
 
-    /// Runs cleanups in LIFO order and returns the actors still referenced
-    /// afterwards - empty is what a correctly torn-down application looks like.
-    pub fn shutdown(self) -> Vec<(&'static str, usize)> {
-        runtime::teardown(&self.builder)
+    /// Tears the application down: everything it set up, the last first.
+    pub fn shutdown(self) {
+        runtime::teardown(&self.builder);
     }
 }
 

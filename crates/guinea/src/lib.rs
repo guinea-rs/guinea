@@ -243,8 +243,6 @@ pub use guinea_meta as meta;
 pub use guinea_core::actor::event_bus::Event;
 pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
-#[allow(deprecated)]
-pub use guinea_core::rpc_bind;
 pub use guinea_macros::{
     Event, Mark, Remote, Request, actor, app, feature, handler, installs, reducer, routes,
     segment, slot,

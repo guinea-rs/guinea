@@ -925,18 +925,3 @@ mod tests {
         watchdog.join().unwrap();
     }
 }
-
-#[deprecated(
-    since = "0.18.6",
-    note = "write the reply on the request: `#[derive(guinea::Request)] #[request(reply = Res)]`"
-)]
-#[macro_export]
-macro_rules! rpc_bind {
-    ($( $req:ident => $res:ident );* $(;)?) => {
-        $(
-            impl $crate::actor::event_bus::rpc::RpcCall for $req {
-                type Response = $res;
-            }
-        )*
-    };
-}

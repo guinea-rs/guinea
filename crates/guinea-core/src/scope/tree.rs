@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use slotmap::{SlotMap, new_key_type};
 
@@ -17,12 +16,7 @@ new_key_type! {
     pub(super) struct TreeKey;
 }
 
-/// Numbers every scope once, from 1, across every tree: what
-/// [`Scope::key`] says.
-static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
-
 pub(super) struct Node {
-    pub(super) serial: u64,
     pub(super) data: Rc<ScopeData>,
     pub(super) parent: Option<NodeKey>,
     pub(super) children: Vec<NodeKey>,
@@ -43,10 +37,8 @@ impl Tree {
         }
     }
 
-    pub(super) fn insert(&mut self, parent: Option<NodeKey>) -> (NodeKey, u64) {
-        let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
+    pub(super) fn insert(&mut self, parent: Option<NodeKey>) -> NodeKey {
         let node = self.nodes.insert(Node {
-            serial,
             data: Rc::new(ScopeData::default()),
             parent,
             children: Vec::new(),
@@ -56,7 +48,7 @@ impl Tree {
             self.nodes[parent].children.push(node);
         }
 
-        (node, serial)
+        node
     }
 
     /// Takes the scope at `node` and everything under it out of the tree,
@@ -147,13 +139,12 @@ pub struct ScopeTree {
 impl ScopeTree {
     pub fn new() -> Self {
         let tree = Rc::new(RefCell::new(Tree::new()));
-        let (node, serial) = tree.borrow_mut().insert(None);
+        let node = tree.borrow_mut().insert(None);
 
         Self {
             root: Scope {
                 tree: register(&tree),
                 node,
-                serial,
             },
             _tree: tree,
         }

@@ -162,7 +162,7 @@ impl<U: Ui> Clone for SegmentProps<U> {
 pub struct SegmentIdentity {
     pub cursor: usize,
     pub segment: TypeId,
-    pub scope: usize,
+    pub scope: Scope,
 }
 
 impl<U: Ui> PartialEq for SegmentProps<U> {
@@ -193,7 +193,7 @@ impl<U: Ui> SegmentProps<U> {
         (self.cursor..chain.len().min(scopes.len())).map(move |cursor| SegmentIdentity {
             cursor,
             segment: (chain[cursor].type_id)(),
-            scope: scopes[cursor].scope.key(),
+            scope: scopes[cursor].scope,
         })
     }
 
@@ -201,7 +201,7 @@ impl<U: Ui> SegmentProps<U> {
         SegmentIdentity {
             cursor: self.cursor,
             segment: (self.chain[self.cursor].type_id)(),
-            scope: self.scope().key(),
+            scope: self.scope(),
         }
     }
 

@@ -10,6 +10,7 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use guinea_core::scope::Scope;
 use guinea_core::trace::Cause;
 use guinea_router::router::SegmentProps;
 use guinea_router::slot::Slot;
@@ -21,13 +22,13 @@ use crate::WinUi;
 /// slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Place {
-    placer: usize,
+    placer: Scope,
     slot: TypeId,
 }
 
 /// One segment's fill of one place.
 struct Fill {
-    filler: usize,
+    filler: Scope,
     depth: usize,
     view: View,
     made: bool,
@@ -54,7 +55,7 @@ impl Entry {
 #[derive(Default)]
 struct Board {
     entries: HashMap<Place, Entry>,
-    placed: HashMap<usize, HashSet<TypeId>>,
+    placed: HashMap<Scope, HashSet<TypeId>>,
 }
 
 thread_local! {
@@ -64,7 +65,7 @@ thread_local! {
 /// Before a segment draws: what it placed and filled last time is forgotten
 /// unless it says so again.
 pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
-    let key = props.scope().key();
+    let key = props.scope();
 
     BOARD.with(|board| {
         let mut board = board.borrow_mut();
@@ -79,12 +80,12 @@ pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
 
 /// After a segment draws: a fill it did not make again is withdrawn.
 pub(crate) fn drawn(props: &SegmentProps<WinUi>) {
-    let key = props.scope().key();
+    let key = props.scope();
     withdraw(key, |fill| !fill.made);
 }
 
 /// When a segment leaves the screen: everything it filled goes with it.
-pub(crate) fn left(filler: usize) {
+pub(crate) fn left(filler: Scope) {
     withdraw(filler, |_| true);
 
     BOARD.with(|board| {
@@ -92,7 +93,7 @@ pub(crate) fn left(filler: usize) {
     });
 }
 
-fn withdraw(filler: usize, going: impl Fn(&Fill) -> bool) {
+fn withdraw(filler: Scope, going: impl Fn(&Fill) -> bool) {
     BOARD.with(|board| {
         let mut board = board.borrow_mut();
         for entry in board.entries.values_mut() {
@@ -112,7 +113,7 @@ fn withdraw(filler: usize, going: impl Fn(&Fill) -> bool) {
 
 /// The placeholder for `S`, where the layout at `props` draws it.
 pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
-    let placer = props.scope().key();
+    let placer = props.scope();
     let slot = TypeId::of::<S>();
 
     BOARD.with(|board| {
@@ -138,12 +139,12 @@ pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
 /// Hands `view` to the nearest layout above `props` that placed `S`.
 pub(crate) fn fill<S: Slot>(props: &SegmentProps<WinUi>, view: View) {
     let slot = TypeId::of::<S>();
-    let filler = props.scope().key();
+    let filler = props.scope();
 
     let placer = BOARD.with(|board| {
         let board = board.borrow();
         (0..props.cursor).rev().find_map(|at| {
-            let placer = props.scopes[at].scope.key();
+            let placer = props.scopes[at].scope;
             board
                 .placed
                 .get(&placer)

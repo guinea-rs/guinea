@@ -37,7 +37,7 @@ pub struct RouterView {
 pub struct SegmentView {
     pub name: &'static str,
     /// Matches `Owner::scope` on the actors this segment owns.
-    pub scope: usize,
+    pub scope: guinea_core::scope::Scope,
     /// Where `routes!` listed this page or layout.
     pub declared: Option<Declared>,
     /// Where the page or layout itself was written.
@@ -146,7 +146,7 @@ impl<U: Ui> Inspected for Router<U> {
                 .map(|(entry, placed)| (entry, placed.scope))
                 .map(|(entry, scope)| SegmentView {
                     name: short((entry.type_name)()),
-                    scope: scope.key(),
+                    scope,
                     declared: entry.declared,
                     written: entry.written,
                     features: scope.features(),

@@ -368,7 +368,7 @@ impl ScopeContext {
         let (ticking, timer) = timers::start(
             place,
             self.scope.current_feature(),
-            Some((self.scope.key(), self.scope.awake())),
+            Some(self.scope),
             period,
             run,
         );

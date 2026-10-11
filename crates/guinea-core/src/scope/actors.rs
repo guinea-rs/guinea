@@ -172,7 +172,7 @@ impl Scope {
         let id = addr.id();
         let type_name = crate::short_type_name::<A>();
         let owner = Owner {
-            scope: Some(self.key()),
+            scope: Some(*self),
             feature: self.current_feature(),
             drives,
         };

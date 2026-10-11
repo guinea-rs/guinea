@@ -38,16 +38,18 @@ use tree::{Node, NodeKey, Tree, TreeKey, tree};
 /// gone, even after another scope or another tree takes its place, so an old
 /// `Scope` keeps naming the scope that is gone, and
 /// [`is_alive`](Self::is_alive) says so.
+///
+/// It is its own key: equal, and hashed the same, only to itself.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Scope {
     tree: TreeKey,
     node: NodeKey,
-    serial: u64,
 }
 
 impl std::fmt::Debug for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Scope({})", self.serial)
+        use slotmap::Key;
+        write!(f, "Scope({:?}/{:?})", self.tree.data(), self.node.data())
     }
 }
 
@@ -116,12 +118,11 @@ impl Scope {
             tree.nodes.contains_key(self.node),
             "a child for {self:?}, which was removed"
         );
-        let (node, serial) = tree.insert(Some(self.node));
+        let node = tree.insert(Some(self.node));
 
         Scope {
             tree: self.tree,
             node,
-            serial,
         }
     }
 
@@ -150,11 +151,8 @@ impl Scope {
 
     /// The scope this one sits under, if it has one and it is still there.
     pub fn parent(&self) -> Option<Scope> {
-        self.read(|tree| {
-            let parent = self.node_in(tree)?.parent?;
-            Some(self.named(tree, parent))
-        })
-        .flatten()
+        self.read(|tree| self.node_in(tree)?.parent.map(|parent| self.named(parent)))
+            .flatten()
     }
 
     /// The scopes above this one, the nearest first.
@@ -172,11 +170,10 @@ impl Scope {
         tree.nodes.get(self.node)
     }
 
-    fn named(&self, tree: &Tree, node: NodeKey) -> Scope {
+    fn named(&self, node: NodeKey) -> Scope {
         Scope {
             tree: self.tree,
             node,
-            serial: tree.nodes[node].serial,
         }
     }
 
@@ -203,10 +200,7 @@ impl Scope {
 
             let mut order = Vec::new();
             tree.collect(self.node, &mut order);
-            order
-                .into_iter()
-                .map(|node| self.named(tree, node))
-                .collect()
+            order.into_iter().map(|node| self.named(node)).collect()
         })
         .unwrap_or_default()
     }
@@ -214,11 +208,6 @@ impl Scope {
     /// Removes this scope when the guard is dropped.
     pub fn guard(&self) -> ScopeGuard {
         ScopeGuard(*self)
-    }
-
-    /// Identifies this scope, and never another one.
-    pub fn key(&self) -> usize {
-        self.serial as usize
     }
 
     /// The bus of this scope's tree: every scope in it publishes there and

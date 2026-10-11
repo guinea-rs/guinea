@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use guinea_core::observability::changes::{self, Change};
-use guinea_core::scope::Awake;
+use guinea_core::scope::{Awake, Scope};
 use guinea_core::ui_thread::invoke_on_ui;
 
 /// How long between ticks.
@@ -112,9 +112,8 @@ pub struct TimerInfo {
     pub place: &'static Location<'static>,
     /// The feature that set it up.
     pub feature: Option<&'static str>,
-    /// The scope that owns it, as `Scope::key` names it; `None` for the
-    /// application.
-    pub scope: Option<usize>,
+    /// The scope that owns it; `None` for the application.
+    pub scope: Option<Scope>,
     /// The period of the last tick, or of the first one to come.
     pub period: Duration,
 }
@@ -257,14 +256,14 @@ impl Timer {
 pub(crate) fn start(
     place: &'static Location<'static>,
     feature: Option<&'static str>,
-    owner: Option<(usize, Awake)>,
+    scope: Option<Scope>,
     period: Period,
     run: impl FnMut() + 'static,
 ) -> (Ticking, Timer) {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let first = period.next();
     let watching = period.watch(id);
-    let (scope, awake) = owner.unzip();
+    let awake = scope.map(|scope| scope.awake());
 
     let entry = Rc::new(RefCell::new(Entry {
         info: TimerInfo {
@@ -650,7 +649,7 @@ mod tests {
         let (_ticking, _timer) = start(
             Location::caller(),
             None,
-            Some((0, scope.awake())),
+            Some(scope.scope()),
             Duration::from_millis(30).into(),
             move || {
                 c.fetch_add(1, Ordering::SeqCst);

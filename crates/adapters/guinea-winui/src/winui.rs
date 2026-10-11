@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
-use guinea_core::scope::Reducer;
+use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
@@ -937,11 +937,11 @@ thread_local! {
     /// Kept for as long as the scope is, not taken once: a component the
     /// reconciler drops and makes again in the same scope - a part a fill
     /// covered and uncovered - is the same segment, and gets the same node.
-    static STAGED: RefCell<HashMap<usize, Box<dyn Any>>> = RefCell::new(HashMap::new());
+    static STAGED: RefCell<HashMap<Scope, Box<dyn Any>>> = RefCell::new(HashMap::new());
 }
 
 /// Forgets a scope's node when the scope goes.
-struct Unstage(usize);
+struct Unstage(Scope);
 
 impl Drop for Unstage {
     fn drop(&mut self) {
@@ -950,7 +950,7 @@ impl Drop for Unstage {
 }
 
 fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
-    let key = ctx.scope.key();
+    let key = ctx.scope;
     STAGED.with(|staged| {
         staged.borrow_mut().insert(key, Box::new(node));
     });
@@ -960,7 +960,7 @@ fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
 /// The node installed into the scope at `props`, or a default one - which is
 /// what a page mounted outside a route tree gets.
 fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
-    let key = props.scope().key();
+    let key = props.scope();
     STAGED
         .with(|staged| {
             staged
@@ -1275,7 +1275,7 @@ fn left(props: &SegmentProps<WinUi>) -> bool {
 /// Withdraws what a segment filled, and the slots it placed, when it leaves
 /// the screen or is installed again elsewhere.
 fn leaves_its_fills<C: Component>(props: &SegmentProps<WinUi>, cx: &mut ViewContext<C>) {
-    let filler = props.scope().key();
+    let filler = props.scope();
     cx.use_effect("guinea.fills", props.identity(), move || {
         Some(Box::new(move || crate::slots::left(filler)) as Box<dyn FnOnce()>)
     });

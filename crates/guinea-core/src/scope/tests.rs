@@ -92,6 +92,16 @@ fn a_scope_of_a_tree_that_is_gone_reaches_no_tree_that_came_after() {
 }
 
 #[test]
+fn a_scope_of_a_tree_that_is_gone_is_not_one_of_the_tree_that_took_its_place() {
+    let gone = ScopeTree::new();
+    let stale = gone.scope();
+    drop(gone);
+    let next = ScopeTree::new();
+
+    assert_ne!(stale, next.scope());
+}
+
+#[test]
 fn removing_a_scope_tears_down_what_is_under_it_first() {
     let said = Rc::new(RefCell::new(Vec::new()));
     let root = ScopeTree::new();
@@ -134,7 +144,6 @@ fn a_removed_scope_stays_gone_and_its_slot_names_another_one() {
     assert!(!gone.is_alive());
     assert!(next.is_alive());
     assert_ne!(gone, next);
-    assert_ne!(gone.key(), next.key());
     assert_eq!(next.parent(), Some(root.scope()));
 }
 
@@ -220,7 +229,7 @@ fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
                 id,
                 type_name: crate::short_type_name::<Ticker>(),
                 owner: Owner {
-                    scope: Some(page.key()),
+                    scope: Some(page),
                     feature: Some("app::Clock"),
                     drives: Some("Time"),
                 },

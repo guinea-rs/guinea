@@ -13,9 +13,6 @@
 //! used rather than in the name of a method that fetches it. Nothing is left
 //! to wire, so nothing can be left unwired.
 
-use std::rc::Rc;
-
-use crate::actor::event_bus::EventBus;
 use crate::actor::{Addr, Home, ManagedActor};
 use crate::scope::{Reducer, Scope};
 
@@ -248,21 +245,18 @@ pub trait Serves: Sized + 'static {
 /// [`driven_by`](Self::driven_by) is not a half-finished feature - it is state
 /// the UI owns outright, and the type says so: nothing drives it, so nothing
 /// can be emitted to it.
-pub struct Claim<'a, R: Reducer> {
+pub struct Claim<R: Reducer> {
     scope: Scope,
-    bus: Option<&'a Rc<EventBus>>,
     reducer: std::marker::PhantomData<fn() -> R>,
 }
 
-impl<'a, R: Reducer> Claim<'a, R> {
+impl<R: Reducer> Claim<R> {
     /// For a context that hands features their scope - the contexts in
-    /// `guinea-app`, and nothing else. `bus` is the window's, when the scope
-    /// is in one.
-    pub fn new(scope: Scope, bus: Option<&'a Rc<EventBus>>) -> Self {
+    /// `guinea-app`, and nothing else.
+    pub fn new(scope: Scope) -> Self {
         scope.note_reducer_owner::<R>();
         Self {
             scope,
-            bus,
             reducer: std::marker::PhantomData,
         }
     }
@@ -287,14 +281,14 @@ impl<'a, R: Reducer> Claim<'a, R> {
     /// call has to name it.
     ///
     /// The address comes back for wiring that is the actor's own, such as
-    /// `addr.subscribe_on::<M>(Bus::Global)`. The scope still owns the actor
-    /// and disposes it, and what it subscribed to ends with it.
+    /// `addr.subscribe::<M>()`. The scope still owns the actor and disposes
+    /// it, and what it subscribed to ends with it.
     pub fn driven_by<A, F>(self, build: F) -> (Bound<R>, Addr<A>)
     where
         F: FnOnce(Push<R>) -> A,
         A: ManagedActor + Serves + std::fmt::Debug + 'static,
     {
-        let home = Home::new(self.scope, self.bus);
+        let home = Home::new(self.scope);
         let drives = Some(crate::short_type_name::<R>());
         let actor = Addr::listed(build(Push::new(self.scope)), &home, drives);
         A::serve(&actor, self.scope);

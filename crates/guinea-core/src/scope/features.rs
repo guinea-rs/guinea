@@ -12,7 +12,6 @@ pub struct Listener {
     pub event: &'static str,
     /// The actor that listens, or `None` for a feature's own callback.
     pub actor: Option<&'static str>,
-    pub bus: crate::trace::Bus,
     pub feature: Option<&'static str>,
 }
 
@@ -122,20 +121,14 @@ impl Scope {
         data.section_name(data.current_section())
     }
 
-    /// Notes that whatever is installing listens to `event` on `bus` - through
-    /// `actor` when an actor does the listening.
-    pub fn note_listener(
-        &self,
-        event: &'static str,
-        actor: Option<&'static str>,
-        bus: crate::trace::Bus,
-    ) {
+    /// Notes that whatever is installing listens to `event` - through `actor`
+    /// when an actor does the listening.
+    pub fn note_listener(&self, event: &'static str, actor: Option<&'static str>) {
         let Some(data) = self.data() else { return };
         let feature = data.section_name(data.current_section());
         data.listeners.borrow_mut().push(Listener {
             event,
             actor,
-            bus,
             feature,
         });
     }

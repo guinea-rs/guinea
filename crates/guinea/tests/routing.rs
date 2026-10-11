@@ -711,7 +711,7 @@ mod routing {
     }
 
     #[test]
-    fn navigating_away_from_page_disposes_actor_subscribed_to_global_bus() {
+    fn navigating_away_from_page_disposes_actor_subscribed_to_the_bus() {
         use guinea_macros::{Event, actor, handler};
         use std::cell::RefCell;
         use std::rc::Rc;
@@ -781,7 +781,7 @@ mod routing {
                     seen: Rc::new(RefCell::new(Vec::new())),
                     _push: Box::new(move |()| push.send(())),
                 });
-                addr.subscribe_on::<ProbeEvent>(guinea::core::trace::Bus::Global);
+                addr.subscribe::<ProbeEvent>();
                 Ok(())
             }
 
@@ -829,7 +829,7 @@ mod routing {
             .expect("navigate to probe");
         assert!(
             bus.has_subscribers::<ProbeEvent>(),
-            "actor must be subscribed to the global bus while the page is active"
+            "actor must be subscribed to the bus while the page is active"
         );
 
         router
@@ -843,7 +843,7 @@ mod routing {
 
         assert!(
             !bus.has_subscribers::<ProbeEvent>(),
-            "global bus subscription must be removed when the page scope drops"
+            "the bus subscription must be removed when the page scope drops"
         );
     }
 }

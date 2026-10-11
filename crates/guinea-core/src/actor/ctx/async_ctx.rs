@@ -2,7 +2,7 @@ use super::Cx;
 use crate::actor::addr::Reach;
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
-use crate::actor::event_bus::{EventBus, RpcCall};
+use crate::actor::event_bus::RpcCall;
 use crate::actor::traits::Handler;
 use crate::actor::{AllowedSignal, ManagedActor};
 use crate::trace;
@@ -46,7 +46,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// let cancel = ctx.cancellation();
@@ -75,7 +75,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// assert!(!ctx.is_cancelled());
@@ -104,7 +104,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// use std::time::Duration;
@@ -137,7 +137,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -173,7 +173,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// use std::cell::Cell;
@@ -208,57 +208,6 @@ impl<A: 'static> AsyncContext<A> {
         self.reach.scope().publish(msg);
     }
 
-    /// Publishes `msg` on `bus`, a window's: on the UI thread, where the bus
-    /// lives.
-    ///
-    /// ```
-    /// # use std::cell::RefCell;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
-    /// # use guinea_core::scope::ScopeTree;
-    /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
-    /// # struct Begin;
-    /// # guinea_macros::actor! {
-    /// #     Job {
-    /// #         handlers { Begin }
-    /// #         publishes { Saved }
-    /// #     }
-    /// # }
-    /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
-    /// #     }
-    /// # }
-    /// # let tree = ScopeTree::new();
-    /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
-    /// # job.send(Begin);
-    /// # let ctx = slot.borrow_mut().take().unwrap();
-    /// use std::cell::Cell;
-    /// use std::rc::Rc;
-    ///
-    /// use guinea_core::actor::event_bus::{Event, EventBus};
-    ///
-    /// #[derive(Clone)]
-    /// struct Saved;
-    ///
-    /// impl Event for Saved {}
-    ///
-    /// let window = Rc::new(EventBus::new());
-    /// let saved = Rc::new(Cell::new(false));
-    /// let heard = saved.clone();
-    /// let _subscription = window.subscribe_fn(move |_: Saved| heard.set(true));
-    ///
-    /// ctx.publish_local(&window, Saved);
-    /// assert!(saved.get());
-    /// ```
-    pub fn publish_local<M>(&self, bus: &EventBus, msg: M)
-    where
-        A: ManagedActor,
-        M: Event,
-        A::Signals: AllowedSignal<M>,
-    {
-        bus.publish(msg);
-    }
 
     /// Asks `payload` on the bus of the actor's tree and waits for its one
     /// answer, from whichever thread this runs on.
@@ -277,7 +226,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # }
     /// # let tree = ScopeTree::new();
     /// # let slot = Rc::new(RefCell::new(None));
-    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope(), None));
+    /// # let job = Addr::new(Job(slot.clone()), &Home::new(tree.scope()));
     /// # job.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     /// use std::time::Duration;
@@ -344,7 +293,7 @@ impl<A: 'static> AsyncContext<A> {
     /// let tree = ScopeTree::new();
     /// let total = Rc::new(Cell::new(0));
     /// # let slot = Rc::new(RefCell::new(None));
-    /// let addr = Addr::new(Total(total.clone(), slot.clone()), &Home::new(tree.scope(), None));
+    /// let addr = Addr::new(Total(total.clone(), slot.clone()), &Home::new(tree.scope()));
     /// # addr.send(Begin);
     /// # let ctx = slot.borrow_mut().take().unwrap();
     ///

@@ -23,7 +23,7 @@ mod point;
 mod sink;
 
 pub use json::{Json, json};
-pub use point::{Bus, Point, StoreOp};
+pub use point::{Point, StoreOp};
 pub use sink::{
     ELSEWHERE_LIMIT, Elsewhere, Observer, is_observed, is_observed_anywhere, is_point_target,
     is_recorded_anywhere, observe, stop_observing, take_elsewhere, thread_id,
@@ -439,7 +439,6 @@ mod tests {
         });
         let publish = mark(|| Point::Publish {
             event: "ProcessKilled",
-            bus: Bus::Global,
             subscribers: 2,
         });
         let handle_id = handled.id();

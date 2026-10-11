@@ -90,8 +90,7 @@ impl Layout for TabsLayout {
                 TextBlock::new().text(l10n.app_title()),
                 tab_bar,
                 TextBlock::new().text(format!("shell installed {}x", tabs.install_count)),
-                TextBlock::new().text(format!("kills (this window): {}", tabs.kills_this_window)),
-                TextBlock::new().text(format!("kills (all windows): {}", tabs.kills_all_windows)),
+                TextBlock::new().text(format!("kills: {}", tabs.kills)),
                 TextBlock::new().text(toast),
                 cx.outlet(),
             ))

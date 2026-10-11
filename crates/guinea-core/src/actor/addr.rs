@@ -7,7 +7,7 @@ use crate::actor::traits::{EventSubscription, Handler};
 use crate::actor::ManagedActor;
 use crate::scope::Scope;
 use crate::short_type_name;
-use crate::trace::{self, Bus, Cause, Point};
+use crate::trace::{self, Cause, Point};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -17,21 +17,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
-/// Where an actor is made: the scope that owns it, its tree's bus, and the
-/// window bus it can hear when it is in a window.
+/// Where an actor is made: the scope that owns it, and the bus of its tree.
 #[derive(Clone)]
 pub struct Home {
     scope: Scope,
-    global: Weak<EventBus>,
     bus: Weak<EventBus>,
 }
 
 impl Home {
-    pub fn new(scope: Scope, bus: Option<&Rc<EventBus>>) -> Self {
+    pub fn new(scope: Scope) -> Self {
         Self {
             scope,
-            global: scope.tree_bus().as_ref().map(Rc::downgrade).unwrap_or_default(),
-            bus: bus.map(Rc::downgrade).unwrap_or_default(),
+            bus: scope.tree_bus().as_ref().map(Rc::downgrade).unwrap_or_default(),
         }
     }
 
@@ -119,7 +116,7 @@ impl<A: 'static> Addr<A> {
     /// use guinea_core::scope::ScopeTree;
     ///
     /// let tree = ScopeTree::new();
-    /// let refs = Addr::new(0u32, &Home::new(tree.scope(), None)).refs();
+    /// let refs = Addr::new(0u32, &Home::new(tree.scope())).refs();
     /// assert_eq!(refs.count(), 1, "held by its scope");
     ///
     /// tree.remove();
@@ -137,7 +134,7 @@ impl<A: 'static> Addr<A> {
     /// let tree = ScopeTree::new();
     /// tree.remove();
     ///
-    /// Addr::new(0u32, &Home::new(tree.scope(), None));
+    /// Addr::new(0u32, &Home::new(tree.scope()));
     /// ```
     pub fn new(state: A, home: &Home) -> Self {
         let addr = Self(Rc::new(Actor {
@@ -182,7 +179,7 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let autosave = Addr::new_managed(Autosave, &Home::new(tree.scope(), None));
+    /// let autosave = Addr::new_managed(Autosave, &Home::new(tree.scope()));
     /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
     ///
     /// autosave.dispose();
@@ -201,14 +198,13 @@ impl<A: 'static> Addr<A> {
         self.0.home.clone()
     }
 
-    /// Hears `M` on `bus` for as long as the actor lives: disposing it ends
-    /// the subscription.
+    /// Hears `M` on the bus of its tree for as long as the actor lives:
+    /// disposing it ends the subscription.
     ///
     /// ```
     /// use guinea_core::actor::event_bus::Event;
     /// use guinea_core::actor::{Addr, Cx, Handler, Home};
     /// use guinea_core::scope::ScopeTree;
-    /// use guinea_core::trace::Bus;
     ///
     /// #[derive(Clone)]
     /// struct Saved;
@@ -222,9 +218,9 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let autosave = Addr::new(Autosave, &Home::new(tree.scope(), None));
+    /// let autosave = Addr::new(Autosave, &Home::new(tree.scope()));
     ///
-    /// autosave.subscribe_on::<Saved>(Bus::Global);
+    /// autosave.subscribe::<Saved>();
     /// assert_eq!(tree.bus().count_subscribers::<Saved>(), 1);
     ///
     /// autosave.dispose();
@@ -233,31 +229,22 @@ impl<A: 'static> Addr<A> {
     ///
     /// # Panics
     ///
-    /// On [`Bus::Window`], when the actor lives in no window.
-    pub fn subscribe_on<M: Event>(&self, bus: Bus)
+    /// When its tree is gone.
+    pub fn subscribe<M: Event>(&self)
     where
         A: Handler<M>,
     {
-        let on = match bus {
-            Bus::Global => self.0.home.global.upgrade().unwrap_or_else(|| {
-                panic!(
-                    "{} lives in a tree that is gone, so there is no bus to hear {} on",
-                    short_type_name::<A>(),
-                    short_type_name::<M>()
-                )
-            }),
-            Bus::Window => self.0.home.bus.upgrade().unwrap_or_else(|| {
-                panic!(
-                    "{} lives in no window, so there is no window bus to hear {} on",
-                    short_type_name::<A>(),
-                    short_type_name::<M>()
-                )
-            }),
-        };
+        let bus = self.0.home.bus.upgrade().unwrap_or_else(|| {
+            panic!(
+                "{} lives in a tree that is gone, so there is no bus to hear {} on",
+                short_type_name::<A>(),
+                short_type_name::<M>()
+            )
+        });
 
-        self.0.home.scope.note_listener(name::<M>(), Some(name::<A>()), bus);
+        self.0.home.scope.note_listener(name::<M>(), Some(name::<A>()));
 
-        let subscription = on.subscribe::<A, M>(self.clone());
+        let subscription = bus.subscribe::<A, M>(self.clone());
         self.0.subscriptions.borrow_mut().push(subscription);
     }
 
@@ -280,7 +267,7 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let total = Addr::new(Total(0), &Home::new(tree.scope(), None));
+    /// let total = Addr::new(Total(0), &Home::new(tree.scope()));
     ///
     /// total.send(Add(2));
     /// total.send(Add(3));
@@ -309,7 +296,7 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let countdown = Addr::new(Countdown(Vec::new()), &Home::new(tree.scope(), None));
+    /// let countdown = Addr::new(Countdown(Vec::new()), &Home::new(tree.scope()));
     ///
     /// countdown.send(From(2));
     /// assert_eq!(countdown.debug_snapshot(), format!("{:#?}", Countdown(vec![2, 1, 0])));
@@ -396,7 +383,7 @@ impl<A: 'static> Addr<A> {
 
     /// The bus of the tree it lives in, while the tree is there.
     pub(crate) fn tree_bus(&self) -> Option<Rc<EventBus>> {
-        self.0.home.global.upgrade()
+        self.0.home.bus.upgrade()
     }
 
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
@@ -466,7 +453,7 @@ pub(crate) struct TestHome {
 impl TestHome {
     pub(crate) fn new() -> Self {
         let tree = crate::scope::ScopeTree::new();
-        let home = Home::new(tree.scope(), None);
+        let home = Home::new(tree.scope());
         Self { tree, home }
     }
 }
@@ -584,6 +571,28 @@ mod tests {
 
     impl Handler<Heard> for Listening {
         fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {}
+    }
+
+    #[derive(Debug, Default)]
+    struct Counting(u32);
+
+    impl Handler<Heard> for Counting {
+        fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {
+            self.0 += 1;
+        }
+    }
+
+    #[test]
+    fn an_actor_in_a_window_hears_the_bus_of_its_tree() {
+        let tree = crate::scope::ScopeTree::new();
+        let window = tree.child();
+        window.set_window(7);
+        let addr = Addr::new(Counting::default(), &Home::new(window.child()));
+
+        addr.subscribe::<Heard>();
+        tree.bus().publish(Heard);
+
+        assert_eq!(addr.debug_snapshot(), format!("{:#?}", Counting(1)));
     }
 
     #[test]

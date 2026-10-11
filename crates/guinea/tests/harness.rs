@@ -336,7 +336,7 @@ fn what_a_query_sets_off_keeps_its_shape(h: &mut Harness) {
     insta::assert_ron_snapshot!("its_results", *h.state::<Results>());
 }
 
-/// What an agent reports, arriving on the global bus the way a report from
+/// What an agent reports, arriving on the bus the way a report from
 /// another process does.
 mod reports {
     use super::*;
@@ -362,7 +362,7 @@ mod reports {
         pub push: Push<Running>,
     }
 
-    /// Asks for a report to be put on the global bus, the way a page's
+    /// Asks for a report to be put on the bus, the way a page's
     /// End task asks the agent.
     #[derive(Clone, Debug)]
     pub struct Announce(pub Vec<&'static str>);
@@ -393,7 +393,7 @@ mod reports {
     #[installs]
     fn reports(cx: &FeatureInitContext) -> anyhow::Result<Reports> {
         let (running, reader) = cx.state::<Running>().driven_by(|push| Reader { push });
-        reader.subscribe_on::<Report>(Bus::Global);
+        reader.subscribe::<Report>();
         Ok(Reports(running))
     }
 
@@ -537,7 +537,7 @@ mod named {
     #[installs]
     fn naming(cx: &FeatureInitContext) -> anyhow::Result<Naming> {
         let (name, namer) = cx.state::<Name>().driven_by(|push| Namer { push });
-        namer.subscribe_on::<Renamed>(Bus::Global);
+        namer.subscribe::<Renamed>();
         Ok(Naming(name))
     }
 }
@@ -727,7 +727,7 @@ fn a_callback_a_feature_subscribes_is_listed_where_the_feature_subscribed_it(h: 
 
     let page = h.child();
     let subscribed_at = line!() + 1;
-    page.context().subscribe_global(|_: reports::Report| {});
+    page.context().subscribe(|_: reports::Report| {});
 
     let listening = h.bus().listeners();
     let at = match listening[0].listeners[0].by {

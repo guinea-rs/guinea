@@ -63,7 +63,7 @@ feature! {
 #[installs]
 fn metering(cx: &FeatureInitContext) -> anyhow::Result<Metering> {
     let (load, meter) = cx.state::<Load>().driven_by(|push| Meter { push });
-    meter.subscribe_on::<Sampled>(Bus::Global);
+    meter.subscribe::<Sampled>();
     Ok(Metering(load))
 }
 
@@ -248,7 +248,7 @@ feature! {
 #[installs]
 fn ticking(cx: &FeatureInitContext) -> anyhow::Result<Ticking> {
     let (rate, ticker) = cx.state::<Rate>().driven_by(|push| Ticker { push });
-    ticker.subscribe_on::<Ticked>(Bus::Global);
+    ticker.subscribe::<Ticked>();
     Ok(Ticking(rate))
 }
 

@@ -223,7 +223,7 @@ subscription gone:
 - a page's actor and a layout's feature through the real router and WinUI
   mount, three visits in a row (`released_winui.rs`);
 - router navigation away from a page (`routing.rs`,
-  `navigating_away_from_page_disposes_actor_subscribed_to_global_bus`).
+  `navigating_away_from_page_disposes_actor_subscribed_to_the_bus`).
 
 What uniproc shows is most likely the design: its domain features are
 installed by the area layouts (`processes_area` installs

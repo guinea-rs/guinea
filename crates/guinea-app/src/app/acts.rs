@@ -217,8 +217,8 @@ pub enum Step {
     Arrived { actor: &'static str, output: &'static str },
     Pull { actor: &'static str, output: &'static str },
     Closed { actor: &'static str, output: &'static str, gone: bool },
-    Publish { event: &'static str, bus: &'static str, subscribers: usize },
-    Deliver { event: &'static str, bus: &'static str },
+    Publish { event: &'static str, subscribers: usize },
+    Deliver { event: &'static str },
     Push { reducer: &'static str },
     Navigate { to: String },
     Tick,
@@ -231,11 +231,6 @@ pub enum Step {
 
 impl Step {
     fn of(point: &Point) -> Self {
-        let bus = |bus: &guinea_core::trace::Bus| match bus {
-            guinea_core::trace::Bus::Global => "global",
-            guinea_core::trace::Bus::Window => "window",
-        };
-
         match point {
             Point::Action { message } => Step::Action { message },
             Point::Send { actor, message } => Step::Send { actor, message },
@@ -256,16 +251,11 @@ impl Step {
                 output,
                 gone: *gone,
             },
-            Point::Publish {
+            Point::Publish { event, subscribers } => Step::Publish {
                 event,
-                bus: on,
-                subscribers,
-            } => Step::Publish {
-                event,
-                bus: bus(on),
                 subscribers: *subscribers,
             },
-            Point::Deliver { event, bus: on } => Step::Deliver { event, bus: bus(on) },
+            Point::Deliver { event } => Step::Deliver { event },
             Point::Push { reducer } => Step::Push { reducer },
             Point::Navigate { to, .. } => Step::Navigate { to: to.clone() },
             Point::Tick { .. } => Step::Tick,
@@ -328,7 +318,6 @@ mod tests {
         let pushed = leaf(Step::Push { reducer: "Listing" });
         let published = leaf(Step::Publish {
             event: "Refreshed",
-            bus: "global",
             subscribers: 1,
         });
 

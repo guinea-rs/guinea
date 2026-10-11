@@ -29,7 +29,7 @@ impl Tree {
         Self {
             nodes: Vec::new(),
             free: Vec::new(),
-            bus: Rc::new(EventBus::global()),
+            bus: Rc::new(EventBus::new()),
         }
     }
 

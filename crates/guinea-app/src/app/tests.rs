@@ -191,7 +191,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
 
     {
         let seen = seen.clone();
-        app.subscribe_global::<Tick>(move |_| *seen.borrow_mut() += 1);
+        app.subscribe::<Tick>(move |_| *seen.borrow_mut() += 1);
     }
 
     assert_eq!(bus.count_subscribers::<Tick>(), 1);
@@ -234,11 +234,11 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
         })
         .expect("install the feature");
 
-    host.event_bus().publish(Ping);
+    host.scope().bus().publish(Ping);
     assert_eq!(taken(), vec!["pinged"]);
 
     drop(scope);
-    host.event_bus().publish(Ping);
+    host.scope().bus().publish(Ping);
     assert!(
         taken().is_empty(),
         "the subscription is owned by the scope and ends with it"

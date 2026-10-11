@@ -55,7 +55,7 @@ impl Handler<Saved> for Sink {
 #[test]
 fn an_event_heard_by_callbacks_and_actors_is_published_without_allocating() {
     let tree = ScopeTree::new();
-    let home = Home::new(tree.scope(), None);
+    let home = Home::new(tree.scope());
     let bus = Rc::new(EventBus::new());
 
     let heard = Rc::new(Cell::new(0));

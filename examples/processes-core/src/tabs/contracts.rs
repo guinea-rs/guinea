@@ -7,8 +7,7 @@ pub struct Tabs {
     /// sibling with the context it is already in rather than inventing one.
     pub context: String,
     pub install_count: i32,
-    pub kills_this_window: i32,
-    pub kills_all_windows: i32,
+    pub kills: i32,
     pub last_killed: Option<String>,
 }
 
@@ -16,8 +15,7 @@ pub struct Tabs {
 pub enum Chrome {
     Reached(String),
     Installed(i32),
-    LocalKill(String),
-    GlobalKill,
+    Killed(String),
 }
 
 impl Reducer for Tabs {
@@ -27,11 +25,10 @@ impl Reducer for Tabs {
         match update {
             Chrome::Reached(context) => self.context = context,
             Chrome::Installed(n) => self.install_count = n,
-            Chrome::LocalKill(name) => {
-                self.kills_this_window += 1;
+            Chrome::Killed(name) => {
+                self.kills += 1;
                 self.last_killed = Some(name);
             }
-            Chrome::GlobalKill => self.kills_all_windows += 1,
         }
     }
 }

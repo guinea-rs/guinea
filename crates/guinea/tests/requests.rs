@@ -64,7 +64,7 @@ mod answering {
     #[installs]
     fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
         let processes = cx.spawn(Processes { protected: vec![4] });
-        processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        processes.subscribe::<RpcRequest<Kill>>();
         Ok(Killing)
     }
     //@show-end
@@ -105,7 +105,7 @@ mod answering_later {
     #[installs]
     fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
         let processes = cx.spawn(Processes { protected: vec![4] });
-        processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        processes.subscribe::<RpcRequest<Kill>>();
         Ok(Killing)
     }
 }
@@ -187,7 +187,7 @@ mod listening {
     #[installs]
     fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
         let audit = cx.spawn(Audit::default());
-        audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+        audit.subscribe::<RpcRequest<Kill>>();
         Ok(Auditing)
     }
     //@show-end

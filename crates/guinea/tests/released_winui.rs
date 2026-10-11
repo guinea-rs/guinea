@@ -7,7 +7,6 @@ use std::cell::Cell;
 
 use guinea::app::Harness;
 use guinea::core::actor::event_bus::Event;
-use guinea::core::trace::Bus;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page};
@@ -94,7 +93,7 @@ impl Page for Listening {
 
     fn install(ctx: &FeatureInitContext, _params: &ListeningParams) -> anyhow::Result<()> {
         let (_, addr) = ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
-        addr.subscribe_on::<Ping>(Bus::Global);
+        addr.subscribe::<Ping>();
         Ok(())
     }
 
@@ -160,7 +159,7 @@ feature! {
 #[installs]
 fn pinging(cx: &FeatureInitContext) -> anyhow::Result<Pinging> {
     let (pings, addr) = cx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
-    addr.subscribe_on::<Ping>(Bus::Global);
+    addr.subscribe::<Ping>();
     Ok(Pinging(pings))
 }
 

@@ -168,7 +168,7 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// let tree = ScopeTree::new();
     /// let heard = Rc::new(RefCell::new(Vec::new()));
-    /// let launch = Addr::new_managed(Launch(heard.clone()), &Home::new(tree.scope(), None));
+    /// let launch = Addr::new_managed(Launch(heard.clone()), &Home::new(tree.scope()));
     ///
     /// launch.send(Start);
     /// assert!(heard.borrow().is_empty(), "the source is not drained by the send");

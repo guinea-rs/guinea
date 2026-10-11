@@ -2,7 +2,6 @@ use crate::actor::addr::Addr;
 use crate::actor::event_bus::rpc::{AsyncBus, RpcCall, RpcRequest};
 use crate::actor::traits::Handler;
 use crate::short_type_name;
-use crate::trace::Bus;
 
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
@@ -51,7 +50,7 @@ impl crate::scope::Teardown for BusSubscription {
     }
 }
 
-/// A type that travels over the global bus, where subscribers find it by its
+/// A type that travels over a bus, where subscribers find it by its
 /// `TypeId` alone.
 ///
 /// Implemented by hand or with `#[derive(Event)]`, never for free: the orphan
@@ -97,7 +96,7 @@ impl<M: Clone> Letter<M> {
 
 pub trait UntypedSubscriber: 'static {
     /// Hands over `letter`, a [`Letter`] of the event this subscriber hears.
-    fn deliver(&self, letter: &mut dyn Any, bus: Bus);
+    fn deliver(&self, letter: &mut dyn Any);
     fn seq(&self) -> u64;
     fn event(&self) -> &'static str;
 
@@ -128,7 +127,7 @@ where
     A: Handler<M> + 'static,
     M: Event,
 {
-    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
+    fn deliver(&self, letter: &mut dyn Any) {
         if self.addr.is_asleep() {
             return;
         }
@@ -174,7 +173,7 @@ pub struct AnswerFn<Req: RpcCall> {
 }
 
 impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
-    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
+    fn deliver(&self, letter: &mut dyn Any) {
         let request = letter
             .downcast_mut::<Letter<RpcRequest<Req>>>()
             .and_then(Letter::open);
@@ -216,7 +215,7 @@ pub struct FnSubscriber<M: Event> {
 impl<M: Event> UntypedSubscriber for FnSubscriber<M> {
     /// No `Deliver` of its own: the publication marks one around every
     /// subscriber, so one here would be the same span twice.
-    fn deliver(&self, letter: &mut dyn Any, _bus: Bus) {
+    fn deliver(&self, letter: &mut dyn Any) {
         if let Some(event) = letter.downcast_mut::<Letter<M>>().and_then(Letter::open) {
             (self.callback)(event.overheard());
         }

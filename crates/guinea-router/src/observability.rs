@@ -29,7 +29,8 @@ pub struct RouterView {
     pub actors: Vec<ActorSnapshot>,
     /// What the backend offered for this root.
     pub panels: Vec<Panel>,
-    /// Who hears each event on this window's bus.
+    /// Who hears each event on the bus of this window's tree - the same for
+    /// every window of one application.
     pub bus: Vec<Listening>,
 }
 
@@ -169,7 +170,7 @@ impl<U: Ui> Inspected for Router<U> {
             pending: self.pending().map(|ask| ask.text),
             actors,
             panels: panels::for_root(root.get()),
-            bus: self.host().event_bus().listeners(),
+            bus: self.host().scope().bus().listeners(),
         }
     }
 

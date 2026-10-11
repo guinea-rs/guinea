@@ -59,7 +59,7 @@ macro_rules! every_size {
 
 fn send(c: &mut Criterion) {
     let tree = ScopeTree::new();
-    let addr = Addr::new(Sink(0), &Home::new(tree.scope(), None));
+    let addr = Addr::new(Sink(0), &Home::new(tree.scope()));
 
     let mut group = c.benchmark_group("one_by_one");
     every_size!(one, &mut group, &addr);

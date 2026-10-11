@@ -169,7 +169,7 @@ impl crate::actor::Handler<Tick> for Ticker {
 }
 
 fn home(scope: Scope) -> crate::actor::Home {
-    crate::actor::Home::new(scope, None)
+    crate::actor::Home::new(scope)
 }
 
 fn watched(run: impl FnOnce()) -> Vec<crate::observability::changes::Change> {

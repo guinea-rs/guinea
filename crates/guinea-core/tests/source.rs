@@ -71,7 +71,7 @@ fn a_source_that_never_waits_still_stops_with_its_actor() {
 
     let pulled = Arc::new(AtomicUsize::new(0));
     let tree = ScopeTree::new();
-    let addr = Addr::new_managed(Puller, &Home::new(tree.scope(), None));
+    let addr = Addr::new_managed(Puller, &Home::new(tree.scope()));
     addr.send(Open(Forever(pulled.clone())));
 
     let deadline = Instant::now() + Duration::from_secs(5);

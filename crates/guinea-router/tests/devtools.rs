@@ -166,10 +166,10 @@ fn devtools_hear_a_router_open_and_close_and_read_it_alone() {
 struct Resized;
 
 #[test]
-fn a_router_view_says_who_hears_its_window_s_bus() {
+fn a_router_view_says_who_hears_the_bus_of_its_tree() {
     let host = FeatureHost::detached();
     let subscribed_at = line!() + 1;
-    let _hears = host.event_bus().subscribe_fn(|_: Resized| {});
+    let _hears = host.scope().bus().subscribe_fn(|_: Resized| {});
     let router = Rc::new(Router::<Headless>::new(host));
     router.navigate(Route { id: 1 }).expect("navigate");
     let root = router.root().get();

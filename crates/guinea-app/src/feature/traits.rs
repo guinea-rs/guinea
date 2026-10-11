@@ -8,8 +8,6 @@ use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
-use guinea_core::trace::Bus;
-use guinea_core::actor::event_bus::EventBus;
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
@@ -25,7 +23,7 @@ pub struct AppFeatureDeinitContext<'a> {
 /// A plugin and an application feature are handed it through their builder,
 /// a segment's feature through [`FeatureInitContext`], and both say the same
 /// things the same way: claim state and drive it, answer actions, watch other
-/// state, spawn actors, run timers. What only a window has - its bus, its
+/// state, hear the bus, spawn actors, run timers. What only a window has - its
 /// place in a chain, leaving and waking - is the window context's own.
 #[derive(Clone)]
 pub struct ScopeContext {
@@ -46,7 +44,6 @@ pub struct FeatureInitContext {
     /// or the only one. What a service shared between roots uses to tell
     /// callers apart.
     pub root: crate::app::roots::RootId,
-    pub event_bus: Rc<EventBus>,
 }
 
 impl std::ops::Deref for FeatureInitContext {
@@ -77,7 +74,7 @@ impl std::ops::Deref for FeatureInitContext {
 /// #[installs]
 /// fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Processes> {
 ///     let (listing, _) = cx.state::<contracts::Processes>()
-///         .driven_by(|push| ProcessActor::new(context.to_string(), push, cx.event_bus.clone()));
+///         .driven_by(|push| ProcessActor::new(context.to_string(), push));
 ///
 ///     listing.emit(Refresh);
 ///     Ok(Processes(listing))
@@ -144,29 +141,6 @@ impl FeatureInitContext {
         installed
     }
 
-    /// Claims `R` for this scope, and says what else is true of it.
-    ///
-    /// The one way in. Ownership used to be a side effect of which of four
-    /// calls a feature happened to make - `port`, `actions`, `wire`,
-    /// `seed_reducer` - so a reducer could be claimed by accident and an actor
-    /// could be left unwired without anything failing to build. Here the claim
-    /// is the call, and continuing it is optional:
-    ///
-    /// ```ignore
-    /// let (processes, actor) = cx.state::<Processes>()
-    ///     .driven_by(|push| ProcessActor::new(context.to_string(), push, cx.event_bus.clone()));
-    /// actor.subscribe_on::<ScanTick>(Bus::Global);
-    ///
-    /// processes.emit(Refresh);
-    /// ```
-    ///
-    /// Ending it at [`plain`](Claim::plain) is not a half-written feature - it
-    /// is state the UI owns, and `emit` on it does not compile.
-    #[track_caller]
-    pub fn state<R: Reducer>(&self) -> Claim<'_, R> {
-        self.scope_cx.claim(Some(&self.event_bus), Location::caller())
-    }
-
     /// Runs `hook` every time this segment wakes - for one declared `keep`
     /// in `routes!`, which the router puts to sleep instead of tearing down.
     ///
@@ -224,36 +198,30 @@ impl FeatureInitContext {
         });
     }
 
-    /// Hears `M` on this window's bus, for as long as this segment lives and
-    /// while it is awake.
-    #[track_caller]
-    pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
-        self.scope.note_listener(name::<M>(), None, Bus::Window);
-        self.scope
-            .own_subscription(self.event_bus.subscribe_fn(self.while_awake(callback)));
-    }
-
-    /// Creates `actor` in this segment, where it can hear this window's bus.
-    /// See [`ScopeContext::spawn`].
-    pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
-        self.scope_cx.spawn_in(Some(&self.event_bus), actor)
-    }
 }
 
 impl ScopeContext {
-    /// Claims `R` for this scope, and says what else is true of it. See
-    /// [`FeatureInitContext::state`]; here the claim is the application's,
-    /// and an actor driving it lives in no window.
+    /// Claims `R` for this scope, and says what else is true of it.
+    ///
+    /// The one way in. Ownership used to be a side effect of which of four
+    /// calls a feature happened to make - `port`, `actions`, `wire`,
+    /// `seed_reducer` - so a reducer could be claimed by accident and an actor
+    /// could be left unwired without anything failing to build. Here the claim
+    /// is the call, and continuing it is optional:
+    ///
+    /// ```ignore
+    /// let (processes, actor) = cx.state::<Processes>()
+    ///     .driven_by(|push| ProcessActor::new(context.to_string(), push));
+    /// actor.subscribe::<ScanTick>();
+    ///
+    /// processes.emit(Refresh);
+    /// ```
+    ///
+    /// Ending it at [`plain`](Claim::plain) is not a half-written feature - it
+    /// is state the UI owns, and `emit` on it does not compile.
     #[track_caller]
-    pub fn state<R: Reducer>(&self) -> Claim<'_, R> {
-        self.claim(None, Location::caller())
-    }
-
-    fn claim<'a, R: Reducer>(
-        &'a self,
-        bus: Option<&'a Rc<EventBus>>,
-        at: &'static Location<'static>,
-    ) -> Claim<'a, R> {
+    pub fn state<R: Reducer>(&self) -> Claim<R> {
+        let at = Location::caller();
         self.scope.note_reducer_declared::<R>(Declared {
             file: at.file(),
             line: at.line(),
@@ -261,7 +229,7 @@ impl ScopeContext {
             crate_dir: self.scope.current_crate_dir().unwrap_or_default(),
         });
 
-        Claim::new(self.scope, bus)
+        Claim::new(self.scope)
     }
 
     /// Says this scope answers `M`, and how.
@@ -344,11 +312,11 @@ impl ScopeContext {
         })));
     }
 
-    /// Hears `M` on the bus of this scope's tree, the application's, for as
-    /// long as this scope lives and while it is awake.
+    /// Hears `M` on the bus of this scope's tree, for as long as this scope
+    /// lives and while it is awake.
     #[track_caller]
-    pub fn subscribe_global<M: Event>(&self, callback: impl Fn(M) + 'static) {
-        self.scope.note_listener(name::<M>(), None, Bus::Global);
+    pub fn subscribe<M: Event>(&self, callback: impl Fn(M) + 'static) {
+        self.scope.note_listener(name::<M>(), None);
         self.scope
             .own(self.scope.bus().subscribe_fn(self.while_awake(callback)));
     }
@@ -365,15 +333,7 @@ impl ScopeContext {
     /// Creates `actor`, subscribes it to what it listens for, and makes it
     /// this scope's: listed for devtools, and disposed when the scope goes.
     pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
-        self.spawn_in(None, actor)
-    }
-
-    fn spawn_in<A: ManagedActor + Debug + 'static>(
-        &self,
-        bus: Option<&Rc<EventBus>>,
-        actor: A,
-    ) -> Addr<A> {
-        Addr::new_managed(actor, &Home::new(self.scope, bus))
+        Addr::new_managed(actor, &Home::new(self.scope))
     }
 
     /// Sends `message()` to `addr` every `period`, for as long as this scope

@@ -62,7 +62,7 @@ impl Handler<Echo> for Echoes {
 #[test]
 fn a_message_to_an_actor_that_is_not_busy_is_handled_without_allocating() {
     let tree = ScopeTree::new();
-    let addr = Addr::new(Sink(0), &Home::new(tree.scope(), None));
+    let addr = Addr::new(Sink(0), &Home::new(tree.scope()));
     addr.send(Payload([0; 64]));
 
     let allocated = allocations(|| {
@@ -78,7 +78,7 @@ fn a_message_to_an_actor_that_is_not_busy_is_handled_without_allocating() {
 fn a_message_an_actor_sends_itself_waits_its_turn_and_is_handled() {
     let tree = ScopeTree::new();
     let heard = Rc::new(RefCell::new(Vec::new()));
-    let addr = Addr::new(Echoes(heard.clone()), &Home::new(tree.scope(), None));
+    let addr = Addr::new(Echoes(heard.clone()), &Home::new(tree.scope()));
 
     addr.send(Echo(3));
 

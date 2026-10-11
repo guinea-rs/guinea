@@ -1,14 +1,5 @@
 use std::fmt;
 
-/// Which bus carried a publication.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Bus {
-    /// Every window hears it.
-    Global,
-    /// One window's own.
-    Window,
-}
-
 /// How a stored value changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StoreOp {
@@ -131,11 +122,10 @@ pub enum Point {
     /// An event went out.
     Publish {
         event: &'static str,
-        bus: Bus,
         subscribers: usize,
     },
     /// An event reached a subscriber that is not an actor.
-    Deliver { event: &'static str, bus: Bus },
+    Deliver { event: &'static str },
     /// A reducer was changed.
     Push { reducer: &'static str },
     /// A router moved.
@@ -225,15 +215,6 @@ impl Point {
     }
 }
 
-impl fmt::Display for Bus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Bus::Global => "global",
-            Bus::Window => "window",
-        })
-    }
-}
-
 impl fmt::Display for StoreOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -297,12 +278,8 @@ impl fmt::Display for Point {
                 "{actor}'s source of {output} ran dry after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
-            Point::Publish {
-                event,
-                bus,
-                subscribers,
-            } => write!(f, "publish {event} on the {bus} bus to {subscribers}"),
-            Point::Deliver { event, bus } => write!(f, "deliver {event} from the {bus} bus"),
+            Point::Publish { event, subscribers } => write!(f, "publish {event} to {subscribers}"),
+            Point::Deliver { event } => write!(f, "deliver {event}"),
             Point::Push { reducer } => write!(f, "push into {reducer}"),
             Point::Navigate { root, to } => write!(f, "{root} navigates to {to}"),
             Point::Tick { name: Some(name), .. } => write!(f, "timer {name}"),

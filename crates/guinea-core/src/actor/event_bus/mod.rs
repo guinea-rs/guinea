@@ -6,7 +6,7 @@ use crate::actor::traits::Handler;
 use crate::observability::changes::{self, Change};
 use crate::scope::Scope;
 use crate::short_type_name;
-use crate::trace::{self, Bus, Point};
+use crate::trace::{self, Point};
 use crate::ui_thread::invoke_on_ui;
 use std::any::TypeId;
 use std::cell::{Cell, RefCell};
@@ -57,10 +57,6 @@ pub struct EventBus {
     /// The one subscriber that answers each request type, by its `seq`.
     answerers: RefCell<HashMap<TypeId, (u64, &'static str)>>,
     next_id: Cell<u64>,
-    kind: Bus,
-    /// The window it is the bus of, for [`Change`]; `None` for the global
-    /// one, and for one no window owns.
-    root: Option<u64>,
 }
 
 /// Whether a request published now would be answered.
@@ -84,16 +80,21 @@ impl std::fmt::Debug for EventBus {
             .try_borrow()
             .map_or(0, |subscribers| subscribers.values().map(|list| list.len()).sum());
         f.debug_struct("EventBus")
-            .field("kind", &self.kind)
             .field("subscribers", &subscribers)
             .finish()
     }
 }
 
 impl EventBus {
-    /// A window's own bus.
+    /// A bus of its own, outside any tree. A
+    /// [`ScopeTree`](crate::scope::ScopeTree) makes the one its scopes share.
     pub fn new() -> Self {
-        Self::of_kind(Bus::Window)
+        Self {
+            subscribers: RefCell::new(HashMap::new()),
+            counts: RefCell::new(HashMap::new()),
+            answerers: RefCell::new(HashMap::new()),
+            next_id: Cell::new(0),
+        }
     }
 
     /// `addr` hears `M` on this bus until the subscription is dropped.
@@ -120,7 +121,7 @@ impl EventBus {
     /// }
     ///
     /// let tree = ScopeTree::new();
-    /// let total = Addr::new(Total(0), &Home::new(tree.scope(), None));
+    /// let total = Addr::new(Total(0), &Home::new(tree.scope()));
     /// let bus = Rc::new(EventBus::new());
     ///
     /// let subscription = bus.subscribe::<Total, Add>(total.clone());
@@ -231,7 +232,6 @@ impl EventBus {
     pub fn publish<M: Event>(&self, msg: M) {
         let _published = trace::enter(|| Point::Publish {
             event: short_type_name::<M>(),
-            bus: self.kind,
             subscribers: self.count_subscribers::<M>(),
         });
 
@@ -257,10 +257,9 @@ impl EventBus {
             // say invisible.
             let _delivered = trace::enter(|| Point::Deliver {
                 event: short_type_name::<M>(),
-                bus: self.kind,
             });
 
-            sub.deliver(&mut letter, self.kind);
+            sub.deliver(&mut letter);
         }
     }
 
@@ -319,15 +318,6 @@ impl EventBus {
 }
 
 impl EventBus {
-    /// The bus of window `root`, as `RootId::get` numbers it.
-    #[doc(hidden)]
-    pub fn for_root(root: u64) -> Self {
-        Self {
-            root: Some(root),
-            ..Self::of_kind(Bus::Window)
-        }
-    }
-
     /// The event types something is subscribed to, with how many subscribers
     /// each has.
     #[doc(hidden)]
@@ -369,28 +359,8 @@ impl EventBus {
         listed
     }
 
-    /// The bus a [`ScopeTree`](crate::scope::ScopeTree) shares among its
-    /// scopes.
-    pub(crate) fn global() -> Self {
-        Self::of_kind(Bus::Global)
-    }
-
-    fn of_kind(kind: Bus) -> Self {
-        Self {
-            subscribers: RefCell::new(HashMap::new()),
-            counts: RefCell::new(HashMap::new()),
-            answerers: RefCell::new(HashMap::new()),
-            next_id: Cell::new(0),
-            kind,
-            root: None,
-        }
-    }
-
     fn changed(&self) {
-        changes::changed(|| Change::Subscriptions {
-            bus: self.kind,
-            root: self.root,
-        });
+        changes::changed(|| Change::Subscriptions);
     }
 
     fn next_id(&self) -> u64 {
@@ -410,11 +380,10 @@ impl EventBus {
             let mut answerers = self.answerers.borrow_mut();
             if let Some((_, already)) = answerers.get(&event) {
                 panic!(
-                    "{answerer} answers {} on the {:?} bus, and {already} already does: a request \
-                     has exactly one answerer. Make one of them only hear it - a handler that \
-                     returns nothing - or answer from one place.",
+                    "{answerer} answers {}, and {already} already does: a request has exactly \
+                     one answerer. Make one of them only hear it - a handler that returns \
+                     nothing - or answer from one place.",
                     subscriber.event(),
-                    self.kind,
                 );
             }
             answerers.insert(event, (id.seq, answerer));
@@ -550,7 +519,7 @@ mod tests {
 
     #[test]
     fn a_bus_tells_a_watcher_when_what_is_subscribed_to_it_changes() {
-        let bus = Rc::new(EventBus::for_root(3));
+        let bus = Rc::new(EventBus::new());
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let sink = seen.clone();
@@ -563,13 +532,9 @@ mod tests {
         drop(sub);
         changes::stop_watching();
 
-        let changed = Change::Subscriptions {
-            bus: Bus::Window,
-            root: Some(3),
-        };
         assert_eq!(
             *seen.borrow(),
-            [(changed.clone(), 1), (changed, 0)],
+            [(Change::Subscriptions, 1), (Change::Subscriptions, 0)],
             "told after the change, with the bus free to read"
         );
     }

@@ -1,14 +1,11 @@
-use std::rc::Rc;
-
 use guinea_core::SharedState;
-use guinea_core::actor::event_bus::EventBus;
 use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
 use crate::app::roots::{Registration, RootId};
 
-/// What a feature needs to be installed into a scope: the window's own scope,
-/// the UI thread, the window's event bus, and whatever plugins provided.
+/// What a feature needs to be installed into a scope: the window's own scope
+/// and whatever plugins provided.
 ///
 /// The router used to own all of these and hand them out. It shouldn't: they are
 /// no more about routing than they are about anything else, and an
@@ -25,9 +22,6 @@ pub struct FeatureHost {
     _tree: Option<ScopeTree>,
     /// The application's own context, when there is one.
     app: Option<ScopeContext>,
-    /// One per window, shared by every feature installed through this host,
-    /// so actors in different features can reach each other.
-    event_bus: Rc<EventBus>,
     services: SharedState,
     /// This host *is* the root, so its registration is held here: the entry
     /// goes when the host goes, together with the scopes under it.
@@ -67,7 +61,6 @@ impl FeatureHost {
             scope: scope.guard(),
             _tree: tree,
             app,
-            event_bus: Rc::new(EventBus::for_root(id)),
             services,
             root,
         }
@@ -89,10 +82,6 @@ impl FeatureHost {
         self.root.id()
     }
 
-    pub fn event_bus(&self) -> &Rc<EventBus> {
-        &self.event_bus
-    }
-
     /// What plugins provided at startup.
     ///
     /// The one thing an enter guard can read: it answers before anything is
@@ -111,7 +100,6 @@ impl FeatureHost {
             },
             cursor,
             root: self.root.id(),
-            event_bus: self.event_bus.clone(),
         }
     }
 
@@ -136,8 +124,8 @@ mod tests {
     use super::*;
     use guinea_core::actor::{Cx, Handler};
     use guinea_core::observability::changes::{self, Change};
-    use guinea_core::trace::Bus;
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[derive(Debug)]
     struct Counter;
@@ -184,14 +172,9 @@ mod tests {
             .iter()
             .filter_map(|change| match change {
                 Change::ActorAdded { root, .. } => Some(("actor", *root)),
-                Change::Subscriptions { bus: Bus::Window, root } => Some(("bus", *root)),
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            windows,
-            [("actor", root), ("bus", root), ("bus", root)],
-            "{seen:?}"
-        );
+        assert_eq!(windows, [("actor", root)], "{seen:?}");
     }
 }

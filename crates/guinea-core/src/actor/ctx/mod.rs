@@ -1,6 +1,5 @@
 use crate::actor::addr::Addr;
 use crate::actor::cancel::Cancel;
-use crate::actor::event_bus::EventBus;
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
@@ -74,15 +73,6 @@ impl<A: 'static, M> Cx<A, M> {
         if let Some(bus) = self.addr.tree_bus() {
             bus.publish(msg);
         }
-    }
-
-    pub fn publish_local<E>(&self, bus: &EventBus, msg: E)
-    where
-        A: ManagedActor,
-        E: Event,
-        A::Signals: AllowedSignal<E>,
-    {
-        bus.publish(msg);
     }
 
     /// The actor's cancellation token, for work that has to end itself rather

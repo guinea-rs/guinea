@@ -76,7 +76,7 @@ fn an_event_published_off_the_ui_thread_reaches_the_subscribers_of_the_actor_s_t
         Refresher {
             handed: handed.clone(),
         },
-        &Home::new(tree.scope(), None),
+        &Home::new(tree.scope()),
     );
     addr.send(Refresh);
     let ctx = handed.lock().unwrap().take().expect("the handler ran on this thread");

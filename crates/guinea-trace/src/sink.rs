@@ -249,20 +249,10 @@ fn write(record: &Record) {
             took_us,
             gone
         ),
-        Point::Publish {
-            event,
-            bus,
-            subscribers,
-        } => point!(
-            "guinea::publish",
-            record,
-            event = %event,
-            bus = %bus,
-            subscribers
-        ),
-        Point::Deliver { event, bus } => {
-            point!("guinea::deliver", record, event = %event, bus = %bus)
+        Point::Publish { event, subscribers } => {
+            point!("guinea::publish", record, event = %event, subscribers)
         }
+        Point::Deliver { event } => point!("guinea::deliver", record, event = %event),
         Point::Push { reducer } => point!("guinea::push", record, reducer = %reducer),
         Point::Navigate { root, to } => point!("guinea::navigate", record, root = %root, to = %to),
         Point::Tick {

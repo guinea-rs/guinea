@@ -119,7 +119,6 @@ impl Harness {
             },
             cursor: 0,
             root: root.id(),
-            event_bus: Rc::new(EventBus::for_root(root.id().get())),
         };
 
         Self {

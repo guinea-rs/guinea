@@ -178,7 +178,7 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// let tree = ScopeTree::new();
     /// let shown = Rc::new(Cell::new(None));
-    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope(), None));
+    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope()));
     ///
     /// weather.send(Fetch);
     /// assert_eq!(shown.get(), None, "the answer comes later, on the UI thread");
@@ -239,7 +239,7 @@ impl<A: 'static, M> Cx<A, M> {
     ///
     /// let tree = ScopeTree::new();
     /// let shown = Rc::new(Cell::new(None));
-    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope(), None));
+    /// let weather = Addr::new_managed(Weather(shown.clone()), &Home::new(tree.scope()));
     /// let closed = Arc::new(AtomicBool::new(false));
     ///
     /// weather.send(Fetch(closed.clone()));

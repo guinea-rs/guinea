@@ -4,13 +4,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::actor::snapshot::Owner;
-use crate::trace;
 
 /// Something a tool lists came or went, so what it last read of it is
 /// stale. Says what to read again, not what it now reads.
 ///
-/// `root` is the window a registry or a bus belongs to, as `RootId::get`
-/// numbers it; `None` for the application's own, or for one no window owns.
+/// `root` is the window a registry belongs to, as `RootId::get` numbers it;
+/// `None` for the application's own, or for one no window owns.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Change {
@@ -33,7 +32,7 @@ pub enum Change {
     /// A timer stopped, or stopped being one a tool may see.
     TimerStopped { id: u64 },
     /// Something subscribed to a bus, or stopped being.
-    Subscriptions { bus: trace::Bus, root: Option<u64> },
+    Subscriptions,
     /// A window's router navigated for the first time.
     RouterOpened { root: u64 },
     RouterClosed { root: u64 },

@@ -6,9 +6,6 @@
 //! the type - so the generic, the trait and the blanket impl behind it are all
 //! gone.
 
-use std::rc::Rc;
-
-use guinea::core::actor::event_bus::EventBus;
 use guinea::prelude::*;
 
 use crate::events::ProcessKilled;
@@ -19,15 +16,13 @@ use super::contracts::{Kill, Listed, Processes, Refresh};
 pub struct ProcessActor {
     push: Push<Processes>,
     items: Vec<String>,
-    event_bus: Rc<EventBus>,
 }
 
 impl ProcessActor {
-    pub fn new(_context: String, push: Push<Processes>, event_bus: Rc<EventBus>) -> Self {
+    pub fn new(_context: String, push: Push<Processes>) -> Self {
         Self {
             push,
             items: Vec::new(),
-            event_bus,
         }
     }
 
@@ -51,10 +46,6 @@ fn kill(this: &mut ProcessActor, Kill(pid): Kill, cx: Cx) {
     this.publish();
 
     if let Some(name) = killed {
-        // Window-local: only this window's `TabsLayout` hears it.
-        cx.publish_local(&this.event_bus, ProcessKilled { name: name.clone() });
-        // Process-wide: every window's `TabsLayout` hears it, including
-        // ones opened after this event fires.
         cx.publish(ProcessKilled { name });
     }
 }

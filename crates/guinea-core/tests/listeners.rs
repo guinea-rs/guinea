@@ -27,7 +27,7 @@ impl Handler<Report> for Processes {
 fn a_bus_says_who_hears_each_event_actors_by_id_and_callbacks_by_where_they_subscribed() {
     let bus = Rc::new(EventBus::new());
     let tree = ScopeTree::new();
-    let home = Home::new(tree.scope(), None);
+    let home = Home::new(tree.scope());
     let processes = Addr::new(Processes, &home);
 
     let _actor = bus.subscribe::<Processes, Report>(processes.clone());

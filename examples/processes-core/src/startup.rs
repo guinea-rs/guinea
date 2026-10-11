@@ -48,7 +48,7 @@ impl AppFeature for Startup {
         app.every(Duration::from_secs(5), &addr, || Sweep)
             .named("housekeeping");
 
-        app.subscribe_global::<ProcessKilled>(|event| {
+        app.subscribe::<ProcessKilled>(|event| {
             tracing::info!(process = %event.name, "process killed");
         });
 

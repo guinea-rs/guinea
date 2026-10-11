@@ -1,7 +1,6 @@
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::shape::{Declared, Shape};
 use crate::actor::{Addr, Cx};
-use crate::trace::Bus;
 
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
@@ -26,7 +25,7 @@ pub trait ManagedActor: Sized + 'static {
     const SHAPE: Shape = Shape::UNKNOWN;
 }
 
-/// What an actor's manifest subscribes to on the global bus. `actor!` writes
+/// What an actor's manifest subscribes to on the bus of its tree. `actor!` writes
 /// it; the subscriptions are the actor's, and end when it is disposed.
 pub trait EventSubscription<A> {
     fn subscribe_into(addr: &Addr<A>);
@@ -38,7 +37,7 @@ where
     A: Handler<M> + 'static,
 {
     fn subscribe_into(addr: &Addr<A>) {
-        addr.subscribe_on::<M>(Bus::Global);
+        addr.subscribe::<M>();
     }
 }
 

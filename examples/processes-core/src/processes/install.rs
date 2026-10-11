@@ -20,9 +20,9 @@ feature! {
 
 #[installs]
 fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<ProcessesFeature> {
-    let (listing, _) = cx.state::<contracts::Processes>().driven_by(|push| {
-        ProcessActor::new(context.to_string(), push, cx.event_bus.clone())
-    });
+    let (listing, _) = cx
+        .state::<contracts::Processes>()
+        .driven_by(|push| ProcessActor::new(context.to_string(), push));
 
     listing.emit(Refresh);
     Ok(ProcessesFeature(listing))

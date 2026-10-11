@@ -56,7 +56,7 @@ fn by_actors<const N: usize>(group: &mut BenchmarkGroup<WallTime>, home: &Home) 
 
 fn publish(c: &mut Criterion) {
     let tree = ScopeTree::new();
-    let home = Home::new(tree.scope(), None);
+    let home = Home::new(tree.scope());
 
     let mut group = c.benchmark_group("callbacks");
     by_callbacks::<0>(&mut group);

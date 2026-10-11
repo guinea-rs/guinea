@@ -83,8 +83,8 @@ impl Layout for TabsLayout {
             .map(|name| format!(" · {}", strings.process_killed_toast(name.to_string())))
             .unwrap_or_default();
         let status = Paragraph::new(format!(
-            "kills here {} · everywhere {}{killed}\n1/2/3 switch · ↑/↓ focus · k kill · l language · esc back · q quit",
-            state.kills_this_window, state.kills_all_windows,
+            "kills {}{killed}\n1/2/3 switch · ↑/↓ focus · k kill · l language · esc back · q quit",
+            state.kills,
         ))
         .block(Block::default().borders(Borders::TOP));
         cx.frame().render_widget(status, rows[2]);

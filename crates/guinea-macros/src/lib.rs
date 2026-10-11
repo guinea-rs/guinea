@@ -264,7 +264,7 @@ pub fn routes(input: TokenStream) -> TokenStream {
     routes_dsl::routes_impl(input)
 }
 
-/// Puts a type on the global bus: `impl Event for T {}`.
+/// Puts a type on the bus: `impl Event for T {}`.
 #[proc_macro_derive(Event)]
 pub fn event(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);
@@ -279,7 +279,7 @@ pub fn event(item: TokenStream) -> TokenStream {
     .into()
 }
 
-/// Makes a type a request on the global bus, answered with `reply`: the
+/// Makes a type a request on the bus, answered with `reply`: the
 /// request names its answer where the request is declared.
 ///
 /// <!-- shown: a request and its reply -->
@@ -299,7 +299,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// Exactly one subscriber answers it: a handler that returns the reply. The
 /// generated code sends what it returns back to whoever asked, once - and the
 /// `async` form does the same after its body resolves. The feature that owns
-/// the actor subscribes it to the request on the global bus, so it answers
+/// the actor subscribes it to the request on the bus, so it answers
 /// while the segment that installed it stands:
 ///
 /// <!-- shown: the one that answers -->
@@ -333,7 +333,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// #[installs]
 /// fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
 ///     let processes = cx.spawn(Processes { protected: vec![4] });
-///     processes.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+///     processes.subscribe::<RpcRequest<Kill>>();
 ///     Ok(Killing)
 /// }
 /// ```
@@ -410,7 +410,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// #[installs]
 /// fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
 ///     let audit = cx.spawn(Audit::default());
-///     audit.subscribe_on::<RpcRequest<Kill>>(Bus::Global);
+///     audit.subscribe::<RpcRequest<Kill>>();
 ///     Ok(Auditing)
 /// }
 /// ```
@@ -434,7 +434,7 @@ pub fn mark(item: TokenStream) -> TokenStream {
 }
 
 /// Lets a tool send this type to the running application as JSON: as an
-/// action to whichever scope answers it, as an event on the global bus, or
+/// action to whichever scope answers it, as an event on the bus, or
 /// both. The type derives `serde::Deserialize` too.
 ///
 /// ```ignore

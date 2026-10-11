@@ -24,14 +24,9 @@ fn tabs(cx: &FeatureInitContext, context: &str) -> anyhow::Result<TabsFeature> {
     chrome.push(Chrome::Installed(count + 1));
     chrome.push(Chrome::Reached(context.to_string()));
 
-    let local = chrome.clone();
+    let killed = chrome.clone();
     cx.subscribe::<ProcessKilled>(move |ev: ProcessKilled| {
-        local.push(Chrome::LocalKill(ev.name));
-    });
-
-    let global = chrome.clone();
-    cx.subscribe_global::<ProcessKilled>(move |_| {
-        global.push(Chrome::GlobalKill);
+        killed.push(Chrome::Killed(ev.name));
     });
 
     Ok(TabsFeature(chrome))

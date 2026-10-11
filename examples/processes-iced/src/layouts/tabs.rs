@@ -130,8 +130,5 @@ fn status_line(strings: &L10n, state: &Tabs) -> String {
         .map(|name| format!(" · {}", strings.process_killed_toast(name.to_string())))
         .unwrap_or_default();
 
-    format!(
-        "kills here {} · everywhere {}{killed}",
-        state.kills_this_window, state.kills_all_windows,
-    )
+    format!("kills {}{killed}", state.kills)
 }

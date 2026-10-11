@@ -226,11 +226,11 @@ fn a_sleeping_segment_hears_nothing_and_is_not_told_later() {
     go(&router, Route::Other);
     said();
 
-    router.host().event_bus().publish(Ping);
+    router.host().scope().bus().publish(Ping);
     assert_eq!(said(), Vec::<String>::new(), "the area heard a ping in its sleep");
 
     go(&router, Route::List("a".into()));
-    router.host().event_bus().publish(Ping);
+    router.host().scope().bus().publish(Ping);
     assert_eq!(
         said(),
         ["gone Other", "install List", "Area woke", "Area on a heard a ping"],

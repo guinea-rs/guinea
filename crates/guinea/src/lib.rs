@@ -273,7 +273,6 @@ pub mod prelude {
     pub use guinea_core::actor::event_bus::{Event, Reply};
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     pub use guinea_core::feature::{Bound, Dispatch, Push};
-    pub use guinea_core::trace::Bus;
     pub use guinea_core::__private::anyhow;
     pub use guinea_core::{Load, Reducer};
     pub use guinea_macros::{Event, actor, app, feature, handler, installs, reducer, routes};

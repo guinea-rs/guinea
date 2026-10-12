@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote, quote_spanned};
@@ -323,58 +325,67 @@ fn span_of(tokens: &[TokenTree]) -> Span {
 /// A cycle among an actor's own messages is legal - self-restarting timers are
 /// the usual case - but only when said out loud with `loop` on one of its
 /// edges.
+///
+/// Every cycle has a `loop` edge exactly when the edges without one form no
+/// cycle, so that is what is searched.
 fn check_cycles(handlers: &[HandlerDecl]) -> syn::Result<()> {
     let key = |ty: &syn::Type| quote!(#ty).to_string();
 
-    let mut graph: std::collections::HashMap<String, Vec<&Edge>> =
-        std::collections::HashMap::new();
+    let mut graph: HashMap<String, Vec<(String, &Edge)>> = HashMap::new();
     for decl in handlers {
-        let edges = decl.edges.iter().flatten().collect::<Vec<_>>();
+        let edges = decl
+            .edges
+            .iter()
+            .flatten()
+            .filter(|edge| !edge.is_loop)
+            .map(|edge| (key(&edge.target), edge))
+            .collect();
         graph.insert(key(&decl.msg), edges);
     }
 
-    let mut done: std::collections::HashSet<String> = std::collections::HashSet::new();
-
+    let mut finished = HashSet::new();
+    let mut path = Vec::new();
     for decl in handlers {
-        let start = key(&decl.msg);
-        if done.contains(&start) {
-            continue;
+        walk(&key(&decl.msg), &graph, &mut path, &mut finished)?;
+    }
+
+    Ok(())
+}
+
+/// Depth first from `node`: `path` is what leads to it, `finished` what was
+/// already searched to the end.
+fn walk(
+    node: &str,
+    graph: &HashMap<String, Vec<(String, &Edge)>>,
+    path: &mut Vec<String>,
+    finished: &mut HashSet<String>,
+) -> syn::Result<()> {
+    if finished.contains(node) {
+        return Ok(());
+    }
+    path.push(node.to_owned());
+
+    for (target, edge) in graph.get(node).into_iter().flatten() {
+        if let Some(at) = path.iter().position(|on_path| on_path == target) {
+            let cycle = path[at..]
+                .iter()
+                .chain([target])
+                .map(|message| format!("`{message}`"))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Err(syn::Error::new(
+                edge.span,
+                format!("{cycle} is a cycle; mark one edge of it with `loop` if that is intended"),
+            ));
         }
 
-        let mut stack = vec![(start.clone(), Vec::<&Edge>::new())];
-        let mut on_path: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        while let Some((node, path)) = stack.pop() {
-            if !on_path.insert(node.clone()) {
-                continue;
-            }
-            done.insert(node.clone());
-
-            for edge in graph.get(&node).into_iter().flatten() {
-                let target = key(&edge.target);
-                let mut next = path.clone();
-                next.push(edge);
-
-                if target == start {
-                    if !next.iter().any(|e| e.is_loop) {
-                        return Err(syn::Error::new(
-                            edge.span,
-                            format!(
-                                "`{}` can send its way back to itself; mark one edge of the cycle with `loop` if that is intended",
-                                start
-                            ),
-                        ));
-                    }
-                    continue;
-                }
-
-                if graph.contains_key(&target) {
-                    stack.push((target, next));
-                }
-            }
+        if graph.contains_key(target) {
+            walk(target, graph, path, finished)?;
         }
     }
 
+    path.pop();
+    finished.insert(node.to_owned());
     Ok(())
 }
 
@@ -581,4 +592,73 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
             }
         };
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cycles(tokens: TokenStream) -> syn::Result<()> {
+        let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+        check_cycles(&parse_manifest(&tokens)?.handlers)
+    }
+
+    #[test]
+    fn an_unmarked_cycle_away_from_the_first_handler_is_refused_by_name() {
+        let checked = cycles(quote! {
+            Bouncer {
+                handlers {
+                    Start => { send Ping },
+                    Ping => { send Pong },
+                    Pong => { send Ping },
+                }
+            }
+        });
+
+        let error = checked.expect_err("Ping -> Pong -> Ping has no `loop`").to_string();
+        assert!(error.contains("`Ping` -> `Pong` -> `Ping`"), "{error}");
+    }
+
+    #[test]
+    fn a_message_that_sends_itself_without_loop_is_refused() {
+        let checked = cycles(quote! {
+            Ticker {
+                handlers { Tick => { send Tick } }
+            }
+        });
+
+        assert!(checked.is_err());
+    }
+
+    #[test]
+    fn a_cycle_with_loop_on_one_edge_is_allowed() {
+        let checked = cycles(quote! {
+            Bouncer {
+                handlers {
+                    Start => { send Ping },
+                    Ping => { send Pong },
+                    Pong => { send Ping loop },
+                    Tick => { task Tick loop },
+                }
+            }
+        });
+
+        assert!(checked.is_ok(), "{checked:?}");
+    }
+
+    #[test]
+    fn two_paths_to_one_message_are_not_a_cycle() {
+        let checked = cycles(quote! {
+            Fork {
+                handlers {
+                    Start => { send Left, send Right },
+                    Left => { send End },
+                    Right => { send End },
+                    End,
+                }
+            }
+        });
+
+        assert!(checked.is_ok(), "{checked:?}");
+    }
 }

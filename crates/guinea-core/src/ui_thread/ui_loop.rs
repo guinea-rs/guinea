@@ -34,14 +34,21 @@ impl UiLoop {
 
     /// Runs what is waiting, and what that hands over in turn, until nothing
     /// is. Returns how much ran.
+    ///
+    /// # Panics
+    ///
+    /// When another loop or dispatcher replaced this one: nothing can reach
+    /// it any more.
     pub fn run(&self) -> usize {
         let mut ran = 0;
-        while let Ok(task) = self.tasks.try_recv() {
-            task();
+        loop {
+            match self.tasks.try_recv() {
+                Ok(task) => task(),
+                Err(mpsc::TryRecvError::Empty) => return ran,
+                Err(mpsc::TryRecvError::Disconnected) => replaced(),
+            }
             ran += 1;
         }
-
-        ran
     }
 
     /// Runs work as it is handed over until `done` holds, or `within` has
@@ -49,6 +56,10 @@ impl UiLoop {
     ///
     /// `done` is asked after each piece of work and every few milliseconds
     /// besides, so what comes true off the UI thread is seen too.
+    ///
+    /// # Panics
+    ///
+    /// As [`UiLoop::run`].
     pub fn run_until(&self, done: impl Fn() -> bool, within: Duration) -> bool {
         let deadline = Instant::now() + within;
 
@@ -61,10 +72,17 @@ impl UiLoop {
             match self.tasks.recv_timeout(left.min(LOOK_AGAIN)) {
                 Ok(task) => task(),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => std::thread::sleep(left.min(LOOK_AGAIN)),
+                Err(mpsc::RecvTimeoutError::Disconnected) => replaced(),
             }
         }
 
         true
     }
+}
+
+fn replaced() -> ! {
+    panic!(
+        "this UiLoop was replaced - another UiLoop::install or set_ui_dispatcher took the UI \
+         thread's work, and nothing will reach this one again"
+    )
 }

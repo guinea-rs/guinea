@@ -300,6 +300,11 @@ mod seeded {
         pub fn stuck(&self) -> usize {
             self.executor.stuck()
         }
+
+        /// How far the clock has moved since the executor was installed.
+        pub fn elapsed(&self) -> Duration {
+            self.executor.now() - self.executor.origin
+        }
     }
 
     impl Drop for Installed {

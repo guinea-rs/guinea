@@ -1436,6 +1436,93 @@ fn a_harness_settles_again_after_a_task_panicked(h: &mut Harness) {
     assert!(ran.load(Ordering::SeqCst));
 }
 
+mod forever {
+    use super::*;
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Waiting(pub u32);
+
+    #[derive(Clone, Debug)]
+    pub struct Wait;
+
+    #[derive(Clone, Debug)]
+    pub struct Never;
+
+    #[reducer]
+    fn waiting(this: &mut Waiting, _never: Never) {
+        this.0 += 1;
+    }
+
+    #[derive(Debug)]
+    pub struct Waiter {
+        pub push: Push<Waiting>,
+    }
+
+    actor! {
+        Waiter {
+            handlers { Wait => { task Never }, Never }
+        }
+    }
+
+    #[handler]
+    fn wait(_this: &mut Waiter, _: Wait, cx: Cx) {
+        cx.task().spawn(async {
+            std::future::pending::<()>().await;
+            Never
+        });
+    }
+
+    #[handler]
+    fn never(this: &mut Waiter, never: Never) {
+        this.push.send(never);
+    }
+
+    thread_local! {
+        pub static TICKS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    feature! {
+        pub Forever {
+            exports { Waiting }
+        }
+    }
+
+    #[installs]
+    fn forever(cx: &FeatureInitContext) -> anyhow::Result<Forever> {
+        let (waiting, _) = cx.state::<Waiting>().driven_by(|push| Waiter { push });
+        cx.repeat(Duration::from_secs(60 * 60), || {
+            let ticks = TICKS.get() + 1;
+            TICKS.set(ticks);
+            if ticks > 48 {
+                panic!("an hourly timer nothing waits on moved the clock two days on");
+            }
+        });
+        Ok(Forever(waiting))
+    }
+}
+
+#[guinea::test(iterations = 1)]
+fn settling_an_action_that_waits_on_nothing_says_so_beside_an_unrelated_timer(h: &mut Harness) {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    forever::TICKS.set(0);
+    h.install::<forever::Forever>(&()).unwrap();
+
+    let waiting = h.act::<forever::Waiting>(forever::Wait);
+    let settled = catch_unwind(AssertUnwindSafe(|| {
+        waiting.settle();
+    }))
+    .map_err(said);
+
+    assert!(
+        matches!(&settled, Err(said) if said.contains("never finished")),
+        "settle gave {settled:?} after {} hourly ticks",
+        forever::TICKS.get()
+    );
+}
+
 #[guinea::test(iterations = 1)]
 fn a_task_ready_to_run_is_not_stuck(h: &mut Harness) {
     guinea::core::executor::spawn(async {});

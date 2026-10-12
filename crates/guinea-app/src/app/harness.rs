@@ -446,9 +446,16 @@ impl Act<'_> {
     /// UI thread - `AsyncContext::publish` from an actor takes one - is not
     /// traced as work of its own, so until it has run, nothing says the
     /// action is waiting on it.
+    ///
+    /// The clock goes no further than a day in all, however many timers fire
+    /// on the way: one that repeats and that the action does not wait on
+    /// would otherwise keep it moving for ever.
     pub fn settle(&self) -> &Self {
+        let executor = &self.harness.executor;
+        let started = executor.elapsed();
+
         loop {
-            if self.harness.executor.step() {
+            if executor.step() {
                 continue;
             }
 
@@ -456,10 +463,11 @@ impl Act<'_> {
                 return self;
             }
 
-            if !self.harness.executor.wake_next(HORIZON) {
+            let left = HORIZON.saturating_sub(executor.elapsed() - started);
+            if left.is_zero() || !executor.wake_next(left) {
                 panic!(
                     "the action never finished: something it set off waits on what nothing \
-                     here will wake, and no timer is due within {HORIZON:?}\n{:#?}",
+                     here will wake, and it did not finish within {HORIZON:?} of the clock\n{:#?}",
                     self.chain()
                 );
             }

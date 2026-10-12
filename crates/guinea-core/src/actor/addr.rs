@@ -641,6 +641,21 @@ mod tests {
         assert_eq!(*log.borrow(), ["leave"], "handled after its scope was removed");
     }
 
+    #[test]
+    fn an_actor_whose_scope_goes_while_an_event_is_told_does_not_hear_it() {
+        let tree = crate::scope::ScopeTree::new();
+        let scope = tree.child();
+        let heard = Rc::new(Cell::new(0));
+
+        let _remover = tree.bus().subscribe_fn(move |_: Heard| scope.remove());
+        let addr = Addr::bare(Counting(heard.clone()), &Home::new(scope));
+        addr.subscribe::<Heard>();
+
+        tree.bus().publish(Heard);
+
+        assert_eq!(heard.get(), 0, "heard after its scope was removed");
+    }
+
     struct Boom;
 
     impl Handler<Boom> for Counting {

@@ -201,8 +201,11 @@ impl EventBus {
     }
 
     /// Tells everyone subscribed to `M`, in the order they subscribed, before
-    /// it returns. Who subscribes or goes while they are being told does not
-    /// change who hears this one.
+    /// it returns, from the subscribers as they were when it began: one that
+    /// subscribes while they are being told does not hear this one, and one
+    /// whose subscription is dropped meanwhile still does. An actor is the
+    /// exception: one whose scope is removed or put to sleep meanwhile hears
+    /// nothing more, this one included.
     ///
     /// ```
     /// use std::cell::RefCell;
@@ -237,10 +240,6 @@ impl EventBus {
             subscribers: self.count_subscribers::<M>(),
         });
 
-        // Told from the list as it was when the publication began, not from
-        // the map: a handler is free to subscribe or unsubscribe while it is
-        // being told, and either would borrow the map this delivery is
-        // walking. One that goes mid-publication still hears this one out.
         let Some(telling) = self.subscribers.borrow().get(&TypeId::of::<M>()).cloned() else {
             return;
         };

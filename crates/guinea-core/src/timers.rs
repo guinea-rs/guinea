@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::observability::changes::{self, Change};
 use crate::scope::{Awake, Scope, Section};
-use crate::ui_thread::invoke_on_ui;
+use crate::ui_thread::{invoke_on_ui, on_ui_thread};
 
 /// How long between ticks.
 pub enum Period {
@@ -461,7 +461,19 @@ fn wake_after(id: u64, generation: u64, after: Option<Duration>) {
 ///
 /// Not a timer - nothing lists it, nothing traces it - and nothing holds it:
 /// `run` should hold weakly whatever may be gone by the time it runs.
+///
+/// # Panics
+///
+/// When called off the UI thread: `run` is not `Send`, so it cannot be
+/// taken there. Call it from the UI thread, or from work handed to it with
+/// [`invoke_on_ui`].
+#[track_caller]
 pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
+    assert!(
+        on_ui_thread() != Some(false),
+        "timers::after called off the UI thread, where its closure would never run; call it on the UI thread, or inside guinea_core::ui_thread::invoke_on_ui"
+    );
+
     let id = NEXT_PENDING.fetch_add(1, Ordering::Relaxed);
     PENDING.with(|pending| pending.borrow_mut().insert(id, Box::new(run)));
 

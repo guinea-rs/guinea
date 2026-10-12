@@ -10,7 +10,6 @@
 //!   off and whose answer, if it comes anyway, is dropped.
 //! - [`conflate`](Task::conflate): what runs finishes; the newest piece that
 //!   came meanwhile runs next, and the ones between never start.
-//! - [`queue`](Task::queue): every piece runs, one after another, in order.
 //! - [`exhaust`](Task::exhaust): nothing new is taken until the lane is free.
 //!
 //! A lane keeps the policy it was first given for as long as its actor lives:
@@ -18,7 +17,6 @@
 //! to spawn panics, naming both.
 
 use std::any::{Any, TypeId};
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::Arc;
@@ -41,8 +39,6 @@ pub struct Parallel;
 pub struct Latest;
 /// What is in flight finishes; then only the newest piece that came meanwhile.
 pub struct Conflate;
-/// Every piece, one at a time, in the order they came.
-pub struct Queue;
 /// Nothing new while a piece is in flight.
 pub struct Exhaust;
 
@@ -67,7 +63,6 @@ pub enum Kind {
     Parallel,
     Latest,
     Conflate,
-    Queue,
     Exhaust,
 }
 
@@ -80,7 +75,7 @@ macro_rules! policy {
     )*};
 }
 
-policy!(Parallel, Latest, Conflate, Queue, Exhaust);
+policy!(Parallel, Latest, Conflate, Exhaust);
 
 /// Which lane: a type, and what it is called in a panic.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -345,51 +340,6 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// assert_eq!(*shown.borrow(), ["Oslo", "Paris"], "Rome gave way to Paris before it started");
     /// ```
     pub fn conflate(self) -> Task<'cx, A, M, Conflate, R> {
-        self.with()
-    }
-
-    /// Every piece, one at a time, in the order they came.
-    ///
-    /// ```
-    /// # use std::cell::RefCell;
-    /// # use std::rc::Rc;
-    /// # use std::time::Duration;
-    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
-    /// # use guinea_core::scope::ScopeTree;
-    /// # use guinea_core::ui_thread::UiLoop;
-    /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
-    /// # struct Fetch { city: &'static str, takes: Duration }
-    /// # struct Fetched(&'static str);
-    /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
-    /// # impl Handler<Fetched> for Weather {
-    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
-    /// #         self.0.borrow_mut().push(city);
-    /// #     }
-    /// # }
-    /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
-    ///         cx.task().queue().spawn(async move {
-    ///             tokio::time::sleep(takes).await;
-    ///             Fetched(city)
-    ///         });
-    ///     }
-    /// }
-    /// # let ui = UiLoop::install();
-    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
-    /// # let _entered = runtime.enter();
-    /// # let tree = ScopeTree::new();
-    /// # let shown = Rc::new(RefCell::new(Vec::new()));
-    /// # let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
-    /// # let fetch = |city: &'static str, ms: u64| weather.send(Fetch { city, takes: Duration::from_millis(ms) });
-    ///
-    /// fetch("Oslo", 200);
-    /// fetch("Rome", 100);
-    /// fetch("Paris", 0);
-    /// # assert!(ui.run_until(|| shown.borrow().len() == 3, Duration::from_secs(5)));
-    ///
-    /// assert_eq!(*shown.borrow(), ["Oslo", "Rome", "Paris"], "in the order asked, not the order quickest");
-    /// ```
-    pub fn queue(self) -> Task<'cx, A, M, Queue, R> {
         self.with()
     }
 
@@ -906,7 +856,8 @@ struct Open {
     lane: LaneId,
     key: Option<Box<dyn LaneKey>>,
     running: Run,
-    waiting: VecDeque<Waiting>,
+    /// The newest piece that came while `running` ran, under `conflate`.
+    waiting: Option<Waiting>,
 }
 
 impl Open {
@@ -989,7 +940,7 @@ impl Lanes {
                 lane,
                 key,
                 running,
-                waiting: VecDeque::new(),
+                waiting: None,
             });
 
             return Admitted {
@@ -1010,24 +961,10 @@ impl Lanes {
                     skipped: None,
                 }
             }
-            Kind::Conflate => {
-                let queued = &mut self.open[at].waiting;
-                let skipped = queued.pop_front();
-                queued.push_back(waiting);
-
-                Admitted {
-                    starts: None,
-                    skipped,
-                }
-            }
-            Kind::Queue => {
-                self.open[at].waiting.push_back(waiting);
-
-                Admitted {
-                    starts: None,
-                    skipped: None,
-                }
-            }
+            Kind::Conflate => Admitted {
+                starts: None,
+                skipped: self.open[at].waiting.replace(waiting),
+            },
             Kind::Exhaust => Admitted {
                 starts: None,
                 skipped: Some(waiting),
@@ -1041,7 +978,7 @@ impl Lanes {
     fn finish(&mut self, run: u64, actor: &Cancel) -> Option<Option<(Waiting, Ticket)>> {
         let at = self.open.iter().position(|open| open.running.run == run)?;
 
-        let Some(next) = self.open[at].waiting.pop_front() else {
+        let Some(next) = self.open[at].waiting.take() else {
             self.open.swap_remove(at);
             return Some(None);
         };
@@ -1064,7 +1001,7 @@ fn end(lanes: Vec<Open>) {
     for open in lanes {
         open.running.cancel.cancel();
 
-        for waiting in open.waiting {
+        if let Some(waiting) = open.waiting {
             waiting.traced.end(waiting.traced.cancelled());
         }
     }

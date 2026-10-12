@@ -274,40 +274,15 @@ fn under_exhaust_what_comes_while_the_lane_is_busy_is_never_polled() {
 }
 
 #[test]
-fn under_queue_every_piece_runs_in_the_order_it_came() {
-    for seed in SEEDS {
-        let bench = Bench::new(seed);
-        let (mut first, a) = search(1);
-        let (mut second, b) = search(2);
-        let (mut third, c) = search(3);
-
-        bench.cx().task().queue().spawn(a);
-        bench.cx().task().queue().spawn(b);
-        bench.cx().task().queue().spawn(c);
-
-        third.open();
-        second.open();
-        bench.run();
-        assert!(bench.found().is_empty(), "nothing passes the first, seed {seed}");
-
-        first.open();
-        bench.run();
-
-        assert_eq!(bench.found(), [1, 2, 3], "seed {seed}");
-        assert_eq!(bench.ends(), ["settled", "settled", "settled"], "seed {seed}");
-    }
-}
-
-#[test]
 fn work_held_back_is_made_when_its_turn_comes() {
     for seed in SEEDS {
         let bench = Bench::new(seed);
         let (mut first, a) = search(1);
         let made = Rc::new(RefCell::new(false));
 
-        bench.cx().task().queue().spawn(a);
+        bench.cx().task().conflate().spawn(a);
         let noted = made.clone();
-        bench.cx().task().queue().spawn_with(move |_cancel| {
+        bench.cx().task().conflate().spawn_with(move |_cancel| {
             *noted.borrow_mut() = true;
             async { Found(2) }
         });
@@ -330,8 +305,8 @@ fn cancelling_a_lane_ends_what_runs_and_what_waits_and_leaves_it_open() {
         let (mut second, b) = search(2);
         let (mut third, c) = search(3);
 
-        bench.cx().task().queue().spawn(a);
-        bench.cx().task().queue().spawn(b);
+        bench.cx().task().conflate().spawn(a);
+        bench.cx().task().conflate().spawn(b);
         bench.run();
 
         bench.cx().task().lane::<Found>().cancel();
@@ -342,7 +317,7 @@ fn cancelling_a_lane_ends_what_runs_and_what_waits_and_leaves_it_open() {
         assert!(bench.found().is_empty(), "seed {seed}");
         assert_eq!(bench.ends(), ["cancelled", "cancelled"], "seed {seed}");
 
-        bench.cx().task().queue().spawn(c);
+        bench.cx().task().conflate().spawn(c);
         third.open();
         bench.run();
 
@@ -378,8 +353,8 @@ fn cancelling_under_a_key_leaves_the_other_keys_alone() {
     let (mut left, a) = search(1);
     let (mut right, b) = search(2);
 
-    bench.cx().task().queue().keyed("left").spawn(a);
-    bench.cx().task().queue().keyed("right").spawn(b);
+    bench.cx().task().conflate().keyed("left").spawn(a);
+    bench.cx().task().conflate().keyed("right").spawn(b);
     bench.run();
 
     bench.cx().task().lane::<Found>().keyed("left").cancel();
@@ -424,10 +399,10 @@ fn one_lane_under_two_policies_is_a_mistake_that_names_both_places() {
     let (_second, b) = search(2);
 
     bench.cx().task().latest().spawn(a);
-    let spawned = catch_unwind(AssertUnwindSafe(|| bench.cx().task().queue().spawn(b)));
+    let spawned = catch_unwind(AssertUnwindSafe(|| bench.cx().task().conflate().spawn(b)));
 
     let text = panic_text(spawned.expect_err("it spawned"));
-    assert!(text.contains("Latest") && text.contains("Queue"), "{text}");
+    assert!(text.contains("Latest") && text.contains("Conflate"), "{text}");
     assert_eq!(text.matches(file!()).count(), 2, "{text}");
 }
 
@@ -469,8 +444,8 @@ fn the_actor_going_drops_what_waits_in_its_lanes() {
     let (_first, a) = search(1);
     let (second, b) = search(2);
 
-    bench.cx().task().queue().spawn(a);
-    bench.cx().task().queue().spawn(b);
+    bench.cx().task().conflate().spawn(a);
+    bench.cx().task().conflate().spawn(b);
     bench.run();
 
     bench.home.tree.remove();

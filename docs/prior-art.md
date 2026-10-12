@@ -629,10 +629,11 @@ once proposal 3 exists. Ship tier 1 as documentation or a helper first.
    uniproc's `building` + `pending` + `epoch` was a hand-written
    `.conflate()` plus invalidation (Kotlin `mapLatest` / `collectLatest`,
    TCA `.cancellable(id:, cancelInFlight:)`). A lane per actor and answer,
-   or per `.lane::<K>()` and `.keyed(k)`, takes `latest`, `conflate`,
-   `queue` or `exhaust` - RxJS's `switchMap`, conflation, `concatMap` and
-   `exhaustMap` - and drops a stale answer by generation where it is
-   delivered.
+   or per `.lane::<K>()` and `.keyed(k)`, takes `latest`, `conflate` or
+   `exhaust` - RxJS's `switchMap`, conflation and `exhaustMap` - and drops
+   a stale answer by generation where it is delivered. `concatMap` is left
+   out until a caller needs every piece run in order: unbounded, it grows
+   without limit and one stuck piece holds the lane.
 2. **Window visibility as a cause of sleep.** Decompose maps minimized to
    stopped, visible-unfocused to started, focused to resumed. guinea appears
    to sleep scopes only for route reasons (keep-layouts); `windows.rs` tracks

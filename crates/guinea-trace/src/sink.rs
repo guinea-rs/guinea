@@ -30,16 +30,20 @@ thread_local! {
 static OBSERVED_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 /// Hands every record produced on this thread to `observer`, replacing any
-/// observer already set, until [`stop_observing`] or the thread ends.
+/// observer already set, until [`stop_observing`] or the thread ends. A
+/// thread already tearing its locals down is not observed.
 pub fn observe(observer: impl Fn(&Trace) + 'static) {
-    let before = OBSERVER.with(|slot| slot.0.borrow_mut().replace(Rc::new(observer)));
+    let Ok(before) = OBSERVER.try_with(|slot| slot.0.borrow_mut().replace(Rc::new(observer))) else {
+        return;
+    };
+
     if before.is_none() {
         OBSERVED_THREADS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 pub fn stop_observing() {
-    if OBSERVER.with(|slot| slot.0.borrow_mut().take()).is_some() {
+    if OBSERVER.try_with(|slot| slot.0.borrow_mut().take()).ok().flatten().is_some() {
         stopped();
     }
 }
@@ -52,7 +56,9 @@ fn stopped() {
 
 /// Whether devtools are watching this thread.
 pub fn is_observed() -> bool {
-    OBSERVER.with(|slot| slot.0.borrow().is_some())
+    OBSERVER
+        .try_with(|slot| slot.0.borrow().is_some())
+        .unwrap_or(false)
 }
 
 /// Whether devtools are watching any thread.
@@ -167,7 +173,7 @@ fn os_thread_id() -> u32 {
 }
 
 fn observer() -> Option<Observer> {
-    OBSERVER.with(|slot| slot.0.borrow().clone())
+    OBSERVER.try_with(|slot| slot.0.borrow().clone()).ok().flatten()
 }
 
 pub(crate) fn wanted() -> bool {

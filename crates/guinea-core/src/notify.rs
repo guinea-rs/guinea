@@ -173,8 +173,12 @@ pub fn drain() {
                 let Some(update) = change.update else { continue };
                 let _under = trace::resume(change.cause);
                 for observer in change.scope.observers_of(change.cell) {
+                    if observer.is_gone() || !change.scope.is_alive() {
+                        continue;
+                    }
+
                     updates += 1;
-                    observer(&*update);
+                    (observer.run)(&*update);
                 }
             }
         }
@@ -189,8 +193,12 @@ pub fn drain() {
 
             let _under = trace::resume(cause);
             for listener in scope.listeners_of(cell) {
+                if listener.is_gone() || !scope.is_alive() {
+                    continue;
+                }
+
                 listeners += 1;
-                listener();
+                (listener.run)();
             }
         }
     }
@@ -396,6 +404,86 @@ mod tests {
 
         assert_eq!(runs.get(), 3, "nothing is left waiting for a drain nobody starts");
         assert!(!super::pending());
+    }
+
+    #[test]
+    fn a_listener_whose_scope_an_earlier_listener_removed_is_not_called() {
+        let tree = ScopeTree::new();
+        let page = tree.child();
+        let late = Rc::new(StdCell::new(0));
+
+        page.hold_watching(page.subscribe::<Count>(move || page.remove()));
+        let counted = late.clone();
+        page.hold_watching(page.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+
+        page.push::<Count>(1);
+
+        assert!(!page.is_alive());
+        assert_eq!(late.get(), 0, "the second listener ran after its scope was removed");
+    }
+
+    #[test]
+    fn a_page_listening_to_app_state_does_not_run_after_the_app_navigated_it_away() {
+        let tree = ScopeTree::new();
+        let app = tree.scope();
+        let page = tree.child();
+        let late = Rc::new(StdCell::new(0));
+
+        app.hold_watching(app.subscribe::<Count>(move || page.remove()));
+        let counted = late.clone();
+        page.hold_watching(app.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+
+        app.push::<Count>(1);
+
+        assert_eq!(late.get(), 0, "a removed page's listener ran");
+    }
+
+    #[test]
+    fn an_observer_whose_scope_an_earlier_observer_removed_is_not_called() {
+        let tree = ScopeTree::new();
+        let page = tree.child();
+        let late = Rc::new(StdCell::new(0));
+
+        page.hold_watching(page.observe::<Count>(move |_| page.remove()));
+        let counted = late.clone();
+        page.hold_watching(page.observe::<Count>(move |_| counted.set(counted.get() + 1)));
+
+        page.push::<Count>(1);
+
+        assert!(!page.is_alive());
+        assert_eq!(late.get(), 0, "the second observer ran after its scope was removed");
+    }
+
+    #[test]
+    fn a_listener_dropped_by_an_earlier_listener_is_not_called() {
+        let tree = ScopeTree::new();
+        let late = Rc::new(StdCell::new(0));
+        let second = Rc::new(RefCell::new(None));
+
+        let dropping = second.clone();
+        let _first = tree.subscribe::<Count>(move || drop(dropping.borrow_mut().take()));
+        let counted = late.clone();
+        *second.borrow_mut() = Some(tree.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+
+        tree.push::<Count>(1);
+
+        assert!(second.borrow().is_none());
+        assert_eq!(late.get(), 0, "the listener ran after its Subscription was dropped");
+    }
+
+    #[test]
+    fn a_listener_whose_cell_was_seeded_over_is_not_called() {
+        let tree = ScopeTree::new();
+        let late = Rc::new(StdCell::new(0));
+
+        let held = tree.scope();
+        let _first = tree.subscribe::<Count>(move || held.seed(Count(0)));
+        let counted = late.clone();
+        let _second = tree.subscribe::<Count>(move || counted.set(counted.get() + 1));
+
+        tree.push::<Count>(1);
+
+        assert_eq!(late.get(), 0, "seed drops a cell's listeners, yet this one ran");
     }
 
     /// A listener that sends to an actor, whose handler pushes to the cell the

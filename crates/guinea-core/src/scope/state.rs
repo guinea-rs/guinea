@@ -110,8 +110,46 @@ pub(super) struct States {
 
 struct Cell {
     state: Rc<dyn Any>,
-    listeners: RefCell<Vec<(u64, Rc<dyn Fn()>)>>,
-    observers: RefCell<Vec<(u64, Rc<dyn Fn(&dyn Any)>)>>,
+    listeners: RefCell<Vec<(u64, Rc<Watcher<dyn Fn()>>)>>,
+    observers: RefCell<Vec<(u64, Rc<Watcher<dyn Fn(&dyn Any)>>)>>,
+}
+
+/// A listener or an observer, and whether it still is one: a drain runs a
+/// copy of the list, and what was dropped since must not run from it.
+pub(crate) struct Watcher<F: ?Sized> {
+    gone: std::cell::Cell<bool>,
+    pub(crate) run: F,
+}
+
+impl<F> Watcher<F> {
+    fn new(run: F) -> Self {
+        Self {
+            gone: std::cell::Cell::new(false),
+            run,
+        }
+    }
+}
+
+impl<F: ?Sized> Watcher<F> {
+    pub(crate) fn is_gone(&self) -> bool {
+        self.gone.get()
+    }
+
+    fn leave(&self) {
+        self.gone.set(true);
+    }
+}
+
+impl Drop for Cell {
+    fn drop(&mut self) {
+        for (_, listener) in self.listeners.get_mut().iter() {
+            listener.leave();
+        }
+
+        for (_, observer) in self.observers.get_mut().iter() {
+            observer.leave();
+        }
+    }
 }
 
 /// What a cell holds, for showing it without knowing the type.
@@ -269,11 +307,11 @@ impl Scope {
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
             cell.observers.borrow_mut().push((
                 id,
-                Rc::new(move |update: &dyn Any| {
+                Rc::new(Watcher::new(move |update: &dyn Any| {
                     if let Some(update) = update.downcast_ref::<R::Update>() {
                         callback(update);
                     }
-                }),
+                })),
             ));
         }
 
@@ -288,7 +326,7 @@ impl Scope {
         }
     }
 
-    pub(crate) fn listeners_of(&self, cell: TypeId) -> Vec<Rc<dyn Fn()>> {
+    pub(crate) fn listeners_of(&self, cell: TypeId) -> Vec<Rc<Watcher<dyn Fn()>>> {
         let Some(data) = self.data() else {
             return Vec::new();
         };
@@ -299,7 +337,7 @@ impl Scope {
             .unwrap_or_default()
     }
 
-    pub(crate) fn observers_of(&self, cell: TypeId) -> Vec<Rc<dyn Fn(&dyn Any)>> {
+    pub(crate) fn observers_of(&self, cell: TypeId) -> Vec<Rc<Watcher<dyn Fn(&dyn Any)>>> {
         let Some(data) = self.data() else {
             return Vec::new();
         };
@@ -316,7 +354,7 @@ impl Scope {
         {
             let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
-            cell.listeners.borrow_mut().push((id, Rc::new(callback)));
+            cell.listeners.borrow_mut().push((id, Rc::new(Watcher::new(callback))));
         }
 
         let held = Rc::downgrade(&data);
@@ -386,18 +424,24 @@ impl States {
             .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R")
     }
 
-    fn unlisten(&self, cell: TypeId, id: u64) -> Option<Rc<dyn Fn()>> {
+    fn unlisten(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Fn()>>> {
         let cells = self.cells.borrow();
         let mut listeners = cells.get(&cell)?.listeners.borrow_mut();
         let at = listeners.iter().position(|(listener, _)| *listener == id)?;
-        Some(listeners.remove(at).1)
+
+        let (_, listener) = listeners.remove(at);
+        listener.leave();
+        Some(listener)
     }
 
-    fn unobserve(&self, cell: TypeId, id: u64) -> Option<Rc<dyn Fn(&dyn Any)>> {
+    fn unobserve(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Fn(&dyn Any)>>> {
         let cells = self.cells.borrow();
         let mut observers = cells.get(&cell)?.observers.borrow_mut();
         let at = observers.iter().position(|(observer, _)| *observer == id)?;
-        Some(observers.remove(at).1)
+
+        let (_, observer) = observers.remove(at);
+        observer.leave();
+        Some(observer)
     }
 
     fn is_observed(&self, cell: TypeId) -> bool {

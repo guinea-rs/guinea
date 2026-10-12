@@ -40,8 +40,8 @@ impl Page for Metrics {
 
     type Message = Msg;
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {

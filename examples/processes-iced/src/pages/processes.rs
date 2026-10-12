@@ -51,8 +51,8 @@ impl Page for Processes {
     fn install(
         ctx: &FeatureInitContext,
         params: &Self::Params,
-    ) -> anyhow::Result<ProcessesFeature> {
-        ctx.install::<ProcessesFeature>(&params.context)
+    ) -> anyhow::Result<(Self, ProcessesFeature)> {
+        Ok((Self::default(), ctx.install::<ProcessesFeature>(&params.context)?))
     }
 
     fn observes(cx: &Observing<'_, Msg>) {

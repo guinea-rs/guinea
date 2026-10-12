@@ -18,8 +18,8 @@ impl Page for Processes {
 
     type Installs = processes_core::processes::ProcessesFeature;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(params.context.as_str())
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(params.context.as_str())?))
     }
 
     fn on_key(&mut self, cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {

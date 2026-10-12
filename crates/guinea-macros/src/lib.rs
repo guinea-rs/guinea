@@ -171,9 +171,12 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     fn view(cx: &mut PageCx<'_>) { .. }
 /// }
 /// ```
+///
+/// `#[segment(node)]` where the segment is a node of its own (ratatui,
+/// eframe): its `install` mounts the default node too.
 #[proc_macro_attribute]
-pub fn segment(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    segment::segment_impl(item)
+pub fn segment(attr: TokenStream, item: TokenStream) -> TokenStream {
+    segment::segment_impl(attr, item)
 }
 
 /// Declares a slot: a place in a layout's view that a segment below fills.

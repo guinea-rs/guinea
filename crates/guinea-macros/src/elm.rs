@@ -6,7 +6,8 @@
 //! nothing and has no messages of its own still has to say `type Params = ();`
 //! and `type Message = ..;` and write the empty `update` that goes with them.
 //! That is three lines saying nothing, and nothing but a macro can remove
-//! them.
+//! them. The same goes for `type Installs = ();` and an `install` that mounts
+//! the default node and installs nothing.
 //!
 //! Deliberately *only* that. Anything a type can check, a type should check -
 //! a macro that derives a list from a body is a second source of truth that
@@ -114,8 +115,8 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) ->
                 fn install(
                     _ctx: &#adapter::FeatureInitContext,
                     _params: &Self::Params,
-                ) -> #gc::__private::anyhow::Result<()> {
-                    ::std::result::Result::Ok(())
+                ) -> #gc::__private::anyhow::Result<(Self, ())> {
+                    ::std::result::Result::Ok((::core::default::Default::default(), ()))
                 }
             });
         }

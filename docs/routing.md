@@ -205,8 +205,8 @@ layout(ProcessesArea) keep {
 ```
 
 Left, a `keep` segment sleeps instead of going. Its scope stays, with its
-reducers, its actors and its features; coming back to it wakes the same scope -
-no `install`, no `init` - and the view draws from the state it kept.
+reducers, its actors, its features and its node; coming back to it wakes the
+same scope - no `install` - and the view draws from the state it kept.
 
 Asleep, it is deaf. What its scope owns stops: its timers skip their ticks, and
 its actors and its callbacks are not told what either bus carries. Nothing is

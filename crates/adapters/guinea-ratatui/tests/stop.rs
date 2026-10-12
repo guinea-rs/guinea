@@ -16,8 +16,8 @@ impl guinea_ratatui::Page for Home {
     type Params = HomeParams;
     type Installs = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &HomeParams) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_ctx: &FeatureInitContext, _params: &HomeParams) -> anyhow::Result<(Self, ())> {
+        Ok((Self::default(), ()))
     }
 
     fn render(&mut self, _cx: &mut PageCx<'_, '_, Self>) {}

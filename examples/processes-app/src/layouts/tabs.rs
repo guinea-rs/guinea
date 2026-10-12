@@ -17,8 +17,8 @@ impl Layout for TabsLayout {
 
     type Installs = processes_core::tabs::TabsFeature;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(params.context.as_str())
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(params.context.as_str())?))
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

@@ -93,16 +93,14 @@ pub trait Page: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    /// The state it starts with, when `Default` is not it.
-    ///
-    /// A constructor, not an effect: it runs once per mount, beside
-    /// [`install`](Self::install), and anything that has to reach a feature
-    /// belongs there instead.
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// Mounts the page: installs what it needs while it is mounted, and
+    /// returns the state it starts with beside its
+    /// [`Installs`](Self::Installs). Runs once per scope, when the scope is
+    /// made.
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     /// Draws the page, and changes it. Runs again for every frame, so this is
     /// the drawing itself and not a description of it.
@@ -131,12 +129,11 @@ pub trait Layout: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    /// See [`Page::init`].
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// See [`Page::install`].
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>);
 }
@@ -168,8 +165,9 @@ fn install_page<P: Page>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
-    ctx.scope.hold_installed(P::install(ctx, params)?);
-    ctx.scope.keep(P::init(ctx, params));
+    let (node, installs) = P::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
     Ok(())
 }
 
@@ -178,8 +176,9 @@ fn install_layout<L: Layout>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
-    ctx.scope.hold_installed(L::install(ctx, params)?);
-    ctx.scope.keep(L::init(ctx, params));
+    let (node, installs) = L::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
     Ok(())
 }
 

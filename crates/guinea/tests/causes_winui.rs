@@ -120,8 +120,8 @@ impl Layout for Shell {
     type Params = ShellParams;
     type Installs = Metering;
 
-    fn install(ctx: &FeatureInitContext, _params: &ShellParams) -> anyhow::Result<Metering> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &ShellParams) -> anyhow::Result<(Self, Metering)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -145,8 +145,8 @@ pub struct Status;
 impl Page for Status {
     type Installs = Linking;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Linking> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Linking)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -261,8 +261,8 @@ impl Page for Watched {
     type Params = WatchedParams;
     type Installs = Ticking;
 
-    fn install(ctx: &FeatureInitContext, _params: &WatchedParams) -> anyhow::Result<Ticking> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &WatchedParams) -> anyhow::Result<(Self, Ticking)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {

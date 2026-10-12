@@ -77,7 +77,7 @@ routes! {
 impl Page for Unreachable {
     type Params = UnreachableParams;
 
-    fn install(_ctx: &FeatureInitContext, _params: &UnreachableParams) -> anyhow::Result<()> {
+    fn install(_ctx: &FeatureInitContext, _params: &UnreachableParams) -> anyhow::Result<(Self, ())> {
         anyhow::bail!("the agent is not reachable")
     }
 
@@ -91,13 +91,10 @@ impl Page for Process {
     type Params = ProcessParams;
     type Installs = Bound<Load>;
 
-    fn install(ctx: &FeatureInitContext, _params: &ProcessParams) -> anyhow::Result<Bound<Load>> {
+    fn install(ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<(Self, Bound<Load>)> {
         INSTALLED.set(Some(ctx.scope));
-        Ok(ctx.state::<Load>().seed(Load::default()).plain())
-    }
-
-    fn init(_ctx: &FeatureInitContext, params: &ProcessParams) -> Self {
-        Self { pid: params.pid }
+        let load = ctx.state::<Load>().seed(Load::default()).plain();
+        Ok((Self { pid: params.pid }, load))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {

@@ -27,8 +27,8 @@ impl Page for Metrics {
     type Params = crate::routes::MetricsParams;
     type Installs = MetricsFeature;
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<MetricsFeature> {
-        ctx.install::<MetricsFeature>(&())
+    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<(Self, MetricsFeature)> {
+        Ok((Self::default(), ctx.install::<MetricsFeature>(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Quiet> {

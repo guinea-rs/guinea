@@ -54,8 +54,8 @@ impl Page for Processes {
 
     type Message = Msg;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(params.context.as_str())
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(params.context.as_str())?))
     }
 
     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {

@@ -159,15 +159,10 @@ pub enum Tabling {
 #[page]
 impl Page for TablePage {
     type Params = usize;
-    type Installs = ();
     type Message = Tabling;
 
-    fn install(_ctx: &FeatureInitContext, _params: &usize) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn init(_ctx: &FeatureInitContext, rows: &usize) -> Self {
-        Self::with_rows(*rows)
+    fn install(_ctx: &FeatureInitContext, rows: &usize) -> anyhow::Result<(Self, ())> {
+        Ok((Self::with_rows(*rows), ()))
     }
 
     fn update(&mut self, message: Tabling, _cx: &mut UpdateCx<'_, Self>) {

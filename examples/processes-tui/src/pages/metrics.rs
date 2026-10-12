@@ -17,8 +17,8 @@ impl Page for Metrics {
     fn install(
         ctx: &FeatureInitContext,
         _params: &Self::Params,
-    ) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    ) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {

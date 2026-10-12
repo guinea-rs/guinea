@@ -24,8 +24,8 @@ impl Page for Services {
     fn install(
         ctx: &FeatureInitContext,
         _params: &Self::Params,
-    ) -> anyhow::Result<ServicesFeature> {
-        ctx.install::<ServicesFeature>(&())
+    ) -> anyhow::Result<(Self, ServicesFeature)> {
+        Ok((Self::default(), ctx.install::<ServicesFeature>(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {

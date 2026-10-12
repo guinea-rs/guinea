@@ -59,8 +59,8 @@ mod routing {
         fn install(
             ctx: &FeatureInitContext,
             params: &ProcessesParams,
-        ) -> anyhow::Result<Bound<Listing>> {
-            install_processes(ctx, params)
+        ) -> anyhow::Result<(Self, Bound<Listing>)> {
+            Ok((Self::default(), install_processes(ctx, params)?))
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
@@ -91,10 +91,10 @@ mod routing {
     impl Page for NeedsAService {
         type Params = ();
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
             let greeting = ctx.require::<Greeting>()?;
             assert_eq!(greeting.0, "hello");
-            Ok(())
+            Ok((Self::default(), ()))
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
@@ -259,10 +259,10 @@ mod routing {
         // is none of its business, which is what the tests here check.
         type Params = ();
 
-        fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<()> {
+        fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<(Self, ())> {
             let count = ctx.scope.peek::<Tabs>().map_or(0, |s| s.borrow().install_count);
             ctx.scope.push::<Tabs>(count + 1);
-            Ok(())
+            Ok((Self::default(), ()))
         }
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> windows_reactor::View {
             cx.outlet()
@@ -775,14 +775,14 @@ mod routing {
         impl Page for ProbePage {
             type Params = ProbePageParams;
 
-            fn install(ctx: &FeatureInitContext, _params: &ProbePageParams) -> anyhow::Result<()> {
+            fn install(ctx: &FeatureInitContext, _params: &ProbePageParams) -> anyhow::Result<(Self, ())> {
                 PROBE_DROPPED.with(|d| *d.borrow_mut() = false);
                 let push = ctx.state::<Probe>().plain().pusher();
                 ctx.spawn(ProbeActor {
                     seen: Rc::new(RefCell::new(Vec::new())),
                     _push: Box::new(move |()| push.send(())),
                 });
-                Ok(())
+                Ok((Self::default(), ()))
             }
 
             fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {

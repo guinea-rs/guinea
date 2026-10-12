@@ -47,8 +47,8 @@ impl Layout for TabsLayout {
     type Message = Chrome;
     type Installs = TabsFeature;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<TabsFeature> {
-        ctx.install::<TabsFeature>(&params.context)
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<(Self, TabsFeature)> {
+        Ok((Self::default(), ctx.install::<TabsFeature>(&params.context)?))
     }
 
     fn update(&mut self, message: Chrome, cx: &mut UpdateCx<'_, Self>) {

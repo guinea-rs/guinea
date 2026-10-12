@@ -6,10 +6,11 @@
 //! default body to remove them - a default returning `()` would have to hold
 //! for the segments that return a feature too.
 //!
-//! So the macro writes them, and only them. It is backend-agnostic on purpose:
-//! `Installs` and `install` have the same shape in all five `Page`/`Layout`
-//! traits, and anything backend-specific belongs in that backend's own
-//! attribute.
+//! So the macro writes them, and only them. It is backend-agnostic on purpose,
+//! save for one word: a backend whose segment is a node of its own (ratatui,
+//! eframe) mounts it in `install`, so `#[segment(node)]` returns the default
+//! node beside the nothing installed. Anything else backend-specific belongs
+//! in that backend's own attribute.
 
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
@@ -38,7 +39,18 @@ pub(crate) fn context_path() -> TokenStream {
     }
 }
 
-pub fn segment_impl(item: TokenStream1) -> TokenStream1 {
+pub fn segment_impl(attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
+    let node = match syn::parse::<Option<syn::Ident>>(attr) {
+        Ok(None) => false,
+        Ok(Some(word)) if word == "node" => true,
+        Ok(Some(word)) => {
+            return syn::Error::new_spanned(word, "#[segment] takes nothing, or `node`")
+                .to_compile_error()
+                .into();
+        }
+        Err(error) => return error.to_compile_error().into(),
+    };
+
     let mut item = syn::parse_macro_input!(item as ItemImpl);
     let context = context_path();
 
@@ -74,7 +86,16 @@ pub fn segment_impl(item: TokenStream1) -> TokenStream1 {
     // Only alongside the defaulted list: a segment that named what it installs
     // and then left `install` out has forgotten to install it, and the missing
     // trait item says so more clearly than anything written here could.
-    if !declares_install {
+    if !declares_install && node {
+        item.items.push(parse_quote! {
+            fn install(
+                _ctx: &#context::FeatureInitContext,
+                _params: &Self::Params,
+            ) -> #gc::__private::anyhow::Result<(Self, ())> {
+                ::std::result::Result::Ok((::core::default::Default::default(), ()))
+            }
+        });
+    } else if !declares_install {
         item.items.push(parse_quote! {
             fn install(
                 _ctx: &#context::FeatureInitContext,

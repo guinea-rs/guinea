@@ -19,8 +19,8 @@ impl guinea_ratatui::Layout for Shell {
     type Params = ShellParams;
     type Installs = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &ShellParams) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_ctx: &FeatureInitContext, _params: &ShellParams) -> anyhow::Result<(Self, ())> {
+        Ok((Self::default(), ()))
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
@@ -41,8 +41,8 @@ impl guinea_ratatui::Page for Processes {
     type Params = ProcessesParams;
     type Installs = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &ProcessesParams) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_ctx: &FeatureInitContext, _params: &ProcessesParams) -> anyhow::Result<(Self, ())> {
+        Ok((Self::default(), ()))
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
@@ -58,8 +58,8 @@ impl guinea_ratatui::Page for Services {
     type Params = ServicesParams;
     type Installs = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &ServicesParams) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_ctx: &FeatureInitContext, _params: &ServicesParams) -> anyhow::Result<(Self, ())> {
+        Ok((Self::default(), ()))
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {

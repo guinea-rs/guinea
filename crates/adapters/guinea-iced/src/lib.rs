@@ -134,16 +134,15 @@ pub trait Page: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    /// The node it starts as, when `Default` is not it.
+    /// Mounts the page: installs what it needs while it is mounted, and
+    /// returns the node it starts as beside its [`Installs`](Self::Installs).
     ///
-    /// A constructor, not an effect: it runs on every install, and its result
-    /// is discarded when a kept node comes back instead. Anything that must
-    /// happen exactly once per mount belongs in [`install`](Self::install).
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// Runs once per scope, when the scope is made. The node it returns is
+    /// discarded when a kept node comes back instead.
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     /// Which reducers this page translates, and into what.
     fn observes(_cx: &Observing<'_, Self::Message>) {}
@@ -197,11 +196,11 @@ pub trait Layout: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// Mounts the layout. See [`Page::install`].
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     fn observes(_cx: &Observing<'_, Self::Message>) {}
 
@@ -543,12 +542,11 @@ fn stage_node<Node: Default + 'static>(
 
 fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = narrow::<P::Params, P>(params)?;
-    // Features first: `init` may read what they seeded, and an observer must
-    // find the reducer it is being attached to.
-    ctx.scope.hold_installed(P::install(ctx, params)?);
+    let (node, installs) = P::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
     stage_node(
         ctx,
-        P::init(ctx, params),
+        node,
         Box::new(params.clone()),
         P::leaving,
         P::CACHE_STATE_IN_MEMORY,
@@ -559,10 +557,11 @@ fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::
 
 fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
     let params = narrow::<L::Params, L>(params)?;
-    ctx.scope.hold_installed(L::install(ctx, params)?);
+    let (node, installs) = L::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
     stage_node(
         ctx,
-        L::init(ctx, params),
+        node,
         Box::new(params.clone()),
         L::leaving,
         false,

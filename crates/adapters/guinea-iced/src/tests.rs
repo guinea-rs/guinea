@@ -83,9 +83,9 @@ impl Page for Leaf {
     type Params = ();
     type Message = LeafMsg;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
         ctx.state::<Domain>().seed(Domain(vec![1, 2, 3])).plain();
-        Ok(())
+        Ok((Self::default(), ()))
     }
 
     fn observes(cx: &Observing<'_, LeafMsg>) {
@@ -278,7 +278,7 @@ fn a_cached_page_comes_back_to_the_state_it_left() {
     assert_eq!(
         mounted.leaf().picked,
         2,
-        "the node the shell kept came back, rather than the one init built"
+        "the node the shell kept came back, rather than the one install built"
     );
 }
 

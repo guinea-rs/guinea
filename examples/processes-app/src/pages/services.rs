@@ -13,8 +13,8 @@ impl Page for Services {
 
     type Installs = processes_core::services::ServicesFeature;
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {

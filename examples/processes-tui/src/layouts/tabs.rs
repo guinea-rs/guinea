@@ -22,8 +22,8 @@ impl Layout for TabsLayout {
 
     type Installs = processes_core::tabs::TabsFeature;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(params.context.as_str())
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<(Self, Self::Installs)> {
+        Ok((Self::default(), ctx.install(params.context.as_str())?))
     }
 
     /// The language is the application's, not a window's, and the store keeps

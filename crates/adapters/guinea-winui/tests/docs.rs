@@ -50,8 +50,7 @@ mod whole {
     fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
         let count = cx.state::<Count>().plain();
 
-        let adding = count.clone();
-        cx.answers(move |Add(by): Add| adding.push(by));
+        cx.answers(move |Add(by): Add| count.push(by));
 
         Ok(Counter(count))
     }
@@ -75,8 +74,8 @@ mod whole {
         type Installs = Counter;
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Counter> {
-            ctx.install(&())
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Counter)> {
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -202,10 +201,10 @@ mod installing {
         fn install(
             ctx: &FeatureInitContext,
             params: &ProcessesParams,
-        ) -> anyhow::Result<Self::Installs> {
+        ) -> anyhow::Result<(Self, Self::Installs)> {
             let processes = ctx.install::<Processes>(&params.context)?;
             let selection = ctx.state::<Selection>().plain();
-            Ok((processes, selection))
+            Ok((Self, (processes, selection)))
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -256,8 +255,8 @@ mod keeping_the_capture {
     impl Page for ProcessPage {
         type Params = ProcessParams;
 
-        fn init(_ctx: &FeatureInitContext, params: &ProcessParams) -> Self {
-            Self { pid: params.pid }
+        fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<(Self, ())> {
+            Ok((Self { pid: params.pid }, ()))
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -278,6 +277,77 @@ mod keeping_the_capture {
             )
             .unwrap();
             assert!(page.find_text("process 42").is_some(), "{:#?}", page.tree());
+        });
+    }
+    //@unhide
+    //@show-end
+}
+
+mod starting_from_a_setting {
+    //@show a page that starts from a setting
+    use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    use windows_reactor::{Button, StackPanel, TextBlock, View};
+
+    /// Column widths as the application saved them; a default when it did not.
+    #[derive(Clone)]
+    pub struct SavedWidths(pub Vec<u32>);
+
+    impl Default for SavedWidths {
+        fn default() -> Self {
+            Self(vec![280, 80])
+        }
+    }
+
+    /// The widths are the page's own once it is mounted: a drag changes them
+    /// here, and nothing else needs to know.
+    #[derive(Default)]
+    pub struct Table {
+        widths: Vec<u32>,
+    }
+
+    pub enum Msg {
+        Widen,
+    }
+
+    #[page]
+    impl Page for Table {
+        type Message = Msg;
+
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+            let saved = ctx.require_or_default::<SavedWidths>();
+            Ok((Self { widths: saved.0 }, ()))
+        }
+
+        fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
+            match message {
+                Msg::Widen => self.widths[0] += 20,
+            }
+        }
+
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            StackPanel::new()
+                .children((
+                    TextBlock::new().text(format!("widths {:?}", self.widths)),
+                    Button::new()
+                        .on_click(cx.on(|()| Msg::Widen))
+                        .content(TextBlock::new().text("Widen")),
+                ))
+                .into()
+        }
+    }
+    //@hide
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn starts_from_what_the_application_saved_and_changes_it_itself() {
+        guinea_app::app::check(2, |h| {
+            h.provide(SavedWidths(vec![300, 60]));
+            let mut page = guinea_winui::harness::Mounted::<Table>::mount(h.segment(), ()).unwrap();
+            assert!(page.find_text("widths [300, 60]").is_some(), "{:#?}", page.tree());
+
+            page.click_text("Widen").settle();
+            page.settle();
+            assert!(page.find_text("widths [320, 60]").is_some(), "{:#?}", page.tree());
         });
     }
     //@unhide
@@ -369,8 +439,8 @@ mod asking_a_feature {
         type Installs = Searching;
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Searching> {
-            ctx.install(&())
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Searching)> {
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) {
@@ -540,9 +610,9 @@ mod shell {
         type Installs = (Chrome, Bound<Title>);
         type Message = ShellMsg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self::Installs> {
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
             let title = ctx.state::<Title>().seed(Title("guinea".into())).plain();
-            Ok((ctx.install(&())?, title))
+            Ok((Self, (ctx.install(&())?, title)))
         }
 
         fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
@@ -671,8 +741,11 @@ mod per_context {
         type Params = MachineParams;
         type Installs = Connection;
 
-        fn install(ctx: &FeatureInitContext, params: &MachineParams) -> anyhow::Result<Connection> {
-            ctx.install::<Connection>(&params.context)
+        fn install(
+            ctx: &FeatureInitContext,
+            params: &MachineParams,
+        ) -> anyhow::Result<(Self, Connection)> {
+            Ok((Self, ctx.install::<Connection>(&params.context)?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -754,7 +827,7 @@ mod layout_installing {
         type Params = ();
         type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self::Installs> {
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
             // A setting the application may `provide`, and a default when
             // it does not.
             let refresh = ctx.require_or_default::<Refresh>();
@@ -762,7 +835,7 @@ mod layout_installing {
                 .state::<Title>()
                 .seed(Title(format!("every {} ms", refresh.every_ms)));
 
-            Ok((ctx.install(&())?, ctx.install(&())?, title.plain()))
+            Ok((Self, (ctx.install(&())?, ctx.install(&())?, title.plain())))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

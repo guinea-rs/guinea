@@ -109,8 +109,8 @@ impl Page for SearchPage {
     type Installs = Search;
     type Message = Typing;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Search> {
-        ctx.install(&())
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Search)> {
+        Ok((Self::default(), ctx.install(&())?))
     }
 
     fn update(&mut self, message: Typing, _cx: &mut UpdateCx<'_, Self>) {
@@ -174,12 +174,7 @@ pub enum Browsing {
 #[page]
 impl Page for CataloguePage {
     type Params = ();
-    type Installs = ();
     type Message = Browsing;
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, message: Browsing, _cx: &mut UpdateCx<'_, Self>) {
         match message {
@@ -262,12 +257,7 @@ pub enum Rowing {
 #[page]
 impl Page for RowsPage {
     type Params = ();
-    type Installs = ();
     type Message = Rowing;
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, message: Rowing, _cx: &mut UpdateCx<'_, Self>) {
         match message {
@@ -350,12 +340,7 @@ pub enum Gripping {
 #[page]
 impl Page for GripPage {
     type Params = ();
-    type Installs = ();
     type Message = Gripping;
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, message: Gripping, _cx: &mut UpdateCx<'_, Self>) {
         match message {
@@ -497,12 +482,7 @@ pub enum Switching {
 #[page]
 impl Page for SwitchesPage {
     type Params = ();
-    type Installs = ();
     type Message = Switching;
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, message: Switching, _cx: &mut UpdateCx<'_, Self>) {
         match message {
@@ -573,12 +553,7 @@ pub struct ShowDisk(bool);
 #[page]
 impl Page for ChartsPage {
     type Params = ();
-    type Installs = ();
     type Message = ShowDisk;
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, ShowDisk(disk): ShowDisk, _cx: &mut UpdateCx<'_, Self>) {
         self.disk = disk;
@@ -722,12 +697,7 @@ impl Default for PlotPage {
 #[page]
 impl Page for PlotPage {
     type Params = ();
-    type Installs = ();
     type Message = ();
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
 
@@ -757,12 +727,7 @@ pub struct SamplesPage;
 #[page]
 impl Page for SamplesPage {
     type Params = ();
-    type Installs = ();
     type Message = ();
-
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     fn update(&mut self, _message: (), _cx: &mut UpdateCx<'_, Self>) {}
 
@@ -837,11 +802,6 @@ mod routed {
     #[layout]
     impl Layout for Tabs {
         type Params = ();
-        type Installs = ();
-
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-            Ok(())
-        }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let here = match cx.use_route::<TabRoute>() {
@@ -912,11 +872,6 @@ mod routed {
     #[layout]
     impl Layout for Pane {
         type Params = ();
-        type Installs = ();
-
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-            Ok(())
-        }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<PaneRoute>();
@@ -1084,8 +1039,8 @@ mod navigating {
         fn install(
             ctx: &FeatureInitContext,
             _params: &FrameParams,
-        ) -> anyhow::Result<frame_clock::FrameClock> {
-            ctx.install(&())
+        ) -> anyhow::Result<(Self, frame_clock::FrameClock)> {
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -1124,10 +1079,10 @@ mod navigating {
         fn install(
             ctx: &FeatureInitContext,
             _params: &AreaParams,
-        ) -> anyhow::Result<list_clock::ListClock> {
+        ) -> anyhow::Result<(Self, list_clock::ListClock)> {
             ctx.scope
                 .on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
-            ctx.install(&())
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -1159,9 +1114,9 @@ mod navigating {
     impl Page for Other {
         type Params = OtherParams;
 
-        fn init(ctx: &FeatureInitContext, _params: &OtherParams) -> Self {
+        fn install(ctx: &FeatureInitContext, _params: &OtherParams) -> anyhow::Result<(Self, ())> {
             let greeting = ctx.require::<Greeting>().map_or("nobody", |greeting| greeting.0);
-            Self { greeting }
+            Ok((Self { greeting }, ()))
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -1197,9 +1152,9 @@ mod navigating {
         fn install(
             ctx: &FeatureInitContext,
             _params: &KeptAreaParams,
-        ) -> anyhow::Result<list_clock::ListClock> {
+        ) -> anyhow::Result<(Self, list_clock::ListClock)> {
             ctx.on_wake(|| KEPT_WAKES.with(|wakes| wakes.set(wakes.get() + 1)));
-            ctx.install(&())
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

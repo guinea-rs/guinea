@@ -73,7 +73,7 @@ pub enum Handled {
 ///
 /// The struct that implements this **is** the page's state, as in the eframe
 /// backend: what is typed in a filter, which row is picked. It is made by
-/// [`Page::init`] when the page mounts and dropped when it leaves.
+/// [`Page::install`] when the page mounts and dropped when it leaves.
 ///
 /// Input comes down the active chain from the leaf: [`Page::on_key`] and
 /// [`Page::on_paste`] see it first, the layouts above see what it did not
@@ -106,13 +106,14 @@ pub trait Page: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    /// The state it starts with, when `Default` is not it. Runs once per
-    /// mount, beside [`install`](Self::install).
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// Mounts the page: installs what it needs while it is mounted, and
+    /// returns the state it starts with beside its
+    /// [`Installs`](Self::Installs). Runs once per scope, when the scope is
+    /// made.
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     /// Draws the page into the frame it is handed.
     ///
@@ -156,12 +157,11 @@ pub trait Layout: Default + Sized + 'static {
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs>;
-
-    /// See [`Page::init`].
-    fn init(_ctx: &FeatureInitContext, _params: &Self::Params) -> Self {
-        Self::default()
-    }
+    /// See [`Page::install`].
+    fn install(
+        ctx: &FeatureInitContext,
+        params: &Self::Params,
+    ) -> anyhow::Result<(Self, Self::Installs)>;
 
     fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>);
 
@@ -242,8 +242,9 @@ fn install_page<P: Page>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<P::Params, P>(params)?;
-    ctx.scope.hold_installed(P::install(ctx, params)?);
-    ctx.scope.keep(P::init(ctx, params));
+    let (node, installs) = P::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
     Ok(())
 }
 
@@ -252,8 +253,9 @@ fn install_layout<L: Layout>(
     params: &dyn std::any::Any,
 ) -> anyhow::Result<()> {
     let params = guinea_router::router::narrow::<L::Params, L>(params)?;
-    ctx.scope.hold_installed(L::install(ctx, params)?);
-    ctx.scope.keep(L::init(ctx, params));
+    let (node, installs) = L::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
     Ok(())
 }
 
@@ -551,8 +553,8 @@ mod tests {
         type Params = ();
         type Installs = ();
 
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-            Ok(())
+        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+            Ok((Self::default(), ()))
         }
 
         fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
@@ -587,8 +589,8 @@ mod tests {
         type Params = ();
         type Installs = ();
 
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-            Ok(())
+        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+            Ok((Self::default(), ()))
         }
 
         fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {

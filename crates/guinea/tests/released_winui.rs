@@ -92,9 +92,9 @@ pub struct Listening;
 impl Page for Listening {
     type Params = ListeningParams;
 
-    fn install(ctx: &FeatureInitContext, _params: &ListeningParams) -> anyhow::Result<()> {
+    fn install(ctx: &FeatureInitContext, _params: &ListeningParams) -> anyhow::Result<(Self, ())> {
         ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
-        Ok(())
+        Ok((Self::default(), ()))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -120,8 +120,8 @@ impl Page for Menu {
     type Installs = Pinging;
     type Message = Dismiss;
 
-    fn install(ctx: &FeatureInitContext, _params: &MenuParams) -> anyhow::Result<Pinging> {
-        ctx.install::<Pinging>(&())
+    fn install(ctx: &FeatureInitContext, _params: &MenuParams) -> anyhow::Result<(Self, Pinging)> {
+        Ok((Self::default(), ctx.install::<Pinging>(&())?))
     }
 
     fn update(&mut self, _message: Dismiss, cx: &mut UpdateCx<'_, Self>) {
@@ -170,8 +170,8 @@ impl Layout for PingArea {
     type Params = PingAreaParams;
     type Installs = Pinging;
 
-    fn install(ctx: &FeatureInitContext, _params: &PingAreaParams) -> anyhow::Result<Pinging> {
-        ctx.install::<Pinging>(&())
+    fn install(ctx: &FeatureInitContext, _params: &PingAreaParams) -> anyhow::Result<(Self, Pinging)> {
+        Ok((Self::default(), ctx.install::<Pinging>(&())?))
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

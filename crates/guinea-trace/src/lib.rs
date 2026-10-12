@@ -14,9 +14,9 @@
 //! Records go to the observers on the thread that produced them (devtools),
 //! and to `tracing` as one event each: the target names the kind of point,
 //! `guinea::send`, and the fields carry `id`, `parent` and what the point
-//! holds. `guinea::tick=off` silences one kind. [`json`] writes them, and the
-//! application's own events with the point they happened under, as JSON
-//! lines.
+//! holds. `guinea::tick=off` silences one kind; `guinea::send=debug` writes
+//! that kind alone. [`json`] writes them, and the application's own events
+//! with the point they happened under, as JSON lines.
 
 mod json;
 mod point;

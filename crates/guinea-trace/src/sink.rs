@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use tracing::Level;
+use tracing::level_filters::LevelFilter;
 
 use crate::{Cause, Point, Record, Trace};
 
@@ -60,9 +61,34 @@ pub fn is_observed_anywhere() -> bool {
 }
 
 /// Whether a point recorded anywhere goes somewhere: to devtools, or to
-/// `tracing` as `guinea::` events.
+/// `tracing` as a `guinea::` event of a kind the filter lets through.
 pub fn is_recorded_anywhere() -> bool {
-    is_observed_anywhere() || tracing::enabled!(target: "guinea", Level::DEBUG)
+    is_observed_anywhere() || is_written()
+}
+
+fn is_written() -> bool {
+    Level::DEBUG <= LevelFilter::current()
+        && (tracing::enabled!(target: "guinea::action", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::send", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::handle", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::spawn", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::settled", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::cancelled", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::superseded", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::skipped", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::source", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::arrived", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::pull", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::closed", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::publish", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::deliver", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::push", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::navigate", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::tick", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::store", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::render", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::span", Level::DEBUG)
+            || tracing::enabled!(target: "guinea::note", Level::DEBUG))
 }
 
 /// How many records [`take_elsewhere`] keeps between two takes; past it the

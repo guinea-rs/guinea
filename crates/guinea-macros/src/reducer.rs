@@ -52,7 +52,8 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
         .iter()
         .filter_map(|param| match param {
             GenericParam::Type(ty) => Some(&ty.ident),
-            _ => None,
+            GenericParam::Const(constant) => Some(&constant.ident),
+            GenericParam::Lifetime(_) => None,
         })
         .collect();
     let called = if turbofish.is_empty() {

@@ -259,10 +259,11 @@ pub fn actor(input: TokenStream) -> TokenStream {
 /// hand. Generates the enum itself, `link` and `deep_links` for the routes
 /// that agreed to have an address, and `RouteChain` (enum -> segment chain).
 ///
-/// `app = App,` before the tree, beside `backend`, names the application
-/// `app!` declared: it is the top segment of every chain, so its pages read
-/// what it installs. Navigating panics when the application running is not
-/// that one.
+/// `app(App) { .. }` as the root of the tree - `Route { app(App) { .. } }` -
+/// names the application `app!` declared: it is the top segment of every
+/// chain, so its pages read what it installs. It holds the whole tree;
+/// nothing stands beside it. Navigating panics when the application running
+/// is not that one.
 #[proc_macro]
 pub fn routes(input: TokenStream) -> TokenStream {
     routes_dsl::routes_impl(input)

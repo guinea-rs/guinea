@@ -78,6 +78,26 @@ fn a_wake_hook_does_not_run_after_an_earlier_hook_put_its_scope_back_to_sleep() 
     assert_eq!(late.get(), 0, "it catches up at the next wake, not while asleep");
 }
 
+#[test]
+fn a_reducer_only_listened_to_is_described() {
+    let tree = ScopeTree::new();
+    let _listening = tree.subscribe::<Counter>(|| {});
+
+    let described: Vec<_> = tree.describe_states().iter().map(|state| state.type_name).collect();
+
+    assert_eq!(described, [std::any::type_name::<Counter>()], "the scope holds a Counter cell");
+}
+
+#[test]
+fn a_reducer_only_observed_is_described() {
+    let tree = ScopeTree::new();
+    let _observing = tree.observe::<Counter>(|_| {});
+
+    let described: Vec<_> = tree.describe_states().iter().map(|state| state.type_name).collect();
+
+    assert_eq!(described, [std::any::type_name::<Counter>()], "the scope holds a Counter cell");
+}
+
 #[derive(Clone)]
 struct Ping;
 

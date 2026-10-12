@@ -302,6 +302,7 @@ impl Scope {
     pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) -> Subscription {
         let data = self.alive("observing a reducer");
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
+        data.state.note_kind::<R>();
         {
             let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
@@ -351,6 +352,7 @@ impl Scope {
     pub fn subscribe<R: Reducer>(&self, callback: impl Fn() + 'static) -> Subscription {
         let data = self.alive("listening to a reducer");
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
+        data.state.note_kind::<R>();
         {
             let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);

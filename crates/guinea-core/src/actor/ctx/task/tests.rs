@@ -439,6 +439,20 @@ fn work_that_listens_for_the_token_is_left_to_wind_itself_down() {
 }
 
 #[test]
+fn every_spawn_after_the_actor_went_ends_in_the_trace() {
+    let bench = Bench::new(0);
+    let (_first, a) = search(1);
+    let (_second, b) = search(2);
+
+    bench.home.tree.remove();
+    bench.cx().task().conflate().spawn(a);
+    bench.cx().task().conflate().spawn(b);
+    bench.run();
+
+    assert_eq!(bench.ends(), ["cancelled", "cancelled"], "two spawns, so two ends");
+}
+
+#[test]
 fn the_actor_going_drops_what_waits_in_its_lanes() {
     let bench = Bench::new(0);
     let (_first, a) = search(1);

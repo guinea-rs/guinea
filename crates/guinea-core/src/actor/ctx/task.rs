@@ -692,7 +692,7 @@ struct Spawning {
 }
 
 /// Records the spawn, and starts the work now, later or never, as its lane
-/// says. On the UI thread.
+/// says; never, once the actor is gone. On the UI thread.
 fn launch<A: 'static>(
     addr: &Addr<A>,
     spawning: Spawning,
@@ -713,6 +713,12 @@ fn launch<A: 'static>(
     }
 
     let traced = Traced::spawn::<A>(addr.id(), output);
+
+    if addr.cancellation().is_cancelled() {
+        traced.end(traced.cancelled());
+        return;
+    }
+
     let start = starting(traced);
 
     if kind == Kind::Parallel {

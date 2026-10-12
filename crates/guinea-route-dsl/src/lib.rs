@@ -350,14 +350,23 @@ pub fn type_ident(ty: &syn::Type) -> Ident {
 }
 
 /// Splits a route pattern into its segments.
+///
+/// Panics on an empty segment between two slashes.
 pub fn parse_pattern(pattern: &str) -> Vec<Segment> {
     let trimmed = pattern.trim_matches('/');
     if trimmed.is_empty() {
         return Vec::new();
     }
-    let mut input = trimmed;
+
+    if trimmed.split('/').any(str::is_empty) {
+        panic!(
+            "routes!: `link({pattern:?})` has an empty segment - a pattern names every segment \
+             between two slashes"
+        );
+    }
+
     separated(1.., segment, '/')
-        .parse_next(&mut input)
+        .parse(trimmed)
         .unwrap_or_else(|_| panic!("invalid route pattern {pattern:?}"))
 }
 
@@ -855,6 +864,7 @@ fn parse_link<'i>(input: &mut Tokens<'i>) -> Option<String> {
     if !inner.is_empty() {
         panic!("routes!: `link({literal:?}, ..)` - a page answers to one address");
     }
+    parse_pattern(&literal);
 
     *input = &input[2..];
     Some(literal)
@@ -1112,6 +1122,12 @@ mod tests {
                 Segment::Literal("processes".to_string()),
             ]
         );
+    }
+
+    #[test]
+    #[should_panic(expected = r#"routes!: `link("/a//b")` has an empty segment"#)]
+    fn a_pattern_with_an_empty_segment_is_refused() {
+        tree_of(r#"page(Nested) link("/a//b")"#);
     }
 
     #[test]

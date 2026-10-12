@@ -86,6 +86,8 @@ struct SectionData {
     /// `ListFeature<Archived>` both answer `Refresh`, and a flat map would let
     /// whichever installed last answer for both.
     answers: HashMap<TypeId, Rc<dyn Any>>,
+    /// Its feature's install failed: it is not listed as installed.
+    withdrawn: bool,
 }
 
 /// A reducer claimed in a scope.
@@ -146,6 +148,25 @@ impl Section {
             .insert(TypeId::of::<M>(), Rc::new(answer) as Rc<dyn Any>);
     }
 
+    /// Takes back what a feature whose install failed said here: the section
+    /// is no longer listed, answers nothing and claims nothing. What it made -
+    /// state, actors, timers - stays until the scope goes.
+    pub fn withdraw(&self) {
+        let Some(data) = self.scope.data() else {
+            return;
+        };
+
+        if let Some(section) = data.features.sections.borrow_mut().get_mut(self.index) {
+            section.withdrawn = true;
+            section.answers.clear();
+        }
+
+        data.features
+            .claims
+            .borrow_mut()
+            .retain(|_, claim| claim.section != self.index);
+    }
+
     /// What answers `M` here, if anything does.
     pub fn answerer<M: 'static>(&self) -> Option<Rc<dyn Fn(M)>> {
         self.scope.data()?.features.answerer::<M>(self.index)
@@ -182,6 +203,7 @@ impl Scope {
             name,
             declared,
             answers: HashMap::new(),
+            withdrawn: false,
         });
 
         Section {
@@ -236,6 +258,7 @@ impl Scope {
             .sections
             .borrow()
             .iter()
+            .filter(|section| !section.withdrawn)
             .filter_map(|section| {
                 Some(Installed {
                     name: section.name?,

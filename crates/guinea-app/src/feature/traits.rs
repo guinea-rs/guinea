@@ -141,10 +141,11 @@ impl FeatureInitContext {
     /// Twice for the same feature in one scope is a setup bug rather than
     /// something to merge silently, so it panics - the same rule as before,
     /// now with something real behind the bit.
+    ///
+    /// An install that fails publishes nothing, is not listed, and claims and
+    /// answers nothing here - so `F` may be installed again once what it
+    /// needed is there.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<F> {
-        self.scope.mark_feature_installed::<F>();
-        F::Exports::mark(self.scope);
-
         // Its own corner of the scope, so that two instances of one feature
         // answering the same action type do not become one.
         let section = self.scope.open_section(Some(name::<F>()), F::DECLARED);
@@ -152,15 +153,20 @@ impl FeatureInitContext {
             scope_cx: self.scope_cx.in_section(section),
             ..self.clone()
         };
-        let installed = F::install(&cx, params);
+
+        let installed = match F::install(&cx, params) {
+            Ok(installed) => installed,
+            Err(error) => {
+                section.withdraw();
+                return Err(error);
+            }
+        };
 
         // After the body, because only the body can claim anything. An export
         // the feature never claimed would otherwise be read below as the
         // reducer's `Default`, for as long as the application runs, and look
         // exactly like a feature that has not pushed an update yet.
-        if installed.is_ok()
-            && let Some(name) = F::Exports::unclaimed(self.scope)
-        {
+        if let Some(name) = F::Exports::unclaimed(self.scope) {
             panic!(
                 "{} exports {name}, but nothing in it claimed that reducer - \
                  either claim it with `cx.state::<{name}>()`, or take it out of `Exports`",
@@ -168,7 +174,9 @@ impl FeatureInitContext {
             );
         }
 
-        installed
+        self.scope.mark_feature_installed::<F>();
+        F::Exports::mark(self.scope);
+        Ok(installed)
     }
 
     /// Runs `hook` every time this segment wakes - for one declared `keep`

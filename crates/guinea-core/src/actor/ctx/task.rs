@@ -29,7 +29,7 @@ use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
-use crate::ui_thread::invoke_on_ui;
+use crate::ui_thread::{invoke_on_ui, try_invoke_on_ui};
 
 /// Every piece runs on its own: the default.
 pub struct Parallel;
@@ -662,6 +662,7 @@ impl Traced {
 
 /// What a run is handed when it starts: which run it is, and the token that
 /// ends it.
+#[derive(Clone)]
 struct Ticket {
     run: Option<u64>,
     cancel: Cancel,
@@ -749,11 +750,13 @@ where
     Out: Send + 'static,
     Fut: Future<Output = Out>,
 {
+    let unwinding = Unwinding::arm(reach, traced, &ticket);
     let running = trace::within(Some(traced.spawned), fut);
     let result = match listens {
         true => Some(running.await),
         false => ticket.cancel.guard(running).await,
     };
+    drop(unwinding);
 
     let Some(result) = result.filter(|_| !ticket.cancel.is_cancelled()) else {
         traced.end_anywhere(ticket.cut(&traced));
@@ -781,6 +784,7 @@ where
     A: 'static,
     Fut: Future<Output = ()>,
 {
+    let unwinding = Unwinding::arm(reach, traced, &ticket);
     let running = trace::within(Some(traced.spawned), fut);
     let ran = match listens {
         true => {
@@ -789,6 +793,7 @@ where
         }
         false => ticket.cancel.guard(running).await.is_some(),
     };
+    drop(unwinding);
 
     if !ran || ticket.cancel.is_cancelled() {
         traced.end_anywhere(ticket.cut(&traced));
@@ -807,6 +812,53 @@ where
         };
         traced.end(ended);
     });
+}
+
+/// Held while a run's work is polled: when the work panics, it frees the
+/// run's lane on the UI thread and ends it in the trace as cancelled, while
+/// the panic goes on to whatever polled it. Posting is tried, not insisted
+/// on: a second panic during the unwind would abort.
+struct Unwinding<A: 'static> {
+    reach: Reach<A>,
+    traced: Traced,
+    ticket: Ticket,
+}
+
+impl<A: 'static> Unwinding<A> {
+    fn arm(reach: Reach<A>, traced: Traced, ticket: &Ticket) -> Self {
+        Self {
+            reach,
+            traced,
+            ticket: ticket.clone(),
+        }
+    }
+}
+
+impl<A: 'static> Drop for Unwinding<A> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+
+        tracing::error!(
+            "{}'s work for {} panicked: it ends as cancelled, and its lane takes work again",
+            self.traced.actor,
+            self.traced.output
+        );
+
+        let (reach, traced, ticket) = (self.reach, self.traced, self.ticket.clone());
+        let posted = try_invoke_on_ui(move || {
+            traced.end(traced.cancelled());
+
+            if let Some(addr) = reach.addr() {
+                addr.finish(&ticket);
+            }
+        });
+
+        if posted.is_err() {
+            traced.end_anywhere(traced.cancelled());
+        }
+    }
 }
 
 impl<A: 'static> Addr<A> {

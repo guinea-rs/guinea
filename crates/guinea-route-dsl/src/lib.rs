@@ -10,7 +10,7 @@
 
 use proc_macro2::{Delimiter, Ident, TokenStream, TokenTree};
 use quote::quote;
-use winnow::combinator::{alt, opt, preceded, separated};
+use winnow::combinator::{alt, preceded, separated};
 use winnow::error::{ContextError, ErrMode};
 use winnow::prelude::*;
 use winnow::token::{any, take_till};
@@ -609,37 +609,33 @@ pub fn spelled(ty: &syn::Type) -> String {
     quote!(#ty).to_string().replace(' ', "")
 }
 
-fn is_comma(tt: &TokenTree) -> bool {
-    matches!(tt, TokenTree::Punct(p) if p.as_char() == ',')
-}
-
 fn parse_fields(tokens: Vec<TokenTree>) -> Vec<Field> {
-    let mut slice: Tokens = &tokens;
-    let mut fields = Vec::new();
-    while !slice.is_empty() {
-        let name = any_ident
-            .parse_next(&mut slice)
-            .expect("field name in page(...) { ... }");
-        punct(':')
-            .parse_next(&mut slice)
-            .expect("`:` after field name");
+    use syn::parse::{ParseStream, Parser};
 
-        // `~` before the type, reading as "approximately": a field for which
-        // "the same" is not a meaningful question. The token is vacant in Rust
-        // - it meant `~T` before 1.0 and was never reused - and it lexes
-        // cleanly here.
-        let identity = opt(punct('~'))
-            .parse_next(&mut slice)
-            .expect("`opt` does not fail")
-            .is_none();
+    let read = |input: ParseStream| {
+        let mut fields = Vec::new();
+        while !input.is_empty() {
+            let name: Ident = input.parse()?;
+            input.parse::<syn::Token![:]>()?;
 
-        let ty = parse_type(is_comma)
-            .parse_next(&mut slice)
-            .expect("field type in page(...) { ... }");
-        fields.push(Field { name, ty, identity });
-        let _ = punct(',').parse_next(&mut slice);
-    }
-    fields
+            // `~` before the type, reading as "approximately": a field for which
+            // "the same" is not a meaningful question. The token is vacant in Rust
+            // - it meant `~T` before 1.0 and was never reused - and it lexes
+            // cleanly here.
+            let identity = input.parse::<Option<syn::Token![~]>>()?.is_none();
+
+            let ty: syn::Type = input.parse()?;
+            fields.push(Field { name, ty, identity });
+
+            if !input.is_empty() {
+                input.parse::<syn::Token![,]>()?;
+            }
+        }
+        Ok(fields)
+    };
+
+    read.parse2(tokens.into_iter().collect())
+        .unwrap_or_else(|error| panic!("routes!: a field in `page(..) {{ .. }}` - {error}"))
 }
 
 fn parse_layout_node<'i>(input: &mut Tokens<'i>) -> ModalResult<Node> {
@@ -1313,6 +1309,30 @@ mod tests {
             quote!(#payload).to_string(),
             quote!(Receiver<Report>).to_string(),
             "the `~` is not part of the type"
+        );
+    }
+
+    #[test]
+    fn a_field_whose_type_has_a_comma_in_its_generics_is_one_field() {
+        let read = std::panic::catch_unwind(|| {
+            tree_of(r#"page(Totals) { by_host: HashMap<String, u32>, feed: ~Feed<A, B>, n: u8 }"#)
+        });
+
+        let fields: Vec<(String, String, bool)> = match &read {
+            Ok(tree) => tree.leaves()[0]
+                .fields
+                .iter()
+                .map(|field| (field.name.to_string(), spelled(&field.ty), field.identity))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        assert_eq!(
+            fields,
+            [
+                ("by_host".to_string(), "HashMap<String,u32>".to_string(), true),
+                ("feed".to_string(), "Feed<A,B>".to_string(), false),
+                ("n".to_string(), "u8".to_string(), true),
+            ]
         );
     }
 

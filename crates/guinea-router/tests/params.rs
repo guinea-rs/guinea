@@ -1,6 +1,8 @@
 //! What a segment that captures nothing is handed: `()`, the same thing a
 //! segment that declares no `Params` defaults to.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
@@ -50,6 +52,25 @@ impl Page for Named {
     fn view(_cx: &mut HeadlessCx<Self>) {}
 }
 
+thread_local! {
+    static HANDED: RefCell<Option<HashMap<String, u32>>> = const { RefCell::new(None) };
+}
+
+/// Captures a type whose generics hold a comma.
+pub struct Totals;
+
+impl Page for Totals {
+    type Params = TotalsParams;
+    type Installs = ();
+
+    fn install(_ctx: &FeatureInitContext, params: &TotalsParams) -> anyhow::Result<()> {
+        HANDED.with(|handed| *handed.borrow_mut() = Some(params.by_host.clone()));
+        Ok(())
+    }
+
+    fn view(_cx: &mut HeadlessCx<Self>) {}
+}
+
 routes! {
     backend = guinea_router::headless::Headless,
     Route {
@@ -57,6 +78,7 @@ routes! {
             page(Home) { }
             page(Named)
         }
+        page(Totals) { by_host: HashMap<String, u32> }
     }
 }
 
@@ -76,4 +98,15 @@ fn naming_the_generated_params_still_works() {
     let navigated = router().navigate(Route::Named {}).map(|_| ());
 
     assert!(navigated.is_ok(), "{navigated:?}");
+}
+
+#[test]
+fn a_field_whose_type_has_a_comma_in_its_generics_is_handed_whole() {
+    let by_host = HashMap::from([("ubuntu".to_string(), 3)]);
+
+    router()
+        .navigate(Route::Totals { by_host: by_host.clone() })
+        .expect("navigate");
+
+    assert_eq!(HANDED.with(|handed| handed.borrow().clone()), Some(by_host));
 }

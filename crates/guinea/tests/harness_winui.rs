@@ -1409,3 +1409,90 @@ fn what_a_title_bar_holds_on_its_left_is_found(h: &mut Harness) {
 
     assert!(page.find_text("left of the title").is_some(), "{:#?}", page.tree());
 }
+
+/// Two of the same mounted at once: what is done to one is done to that one.
+mod two_of_a_kind {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct Tally {
+        n: u32,
+    }
+
+    pub enum Add {
+        One,
+    }
+
+    #[page]
+    impl Page for Tally {
+        type Message = Add;
+
+        fn update(&mut self, message: Add, _cx: &mut UpdateCx<'_, Self>) {
+            match message {
+                Add::One => self.n += 1,
+            }
+        }
+
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text(format!("tally {}", self.n)).into()
+        }
+    }
+
+    #[guinea::test(iterations = 1)]
+    fn send_reaches_the_page_it_is_called_on(h: &mut Harness) {
+        let mut first = Mounted::<Tally>::mount(h.segment(), ()).unwrap();
+        let mut second = Mounted::<Tally>::mount(h.segment(), ()).unwrap();
+
+        first.send(Add::One);
+        first.settle();
+        second.settle();
+
+        let shown = |page: &Mounted<'_, Tally>| {
+            ["tally 0", "tally 1"]
+                .into_iter()
+                .find(|text| page.find_text(text).is_some())
+        };
+        assert_eq!((shown(&first), shown(&second)), (Some("tally 1"), Some("tally 0")));
+    }
+
+    #[derive(Default)]
+    pub struct Here;
+
+    #[page]
+    impl Page for Here {
+        type Params = HereParams;
+
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text("here").into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct There;
+
+    #[page]
+    impl Page for There {
+        type Params = ThereParams;
+
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text("there").into()
+        }
+    }
+
+    routes! {
+        Where {
+            page(Here) { }
+            page(There) { }
+        }
+    }
+
+    #[guinea::test(iterations = 1)]
+    fn navigate_moves_the_tree_it_is_called_on(h: &mut Harness) {
+        let mut first = Mounted::routed(h, Where::Here {}).unwrap();
+        let second = Mounted::routed(h, Where::Here {}).unwrap();
+
+        first.navigate(Where::There {});
+
+        assert_eq!((first.route(), second.route()), (Where::There {}, Where::Here {}));
+    }
+}

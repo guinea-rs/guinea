@@ -88,8 +88,16 @@ const FLIPS: &[(ObjectType, EventId, PropertyId, bool)] = &[
 
 type Sender<M> = Rc<dyn Fn(Signal<M>) -> bool>;
 
+/// A component's sender, the segment type it was made for, and the host it
+/// is in once that host has [claimed](claim) it.
+struct Remembered {
+    owner: Option<u64>,
+    segment: TypeId,
+    send: Box<dyn Any>,
+}
+
 thread_local! {
-    static SENDERS: RefCell<HashMap<TypeId, Box<dyn Any>>> = RefCell::new(HashMap::new());
+    static SENDERS: RefCell<Vec<Remembered>> = const { RefCell::new(Vec::new()) };
     static CHAINS: RefCell<HashMap<(TypeId, usize), &'static [SegmentEntry<WinUi>]>> =
         RefCell::new(HashMap::new());
     static ROUTER: RefCell<Option<Rc<Router<WinUi>>>> = const { RefCell::new(None) };
@@ -101,27 +109,58 @@ pub(crate) fn remember_router(router: &Rc<Router<WinUi>>) {
     ROUTER.with(|kept| *kept.borrow_mut() = Some(router.clone()));
 }
 
-/// The handle a [`RouterRoot`] last handed its tree, for
-/// [`Mounted::navigate`] to go the same way a page does.
+/// The handle a [`RouterRoot`] last handed its tree, kept by
+/// [`Mounted::routed`] for [`Mounted::navigate`] to go the same way a page
+/// does.
 pub(crate) fn remember_nav<R: 'static>(nav: &NavigateHandle<WinUi, R>) {
     NAV.with(|kept| *kept.borrow_mut() = Some(Box::new(nav.clone())));
 }
 
 /// What a mounted page's or layout's component answers to, kept as it is
-/// created.
+/// created. Whose it is is not known yet: the reactor does not say which
+/// host creates a component, so the host that ran claims it afterwards.
 pub(crate) fn remember<S: 'static, M: 'static>(send: impl Fn(Signal<M>) -> bool + 'static) {
     let send: Sender<M> = Rc::new(send);
     SENDERS.with(|senders| {
-        senders.borrow_mut().insert(TypeId::of::<S>(), Box::new(send));
+        senders.borrow_mut().push(Remembered {
+            owner: None,
+            segment: TypeId::of::<S>(),
+            send: Box::new(send),
+        });
     });
 }
 
-fn sender<S: 'static, M: 'static>() -> Sender<M> {
+/// Makes what host `owner` just created its own: the elements it bound and
+/// the components it made.
+fn claim(owner: u64) {
+    semantics::claim(owner);
+
+    SENDERS.with(|senders| {
+        for remembered in senders.borrow_mut().iter_mut() {
+            remembered.owner.get_or_insert(owner);
+        }
+    });
+}
+
+/// Lets go of what host `owner` made, as it goes.
+fn release(owner: u64) {
+    SENDERS.with(|senders| {
+        senders
+            .borrow_mut()
+            .retain(|remembered| remembered.owner != Some(owner));
+    });
+}
+
+/// The sender of the `S` host `owner` made last.
+fn sender<S: 'static, M: 'static>(owner: u64) -> Sender<M> {
     SENDERS.with(|senders| {
         senders
             .borrow()
-            .get(&TypeId::of::<S>())
-            .and_then(|send| send.downcast_ref::<Sender<M>>())
+            .iter()
+            .rev()
+            .filter(|remembered| remembered.owner == Some(owner))
+            .find(|remembered| remembered.segment == TypeId::of::<S>())
+            .and_then(|remembered| remembered.send.downcast_ref::<Sender<M>>())
             .cloned()
             .unwrap_or_else(|| panic!("{} is not mounted", std::any::type_name::<S>()))
     })
@@ -177,7 +216,7 @@ fn host(owner: u64, root: ComponentNode) -> Result<ComponentHost<RecordingAdapte
     adapter.record_batches(true);
 
     let host = ComponentHost::mount(adapter, [root]).map_err(|refused| format!("{refused:?}"))?;
-    semantics::claim(owner);
+    claim(owner);
 
     Ok(host)
 }
@@ -445,6 +484,9 @@ pub struct Mounted<'h, S> {
     navigated: Option<Box<dyn Any>>,
     /// The router, when the whole route tree is [mounted](Self::routed).
     router: Option<Rc<Router<WinUi>>>,
+    /// The handle its root hands its tree, when the whole route tree is
+    /// mounted: a `NavigateHandle<WinUi, R>` for its route type.
+    nav: Option<Box<dyn Any>>,
     /// The sizes the test laid marked elements out at, in the order given.
     sizes: Vec<(&'static str, f64, f64)>,
     /// The size each composition host was last told, by its observation.
@@ -466,6 +508,7 @@ impl<S> Drop for Mounted<'_, S> {
         if self.router.is_some() {
             NAV.with(|kept| kept.borrow_mut().take());
         }
+        release(self.owner);
     }
 }
 
@@ -520,6 +563,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
             counts: HashMap::new(),
             navigated: None,
             router: None,
+            nav: None,
             sizes: Vec::new(),
             told: HashMap::new(),
             owner,
@@ -639,7 +683,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
     where
         S: Mountable<K>,
     {
-        let delivered = sender::<S, <S as Mountable<K>>::Message>()(Signal::Node(message));
+        let send = sender::<S, <S as Mountable<K>>::Message>(self.owner);
+        let delivered = send(Signal::Node(message));
         assert!(delivered, "{} no longer takes messages", std::any::type_name::<S>());
 
         self.turn();
@@ -1483,7 +1528,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .drain(TURNS)
             .unwrap_or_else(|error| panic!("running the page's components: {error:?}"));
         let measured = self.measure();
-        semantics::claim(self.owner);
+        claim(self.owner);
 
         drained.dispatched + drained.dropped + measured
     }
@@ -1650,6 +1695,9 @@ where
         let router = ROUTER
             .with(|kept| kept.borrow_mut().take())
             .expect("the root builds its router as it is created");
+        let nav = NAV
+            .with(|kept| kept.borrow_mut().take())
+            .expect("the root hands its tree a way to navigate as it draws");
 
         let mut mounted = Self {
             harness,
@@ -1659,6 +1707,7 @@ where
             counts: HashMap::new(),
             navigated: None,
             router: Some(router),
+            nav: Some(nav),
             sizes: Vec::new(),
             told: HashMap::new(),
             owner,
@@ -1675,14 +1724,12 @@ where
     /// Goes to `to` the way `use_navigate` does - guards, teardown and all -
     /// and hands back what the navigation set off.
     pub fn navigate(&mut self, to: R) -> Act<'h> {
-        let nav = NAV
-            .with(|kept| {
-                kept.borrow()
-                    .as_ref()
-                    .and_then(|nav| nav.downcast_ref::<NavigateHandle<WinUi, R>>())
-                    .cloned()
-            })
-            .expect("the root hands its tree a way to navigate as it draws");
+        let nav = self
+            .nav
+            .as_ref()
+            .and_then(|nav| nav.downcast_ref::<NavigateHandle<WinUi, R>>())
+            .cloned()
+            .expect("a route tree mounted with `routed` keeps the handle its root drew with");
 
         let harness = self.harness;
         let act = harness.record("navigate", || {

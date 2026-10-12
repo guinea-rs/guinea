@@ -66,8 +66,9 @@ impl Ui for WinUi {
 /// `#[page]` writes what a page leaves out: `Params = ()` for a page that
 /// captures nothing, `Installs = ()` with an `install` that mounts the
 /// `Default` node and installs nothing, and a
-/// `Message` nobody can send with its empty `update`. The smallest page is a
-/// view:
+/// `Message` nobody can send with its empty `update`. That `install` is the
+/// only thing that asks for `Default`: a page that writes its own is made
+/// there, and need not have one. The smallest page is a view:
 ///
 /// <!-- shown: a page that is only a view -->
 /// ```rust,ignore
@@ -186,7 +187,7 @@ impl Ui for WinUi {
 /// }
 /// ```
 /// <!-- /shown -->
-pub trait Page: Default + Sized + 'static {
+pub trait Page: Sized + 'static {
     /// When `true`, the router keeps this page's reducer states in memory
     /// while the page is not mounted. The page's scope (and therefore its
     /// actors) is still torn down, but when the user returns the UI will see
@@ -343,7 +344,6 @@ pub trait Page: Default + Sized + 'static {
     ///     pub pid: u32,
     /// }
     ///
-    /// #[derive(Default)]
     /// pub struct ProcessPage {
     ///     pid: u32,
     /// }
@@ -384,8 +384,8 @@ pub trait Page: Default + Sized + 'static {
     /// }
     ///
     /// /// The widths are the page's own once it is mounted: a drag changes them
-    /// /// here, and nothing else needs to know.
-    /// #[derive(Default)]
+    /// /// here, and nothing else needs to know. No `Default`: `install` is the
+    /// /// one place a table is made.
     /// pub struct Table {
     ///     widths: Vec<u32>,
     /// }
@@ -743,7 +743,7 @@ pub trait Page: Default + Sized + 'static {
 /// Nothing reaches up past what is above it. A page that no layout above
 /// installed `Sidebar` for panics on its first render, naming the chain it
 /// walked and who claimed `Sidebar` without exporting it.
-pub trait Layout: Default + Sized + 'static {
+pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
@@ -992,9 +992,10 @@ fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
     ctx.scope.keep(node);
 }
 
-/// The node installed into the scope at `props`, or a default one - which is
-/// what a page mounted outside a route tree gets.
-fn staged<N: Default + 'static>(props: &SegmentProps<WinUi>) -> Shared<N> {
+/// The node installed into the scope at `props`, and `None` once the scope is
+/// gone - the component made for a segment torn down while it was on its way
+/// draws nothing, as [`left`] says.
+fn staged<N: 'static>(props: &SegmentProps<WinUi>) -> Option<Shared<N>> {
     props.scope().kept::<Shared<N>, _>(|node| node.clone())
 }
 
@@ -1116,7 +1117,8 @@ impl<L: Layout> Refreshable for LayoutNode<L> {
 /// compares for us - `SegmentProps` has the `PartialEq` that decides whether
 /// this subtree is still the same one.
 pub struct PageNode<P> {
-    page: Shared<P>,
+    /// `None` when the segment was torn down before the reconciler made this.
+    page: Option<Shared<P>>,
     /// The segment's props, kept because `update` is not handed the input and
     /// a node that changes itself often needs to read what it is sitting in.
     props: SegmentProps<WinUi>,
@@ -1157,26 +1159,30 @@ impl<P: Page> Component for PageNode<P> {
             // refresh that touches no state still brings the view round.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
-            Signal::Node(_) if left(&self.props) => {}
-            Signal::Node(message) => self.page.borrow_mut().update(
-                message,
-                &mut UpdateCx {
-                    props: &self.props,
-                    segment: PhantomData,
-                },
-            ),
+            Signal::Node(message) => {
+                let Some(page) = self.page.as_ref().filter(|_| !left(&self.props)) else {
+                    return;
+                };
+                page.borrow_mut().update(
+                    message,
+                    &mut UpdateCx {
+                        props: &self.props,
+                        segment: PhantomData,
+                    },
+                )
+            }
         }
     }
 
     fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        if left(input) {
+        let Some(page) = self.page.as_ref().filter(|_| !left(input)) else {
             return marked::<P>(Grid::new().into());
-        }
+        };
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
-        let view = self.page.borrow().view(&mut PageCx {
+        let view = page.borrow().view(&mut PageCx {
             props: input.clone(),
             cx,
             page: PhantomData,
@@ -1188,7 +1194,8 @@ impl<P: Page> Component for PageNode<P> {
 }
 
 pub struct LayoutNode<L> {
-    layout: Shared<L>,
+    /// See `PageNode::page`.
+    layout: Option<Shared<L>>,
     props: SegmentProps<WinUi>,
 }
 
@@ -1222,26 +1229,30 @@ impl<L: Layout> Component for LayoutNode<L> {
             // See `PageNode::update`.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
-            Signal::Node(_) if left(&self.props) => {}
-            Signal::Node(message) => self.layout.borrow_mut().update(
-                message,
-                &mut UpdateCx {
-                    props: &self.props,
-                    segment: PhantomData,
-                },
-            ),
+            Signal::Node(message) => {
+                let Some(layout) = self.layout.as_ref().filter(|_| !left(&self.props)) else {
+                    return;
+                };
+                layout.borrow_mut().update(
+                    message,
+                    &mut UpdateCx {
+                        props: &self.props,
+                        segment: PhantomData,
+                    },
+                )
+            }
         }
     }
 
     fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        if left(input) {
+        let Some(layout) = self.layout.as_ref().filter(|_| !left(input)) else {
             return marked::<L>(Grid::new().into());
-        }
+        };
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
-        let view = self.layout.borrow().view(&mut LayoutCx {
+        let view = layout.borrow().view(&mut LayoutCx {
             props: input.clone(),
             cx,
             layout: PhantomData,

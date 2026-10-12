@@ -72,7 +72,7 @@ pub(crate) fn deliver<Node, Message>(
     update: fn(&mut Node, Message, &mut UpdateCx<'_, Node>),
     leaving: fn(&Node) -> Verdict,
 ) where
-    Node: Default + 'static,
+    Node: 'static,
     Message: Send + 'static,
 {
     // The chain can have moved since the widget produced this: a click and a

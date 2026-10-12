@@ -65,7 +65,7 @@ impl Node {
 /// is picked, which tab is open, what is typed in a filter. What crosses the
 /// segment - what a domain owns, what another page reads - is a reducer, and
 /// reaches this page through [`PageCx::state`].
-pub trait Page: Default + Sized + 'static {
+pub trait Page: Sized + 'static {
     /// When `true`, the router keeps this page's reducer states in memory
     /// while the page is not mounted.
     const CACHE_STATE_IN_MEMORY: bool = false;
@@ -109,7 +109,7 @@ pub trait Page: Default + Sized + 'static {
 
 /// A branch: draws its own chrome and decides where its child goes. Its own
 /// state, the same way a [`Page`] is.
-pub trait Layout: Default + Sized + 'static {
+pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
@@ -199,7 +199,7 @@ impl<P: Page> Mount<Egui> for MountPage<P> {
                     props,
                     page: std::marker::PhantomData,
                 })
-            })
+            });
         })
     }
 }
@@ -216,7 +216,7 @@ impl<L: Layout> Mount<Egui> for MountLayout<L> {
                     props,
                     layout: std::marker::PhantomData,
                 })
-            })
+            });
         })
     }
 }

@@ -246,7 +246,6 @@ mod keeping_the_capture {
         pub pid: u32,
     }
 
-    #[derive(Default)]
     pub struct ProcessPage {
         pid: u32,
     }
@@ -299,8 +298,8 @@ mod starting_from_a_setting {
     }
 
     /// The widths are the page's own once it is mounted: a drag changes them
-    /// here, and nothing else needs to know.
-    #[derive(Default)]
+    /// here, and nothing else needs to know. No `Default`: `install` is the
+    /// one place a table is made.
     pub struct Table {
         widths: Vec<u32>,
     }

@@ -471,16 +471,50 @@ fn what_a_scope_keeps_is_handed_back_as_it_was_left() {
 
     scope.kept::<u32, _>(|kept| *kept += 1);
 
-    assert_eq!(scope.kept::<u32, _>(|kept| *kept), 2);
+    assert_eq!(scope.kept::<u32, _>(|kept| *kept), Some(2));
 }
 
 #[test]
-fn with_nothing_kept_a_call_gets_a_default_that_lasts_it() {
-    let scope = ScopeTree::new();
+fn asking_a_scope_that_is_there_for_what_it_never_kept_is_a_mistake_said_out_loud() {
+    let tree = ScopeTree::new();
+    let scope = tree.scope();
 
-    scope.kept::<u32, _>(|kept| *kept += 5);
+    let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope.kept::<u32, _>(|kept| *kept += 5)
+    }));
 
-    assert_eq!(scope.kept::<u32, _>(|kept| *kept), 0);
+    let message = asked
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    assert_eq!(message, Some(format!("{scope:?} keeps no u32")));
+}
+
+#[test]
+fn asking_for_what_is_out_for_a_call_already_is_a_mistake_said_out_loud() {
+    let tree = ScopeTree::new();
+    let scope = tree.scope();
+    scope.keep(1u32);
+
+    let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope.kept::<u32, _>(|_| scope.kept::<u32, _>(|kept| *kept))
+    }));
+
+    let message = asked
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    assert_eq!(message, Some(format!("{scope:?} keeps no u32")));
+}
+
+#[test]
+fn a_scope_that_went_keeps_nothing() {
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    page.keep(1u32);
+    page.remove();
+
+    assert_eq!(page.kept::<u32, _>(|kept| *kept), None);
 }
 
 #[derive(Default)]
@@ -519,8 +553,8 @@ fn what_a_scope_removed_during_the_call_kept_goes_after_it() {
         dropped.get()
     });
 
-    assert_eq!((during, dropped.get()), (0, 1));
-    assert_eq!(page.kept::<Counted, _>(|kept| kept.0.is_some()), false);
+    assert_eq!((during, dropped.get()), (Some(0), 1));
+    assert_eq!(page.kept::<Counted, _>(|kept| kept.0.is_some()), None);
 }
 
 #[test]

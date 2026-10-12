@@ -78,7 +78,7 @@ pub enum Handled {
 /// Input comes down the active chain from the leaf: [`Page::on_key`] and
 /// [`Page::on_paste`] see it first, the layouts above see what it did not
 /// take, and [`run`]'s `on_event` sees what nobody took.
-pub trait Page: Default + Sized + 'static {
+pub trait Page: Sized + 'static {
     /// When `true`, the router keeps this page's reducer states in memory
     /// while the page is not mounted.
     const CACHE_STATE_IN_MEMORY: bool = false;
@@ -137,7 +137,7 @@ pub trait Page: Default + Sized + 'static {
 
 /// A branch: draws its own chrome and decides where its child goes. Its own
 /// state, the same way a [`Page`] is.
-pub trait Layout: Default + Sized + 'static {
+pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
@@ -277,7 +277,7 @@ impl<P: Page> Mount<Tui> for MountPage<P> {
                     props,
                     page: std::marker::PhantomData,
                 })
-            })
+            });
         })
     }
 }
@@ -298,6 +298,7 @@ impl<P: Page> TuiMount for MountPage<P> {
             Input::Key(key) => page.on_key(&mut cx, key),
             Input::Paste(text) => page.on_paste(&mut cx, text),
         })
+        .unwrap_or(Handled::No)
     }
 }
 
@@ -317,6 +318,7 @@ impl<L: Layout> TuiMount for MountLayout<L> {
             Input::Key(key) => layout.on_key(&mut cx, key),
             Input::Paste(text) => layout.on_paste(&mut cx, text),
         })
+        .unwrap_or(Handled::No)
     }
 }
 
@@ -333,7 +335,7 @@ impl<L: Layout> Mount<Tui> for MountLayout<L> {
                     props,
                     layout: std::marker::PhantomData,
                 })
-            })
+            });
         })
     }
 }

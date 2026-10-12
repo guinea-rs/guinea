@@ -103,7 +103,7 @@ pub type Element<'a, Message> = iced::Element<'a, Message>;
 /// i64 }` - and it removes the last trace of "a view, with its state installed
 /// beside it". Where the page sits, what it captured, what it keeps and what
 /// can happen to it are one declaration.
-pub trait Page: Default + Sized + 'static {
+pub trait Page: Sized + 'static {
     /// When `true`, this segment's states are kept in memory while the page is
     /// not mounted - the reducers the router owns, and the node itself.
     const CACHE_STATE_IN_MEMORY: bool = false;
@@ -173,7 +173,7 @@ pub trait Page: Default + Sized + 'static {
 }
 
 /// A branch: an Elm node that also decides where its child goes.
-pub trait Layout: Default + Sized + 'static {
+pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
@@ -509,7 +509,7 @@ pub const fn layout_entry<L: Layout>() -> SegmentEntry<Iced> {
 ///
 /// A question already answered is asked again with a token of its own: the
 /// answer to the last attempt is not the answer to this one.
-fn stage_node<Node: Default + 'static>(
+fn stage_node<Node: 'static>(
     ctx: &FeatureInitContext,
     node: Node,
     params: Box<dyn Any>,

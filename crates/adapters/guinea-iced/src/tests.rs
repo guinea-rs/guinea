@@ -408,6 +408,88 @@ fn a_message_for_a_node_that_left_the_chain_is_dropped() {
 }
 
 #[derive(Default)]
+struct Editor {
+    dirty: bool,
+}
+
+#[derive(Clone)]
+struct Typed;
+
+#[page]
+impl Page for Editor {
+    const CACHE_STATE_IN_MEMORY: bool = true;
+
+    type Message = Typed;
+
+    fn leaving(&self) -> Verdict {
+        match self.dirty {
+            true => Verdict::ask(Ask::new("Discard the edit?", "Discard", "Keep")),
+            false => Verdict::Allow,
+        }
+    }
+
+    fn update(&mut self, _message: Typed, _cx: &mut UpdateCx<'_, Self>) {
+        self.dirty = true;
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Typed> {
+        iced::widget::text("").into()
+    }
+}
+
+const WITH_EDITOR: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Editor>()];
+
+#[derive(Clone, PartialEq, Debug)]
+enum Editing {
+    Editor,
+    Other,
+}
+
+impl RouteChain<Iced> for Editing {
+    fn chain(&self) -> &'static [SegmentEntry<Iced>] {
+        match self {
+            Editing::Editor => &WITH_EDITOR,
+            Editing::Other => &WITH_OTHER,
+        }
+    }
+
+    fn params(&self) -> Vec<Box<dyn Any>> {
+        params()
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Editing::Editor => "Editor",
+            Editing::Other => "Other",
+        }
+    }
+}
+
+#[test]
+fn a_cached_node_that_came_back_dirty_still_minds_being_left() {
+    let mut mounted = Mounted::at(&WITH_EDITOR);
+    mounted.send(Envelope::new(1, mounted.scope(1), deliver_page::<Editor>, Box::new(Typed)));
+
+    mounted.router.navigate(Editing::Other).expect("asked");
+    assert!(mounted.router.pending().is_some(), "a dirty editor asks");
+    mounted.router.answer(true);
+    mounted.nodes.sync(&WITH_OTHER);
+
+    mounted.router.navigate(Editing::Editor).expect("back");
+    mounted.nodes.sync(&WITH_EDITOR);
+    assert!(
+        mounted.nodes.get::<Editor>(1).expect("mounted").dirty,
+        "the cached node came back as it was left"
+    );
+
+    mounted.router.navigate(Editing::Other).expect("asked again");
+    assert!(
+        mounted.router.pending().is_some(),
+        "the node on screen is dirty, so leaving it asks"
+    );
+}
+
+#[derive(Default)]
 struct Numbered {
     pid: u32,
     picked: Option<u32>,

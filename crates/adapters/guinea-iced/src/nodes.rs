@@ -140,6 +140,10 @@ impl Nodes {
 
     /// A kept node, if there is one for this place and it was left under the
     /// same parameters. Otherwise the freshly built one.
+    ///
+    /// A kept node comes back with its verdict in the fresh one's slot: the
+    /// guard the new scope asks reads that slot, not the one the node left
+    /// with.
     fn restored(
         &mut self,
         chain: &'static [SegmentEntry<Iced>],
@@ -156,7 +160,16 @@ impl Nodes {
         // A page kept under one set of parameters is a different page's worth
         // of state under another - the same rule the router applies to the
         // reducers it owns.
-        if same { kept } else { fresh }
+        if !same {
+            return fresh;
+        }
+
+        fresh.verdict.swap(&kept.verdict);
+        Held {
+            node: kept.node,
+            params: kept.params,
+            verdict: fresh.verdict,
+        }
     }
 
     fn keep(&mut self, key: (u64, usize), held: Held) {

@@ -406,8 +406,15 @@ impl<A: 'static> Addr<A> {
     }
 
     /// Handles what was queued while the actor was busy, then lets it be.
+    /// What is still queued once the actor is disposed is dropped unhandled.
     fn drain_queue(&self) {
         loop {
+            if self.0.cancel.is_cancelled() {
+                let dropped = std::mem::take(&mut *self.0.queue.borrow_mut());
+                drop(dropped);
+                break;
+            }
+
             let next = self.0.queue.borrow_mut().pop_front();
             let Some(mut queued) = next else { break };
 
@@ -583,6 +590,40 @@ mod tests {
         tree.bus().publish(Heard);
 
         assert_eq!(heard.get(), 1);
+    }
+
+    struct Leave;
+    struct After;
+
+    struct Leaving {
+        scope: Scope,
+        log: Rc<RefCell<Vec<&'static str>>>,
+    }
+
+    impl Handler<Leave> for Leaving {
+        fn handle(&mut self, _: Leave, cx: crate::actor::Cx<Self, Leave>) {
+            cx.addr().send(After);
+            self.scope.remove();
+            self.log.borrow_mut().push("leave");
+        }
+    }
+
+    impl Handler<After> for Leaving {
+        fn handle(&mut self, _: After, _cx: crate::actor::Cx<Self, After>) {
+            self.log.borrow_mut().push("after");
+        }
+    }
+
+    #[test]
+    fn what_was_queued_for_an_actor_is_not_handled_once_its_scope_is_gone() {
+        let tree = crate::scope::ScopeTree::new();
+        let scope = tree.child();
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let addr = Addr::bare(Leaving { scope, log: log.clone() }, &Home::new(scope));
+
+        addr.send(Leave);
+
+        assert_eq!(*log.borrow(), ["leave"], "handled after its scope was removed");
     }
 
     #[test]

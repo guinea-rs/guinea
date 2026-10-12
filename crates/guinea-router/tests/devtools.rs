@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use guinea_core::actor::{Cx, Handler};
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::feature::Bound;
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::observability;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
@@ -19,12 +19,9 @@ struct Counter {
     seen: u32,
 }
 
-impl Reducer for Counter {
-    type Update = u32;
-
-    fn reduce(&mut self, seen: u32) {
-        self.seen = seen;
-    }
+#[reducer]
+fn counter(this: &mut Counter, seen: u32) {
+    this.seen = seen;
 }
 
 struct Frame;
@@ -121,7 +118,7 @@ fn a_router_shows_up_once_it_has_navigated_and_goes_when_dropped() {
     let detail = &view.segments[1].states;
     assert_eq!(detail.len(), 1);
     assert!(detail[0].type_name.ends_with("Counter"));
-    assert!(detail[0].state.contains("seen: 3"), "{}", detail[0].state);
+    assert!(detail[0].state.preview.contains("seen: 3"), "{}", detail[0].state.preview);
 
     drop(views);
     drop(router);

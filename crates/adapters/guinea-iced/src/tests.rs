@@ -7,7 +7,7 @@
 use std::any::Any;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
 use crate::{
@@ -24,12 +24,9 @@ struct Domain(Vec<u32>);
 #[derive(Clone)]
 struct Replaced(Vec<u32>);
 
-impl Reducer for Domain {
-    type Update = Replaced;
-
-    fn reduce(&mut self, update: Replaced) {
-        self.0 = update.0;
-    }
+#[reducer]
+fn domain(this: &mut Domain, update: Replaced) {
+    this.0 = update.0;
 }
 
 #[derive(Default)]
@@ -323,12 +320,9 @@ fn a_page_kept_once_is_asked_again_the_next_time() {
 #[derive(Clone, Default, Debug, PartialEq)]
 struct Shown(u32);
 
-impl Reducer for Shown {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn shown(this: &mut Shown, to: u32) {
+    this.0 = to;
 }
 
 struct Showing;

@@ -11,8 +11,7 @@ use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
 use guinea_core::feature::Bound;
-use guinea_core::scope::Reducer;
-use guinea_macros::routes;
+use guinea_macros::{reducer, routes};
 use guinea_router::construction::check;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
@@ -20,12 +19,9 @@ use guinea_router::router::{Router, SegmentEntry};
 #[derive(Default, Clone, Debug)]
 struct Shown(u32);
 
-impl Reducer for Shown {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn shown(this: &mut Shown, to: u32) {
+    this.0 = to;
 }
 
 thread_local! {

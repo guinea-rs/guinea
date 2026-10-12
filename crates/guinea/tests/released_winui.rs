@@ -47,12 +47,9 @@ pub struct Pinged;
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Pings(pub u32);
 
-impl Reducer for Pings {
-    type Update = Pinged;
-
-    fn reduce(&mut self, _pinged: Pinged) {
-        self.0 += 1;
-    }
+#[reducer]
+fn pings(this: &mut Pings, _pinged: Pinged) {
+    this.0 += 1;
 }
 
 #[derive(Debug)]

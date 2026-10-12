@@ -1,4 +1,4 @@
-use guinea::prelude::Reducer;
+use guinea::prelude::reducer;
 use guinea_widgets::chart::RingSeries;
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -12,15 +12,12 @@ pub enum Sampled {
     At { at: u64, cpu: f32, memory: f32 },
 }
 
-impl Reducer for Metrics {
-    type Update = Sampled;
-
-    fn reduce(&mut self, update: Sampled) {
-        match update {
-            Sampled::At { at, cpu, memory } => {
-                self.cpu.push((at, cpu));
-                self.memory.push((at, memory));
-            }
+#[reducer]
+fn metrics(this: &mut Metrics, update: Sampled) {
+    match update {
+        Sampled::At { at, cpu, memory } => {
+            this.cpu.push((at, cpu));
+            this.memory.push((at, memory));
         }
     }
 }

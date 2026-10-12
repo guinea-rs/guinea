@@ -181,6 +181,7 @@ mod tests {
     use super::*;
     use guinea_app::feature::{FeatureHost, FeatureInitContext};
     use crate::router::Router;
+    use guinea_macros::reducer;
     use std::rc::Rc;
 
     /// Plain Rust: the state is the reducer, and the two items are both about
@@ -190,12 +191,9 @@ mod tests {
         installs: u32,
     }
 
-    impl Reducer for Counter {
-        type Update = u32;
-
-        fn reduce(&mut self, by: u32) {
-            self.installs += by;
-        }
+    #[reducer]
+    fn counter(this: &mut Counter, by: u32) {
+        this.installs += by;
     }
 
     struct Page1;

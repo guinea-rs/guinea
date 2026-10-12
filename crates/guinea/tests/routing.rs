@@ -12,8 +12,7 @@ mod routing {
     use std::rc::Rc;
     use guinea::router::*;
     use guinea_core::feature::Bound;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::routes;
+    use guinea_macros::{reducer, routes};
 
     /// The reducer is the state; `Processes` below is the page that shows it.
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -21,12 +20,9 @@ mod routing {
         seeded_from: String,
     }
 
-    impl Reducer for Listing {
-        type Update = String;
-
-        fn reduce(&mut self, from: String) {
-            self.seeded_from = from;
-        }
+    #[reducer]
+    fn listing(this: &mut Listing, from: String) {
+        this.seeded_from = from;
     }
 
     fn install_processes(
@@ -242,12 +238,9 @@ mod routing {
         install_count: i32,
     }
 
-    impl Reducer for Tabs {
-        type Update = i32;
-
-        fn reduce(&mut self, count: i32) {
-            self.install_count = count;
-        }
+    #[reducer]
+    fn tabs(this: &mut Tabs, count: i32) {
+        this.install_count = count;
     }
 
     #[derive(Default)]
@@ -761,12 +754,9 @@ mod routing {
             value: u32,
         }
 
-        impl Reducer for Probe {
-            type Update = ();
-    
-            fn reduce(&mut self, _: ()) {
-                self.value += 1;
-            }
+        #[reducer]
+        fn probe(this: &mut Probe, _: ()) {
+            this.value += 1;
         }
 
         #[derive(Default)]
@@ -848,25 +838,21 @@ mod routing {
     }
 }
 
-mod a_reducer_is_plain_rust {
-    use guinea_core::scope::{Reducer, ScopeTree};
+mod a_reducer_names_only_what_it_writes {
+    use guinea_core::scope::ScopeTree;
+    use guinea_macros::reducer;
 
-    /// What `#[reducer]`, `#[derive(ReducerState)]`, `#[dispatch]`, `#[port]`
-    /// and half of `messages!` used to produce between them. The whole
-    /// declaration is here, and the central type of the feature - the one
-    /// every other file names - is written rather than derived from a
-    /// function's name by changing its case.
+    /// The whole declaration is here, and the central type of the feature -
+    /// the one every other file names - is the one written, not one derived
+    /// from the function's name by changing its case.
     #[derive(Clone, Default, Debug)]
     struct Widget {
         value: i32,
     }
 
-    impl Reducer for Widget {
-        type Update = i32;
-
-        fn reduce(&mut self, to: i32) {
-            self.value = to;
-        }
+    #[reducer]
+    fn widget(this: &mut Widget, to: i32) {
+        this.value = to;
     }
 
     #[test]

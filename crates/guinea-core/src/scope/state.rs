@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::actor::shape::Declared;
+use crate::inspect::{Inspector, Node, Open};
 
 use super::Scope;
 
@@ -45,31 +46,33 @@ impl<T> From<Rc<RefCell<T>>> for StateHandle<T> {
 /// State, and how it changes.
 ///
 /// The type that implements this **is** the state - there is no `type State`,
-/// because the struct is already there and already named. Two items, both
-/// about state; a reducer cannot know who asked, only what changed.
+/// because the struct is already there and already named. A reducer cannot
+/// know who asked, only what changed.
+///
+/// It is written as a function, and `#[reducer]` writes the impl:
 ///
 /// ```
 /// # use guinea_core::scope::Reducer;
-/// #[derive(Clone, Debug, Default)]
+/// use guinea_macros::{Inspect, reducer};
+///
+/// #[derive(Clone, Default, Inspect)]
 /// pub struct Processes { pub items: Vec<String> }
 ///
 /// #[derive(Clone)]
 /// pub enum Refreshed { Items(Vec<String>) }
 ///
-/// impl Reducer for Processes {
-///     type Update = Refreshed;
-///
-///     fn reduce(&mut self, update: Refreshed) {
-///         match update { Refreshed::Items(items) => self.items = items }
-///     }
+/// #[reducer]
+/// fn processes(this: &mut Processes, update: Refreshed) {
+///     match update { Refreshed::Items(items) => this.items = items }
 /// }
 /// # let mut processes = Processes::default();
 /// # processes.reduce(Refreshed::Items(vec!["guinea".into()]));
 /// # assert_eq!(processes.items, ["guinea"]);
 /// ```
 ///
-/// Usually it is written as a function instead - `#[reducer] fn processes(this:
-/// &mut Processes, update: Refreshed)` - and the attribute writes this impl.
+/// Devtools show the state through its [`Inspect`](crate::inspect::Inspect)
+/// when it has one, through its `Debug` when not, and by its name without
+/// either: `#[reducer]` picks which, where the type is known.
 ///
 /// There is no actor here, and there must not be. A reducer knows its own
 /// state and how it changes; naming the actor that happens to drive it would
@@ -79,13 +82,17 @@ impl<T> From<Rc<RefCell<T>>> for StateHandle<T> {
 ///
 /// `Clone` because a reader is handed the state as it is now, shared, and a
 /// change made while a reader still holds it goes to a copy.
-pub trait Reducer: Clone + Default + std::fmt::Debug + 'static {
+pub trait Reducer: Clone + Default + 'static {
     /// What changes it. `Clone` because an observer is handed the update
     /// itself, and `reduce` consumes it - the copy is made only when
     /// something is actually observing.
     type Update: Clone + 'static;
 
     fn reduce(&mut self, update: Self::Update);
+
+    /// How devtools show it; `#[reducer]` writes it.
+    #[doc(hidden)]
+    fn show(&self, at: Inspector<'_>);
 }
 
 /// Where a reducer's state lives: the current value, shared with whoever read
@@ -107,23 +114,23 @@ struct Cell {
     observers: RefCell<Vec<(u64, Rc<dyn Fn(&dyn Any)>)>>,
 }
 
-/// What a cell holds, for printing it without knowing the type.
+/// What a cell holds, for showing it without knowing the type.
 #[derive(Clone, Copy)]
 struct Kind {
     name: &'static str,
-    describe: fn(&dyn Any) -> String,
+    show: fn(&dyn Any, Option<&Open>) -> Node,
 }
 
 impl Kind {
     fn of<R: Reducer>() -> Self {
         Self {
             name: std::any::type_name::<R>(),
-            describe: |state| match state.downcast_ref::<Slot<R>>() {
+            show: |state, open| match state.downcast_ref::<Slot<R>>() {
                 Some(cell) => match cell.try_borrow() {
-                    Ok(state) => format!("{:#?}", **state),
-                    Err(_) => "<being changed>".to_string(),
+                    Ok(state) => Node::shown(|at| state.show(at), open),
+                    Err(_) => Node::busy("<being changed>"),
                 },
-                None => "<unknown>".to_string(),
+                None => Node::busy("<unknown>"),
             },
         }
     }
@@ -133,7 +140,8 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DescribedState {
     pub type_name: &'static str,
-    pub state: String,
+    /// Its preview; [`Scope::inspect_state`] opens it.
+    pub state: Node,
     /// The feature that claimed it; `None` for the segment's own.
     pub feature: Option<&'static str>,
     /// Where it was claimed: the `cx.state::<R>()` that did it.
@@ -155,7 +163,19 @@ impl Cell {
 }
 
 impl Scope {
-    /// Every reducer this scope holds whose type it has seen, printed.
+    /// The state of the reducer named `type_name` this scope holds, read as
+    /// far as `open` reaches; `None` when it holds none by that name.
+    pub fn inspect_state(&self, type_name: &str, open: &Open) -> Option<Node> {
+        let data = self.data()?;
+        let kinds = data.state.kinds.borrow();
+        let (type_id, kind) = kinds.iter().find(|(_, kind)| kind.name == type_name)?;
+
+        let cells = data.state.cells.borrow();
+        let cell = cells.get(type_id)?;
+        Some((kind.show)(&*cell.state, Some(open)))
+    }
+
+    /// Every reducer this scope holds whose type it has seen, previewed.
     pub fn describe_states(&self) -> Vec<DescribedState> {
         let Some(data) = self.data() else {
             return Vec::new();
@@ -169,7 +189,7 @@ impl Scope {
                 let claim = data.features.claimed(*type_id);
                 Some(DescribedState {
                     type_name: kind.name,
-                    state: (kind.describe)(&*cell.state),
+                    state: (kind.show)(&*cell.state, None),
                     feature: claim.and_then(|claim| data.features.section_name(claim.section)),
                     declared: claim.and_then(|claim| claim.declared),
                 })

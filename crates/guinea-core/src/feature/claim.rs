@@ -62,7 +62,7 @@ impl<R: Reducer> Claim<R> {
     pub fn driven_by<A, F>(self, build: F) -> (Bound<R>, Addr<A>)
     where
         F: FnOnce(Push<R>) -> A,
-        A: ManagedActor + Serves + std::fmt::Debug + 'static,
+        A: ManagedActor + Serves + 'static,
     {
         let home = Home::in_section(self.section);
         let drives = Some(crate::short_type_name::<R>());

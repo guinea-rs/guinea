@@ -217,29 +217,23 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use crate::scope::{Reducer, ScopeTree};
+    use crate::scope::ScopeTree;
 
     #[derive(Clone, Default, Debug)]
     struct Count(u32);
 
-    impl Reducer for Count {
-        type Update = u32;
-
-        fn reduce(&mut self, to: u32) {
-            self.0 = to;
-        }
+    #[guinea_macros::reducer]
+    fn count(this: &mut Count, to: u32) {
+        this.0 = to;
     }
 
     /// A second cell, for watching one piece of state follow another.
     #[derive(Clone, Default, Debug)]
     struct Mirror(u32);
 
-    impl Reducer for Mirror {
-        type Update = u32;
-
-        fn reduce(&mut self, to: u32) {
-            self.0 = to;
-        }
+    #[guinea_macros::reducer]
+    fn mirror(this: &mut Mirror, to: u32) {
+        this.0 = to;
     }
 
     fn watched() -> (ScopeTree, Rc<StdCell<u32>>, crate::scope::Subscription) {

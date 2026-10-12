@@ -6,7 +6,7 @@
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::feature::Bound;
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::router::{Router, SegmentEntry};
 use guinea_slint::{LayoutCx, PageCx, Slint, layout_entry, segment_entry};
 use i_slint_backend_testing::{ElementHandle, ElementRoot};
@@ -44,12 +44,9 @@ slint::slint! {
 #[derive(Clone, Default, Debug)]
 struct Title(String);
 
-impl Reducer for Title {
-    type Update = String;
-
-    fn reduce(&mut self, title: String) {
-        self.0 = title;
-    }
+#[reducer]
+fn title(this: &mut Title, title: String) {
+    this.0 = title;
 }
 
 struct Tabs;

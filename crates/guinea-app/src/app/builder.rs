@@ -114,7 +114,7 @@ impl PluginBuilder {
 
     /// Creates `actor` in the application's scope. See
     /// [`ScopeContext::spawn`].
-    pub fn spawn<A: ManagedActor + std::fmt::Debug + 'static>(&self, actor: A) -> Addr<A> {
+    pub fn spawn<A: ManagedActor + 'static>(&self, actor: A) -> Addr<A> {
         self.cx.spawn(actor)
     }
 

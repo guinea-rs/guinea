@@ -24,13 +24,10 @@ pub struct Found {
     pub found: Vec<&'static str>,
 }
 
-impl Reducer for Results {
-    type Update = Found;
-
-    fn reduce(&mut self, update: Found) {
-        self.query = update.query;
-        self.found = update.found;
-    }
+#[reducer]
+fn results(this: &mut Results, update: Found) {
+    this.query = update.query;
+    this.found = update.found;
 }
 
 #[derive(Clone, Debug)]
@@ -293,12 +290,9 @@ mod polling {
     #[derive(Clone, Debug)]
     pub struct Taken;
 
-    impl Reducer for Samples {
-        type Update = Taken;
-
-        fn reduce(&mut self, _taken: Taken) {
-            self.taken += 1;
-        }
+    #[reducer]
+    fn samples(this: &mut Samples, _taken: Taken) {
+        this.taken += 1;
     }
 
     #[derive(Clone, Debug)]
@@ -399,12 +393,9 @@ mod reports {
         pub names: Vec<&'static str>,
     }
 
-    impl Reducer for Running {
-        type Update = Report;
-
-        fn reduce(&mut self, report: Report) {
-            self.names = report.0;
-        }
+    #[reducer]
+    fn running(this: &mut Running, report: Report) {
+        this.names = report.0;
     }
 
     #[derive(Debug)]
@@ -548,12 +539,9 @@ mod named {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Name(pub String);
 
-    impl Reducer for Name {
-        type Update = Renamed;
-
-        fn reduce(&mut self, renamed: Renamed) {
-            self.0 = renamed.0;
-        }
+    #[reducer]
+    fn name(this: &mut Name, renamed: Renamed) {
+        this.0 = renamed.0;
     }
 
     #[derive(Debug)]
@@ -604,12 +592,9 @@ mod titled {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Title(pub String);
 
-    impl Reducer for Title {
-        type Update = Rename;
-
-        fn reduce(&mut self, rename: Rename) {
-            self.0 = rename.0;
-        }
+    #[reducer]
+    fn title(this: &mut Title, rename: Rename) {
+        this.0 = rename.0;
     }
 
     #[derive(Debug)]
@@ -723,12 +708,9 @@ mod listening {
     #[derive(Clone, Debug)]
     pub struct Once;
 
-    impl Reducer for Heard {
-        type Update = Once;
-
-        fn reduce(&mut self, _once: Once) {
-            self.0 += 1;
-        }
+    #[reducer]
+    fn heard(this: &mut Heard, _once: Once) {
+        this.0 += 1;
     }
 
     #[derive(Debug)]
@@ -958,12 +940,9 @@ mod echo {
     #[derive(Clone, Debug)]
     pub struct Saw;
 
-    impl Reducer for Seen {
-        type Update = Saw;
-
-        fn reduce(&mut self, _saw: Saw) {
-            self.samples += 1;
-        }
+    #[reducer]
+    fn seen(this: &mut Seen, _saw: Saw) {
+        this.samples += 1;
     }
 
     feature! {
@@ -1055,12 +1034,9 @@ mod watching {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Seen(pub Vec<u32>);
 
-    impl Reducer for Seen {
-        type Update = Changed;
-
-        fn reduce(&mut self, Changed(value): Changed) {
-            self.0.push(value);
-        }
+    #[reducer]
+    fn seen(this: &mut Seen, Changed(value): Changed) {
+        this.0.push(value);
     }
 
     #[derive(Debug)]
@@ -1192,12 +1168,9 @@ mod lingering {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Pokes(pub u32);
 
-    impl Reducer for Pokes {
-        type Update = Poked;
-
-        fn reduce(&mut self, _poked: Poked) {
-            self.0 += 1;
-        }
+    #[reducer]
+    fn pokes(this: &mut Pokes, _poked: Poked) {
+        this.0 += 1;
     }
 
     #[derive(Debug)]
@@ -1291,12 +1264,9 @@ mod supervising {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Agents(pub u32);
 
-    impl Reducer for Agents {
-        type Update = Found;
-
-        fn reduce(&mut self, _found: Found) {
-            self.0 += 1;
-        }
+    #[reducer]
+    fn agents(this: &mut Agents, _found: Found) {
+        this.0 += 1;
     }
 
     #[derive(Debug)]
@@ -1360,12 +1330,9 @@ mod hiring {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Staff(pub u32);
 
-    impl Reducer for Staff {
-        type Update = u32;
-
-        fn reduce(&mut self, staff: u32) {
-            self.0 = staff;
-        }
+    #[reducer]
+    fn staff(this: &mut Staff, staff: u32) {
+        this.0 = staff;
     }
 
     #[derive(Debug)]

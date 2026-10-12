@@ -8,8 +8,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::scope::{Reducer, Scope};
-use guinea_macros::{routes, slot};
+use guinea_core::scope::Scope;
+use guinea_macros::{reducer, routes, slot};
 use guinea_router::construction::check;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
 use guinea_router::router::{RouteChain, Router};
@@ -20,12 +20,9 @@ pub struct Footer;
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Title(&'static str);
 
-impl Reducer for Title {
-    type Update = &'static str;
-
-    fn reduce(&mut self, to: &'static str) {
-        self.0 = to;
-    }
+#[reducer]
+fn title(this: &mut Title, to: &'static str) {
+    this.0 = to;
 }
 
 pub struct Chrome;

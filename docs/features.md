@@ -27,42 +27,40 @@
 
 ## Редьюсер
 
-Состояние в центре, `Reducer` реализуется на нём же.
+Состояние в центре, `Reducer` реализуется на нём же. Пишется функцией:
+состояние — то, что она берёт по `&mut`, обновление — второй аргумент.
 
 ```rust
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default, Inspect)]
 pub struct Processes {
     pub items: Vec<ProcessRow>,
 }
 
+#[derive(Clone)]
 pub enum Update {
     SetItems(Vec<ProcessRow>),
 }
 
-impl Reducer for Processes {
-    type Update = Update;
-
-    fn reduce(&mut self, update: Update) {
-        match update {
-            Update::SetItems(items) => self.items = items,
-        }
+#[reducer]
+fn processes(this: &mut Processes, update: Update) {
+    match update {
+        Update::SetItems(items) => this.items = items,
     }
 }
 ```
 
-Два пункта, оба про состояние. Ни `Actions`, ни `Group`, ни `Port` — редьюсер
-не может знать, кто его просит, только что изменилось.
+Ни `Actions`, ни `Group`, ни `Port` — редьюсер не может знать, кто его просит,
+только что изменилось.
 
-Обычный Rust, без макросов. Пять нынешних (`messages!`, `#[port]`,
-`#[reducer]`, `#[dispatch]`, `#[derive(ReducerState)]`) порождают
-леса, которых у этой формы нет: `#[port]` становится параметром `push`,
-`#[dispatch]` — инертная метка, чей смысл живёт внутри `#[reducer]`, а сам
-`#[reducer]` выводит тип, которым пользуются все остальные файлы —
-`ProcessesReducer`, — сменой регистра у имени функции. Центральная сущность
-фичи не встречается в её собственном объявлении.
+`#[reducer]` пишет `impl Reducer for Processes` по сигнатуре и ничего не
+называет сам: тип — тот, что написан в аргументе, а не выведенный сменой
+регистра у имени функции, как у прежнего `#[reducer]`, порождавшего
+`ProcessesReducer`. Руками `impl Reducer` не пишется: в нём есть скрытый метод,
+через который devtools показывают состояние, и выбрать его — `Inspect`, если
+он есть, иначе `Debug`, иначе имя типа — можно только там, где тип известен.
 
-**Одно правило из этого опыта остаётся: объявление вводит только те имена,
-которые в нём написаны.**
+**Правило из этого опыта: объявление вводит только те имена, которые в нём
+написаны.**
 
 ## Актор и действия
 

@@ -14,13 +14,10 @@ enum CounterMsg {
     Set(i32),
 }
 
-impl Reducer for Counter {
-    type Update = CounterMsg;
-
-    fn reduce(&mut self, update: CounterMsg) {
-        match update {
-            CounterMsg::Set(v) => self.value = v,
-        }
+#[guinea_macros::reducer]
+fn counter(this: &mut Counter, update: CounterMsg) {
+    match update {
+        CounterMsg::Set(v) => this.value = v,
     }
 }
 
@@ -429,8 +426,8 @@ fn a_window_reads_the_actors_under_it_and_one_by_id_without_the_rest() {
     assert_eq!(held, expected);
     assert_eq!(page.actors().len(), 1, "a page reads only what is under it");
 
-    let read = window.actor(bumped.id()).map(|actor| actor.state);
-    assert_eq!(read, Some(format!("{:#?}", Ticker(1))));
+    let read = window.actor(bumped.id()).map(|actor| actor.state.preview);
+    assert_eq!(read.as_deref(), Some("Ticker(1)"));
     assert!(window.actor(usize::MAX).is_none());
 
     window.remove();
@@ -442,11 +439,8 @@ fn a_reducer_is_read_where_it_was_claimed_or_from_the_nearest_export_above() {
     #[derive(Clone, Default, Debug)]
     struct Hidden;
 
-    impl Reducer for Hidden {
-        type Update = ();
-
-        fn reduce(&mut self, _: ()) {}
-    }
+    #[guinea_macros::reducer]
+    fn hidden(_this: &mut Hidden, _: ()) {}
 
     let root = ScopeTree::new();
     let layout = root.child();
@@ -571,11 +565,8 @@ fn a_described_state_names_the_feature_that_claimed_it() {
     #[derive(Clone, Default, Debug)]
     struct Loose;
 
-    impl Reducer for Loose {
-        type Update = ();
-
-        fn reduce(&mut self, _: ()) {}
-    }
+    #[guinea_macros::reducer]
+    fn loose(_this: &mut Loose, _: ()) {}
 
     let scope = ScopeTree::new();
     let counting = scope.open_section(Some("app::CounterFeature"), None);

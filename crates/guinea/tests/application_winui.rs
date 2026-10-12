@@ -16,12 +16,9 @@ use windows_reactor::{TextBlock, View};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Link(pub &'static str);
 
-impl Reducer for Link {
-    type Update = &'static str;
-
-    fn reduce(&mut self, to: &'static str) {
-        self.0 = to;
-    }
+#[reducer]
+fn link(this: &mut Link, to: &'static str) {
+    this.0 = to;
 }
 
 /// What the application lists: pages read `Link` from it.

@@ -108,12 +108,9 @@ mod tests {
     #[derive(Clone, Default, Debug)]
     struct Counter(u32);
 
-    impl Reducer for Counter {
-        type Update = u32;
-
-        fn reduce(&mut self, by: u32) {
-            self.0 += by;
-        }
+    #[guinea_macros::reducer]
+    fn counter(this: &mut Counter, by: u32) {
+        this.0 += by;
     }
 
     #[test]

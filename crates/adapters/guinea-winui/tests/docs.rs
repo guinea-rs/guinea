@@ -694,8 +694,7 @@ mod shell {
 mod per_context {
     //@show a layout per context
     //@hide
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     use windows_reactor::View;
@@ -704,12 +703,9 @@ mod per_context {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Machine(pub String);
 
-    impl Reducer for Machine {
-        type Update = String;
-
-        fn reduce(&mut self, to: String) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn machine(this: &mut Machine, to: String) {
+        this.0 = to;
     }
 
     feature! {
@@ -758,8 +754,7 @@ mod layout_installing {
     //@show a layout that installs
     //@hide
     use guinea_core::feature::Bound;
-    use guinea_core::scope::Reducer;
-    use guinea_macros::{feature, installs};
+    use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     use windows_reactor::View;
@@ -768,34 +763,25 @@ mod layout_installing {
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Sidebar(pub bool);
 
-    impl Reducer for Sidebar {
-        type Update = bool;
-
-        fn reduce(&mut self, open: bool) {
-            self.0 = open;
-        }
+    #[reducer]
+    fn reduce_sidebar(this: &mut Sidebar, open: bool) {
+        this.0 = open;
     }
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Metrics(pub u32);
 
-    impl Reducer for Metrics {
-        type Update = u32;
-
-        fn reduce(&mut self, to: u32) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn reduce_metrics(this: &mut Metrics, to: u32) {
+        this.0 = to;
     }
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Title(pub String);
 
-    impl Reducer for Title {
-        type Update = String;
-
-        fn reduce(&mut self, to: String) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn title(this: &mut Title, to: String) {
+        this.0 = to;
     }
 
     feature! { pub SidebarFeature { exports { Sidebar } } }

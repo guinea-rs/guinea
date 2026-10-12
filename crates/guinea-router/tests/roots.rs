@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use guinea_app::app::roots;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Page, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
 
@@ -22,12 +22,9 @@ thread_local! {
 #[derive(Clone, Default, Debug)]
 struct Marker(u32);
 
-impl Reducer for Marker {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn marker(this: &mut Marker, to: u32) {
+    this.0 = to;
 }
 
 struct Processes;

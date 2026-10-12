@@ -1,4 +1,4 @@
-use guinea::prelude::Reducer;
+use guinea::prelude::reducer;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Tabs {
@@ -18,17 +18,14 @@ pub enum Chrome {
     Killed(String),
 }
 
-impl Reducer for Tabs {
-    type Update = Chrome;
-
-    fn reduce(&mut self, update: Chrome) {
-        match update {
-            Chrome::Reached(context) => self.context = context,
-            Chrome::Installed(n) => self.install_count = n,
-            Chrome::Killed(name) => {
-                self.kills += 1;
-                self.last_killed = Some(name);
-            }
+#[reducer]
+fn tabs(this: &mut Tabs, update: Chrome) {
+    match update {
+        Chrome::Reached(context) => this.context = context,
+        Chrome::Installed(n) => this.install_count = n,
+        Chrome::Killed(name) => {
+            this.kills += 1;
+            this.last_killed = Some(name);
         }
     }
 }

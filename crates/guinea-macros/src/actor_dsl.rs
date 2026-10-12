@@ -562,6 +562,11 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
                 subscribes: &[#(#shape_subscribes),*],
                 declared: ::core::option::Option::Some(#declared),
             };
+
+            fn show(&self, at: #gc::inspect::Inspector<'_>) {
+                use #gc::inspect::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
+                (&&&#gc::inspect::pick::Probe(self)).show(at)
+            }
         }
 
         const _: () = {

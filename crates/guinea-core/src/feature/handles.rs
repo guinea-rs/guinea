@@ -27,6 +27,18 @@ impl<R: Reducer> std::fmt::Debug for Push<R> {
     }
 }
 
+impl<R: Reducer> crate::inspect::Inspect for Push<R> {
+    fn inspect(&self, at: crate::inspect::Inspector<'_>) {
+        at.unit(&format!("Push<{}>", crate::short_type_name::<R>()));
+    }
+}
+
+impl crate::inspect::Inspect for Dispatch {
+    fn inspect(&self, at: crate::inspect::Inspector<'_>) {
+        at.unit("Dispatch");
+    }
+}
+
 impl<R: Reducer> Push<R> {
     /// The way into `R` in `scope` - for a test that drives an actor without
     /// installing the feature around it.
@@ -160,12 +172,9 @@ mod tests {
     #[derive(Clone, Default, Debug)]
     struct Count(u32);
 
-    impl Reducer for Count {
-        type Update = u32;
-
-        fn reduce(&mut self, by: u32) {
-            self.0 += by;
-        }
+    #[guinea_macros::reducer]
+    fn count(this: &mut Count, by: u32) {
+        this.0 += by;
     }
 
     #[test]

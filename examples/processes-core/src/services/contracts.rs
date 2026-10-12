@@ -1,4 +1,4 @@
-use guinea::prelude::Reducer;
+use guinea::prelude::reducer;
 
 // The one action this feature answers. Who answers it is not written down
 // anywhere - see `install`.
@@ -15,12 +15,9 @@ pub enum Listed {
     Items(Vec<String>),
 }
 
-impl Reducer for Services {
-    type Update = Listed;
-
-    fn reduce(&mut self, update: Listed) {
-        match update {
-            Listed::Items(items) => self.items = items,
-        }
+#[reducer]
+fn services(this: &mut Services, update: Listed) {
+    match update {
+        Listed::Items(items) => this.items = items,
     }
 }

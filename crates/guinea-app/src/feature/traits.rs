@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -366,7 +365,7 @@ impl ScopeContext {
 
     /// Creates `actor`, subscribes it to what it listens for, and makes it
     /// this scope's: listed for devtools, and disposed when the scope goes.
-    pub fn spawn<A: ManagedActor + Debug + 'static>(&self, actor: A) -> Addr<A> {
+    pub fn spawn<A: ManagedActor + 'static>(&self, actor: A) -> Addr<A> {
         Addr::new(actor, &Home::in_section(self.section))
     }
 

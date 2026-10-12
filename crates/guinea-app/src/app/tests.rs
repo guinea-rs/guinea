@@ -387,7 +387,8 @@ fn an_installed_application_hands_out_what_its_plugins_provided() {
 }
 
 mod exports {
-    use guinea_core::scope::{Reducer, Scope};
+    use guinea_core::scope::Scope;
+    use guinea_macros::reducer;
 
     use super::super::Harness;
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder, builder};
@@ -396,12 +397,9 @@ mod exports {
     #[derive(Clone, Debug, Default)]
     struct Language(&'static str);
 
-    impl Reducer for Language {
-        type Update = &'static str;
-
-        fn reduce(&mut self, update: &'static str) {
-            self.0 = update;
-        }
+    #[reducer]
+    fn reduce_language(this: &mut Language, update: &'static str) {
+        this.0 = update;
     }
 
     struct Localisation;

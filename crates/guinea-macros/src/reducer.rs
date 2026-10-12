@@ -70,6 +70,11 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
             fn reduce(&mut self, update: #update) {
                 #called(self, update)
             }
+
+            fn show(&self, at: #gc::inspect::Inspector<'_>) {
+                use #gc::inspect::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
+                (&&&#gc::inspect::pick::Probe(self)).show(at)
+            }
         }
     })
 }

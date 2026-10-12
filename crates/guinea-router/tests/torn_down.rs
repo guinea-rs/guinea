@@ -2,18 +2,16 @@
 
 use std::rc::Rc;
 
-use guinea_core::scope::{Reducer, ScopeTree};
+use guinea_core::scope::ScopeTree;
+use guinea_macros::reducer;
 use guinea_router::headless::Headless;
 use guinea_router::router::SegmentProps;
 
 #[derive(Clone, Default, Debug)]
 struct Count;
 
-impl Reducer for Count {
-    type Update = ();
-
-    fn reduce(&mut self, _: ()) {}
-}
+#[reducer]
+fn count(_this: &mut Count, _: ()) {}
 
 #[test]
 fn reading_from_a_torn_down_segment_says_it_was_torn_down() {

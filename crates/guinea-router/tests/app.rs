@@ -12,31 +12,24 @@ use std::rc::Rc;
 
 use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::scope::Reducer;
-use guinea_macros::{app, installs, routes};
+use guinea_macros::{app, installs, reducer, routes};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
 use guinea_router::router::Router;
 
 #[derive(Clone, Debug, Default)]
 struct Language(&'static str);
 
-impl Reducer for Language {
-    type Update = &'static str;
-
-    fn reduce(&mut self, to: &'static str) {
-        self.0 = to;
-    }
+#[reducer]
+fn language(this: &mut Language, to: &'static str) {
+    this.0 = to;
 }
 
 #[derive(Clone, Debug, Default)]
 struct Accent(&'static str);
 
-impl Reducer for Accent {
-    type Update = &'static str;
-
-    fn reduce(&mut self, to: &'static str) {
-        self.0 = to;
-    }
+#[reducer]
+fn accent(this: &mut Accent, to: &'static str) {
+    this.0 = to;
 }
 
 struct Localisation;

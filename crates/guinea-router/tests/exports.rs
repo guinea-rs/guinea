@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
 use guinea_core::feature::Bound;
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
 
@@ -19,12 +19,9 @@ use guinea_router::router::{Router, SegmentEntry};
 #[derive(Default, Clone, Debug)]
 struct Shown(u32);
 
-impl Reducer for Shown {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn shown(this: &mut Shown, to: u32) {
+    this.0 = to;
 }
 
 /// Claimed by the same feature and deliberately not published - the feature's
@@ -32,12 +29,9 @@ impl Reducer for Shown {
 #[derive(Default, Clone, Debug)]
 struct Hidden(u32);
 
-impl Reducer for Hidden {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn hidden(this: &mut Hidden, to: u32) {
+    this.0 = to;
 }
 
 thread_local! {
@@ -240,12 +234,9 @@ fn a_page_reading_what_its_layout_kept_to_itself_is_told_the_chain_it_walked() {
 #[derive(Default, Clone, Debug)]
 struct Slot<const N: usize>(u32);
 
-impl<const N: usize> Reducer for Slot<N> {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[reducer]
+fn slot<const N: usize>(this: &mut Slot<N>, to: u32) {
+    this.0 = to;
 }
 
 struct Only<const N: usize>;

@@ -5,8 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
-use guinea_core::scope::Reducer;
-use guinea_macros::routes;
+use guinea_macros::{reducer, routes};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
 use guinea_router::router::{NavigateHandle, RouteSink, Router};
 
@@ -28,12 +27,9 @@ struct Draft {
     text: String,
 }
 
-impl Reducer for Draft {
-    type Update = String;
-
-    fn reduce(&mut self, text: String) {
-        self.text = text;
-    }
+#[reducer]
+fn draft(this: &mut Draft, text: String) {
+    this.text = text;
 }
 
 struct Shell;

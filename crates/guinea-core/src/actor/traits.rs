@@ -1,6 +1,7 @@
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::shape::{Declared, Shape};
 use crate::actor::{Addr, Cx};
+use crate::inspect::Inspector;
 
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
@@ -23,6 +24,10 @@ pub trait ManagedActor: Sized + 'static {
     type Flow;
     /// What `actor!` declared, for devtools.
     const SHAPE: Shape = Shape::UNKNOWN;
+
+    /// How devtools show its state; `actor!` writes it.
+    #[doc(hidden)]
+    fn show(&self, at: Inspector<'_>);
 }
 
 /// What an actor's manifest subscribes to on the bus of its tree. `actor!` writes

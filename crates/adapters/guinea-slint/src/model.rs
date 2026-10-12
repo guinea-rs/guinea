@@ -81,18 +81,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::Rows;
-    use guinea_core::scope::{Reducer, Scope, ScopeTree};
+    use guinea_core::scope::{Scope, ScopeTree};
+    use guinea_macros::reducer;
     use slint::Model;
 
     #[derive(Clone, Default, Debug)]
     struct Items(Vec<String>);
 
-    impl Reducer for Items {
-        type Update = Vec<String>;
-
-        fn reduce(&mut self, items: Vec<String>) {
-            self.0 = items;
-        }
+    #[reducer]
+    fn items(this: &mut Items, items: Vec<String>) {
+        this.0 = items;
     }
 
     fn rows(scope: &Scope) -> slint::ModelRc<slint::SharedString> {

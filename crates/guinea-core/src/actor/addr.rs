@@ -6,12 +6,12 @@ use crate::actor::event_bus::EventBus;
 use crate::actor::shape::name;
 use crate::actor::traits::{EventSubscription, Handler};
 use crate::actor::ManagedActor;
+use crate::inspect::{Node, Open};
 use crate::scope::{Scope, Section};
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
@@ -165,7 +165,7 @@ impl<A: 'static> Addr<A> {
     /// When the scope of `home` is already gone.
     pub fn new(state: A, home: &Home) -> Self
     where
-        A: ManagedActor + Debug,
+        A: ManagedActor,
     {
         Self::listed(state, home, None)
     }
@@ -245,7 +245,7 @@ impl<A: 'static> Addr<A> {
     ///
     /// total.send(Add(2));
     /// total.send(Add(3));
-    /// assert_eq!(total.debug_snapshot(), "Total(\n    5,\n)");
+    /// assert_eq!(total.inspect(None).preview, "Total(5)");
     /// ```
     ///
     /// One that is busy - sending to itself from a handler - handles it once
@@ -279,7 +279,7 @@ impl<A: 'static> Addr<A> {
     /// let countdown = Addr::new(Countdown(Vec::new()), &Home::new(tree.scope()));
     ///
     /// countdown.send(From(2));
-    /// assert_eq!(countdown.debug_snapshot(), format!("{:#?}", Countdown(vec![2, 1, 0])));
+    /// assert_eq!(countdown.inspect(None).preview, "Countdown([2, 1, 0])");
     /// ```
     pub fn send<M>(&self, msg: M)
     where
@@ -310,13 +310,15 @@ impl<A: 'static> Addr<A> {
         self.0.cancel.clone()
     }
 
-    pub fn debug_snapshot(&self) -> String
+    /// Its state, read as far as `open` reaches - the preview alone when
+    /// `None`. Busy while it is handling a message.
+    pub fn inspect(&self, open: Option<&Open>) -> Node
     where
-        A: std::fmt::Debug,
+        A: ManagedActor,
     {
         match self.0.state.try_borrow() {
-            Ok(state) => format!("{:#?}", *state),
-            Err(_) => "<handling a message>".to_string(),
+            Ok(state) => Node::shown(|at| state.show(at), open),
+            Err(_) => Node::busy("<handling a message>"),
         }
     }
 
@@ -339,7 +341,7 @@ impl<A: 'static> Addr<A> {
     /// [`Addr::new`] for the actor that drives the reducer `drives`.
     pub(crate) fn listed(state: A, home: &Home, drives: Option<&'static str>) -> Self
     where
-        A: ManagedActor + Debug,
+        A: ManagedActor,
     {
         let addr = Self::bare(state, home);
         A::Bus::subscribe_into(&addr);
@@ -562,12 +564,11 @@ mod tests {
         fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {}
     }
 
-    #[derive(Debug, Default)]
-    struct Counting(u32);
+    struct Counting(Rc<Cell<u32>>);
 
     impl Handler<Heard> for Counting {
         fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {
-            self.0 += 1;
+            self.0.set(self.0.get() + 1);
         }
     }
 
@@ -575,12 +576,13 @@ mod tests {
     fn an_actor_below_the_root_hears_the_bus_of_its_tree() {
         let tree = crate::scope::ScopeTree::new();
         let window = tree.child();
-        let addr = Addr::bare(Counting::default(), &Home::new(window.child()));
+        let heard = Rc::new(Cell::new(0));
+        let addr = Addr::bare(Counting(heard.clone()), &Home::new(window.child()));
 
         addr.subscribe::<Heard>();
         tree.bus().publish(Heard);
 
-        assert_eq!(addr.debug_snapshot(), format!("{:#?}", Counting(1)));
+        assert_eq!(heard.get(), 1);
     }
 
     #[test]

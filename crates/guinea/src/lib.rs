@@ -243,9 +243,10 @@ pub use guinea_meta as meta;
 pub use guinea_core::actor::event_bus::Event;
 pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
+pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Mark, Remote, Request, actor, app, feature, handler, installs, reducer, routes,
-    segment, slot,
+    Event, Inspect, Mark, Remote, Request, actor, app, feature, handler, installs, reducer,
+    routes, segment, slot,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -
@@ -273,6 +274,7 @@ pub mod prelude {
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     pub use guinea_core::feature::{Bound, Dispatch, Push};
     pub use guinea_core::__private::anyhow;
+    pub use guinea_core::inspect::Inspect;
     pub use guinea_core::{Load, Reducer};
-    pub use guinea_macros::{Event, actor, app, feature, handler, installs, reducer, routes};
+    pub use guinea_macros::{Event, Inspect, actor, app, feature, handler, installs, reducer, routes};
 }

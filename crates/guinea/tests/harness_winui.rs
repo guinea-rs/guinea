@@ -44,13 +44,10 @@ pub struct Found {
     pub found: Vec<&'static str>,
 }
 
-impl Reducer for Results {
-    type Update = Found;
-
-    fn reduce(&mut self, update: Found) {
-        self.query = update.query;
-        self.found = update.found;
-    }
+#[reducer]
+fn results(this: &mut Results, update: Found) {
+    this.query = update.query;
+    this.found = update.found;
 }
 
 #[derive(Clone, Debug)]
@@ -627,12 +624,9 @@ mod polling {
     #[derive(Clone, Debug)]
     pub struct Taken;
 
-    impl Reducer for Samples {
-        type Update = Taken;
-
-        fn reduce(&mut self, _taken: Taken) {
-            self.taken += 1;
-        }
+    #[reducer]
+    fn samples(this: &mut Samples, _taken: Taken) {
+        this.taken += 1;
     }
 
     #[derive(Clone, Debug)]
@@ -939,12 +933,9 @@ mod navigating {
         #[derive(Clone, Debug)]
         pub struct Tick;
 
-        impl Reducer for FrameTicks {
-            type Update = Tick;
-
-            fn reduce(&mut self, _tick: Tick) {
-                self.0 += 1;
-            }
+        #[reducer]
+        fn frame_ticks(this: &mut FrameTicks, _tick: Tick) {
+            this.0 += 1;
         }
 
         #[derive(Debug)]
@@ -986,12 +977,9 @@ mod navigating {
         #[derive(Clone, Debug)]
         pub struct Tick;
 
-        impl Reducer for ListTicks {
-            type Update = Tick;
-
-            fn reduce(&mut self, _tick: Tick) {
-                self.0 += 1;
-            }
+        #[reducer]
+        fn list_ticks(this: &mut ListTicks, _tick: Tick) {
+            this.0 += 1;
         }
 
         #[derive(Debug)]
@@ -1298,12 +1286,9 @@ mod application_exports {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Language(pub &'static str);
 
-    impl Reducer for Language {
-        type Update = &'static str;
-
-        fn reduce(&mut self, to: &'static str) {
-            self.0 = to;
-        }
+    #[reducer]
+    fn language(this: &mut Language, to: &'static str) {
+        this.0 = to;
     }
 
     pub struct Localisation;

@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::scope::Reducer;
+use guinea_macros::reducer;
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
 
@@ -58,12 +58,9 @@ impl<Which> Clone for List<Which> {
     }
 }
 
-impl<Which: 'static> Reducer for List<Which> {
-    type Update = Vec<String>;
-
-    fn reduce(&mut self, rows: Vec<String>) {
-        self.rows = rows;
-    }
+#[reducer]
+fn list<Which: 'static>(this: &mut List<Which>, rows: Vec<String>) {
+    this.rows = rows;
 }
 
 thread_local! {

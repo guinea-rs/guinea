@@ -16,12 +16,9 @@ pub struct Toolbar;
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct Missing(u32);
 
-impl guinea::prelude::Reducer for Missing {
-    type Update = u32;
-
-    fn reduce(&mut self, to: u32) {
-        self.0 = to;
-    }
+#[guinea::reducer]
+fn missing(this: &mut Missing, to: u32) {
+    this.0 = to;
 }
 
 #[derive(Default)]

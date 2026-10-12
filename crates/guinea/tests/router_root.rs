@@ -12,8 +12,8 @@ use guinea::feature::FeatureInitContext;
 use guinea::router::NavigateHandle;
 use guinea::winui::*;
 use guinea_core::feature::Bound;
-use guinea_core::scope::{Reducer, Scope};
-use guinea_macros::routes;
+use guinea_core::scope::Scope;
+use guinea_macros::{reducer, routes};
 use windows_reactor::{
     ComponentHost, ContentDialogResult, ObjectId, RecordingAdapter, RelationId, TextBlock, View,
     component,
@@ -33,12 +33,9 @@ struct Load {
     percent: u32,
 }
 
-impl Reducer for Load {
-    type Update = u32;
-
-    fn reduce(&mut self, percent: u32) {
-        self.percent = percent;
-    }
+#[reducer]
+fn load(this: &mut Load, percent: u32) {
+    this.percent = percent;
 }
 
 #[derive(Default)]

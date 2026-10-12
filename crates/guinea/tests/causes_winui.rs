@@ -22,12 +22,9 @@ pub struct Load {
     pub level: u32,
 }
 
-impl Reducer for Load {
-    type Update = u32;
-
-    fn reduce(&mut self, level: u32) {
-        self.level = level;
-    }
+#[reducer]
+fn load(this: &mut Load, level: u32) {
+    this.level = level;
 }
 
 #[derive(Clone, Debug)]
@@ -72,12 +69,9 @@ pub struct Link {
     pub up: bool,
 }
 
-impl Reducer for Link {
-    type Update = bool;
-
-    fn reduce(&mut self, up: bool) {
-        self.up = up;
-    }
+#[reducer]
+fn link(this: &mut Link, up: bool) {
+    this.up = up;
 }
 
 #[derive(Clone, Debug)]
@@ -215,12 +209,9 @@ pub struct Rate {
     pub ticks: u32,
 }
 
-impl Reducer for Rate {
-    type Update = u32;
-
-    fn reduce(&mut self, ticks: u32) {
-        self.ticks = ticks;
-    }
+#[reducer]
+fn rate(this: &mut Rate, ticks: u32) {
+    this.ticks = ticks;
 }
 
 #[derive(Debug)]

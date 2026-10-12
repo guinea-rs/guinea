@@ -1,12 +1,11 @@
-//! Plain Rust, and this file is the point of the whole exercise.
+//! The feature's state, and this file is the point of the whole exercise:
+//! a struct, an enum, and the function that changes the one by the other.
 //!
-//! It used to be five declarations - `messages!`, `#[port]`, `#[reducer]`,
-//! `#[dispatch]`, `#[derive(ReducerState)]` - and the central type of the
-//! feature, the one every other file names, did not appear in any of them: it
-//! was `ProcessesReducer`, produced by upper-camel-casing the name of a
-//! function. What is left is a struct, an enum, and an impl.
+//! `#[reducer]` writes the impl from the function's signature and names
+//! nothing itself - the central type of the feature, the one every other file
+//! names, is the one written here.
 
-use guinea::prelude::Reducer;
+use guinea::prelude::reducer;
 use serde::Deserialize;
 
 // What the actor answers to: kill the process with this pid, and list them
@@ -36,12 +35,9 @@ pub enum Listed {
     Items(Vec<String>),
 }
 
-impl Reducer for Processes {
-    type Update = Listed;
-
-    fn reduce(&mut self, update: Listed) {
-        match update {
-            Listed::Items(items) => self.items = items,
-        }
+#[reducer]
+fn processes(this: &mut Processes, update: Listed) {
+    match update {
+        Listed::Items(items) => this.items = items,
     }
 }

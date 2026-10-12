@@ -1,10 +1,13 @@
 use crate::actor::shape::Shape;
+use crate::inspect::Node;
 
 /// An actor as devtools read it. See [`Scope::actors`](crate::scope::Scope::actors).
 pub struct ActorSnapshot {
     pub id: usize,
     pub type_name: &'static str,
-    pub state: String,
+    /// Its state's preview; [`Scope::inspect_actor`](crate::scope::Scope::inspect_actor)
+    /// opens it.
+    pub state: Node,
     pub shape: Shape,
     pub owner: Owner,
 }

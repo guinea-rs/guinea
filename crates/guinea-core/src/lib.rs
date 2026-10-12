@@ -5,6 +5,7 @@ pub mod binding;
 pub mod feature;
 pub mod executor;
 pub mod guard;
+pub mod inspect;
 pub mod load;
 pub use guinea_mark as mark;
 pub mod remote;

@@ -4,6 +4,7 @@ use crate::actor::Addr;
 use crate::actor::snapshot::{ActorSnapshot, Owner};
 use crate::actor::shape::Shape;
 use crate::actor::traits::ManagedActor;
+use crate::inspect::{Node, Open};
 use crate::observability::changes::{self, Change};
 
 use super::{Scope, Section};
@@ -23,7 +24,7 @@ struct Listing {
     type_name: &'static str,
     shape: Shape,
     owner: Owner,
-    snapshot: fn(&dyn Any) -> String,
+    inspect: fn(&dyn Any, Option<&Open>) -> Node,
 }
 
 impl HeldActor {
@@ -44,8 +45,13 @@ impl HeldActor {
             type_name: listing.type_name,
             shape: listing.shape,
             owner: listing.owner,
-            state: (listing.snapshot)(&*self.addr),
+            state: (listing.inspect)(&*self.addr, None),
         })
+    }
+
+    fn inspect(&self, open: &Open) -> Option<Node> {
+        let listing = self.listing.as_ref()?;
+        Some((listing.inspect)(&*self.addr, Some(open)))
     }
 }
 
@@ -55,10 +61,11 @@ fn dispose<A: 'static>(addr: &dyn Any) {
     }
 }
 
-fn snapshot<A: std::fmt::Debug + 'static>(addr: &dyn Any) -> String {
-    addr.downcast_ref::<Addr<A>>()
-        .map(Addr::debug_snapshot)
-        .unwrap_or_default()
+fn inspect<A: ManagedActor>(addr: &dyn Any, open: Option<&Open>) -> Node {
+    match addr.downcast_ref::<Addr<A>>() {
+        Some(addr) => addr.inspect(open),
+        None => Node::busy("<unknown>"),
+    }
 }
 
 fn with_actor<R>(data: &ScopeData, id: usize, with: impl FnOnce(&mut HeldActor) -> R) -> Option<R> {
@@ -135,6 +142,15 @@ impl Scope {
         read_one(self.subtree(), id)
     }
 
+    /// The state of actor `id`, if this scope or one under it holds it, read
+    /// as far as `open` reaches.
+    pub fn inspect_actor(&self, id: usize, open: &Open) -> Option<Node> {
+        self.subtree()
+            .into_iter()
+            .filter_map(|scope| scope.data())
+            .find_map(|data| with_actor(&data, id, |actor| actor.inspect(open)).flatten())
+    }
+
     /// The actors this scope holds itself, read now - not those of the
     /// scopes under it.
     pub fn actors_here(&self) -> Vec<ActorSnapshot> {
@@ -150,7 +166,7 @@ impl Scope {
 impl Section {
     /// Lists `addr` for devtools as this section's, until its scope goes -
     /// and as driving `drives` when it was made to.
-    pub(crate) fn list<A: ManagedActor + std::fmt::Debug>(
+    pub(crate) fn list<A: ManagedActor>(
         &self,
         addr: &Addr<A>,
         drives: Option<&'static str>,
@@ -169,7 +185,7 @@ impl Section {
                 type_name,
                 shape: A::SHAPE,
                 owner,
-                snapshot: snapshot::<A>,
+                inspect: inspect::<A>,
             });
         });
         if listed.is_none() {

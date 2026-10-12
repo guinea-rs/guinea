@@ -429,8 +429,6 @@ pub fn request(item: TokenStream) -> TokenStream {
     request::derive_request(input).into()
 }
 
-/// Makes an enum of unit variants the application's marks: each variant is a
-/// name, written as the variant is.
 /// Lets devtools open the type a node at a time: a struct by its fields, an
 /// enum by the variant it is, as its `Debug` would write them. A field marked
 /// `#[inspect(skip)]` is left out - a handle, a client, a closure.
@@ -443,6 +441,8 @@ pub fn inspect(item: TokenStream) -> TokenStream {
     inspect::derive_inspect(input).into()
 }
 
+/// Makes an enum of unit variants the application's marks: each variant is a
+/// name, written as the variant is.
 #[proc_macro_derive(Mark)]
 pub fn mark(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);

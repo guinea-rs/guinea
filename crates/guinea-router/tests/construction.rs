@@ -197,15 +197,15 @@ fn a_feature_listed_twice_by_one_segment_is_refused() {
 }
 
 #[test]
-fn a_reducer_exported_twice_on_one_chain_is_a_warning() {
+fn a_reducer_claimed_below_where_it_is_exported_is_a_warning() {
     let construction = check(&[&SHADOWED]);
 
     assert!(construction.errors.is_empty(), "{:?}", construction.errors);
     assert_eq!(
         construction.warnings,
         [
-            "`Shown` is exported by `Shell`, and again by `Shadowing` below it: \
-             `Shadowing` and everything below it read the one `Shadowing` installs"
+            "`Shown` is exported by `Shell`, and claimed again by `Shadowing` below it: \
+             `Shadowing` reads its own, and what is below it reads the one `Shell` exports"
         ]
     );
 }

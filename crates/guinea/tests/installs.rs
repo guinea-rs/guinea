@@ -85,6 +85,22 @@ fn a_feature_whose_install_failed_is_not_listed_as_installed(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 1)]
+fn what_a_listing_says_a_segment_s_own_reducer_exports_is_what_a_page_below_reads(h: &mut Harness) {
+    let listed = guinea::feature::Listed::reducer::<counting::Count>();
+    let listed_below = listed
+        .exports
+        .contains(&guinea::core::feature::Named::of::<counting::Count>());
+
+    h.segment().context().state::<counting::Count>().plain();
+    let read_below = h.child().context().read::<counting::Count>().is_some();
+
+    assert_eq!(
+        listed_below, read_below,
+        "the listing says a page below reads it: {listed_below}; a page below reads it: {read_below}"
+    );
+}
+
+#[guinea::test(iterations = 1)]
 fn what_a_feature_claimed_before_its_install_failed_is_not_claimed(h: &mut Harness) {
     assert!(h.install::<counting::Halfway>(&()).is_err(), "nothing provides Ready yet");
 

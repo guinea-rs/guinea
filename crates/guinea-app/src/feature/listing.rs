@@ -30,11 +30,12 @@ impl Listed {
         }
     }
 
+    /// A reducer the segment claimed itself: its own, read by nothing below.
     pub fn reducer<R: Reducer>() -> Self {
         Self {
             what: Named::of::<R>(),
             feature: false,
-            exports: vec![Named::of::<R>()],
+            exports: Vec::new(),
         }
     }
 }

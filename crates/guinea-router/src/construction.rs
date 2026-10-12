@@ -83,6 +83,16 @@ fn walk<U: Ui>(chain: &[SegmentEntry<U>], construction: &mut Construction) {
                         by: item.what,
                     }),
                 }
+            } else if let Some(placed) = exports.iter().rfind(|placed| placed.what == item.what) {
+                construction.warn(format!(
+                    "`{}` is exported by `{}`, and claimed again by `{}` below it: `{}` reads its \
+                     own, and what is below it reads the one `{}` exports",
+                    short(item.what.name),
+                    segment(placed.at),
+                    segment(at),
+                    segment(at),
+                    segment(placed.at)
+                ));
             }
 
             for reducer in &item.exports {

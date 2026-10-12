@@ -285,6 +285,11 @@ pub fn check_fields(leaves: &[Leaf]) -> Vec<FieldError> {
 /// the function returns only on a whole path matched, or falls out of the tree
 /// with `None`.
 ///
+/// Every `/` after the leading one separates a segment, so an empty capture
+/// keeps its place: `/files/` is `/files/:path` with an empty `path`. Only when
+/// nothing matches that way is a trailing slash dropped and the walk tried
+/// again, so `/folder/disk/open/` still reaches `/folder/:name/open`.
+///
 /// Expects [`check_fields`] to have passed; a field with no capture behind it
 /// has nothing to bind, and panics here rather than reaching the compiler as a
 /// stray identifier.
@@ -304,9 +309,16 @@ pub fn emit_parse(tree: &MatchTree, enum_ident: &Ident, link: &TokenStream) -> T
     let body = emit_node(&tree.root, 0, enum_ident, &mut Vec::new(), link);
     quote! {
         pub fn parse(path: &str) -> Option<Self> {
-            let __parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-            #body
-            None
+            let __whole: Vec<&str> = path.strip_prefix('/').unwrap_or(path).split('/').collect();
+            let __walk = |__parts: &[&str]| -> Option<Self> {
+                #body
+                None
+            };
+
+            __walk(&__whole).or_else(|| match __whole.split_last() {
+                Some((&"", __rest)) => __walk(__rest),
+                _ => None,
+            })
         }
     }
 }
@@ -650,18 +662,25 @@ mod tests {
 
         let expected = quote! {
             pub fn parse(path: &str) -> Option<Self> {
-                let __parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-                if __parts.len() >= 1 {
-                    let __seg_0 = __parts[0];
-                    if __parts.len() >= 2 && __parts[1] == "processes" {
-                        if __parts.len() == 2 {
-                            if let Some(context) = ::link::LinkValue::decode(__seg_0) {
-                                return Some(Route::Processes { context });
+                let __whole: Vec<&str> = path.strip_prefix('/').unwrap_or(path).split('/').collect();
+                let __walk = |__parts: &[&str]| -> Option<Self> {
+                    if __parts.len() >= 1 {
+                        let __seg_0 = __parts[0];
+                        if __parts.len() >= 2 && __parts[1] == "processes" {
+                            if __parts.len() == 2 {
+                                if let Some(context) = ::link::LinkValue::decode(__seg_0) {
+                                    return Some(Route::Processes { context });
+                                }
                             }
                         }
                     }
-                }
-                None
+                    None
+                };
+
+                __walk(&__whole).or_else(|| match __whole.split_last() {
+                    Some((&"", __rest)) => __walk(__rest),
+                    _ => None,
+                })
             }
         };
 

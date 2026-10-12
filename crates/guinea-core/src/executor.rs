@@ -141,9 +141,16 @@ mod seeded {
     }
 
     impl Ready {
+        /// Queues `work`. A task woken again before it ran is queued once,
+        /// as tokio does.
         fn push(&self, work: Work) {
             match work {
-                Work::Poll(id) => lock(&self.polls).push(id),
+                Work::Poll(id) => {
+                    let mut polls = lock(&self.polls);
+                    if !polls.contains(&id) {
+                        polls.push(id);
+                    }
+                }
                 Work::Ui(job) => lock(&self.ui).push_back(job),
             }
 
@@ -351,17 +358,21 @@ mod seeded {
 
             let _clock = self.clock.enter();
 
-            match self.take() {
-                Some(Work::Ui(job)) => {
-                    job();
-                    true
+            while let Some(work) = self.take() {
+                match work {
+                    Work::Ui(job) => {
+                        job();
+                        return true;
+                    }
+                    Work::Poll(id) => {
+                        if self.poll(id) {
+                            return true;
+                        }
+                    }
                 }
-                Some(Work::Poll(id)) => {
-                    self.poll(id);
-                    true
-                }
-                None => false,
             }
+
+            false
         }
 
         fn run_until_parked(&self) -> usize {
@@ -417,9 +428,11 @@ mod seeded {
             !self.run_clock_until(target)
         }
 
-        fn poll(&self, id: u64) {
+        /// Polls task `id`; `false` when there is no such task any more -
+        /// it finished after the wake that queued it.
+        fn poll(&self, id: u64) -> bool {
             let Some(mut task) = self.tasks.borrow_mut().remove(&id) else {
-                return;
+                return false;
             };
 
             let waker = Waker::from(Arc::new(Waking {
@@ -430,6 +443,8 @@ mod seeded {
             if task.as_mut().poll(&mut Context::from_waker(&waker)).is_pending() {
                 self.tasks.borrow_mut().insert(id, task);
             }
+
+            true
         }
     }
 
@@ -625,6 +640,39 @@ mod seeded {
 
             assert!(executor.wake_next(Duration::from_secs(1)));
             assert_eq!(executor.stuck(), 0, "its timer fired and it is ready, yet it is counted as stuck");
+        }
+
+        #[test]
+        fn run_until_parked_counts_only_what_ran() {
+            struct WakesTwice(bool);
+
+            impl Future for WakesTwice {
+                type Output = ();
+
+                fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+                    if self.0 {
+                        return Poll::Ready(());
+                    }
+
+                    self.0 = true;
+                    cx.waker().wake_by_ref();
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }
+
+            let executor = install(2);
+            let polls = Arc::new(AtomicUsize::new(0));
+            let counted = polls.clone();
+            crate::executor::spawn(async move {
+                counted.fetch_add(1, Ordering::SeqCst);
+                WakesTwice(false).await;
+                counted.fetch_add(1, Ordering::SeqCst);
+            });
+
+            let ran = executor.run_until_parked();
+            assert_eq!(polls.load(Ordering::SeqCst), 2);
+            assert_eq!(ran, 2, "two polls ran, but run_until_parked said {ran}");
         }
 
         #[test]

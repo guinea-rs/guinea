@@ -328,3 +328,111 @@ fn a_fill_not_made_again_is_withdrawn(h: &mut Harness) {
     app.settle();
     assert!(app.find_text("toggled tools").is_none(), "{:#?}", app.tree());
 }
+
+mod moved {
+    use super::*;
+    use windows_reactor::{Border, Grid};
+
+    #[guinea::slot]
+    pub struct Tools;
+
+    #[derive(Default)]
+    pub struct Mover {
+        wrapped: bool,
+    }
+
+    pub enum Move {
+        Flip,
+    }
+
+    #[layout]
+    impl Layout for Mover {
+        type Params = MoverParams;
+        type Message = Move;
+
+        fn update(&mut self, message: Move, _cx: &mut UpdateCx<'_, Self>) {
+            match message {
+                Move::Flip => self.wrapped = !self.wrapped,
+            }
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+            let slot = cx.slot::<Tools>();
+            let holder: View = match self.wrapped {
+                true => Grid::new().children((slot,)).into(),
+                false => Border::new().content(slot).into(),
+            };
+
+            StackPanel::new()
+                .children((
+                    Button::new()
+                        .on_click(cx.on(|()| Move::Flip))
+                        .content(TextBlock::new().text("move")),
+                    holder,
+                    cx.outlet(),
+                ))
+                .into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Filler {
+        n: u32,
+    }
+
+    pub enum Inc {
+        Once,
+    }
+
+    #[page]
+    impl Page for Filler {
+        type Params = FillerParams;
+        type Message = Inc;
+
+        fn update(&mut self, message: Inc, _cx: &mut UpdateCx<'_, Self>) {
+            match message {
+                Inc::Once => self.n += 1,
+            }
+        }
+
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            cx.fill::<Tools>(TextBlock::new().text(format!("fill {}", self.n)).into());
+            StackPanel::new()
+                .children((
+                    TextBlock::new().text(format!("page {}", self.n)),
+                    Button::new()
+                        .on_click(cx.on(|()| Inc::Once))
+                        .content(TextBlock::new().text("inc")),
+                ))
+                .into()
+        }
+    }
+
+    guinea::routes! {
+        MoveRoute {
+            layout(Mover) {
+                page(Filler) { }
+            }
+        }
+    }
+
+    #[guinea::test(iterations = 2)]
+    fn a_slot_the_layout_moved_still_shows_what_fills_it(h: &mut Harness) {
+        let mut app = Mounted::routed(h, MoveRoute::Filler {}).unwrap();
+        app.settle();
+        assert!(app.find_text("fill 0").is_some(), "{:#?}", app.tree());
+
+        app.click_text("move").settle();
+        app.settle();
+        assert!(app.find_text("fill 0").is_some(), "{:#?}", app.tree());
+
+        app.click_text("inc").settle();
+        app.settle();
+        assert!(app.find_text("page 1").is_some(), "{:#?}", app.tree());
+        assert!(
+            app.find_text("fill 1").is_some(),
+            "the page filled the slot anew after the layout moved it:\n{:#?}",
+            app.tree()
+        );
+    }
+}

@@ -37,7 +37,9 @@ struct Fill {
 #[derive(Default)]
 struct Entry {
     fills: Vec<Fill>,
-    shown: Option<LocalSender<Option<Cause>>>,
+    /// The placeholder drawing this place, and which one it is: a layout
+    /// that moves the slot draws a new one before the old one goes.
+    shown: Option<(u64, LocalSender<Option<Cause>>)>,
 }
 
 impl Entry {
@@ -46,7 +48,7 @@ impl Entry {
     }
 
     fn tell(&self) {
-        if let Some(shown) = &self.shown {
+        if let Some((_, shown)) = &self.shown {
             let _gone = !shown.send(guinea_core::trace::current());
         }
     }
@@ -211,14 +213,22 @@ pub(crate) struct Shown {
 }
 
 /// Where a slot is drawn: the winning fill, the part, or nothing.
-pub(crate) struct Placeholder;
+pub(crate) struct Placeholder {
+    id: u64,
+}
 
 impl Component for Placeholder {
     type Input = Shown;
     type Message = Option<Cause>;
 
     fn create(_input: &Shown, _cx: &ComponentContext<Self>) -> Self {
-        Self
+        thread_local! {
+            static NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        }
+
+        let id = NEXT.get();
+        NEXT.set(id + 1);
+        Self { id }
     }
 
     fn update(&mut self, cause: Option<Cause>, _cx: &ComponentContext<Self>) {
@@ -228,12 +238,13 @@ impl Component for Placeholder {
     fn view(&self, input: &Shown, cx: &mut ViewContext<Self>) -> View {
         let _caused = crate::winui::caused(cx);
         let place = input.place;
+        let id = self.id;
         let sender = cx.sender();
 
         let shown = BOARD.with(|board| {
             let mut board = board.borrow_mut();
             let entry = board.entries.entry(place).or_default();
-            entry.shown = Some(sender);
+            entry.shown = Some((id, sender));
             entry.winner().map(|fill| fill.view.clone())
         });
 
@@ -241,7 +252,9 @@ impl Component for Placeholder {
             Some(Box::new(move || {
                 BOARD.with(|board| {
                     let mut board = board.borrow_mut();
-                    if let Some(entry) = board.entries.get_mut(&place) {
+                    if let Some(entry) = board.entries.get_mut(&place)
+                        && entry.shown.as_ref().is_some_and(|(shown, _)| *shown == id)
+                    {
                         entry.shown = None;
                     }
                     board.entries.retain(|_, entry| {

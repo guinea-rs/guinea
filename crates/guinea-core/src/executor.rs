@@ -222,7 +222,12 @@ mod seeded {
         next: Cell<u64>,
         running: Cell<bool>,
         clock: Runtime,
+        /// Where the clock started, which is where tokio's timers count
+        /// their milliseconds from.
+        origin: Instant,
     }
+
+    const MILLISECOND: Duration = Duration::from_millis(1);
 
     /// Puts a [`Seeded`] executor on this thread until the guard drops.
     pub fn install(seed: u64) -> Installed {
@@ -231,6 +236,7 @@ mod seeded {
             .start_paused(true)
             .build()
             .expect("a paused runtime to keep the test's time");
+        let origin = clock.block_on(async { Instant::now() });
 
         let executor = Rc::new(Seeded {
             seed,
@@ -240,6 +246,7 @@ mod seeded {
             next: Cell::new(1),
             running: Cell::new(false),
             clock,
+            origin,
         });
 
         let previous = CURRENT.with(|current| current.borrow_mut().replace(executor.clone()));
@@ -395,15 +402,55 @@ mod seeded {
             self.clock.block_on(async { Instant::now() })
         }
 
+        /// The start of the millisecond `at` falls in, as tokio's timers
+        /// count them.
+        fn millisecond_of(&self, at: Instant) -> Instant {
+            let since = at.saturating_duration_since(self.origin);
+            self.origin + Duration::from_millis(since.as_millis() as u64)
+        }
+
         /// Lets the clock run until `target`, or until work turns up first;
         /// whether `target` was reached.
+        ///
+        /// Never past `target`. Tokio's timers fire on whole milliseconds,
+        /// and a paused clock left to itself jumps whole milliseconds from
+        /// wherever it is - so from inside a millisecond it would land past
+        /// both the timer and the target. The clock is moved exactly into the
+        /// next millisecond, left to jump from there to the next timer or the
+        /// target's millisecond, and moved exactly through what is left.
         fn run_clock_until(&self, target: Instant) -> bool {
             self.clock.block_on(async {
-                Until {
-                    until: Box::pin(tokio::time::sleep_until(target)),
-                    ready: &self.ready,
+                loop {
+                    let now = Instant::now();
+                    if now >= target {
+                        return true;
+                    }
+
+                    if !self.ready.is_empty() {
+                        return false;
+                    }
+
+                    let this = self.millisecond_of(now);
+                    let next = this + MILLISECOND;
+                    if next > target {
+                        tokio::time::advance(target - now).await;
+                        return true;
+                    }
+
+                    if now > this {
+                        tokio::time::advance(next - now).await;
+                        continue;
+                    }
+
+                    let reached = Until {
+                        until: Box::pin(tokio::time::sleep_until(self.millisecond_of(target))),
+                        ready: &self.ready,
+                    }
+                    .await;
+                    if !reached {
+                        return false;
+                    }
                 }
-                .await
             })
         }
 
@@ -699,6 +746,32 @@ mod seeded {
             assert!(spawned.is_ok(), "spawn found no executor while the outer one is still held");
             outer.run_until_parked();
             assert_eq!(ran.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn advancing_by_less_than_a_millisecond_moves_the_clock_by_that_much() {
+            let executor = install(9);
+            let woke = Arc::new(AtomicUsize::new(0));
+
+            let marked = woke.clone();
+            crate::executor::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                marked.fetch_add(1, Ordering::SeqCst);
+            });
+            executor.run_until_parked();
+
+            let started = executor.executor.now();
+            for _ in 0..10 {
+                executor.advance(Duration::from_micros(100));
+            }
+            let moved = executor.executor.now() - started;
+
+            assert_eq!(
+                woke.load(Ordering::SeqCst),
+                0,
+                "a 5 ms sleep woke after 1 ms was asked for (clock moved {moved:?})"
+            );
+            assert_eq!(moved, Duration::from_millis(1), "ten advances of 100 us");
         }
 
         #[test]

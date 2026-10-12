@@ -671,10 +671,16 @@ where
     ///
     /// A guard can defer this, in which case it reports `false` now and moves
     /// later - the answer is not available to report on.
+    ///
+    /// A step still waiting on a guard is superseded, and its entry put back,
+    /// before this one takes its own: the step is one from where the router
+    /// stands, not from where a navigation that never happened would have
+    /// left it.
     pub fn back(&self) -> bool {
         let Some(router) = &self.router else {
             return false;
         };
+        router.supersede();
 
         let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
         let Some(entry) = router.take_back(leaving) else {
@@ -688,6 +694,7 @@ where
         let Some(router) = &self.router else {
             return false;
         };
+        router.supersede();
 
         let leaving = self.current().map(|route| Box::new(route) as Box<dyn Any>);
         let Some(entry) = router.take_forward(leaving) else {

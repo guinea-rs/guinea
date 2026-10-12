@@ -11,7 +11,7 @@ use std::rc::Rc;
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
-use guinea_router::router::{RouteChain, Router, SegmentEntry};
+use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry};
 
 thread_local! {
     static ASKING: Cell<bool> = const { Cell::new(false) };
@@ -173,6 +173,61 @@ fn what_a_frame_held_goes_in_against_the_chain_standing_when_it_does() {
         1,
         "the shell it was held beside is gone, so it goes up again"
     );
+}
+
+/// A router that went to each of `through` in turn.
+fn travelled(through: &[Route]) -> (Rc<Router<Headless>>, NavigateHandle<Headless, Route>) {
+    ASKING.with(|asking| asking.set(false));
+    SHELLS_STANDING.with(|n| n.set(0));
+
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
+    let nav = NavigateHandle::new(router.clone(), RouteSink::new(|_: Route| {}));
+
+    for route in through {
+        nav.to(*route);
+    }
+
+    (router, nav)
+}
+
+#[test]
+fn a_back_that_supersedes_a_pending_back_is_one_step_from_where_the_router_stands() {
+    let (router, nav) = travelled(&[Route::Other, Route::Third, Route::Editor]);
+
+    ASKING.with(|asking| asking.set(true));
+    nav.back();
+    nav.back();
+    router.answer(true);
+    ASKING.with(|asking| asking.set(false));
+
+    let landed = router.current_route::<Route>();
+    nav.back();
+    let behind = router.current_route::<Route>();
+
+    assert_eq!(
+        (landed, behind),
+        (Some(Route::Third), Some(Route::Other)),
+        "the first back never happened, so the second went one step from Editor"
+    );
+}
+
+#[test]
+fn a_forward_that_supersedes_a_pending_forward_is_one_step_from_where_the_router_stands() {
+    let (router, nav) = travelled(&[Route::Editor, Route::Third, Route::Other]);
+    nav.back();
+    nav.back();
+
+    ASKING.with(|asking| asking.set(true));
+    nav.forward();
+    nav.forward();
+    router.answer(true);
+    ASKING.with(|asking| asking.set(false));
+
+    let landed = router.current_route::<Route>();
+    nav.forward();
+    let ahead = router.current_route::<Route>();
+
+    assert_eq!((landed, ahead), (Some(Route::Third), Some(Route::Other)));
 }
 
 #[test]

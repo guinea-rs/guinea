@@ -1,10 +1,10 @@
 //! `#[derive(Inspect)]`: a struct or enum written field by field, as its
 //! `Debug` would be, leaving out what is marked `#[inspect(skip)]`.
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream, TokenTree};
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
-use syn::{Data, DeriveInput, Error, Field, Fields, parse_quote};
+use syn::{Data, DeriveInput, Error, Field, Fields, Type, parse_quote};
 
 pub fn derive_inspect(input: DeriveInput) -> TokenStream {
     match expand(input) {
@@ -50,7 +50,14 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
         }
     };
 
-    let params: Vec<_> = input.generics.type_params().map(|param| param.ident.clone()).collect();
+    let shown = shown_types(&input.data)?;
+    let params: Vec<_> = input
+        .generics
+        .type_params()
+        .map(|param| param.ident.clone())
+        .filter(|param| shown.iter().any(|ty| mentions(quote!(#ty), param)))
+        .collect();
+
     let where_clause = input.generics.make_where_clause();
     for param in params {
         where_clause
@@ -66,6 +73,32 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
                 #body
             }
         }
+    })
+}
+
+/// The types of the fields written, in every variant: only these need to be
+/// `Inspect`.
+fn shown_types(data: &Data) -> syn::Result<Vec<&Type>> {
+    let all: Vec<&Field> = match data {
+        Data::Struct(data) => data.fields.iter().collect(),
+        Data::Enum(data) => data.variants.iter().flat_map(|variant| &variant.fields).collect(),
+        Data::Union(_) => Vec::new(),
+    };
+
+    let mut shown = Vec::new();
+    for field in all {
+        if !skipped(field)? {
+            shown.push(&field.ty);
+        }
+    }
+    Ok(shown)
+}
+
+fn mentions(tokens: TokenStream, param: &Ident) -> bool {
+    tokens.into_iter().any(|tree| match tree {
+        TokenTree::Ident(ident) => ident == *param,
+        TokenTree::Group(group) => mentions(group.stream(), param),
+        _ => false,
     })
 }
 

@@ -40,6 +40,14 @@ struct Visit {
     path: String,
 }
 
+#[derive(Inspect)]
+struct Held<T> {
+    count: u32,
+    #[inspect(skip)]
+    #[allow(dead_code)]
+    value: T,
+}
+
 #[derive(Debug, Inspect)]
 struct Mount {
     r#type: String,
@@ -266,6 +274,16 @@ fn a_handle_shows_what_it_is_a_handle_to() {
     let push = &fields[0].1.preview;
     assert!(push.starts_with("Push<") && push.ends_with("Rows>"), "{push}");
     assert_eq!(fields[1].1.preview, "Dispatch");
+}
+
+#[test]
+fn a_type_parameter_only_a_skipped_field_holds_need_not_be_inspect() {
+    let held = Held {
+        count: 2,
+        value: Client,
+    };
+
+    assert_eq!(Node::of(&held, None).preview, "Held { count: 2 }");
 }
 
 #[test]

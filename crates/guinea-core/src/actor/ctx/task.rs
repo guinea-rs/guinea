@@ -722,10 +722,12 @@ fn launch<A: 'static>(
     let traced = Traced::spawn::<A>(addr.id(), output);
     let start = starting(traced);
 
-    let Some(lane) = lane.filter(|_| kind != Kind::Parallel) else {
+    if kind == Kind::Parallel {
         start(Ticket::free(addr.cancellation()));
         return;
-    };
+    }
+
+    let lane = lane.expect("work under a policy has a lane: its answer's, or one named");
 
     let waiting = Waiting { traced, start };
     let admitted = addr

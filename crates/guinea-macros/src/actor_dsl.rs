@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use proc_macro::TokenStream as TokenStream1;
-use proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, Spacing, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote, quote_spanned};
 use winnow::error::{ContextError, ErrMode};
 use winnow::prelude::*;
@@ -158,11 +158,12 @@ fn parse_sections(tokens: &[TokenTree], manifest: &mut Manifest) -> syn::Result<
 fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
     let mut decls = Vec::new();
     let mut pending: Vec<TokenTree> = Vec::new();
+    let mut depth = 0;
     let mut iter = tokens.iter().peekable();
 
     while let Some(tt) = iter.next() {
         match tt {
-            TokenTree::Punct(p) if p.as_char() == ',' => {
+            TokenTree::Punct(p) if depth == 0 && p.as_char() == ',' => {
                 if !pending.is_empty() {
                     decls.push(HandlerDecl {
                         msg: parse_one_type(&mut pending)?,
@@ -170,7 +171,7 @@ fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
                     });
                 }
             }
-            TokenTree::Punct(p) if p.as_char() == '=' => {
+            TokenTree::Punct(p) if depth == 0 && p.as_char() == '=' => {
                 let arrow = matches!(iter.peek(), Some(TokenTree::Punct(g)) if g.as_char() == '>');
                 if !arrow {
                     pending.push(tt.clone());
@@ -196,7 +197,10 @@ fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
                     iter.next();
                 }
             }
-            other => pending.push(other.clone()),
+            other => {
+                depth += angle_step(pending.last(), other);
+                pending.push(other.clone());
+            }
         }
     }
 
@@ -265,22 +269,48 @@ fn parse_edges(tokens: &[TokenTree]) -> syn::Result<Vec<Edge>> {
     Ok(edges)
 }
 
+/// `tokens` cut at each comma outside `<..>`, without the empty pieces.
 fn split_on_commas(tokens: &[TokenTree]) -> Vec<Vec<TokenTree>> {
     let mut out = Vec::new();
-    let mut current = Vec::new();
+    let mut current: Vec<TokenTree> = Vec::new();
+    let mut depth = 0;
+
     for tt in tokens {
-        if matches!(tt, TokenTree::Punct(p) if p.as_char() == ',') {
+        if depth == 0 && matches!(tt, TokenTree::Punct(p) if p.as_char() == ',') {
             if !current.is_empty() {
                 out.push(std::mem::take(&mut current));
             }
-        } else {
-            current.push(tt.clone());
+            continue;
         }
+        depth += angle_step(current.last(), tt);
+        current.push(tt.clone());
     }
+
     if !current.is_empty() {
         out.push(current);
     }
     out
+}
+
+/// How far `tt` takes the tokens into `<..>` or out of it, after `previous`:
+/// the `>` of `->` or `=>` closes nothing.
+fn angle_step(previous: Option<&TokenTree>, tt: &TokenTree) -> isize {
+    let TokenTree::Punct(punct) = tt else {
+        return 0;
+    };
+
+    match punct.as_char() {
+        '<' => 1,
+        '>' => match previous {
+            Some(TokenTree::Punct(before))
+                if before.spacing() == Spacing::Joint && matches!(before.as_char(), '-' | '=') =>
+            {
+                0
+            }
+            _ => -1,
+        },
+        _ => 0,
+    }
 }
 
 fn parse_one_type(tokens: &mut Vec<TokenTree>) -> syn::Result<syn::Type> {
@@ -290,29 +320,10 @@ fn parse_one_type(tokens: &mut Vec<TokenTree>) -> syn::Result<syn::Type> {
 }
 
 fn parse_type_list(tokens: &[TokenTree]) -> syn::Result<Vec<syn::Type>> {
-    let mut types = Vec::new();
-    let mut current: Vec<TokenTree> = Vec::new();
-
-    for tt in tokens {
-        if matches!(tt, TokenTree::Punct(p) if p.as_char() == ',') {
-            push_type(&mut current, &mut types)?;
-        } else {
-            current.push(tt.clone());
-        }
-    }
-    push_type(&mut current, &mut types)?;
-
-    Ok(types)
-}
-
-fn push_type(current: &mut Vec<TokenTree>, out: &mut Vec<syn::Type>) -> syn::Result<()> {
-    if current.is_empty() {
-        return Ok(());
-    }
-    let span = span_of(current);
-    let ts: TokenStream = current.drain(..).collect();
-    out.push(syn::parse2(ts).map_err(|e| syn::Error::new(span, format!("expected a type: {e}")))?);
-    Ok(())
+    split_on_commas(tokens)
+        .into_iter()
+        .map(|mut chunk| parse_one_type(&mut chunk))
+        .collect()
 }
 
 fn span_of(tokens: &[TokenTree]) -> Span {

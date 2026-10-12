@@ -2,6 +2,7 @@ use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::{Ident, TokenStream};
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote, quote_spanned};
+use syn::ext::IdentExt;
 
 use guinea_route_dsl::{Segment, parse_pattern, same_type, spelled, type_ident};
 
@@ -142,7 +143,7 @@ fn identity_impls(enum_ident: &Ident, leaves: &[guinea_route_dsl::Leaf]) -> Toke
             .filter(|field| field.identity)
             .map(|field| &field.name)
             .collect();
-        let theirs: Vec<Ident> = kept.iter().map(|name| format_ident!("__other_{}", name)).collect();
+        let theirs: Vec<Ident> = kept.iter().map(|name| format_ident!("__other_{}", name.unraw())).collect();
 
         quote! {
             (
@@ -160,7 +161,7 @@ fn identity_impls(enum_ident: &Ident, leaves: &[guinea_route_dsl::Leaf]) -> Toke
             .filter(|field| field.identity)
             .map(|field| &field.name)
             .collect();
-        let labels = kept.iter().map(|name| name.to_string());
+        let labels = kept.iter().map(|name| name.unraw().to_string());
         let title = variant.to_string();
         let whole = leaf.fields.len() == kept.len();
         let finish = if whole {
@@ -229,7 +230,7 @@ fn params_struct(name: &Ident, fields: &[guinea_route_dsl::Field]) -> TokenStrea
         .filter(|field| field.identity)
         .map(|field| &field.name)
         .collect();
-    let labels = kept.iter().map(|name| name.to_string());
+    let labels = kept.iter().map(|name| name.unraw().to_string());
     let title = name.to_string();
 
     quote! {
@@ -413,7 +414,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         let route = ident.to_string();
         let writes = leaf.fields.iter().map(|field| {
             let name = &field.name;
-            let key = name.to_string();
+            let key = name.unraw().to_string();
             quote_spanned! {name.span()=>
                 __saving.field(#key, #name)?;
             }
@@ -436,7 +437,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
             let route = ident.to_string();
             let reads = leaf.fields.iter().map(|field| {
                 let name = &field.name;
-                let key = name.to_string();
+                let key = name.unraw().to_string();
                 quote_spanned! {name.span()=>
                     #name: __fields.field(#key)?
                 }
@@ -456,7 +457,12 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         let parts = parse_pattern(link).into_iter().map(|seg| match seg {
             Segment::Literal(lit) => quote! { #lit.to_string() },
             Segment::Capture(name) => {
-                let field = format_ident!("{}", name);
+                let field = leaf
+                    .fields
+                    .iter()
+                    .map(|field| &field.name)
+                    .find(|field| field.unraw() == name)
+                    .expect("check_fields has passed, so every capture has a field");
                 quote! { #link_mod::LinkValue::encode(#field) }
             }
         });
@@ -490,7 +496,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
             let ty = leaf
                 .fields
                 .iter()
-                .find(|field| field.name == name)
+                .find(|field| field.name.unraw() == name)
                 .map(|field| &field.ty)
                 .expect("check_fields has passed, so every capture has a field");
 

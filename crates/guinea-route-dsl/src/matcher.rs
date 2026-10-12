@@ -20,6 +20,7 @@ use std::fmt;
 
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 
 use crate::{Leaf, Segment, parse_pattern, type_ident};
 
@@ -281,7 +282,7 @@ pub fn check_fields(leaves: &[Leaf]) -> Vec<FieldError> {
         }
 
         for capture in &captures {
-            if !leaf.fields.iter().any(|field| &field.name == capture) {
+            if !leaf.fields.iter().any(|field| field.name.unraw() == capture) {
                 errors.push(FieldError::CaptureWithoutField {
                     page: leaf.ty.clone(),
                     capture: capture.clone(),
@@ -290,10 +291,11 @@ pub fn check_fields(leaves: &[Leaf]) -> Vec<FieldError> {
         }
 
         for field in &leaf.fields {
-            if !captures.iter().any(|capture| &field.name == capture) {
+            let name = field.name.unraw();
+            if !captures.iter().any(|capture| name == capture) {
                 errors.push(FieldError::FieldWithoutCapture {
                     page: leaf.ty.clone(),
-                    field: field.name.to_string(),
+                    field: name.to_string(),
                 });
             }
         }
@@ -408,7 +410,7 @@ fn emit_leaf(
     for field in leaf.fields.iter().rev() {
         let depth = bound
             .iter()
-            .find(|(name, _)| field == name)
+            .find(|(name, _)| field.unraw() == name)
             .map(|(_, depth)| *depth)
             .unwrap_or_else(|| {
                 panic!(
@@ -669,6 +671,23 @@ mod tests {
         };
         assert_eq!(type_ident(page), "Processes");
         assert_eq!(field, "context");
+    }
+
+    #[test]
+    fn a_capture_named_like_a_keyword_lands_in_its_raw_field() {
+        let leaves = leaves_of(r#"page(Kind) link("/kind/:type") { r#type: String }"#);
+        let errors = check_fields(&leaves);
+
+        assert!(errors.is_empty(), "{:?}", errors.iter().map(ToString::to_string).collect::<Vec<_>>());
+
+        let tree = build(&leaves).expect("no conflict");
+        let generated = std::panic::catch_unwind(|| emit_parse(&tree, &route_ident(), &link_mod()).to_string());
+        assert!(
+            generated
+                .as_deref()
+                .is_ok_and(|generated| generated.contains("if let Some (r#type) = :: link :: LinkValue :: decode (__seg_1)")),
+            "{generated:?}"
+        );
     }
 
     #[test]

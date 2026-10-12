@@ -77,7 +77,33 @@ routes! {
         }
 
         page(Splash) { after: String }
+        page(Kind) restorable { r#type: String }
     }
+}
+
+/// A field named like a keyword.
+struct Kind;
+
+impl Page for Kind {
+    type Params = KindParams;
+    type Installs = ();
+
+    fn install(_ctx: &FeatureInitContext, _params: &KindParams) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn view(_cx: &mut HeadlessCx<Self>) {}
+}
+
+#[test]
+fn a_field_named_like_a_keyword_is_saved_under_its_own_name() {
+    let route = Route::Kind {
+        r#type: "disk".to_string(),
+    };
+
+    let saved = route.save().expect("it agreed to survive a restart");
+    assert!(saved.contains(r#""type":"disk""#), "{saved}");
+    assert_eq!(Route::restore(&saved), Some(route));
 }
 
 #[test]

@@ -25,6 +25,7 @@ macro_rules! page {
 page!(Files, ());
 page!(File, FileParams);
 page!(Folder, FolderParams);
+page!(Kind, KindParams);
 
 routes! {
     backend = guinea_router::headless::Headless,
@@ -32,7 +33,28 @@ routes! {
         page(Files) link("/files")
         page(File) link("/files/:path") { path: String }
         page(Folder) link("/folder/:name/open") { name: String }
+        page(Kind) link("/kind/:type") { r#type: String }
     }
+}
+
+#[test]
+fn a_capture_named_like_a_keyword_lands_in_its_raw_field() {
+    let route = Route::Kind {
+        r#type: "disk".to_string(),
+    };
+
+    assert_eq!(route.link().as_deref(), Some("/kind/disk"));
+    assert_eq!(Route::parse("/kind/disk"), Some(route));
+}
+
+#[test]
+fn the_manifest_names_a_keyword_capture_as_the_pattern_wrote_it() {
+    let kind = Route::deep_links()
+        .iter()
+        .find(|link| link.route == "Kind")
+        .expect("Kind is addressable");
+
+    assert_eq!(kind.captures[0].name, "type");
 }
 
 #[test]

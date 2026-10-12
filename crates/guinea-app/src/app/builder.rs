@@ -9,7 +9,7 @@ use guinea_core::actor::{Addr, ManagedActor};
 use crate::feature::{AppFeatureDeinitContext, ScopeContext};
 
 use super::host::AppHost;
-use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Installed, Plugin};
+use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
 use super::registry::{Admission, Registry, Unit};
 
 /// What a plugin may do during installation.
@@ -47,7 +47,7 @@ impl PluginBuilder {
     }
 
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {
-        self.install_plugin(Box::new(plugin))?;
+        self.install_plugin(Identity::plugin::<P>(), Box::new(plugin))?;
         Ok(Installed::new())
     }
 
@@ -57,7 +57,7 @@ impl PluginBuilder {
         T: Plugin,
         P: Plugin<Exports = T::Exports>,
     {
-        self.install_plugin(Box::new(stand_in))?;
+        self.install_plugin(Identity::plugin::<T>(), Box::new(stand_in))?;
         Ok(Installed::new())
     }
 
@@ -118,27 +118,31 @@ impl PluginBuilder {
         self.cx.spawn(actor)
     }
 
-    fn install_plugin(&mut self, plugin: Box<dyn ErasedPlugin>) -> anyhow::Result<()> {
-        let (id, concrete, settle) = (plugin.id(), plugin.concrete(), plugin.settle());
+    fn install_plugin(
+        &mut self,
+        identity: Identity,
+        plugin: Box<dyn ErasedPlugin>,
+    ) -> anyhow::Result<()> {
+        let id = plugin.id();
 
-        match self.registry.borrow().admit_plugin(id, concrete)? {
+        match self.registry.borrow().admit_plugin(identity.id, identity.concrete)? {
             Admission::AlreadyInstalled => return Ok(()),
             Admission::Proceed => {}
         }
 
-        self.registry.borrow_mut().enter(Unit::Plugin(id));
+        self.registry.borrow_mut().enter(Unit::Plugin(identity.id));
         let inner = self.cx.in_section(self.scope.open_section(None, None));
         let outer = std::mem::replace(&mut self.cx, inner);
         let outcome = plugin
             .build_boxed(self)
-            .and_then(|()| settle(self.scope, id))
+            .and_then(|()| (identity.settle)(self.scope, id))
             .with_context(|| format!("plugin `{id}` failed to build"));
         self.cx = outer;
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();
         if outcome.is_ok() {
-            registry.mark_plugin(id, concrete);
+            registry.mark_plugin(identity.id, identity.concrete);
         }
         outcome
     }
@@ -152,26 +156,34 @@ impl FeatureBuilder {
     }
 
     pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<Installed<F>> {
-        self.install_feature(Box::new(feature))?;
+        self.install_feature(Identity::feature::<F>(), Box::new(feature))?;
         Ok(Installed::new())
     }
 
     /// Installs `stand_in` where the application lists `T`: a test's fake,
     /// which exports exactly what `T` does, so every page reads the same
     /// reducers from it.
+    ///
+    /// It is installed as `T`: the application has `T`, and a plugin or
+    /// feature that installs `T` itself finds it already there. The same
+    /// holds for [`plugin_as`](PluginBuilder::plugin_as).
     pub fn feature_as<T, F>(&mut self, stand_in: F) -> anyhow::Result<Installed<T>>
     where
         T: AppFeature,
         F: AppFeature<Exports = T::Exports>,
     {
-        self.install_feature(Box::new(stand_in))?;
+        self.install_feature(Identity::feature::<T>(), Box::new(stand_in))?;
         Ok(Installed::new())
     }
 
-    fn install_feature(&mut self, feature: Box<dyn ErasedFeature>) -> anyhow::Result<()> {
-        let (name, concrete, settle) = (feature.name(), feature.concrete(), feature.settle());
+    fn install_feature(
+        &mut self,
+        identity: Identity,
+        feature: Box<dyn ErasedFeature>,
+    ) -> anyhow::Result<()> {
+        let name = feature.name();
 
-        match self.registry.borrow().admit_feature(concrete, name) {
+        match self.registry.borrow().admit_feature(identity.concrete, identity.id) {
             Admission::AlreadyInstalled => return Ok(()),
             Admission::Proceed => {}
         }
@@ -181,14 +193,14 @@ impl FeatureBuilder {
         let outer = std::mem::replace(&mut self.inner.cx, inner);
         let outcome = feature
             .install_boxed(self)
-            .and_then(|()| settle(self.scope, name))
+            .and_then(|()| (identity.settle)(self.scope, name))
             .with_context(|| format!("feature `{name}` failed to install"));
         self.inner.cx = outer;
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();
         if outcome.is_ok() {
-            registry.mark_feature(concrete);
+            registry.mark_feature(identity.concrete);
         }
         outcome
     }

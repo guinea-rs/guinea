@@ -90,24 +90,40 @@ fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -> anyhow::R
     Ok(())
 }
 
+/// What a plugin or an application feature is installed as: itself, or what
+/// it stands in for. Whatever asks for that later finds it already there.
+pub(crate) struct Identity {
+    pub(crate) id: &'static str,
+    pub(crate) concrete: TypeId,
+    pub(crate) settle: Settle,
+}
+
+impl Identity {
+    pub(crate) fn plugin<P: Plugin>() -> Self {
+        Self {
+            id: P::ID,
+            concrete: TypeId::of::<P>(),
+            settle: settle::<P, P::Exports>,
+        }
+    }
+
+    pub(crate) fn feature<F: AppFeature>() -> Self {
+        Self {
+            id: std::any::type_name::<F>(),
+            concrete: TypeId::of::<F>(),
+            settle: settle::<F, F::Exports>,
+        }
+    }
+}
+
 pub(crate) trait ErasedPlugin: Send {
     fn id(&self) -> &'static str;
-    fn concrete(&self) -> TypeId;
-    fn settle(&self) -> Settle;
     fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()>;
 }
 
 impl<P: Plugin> ErasedPlugin for P {
     fn id(&self) -> &'static str {
         P::ID
-    }
-
-    fn concrete(&self) -> TypeId {
-        TypeId::of::<P>()
-    }
-
-    fn settle(&self) -> Settle {
-        settle::<P, P::Exports>
     }
 
     fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()> {
@@ -117,22 +133,12 @@ impl<P: Plugin> ErasedPlugin for P {
 
 pub(crate) trait ErasedFeature: Send {
     fn name(&self) -> &'static str;
-    fn concrete(&self) -> TypeId;
-    fn settle(&self) -> Settle;
     fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()>;
 }
 
 impl<F: AppFeature> ErasedFeature for F {
     fn name(&self) -> &'static str {
         std::any::type_name::<F>()
-    }
-
-    fn concrete(&self) -> TypeId {
-        TypeId::of::<F>()
-    }
-
-    fn settle(&self) -> Settle {
-        settle::<F, F::Exports>
     }
 
     fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()> {

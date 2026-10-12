@@ -291,6 +291,16 @@ mod seeded {
         }
     }
 
+    /// Says the executor is no longer running work when the work is done,
+    /// whether it returned or panicked.
+    struct Running<'a>(&'a Cell<bool>);
+
+    impl Drop for Running<'_> {
+        fn drop(&mut self) {
+            self.0.set(false);
+        }
+    }
+
     impl Seeded {
         fn spawn(&self, task: Task) {
             let id = self.next.get();
@@ -337,10 +347,11 @@ mod seeded {
                 !self.running.replace(true),
                 "the executor was asked to run work from inside work it is running"
             );
+            let _running = Running(&self.running);
 
             let _clock = self.clock.enter();
 
-            let ran = match self.take() {
+            match self.take() {
                 Some(Work::Ui(job)) => {
                     job();
                     true
@@ -350,10 +361,7 @@ mod seeded {
                     true
                 }
                 None => false,
-            };
-
-            self.running.set(false);
-            ran
+            }
         }
 
         fn run_until_parked(&self) -> usize {
@@ -572,6 +580,28 @@ mod seeded {
             executor.advance(Duration::from_secs(1));
             assert_eq!(ticks.load(Ordering::SeqCst), 11, "the first tick and one per 100 ms");
             assert_eq!(executor.stuck(), 1);
+        }
+
+        #[test]
+        fn work_that_panicked_does_not_leave_the_executor_thinking_it_still_runs() {
+            let executor = install(1);
+            crate::ui_thread::invoke_on_ui(|| panic!("the job fails"));
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| executor.step()));
+            assert!(failed.is_err());
+
+            let ran = Arc::new(AtomicUsize::new(0));
+            let counted = ran.clone();
+            crate::ui_thread::invoke_on_ui(move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+            });
+
+            let next = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| executor.step()));
+            assert!(
+                matches!(next, Ok(true)),
+                "the next step refused: {:?}",
+                next.err().and_then(|panic| panic.downcast_ref::<&str>().map(|text| text.to_string()))
+            );
+            assert_eq!(ran.load(Ordering::SeqCst), 1);
         }
 
         #[test]

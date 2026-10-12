@@ -1408,3 +1408,30 @@ fn a_seed_is_one_order_every_time() {
         "the seeds reach both orders: {first:?}"
     );
 }
+
+fn said(panic: Box<dyn std::any::Any + Send>) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|said| said.to_string()))
+        .unwrap_or_default()
+}
+
+#[guinea::test(iterations = 1)]
+fn a_harness_settles_again_after_a_task_panicked(h: &mut Harness) {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    guinea::core::executor::spawn(async { panic!("the task under test blew up") });
+    let first = catch_unwind(AssertUnwindSafe(|| h.settled())).map_err(said);
+    assert!(matches!(&first, Err(said) if said.contains("blew up")), "{first:?}");
+
+    let ran = Arc::new(AtomicBool::new(false));
+    let marked = ran.clone();
+    guinea::core::executor::spawn(async move { marked.store(true, Ordering::SeqCst) });
+    let second = catch_unwind(AssertUnwindSafe(|| h.settled())).map_err(said);
+
+    assert_eq!(second, Ok(1), "settling the next task");
+    assert!(ran.load(Ordering::SeqCst));
+}

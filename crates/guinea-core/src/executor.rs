@@ -103,7 +103,7 @@ mod seeded {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::future::Future;
     use std::pin::Pin;
-    use std::rc::Rc;
+    use std::rc::{Rc, Weak};
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::task::{Context, Poll, Wake, Waker};
     use std::time::Duration;
@@ -242,48 +242,56 @@ mod seeded {
             clock,
         });
 
-        CURRENT.with(|current| *current.borrow_mut() = Some(executor.clone()));
-        Installed(executor)
+        let previous = CURRENT.with(|current| current.borrow_mut().replace(executor.clone()));
+
+        Installed {
+            executor,
+            previous: previous.as_ref().map_or_else(Weak::new, Rc::downgrade),
+        }
     }
 
-    /// The executor on this thread, for as long as it is held.
-    pub struct Installed(Rc<Seeded>);
+    /// The executor on this thread, for as long as it is held. Dropping it
+    /// puts back the one it was installed over, if that one is still held.
+    pub struct Installed {
+        executor: Rc<Seeded>,
+        previous: Weak<Seeded>,
+    }
 
     impl Installed {
         pub fn seed(&self) -> u64 {
-            self.0.seed
+            self.executor.seed
         }
 
         /// Runs whatever is ready, one piece at a time in the seed's order,
         /// until nothing is. Time does not move. Returns how many pieces ran.
         pub fn run_until_parked(&self) -> usize {
-            self.0.run_until_parked()
+            self.executor.run_until_parked()
         }
 
         /// Runs one piece of whatever is ready, the one the seed picks.
         /// `false` when nothing was.
         pub fn step(&self) -> bool {
-            self.0.step()
+            self.executor.step()
         }
 
         /// Moves the clock on by `by`, one timer at a time, running whatever
         /// each timer sets off before the next one fires. Returns how many
         /// pieces ran.
         pub fn advance(&self, by: Duration) -> usize {
-            self.0.advance(by)
+            self.executor.advance(by)
         }
 
         /// Moves the clock to the next timer due within `horizon` and lets it
         /// fire; runs nothing. `false` when none was due - the clock is then
         /// `horizon` further on.
         pub fn wake_next(&self, horizon: Duration) -> bool {
-            self.0.wake_next(horizon)
+            self.executor.wake_next(horizon)
         }
 
         /// Tasks that are neither finished nor ready - waiting on a timer the
         /// clock has not reached, or on something nothing here will wake.
         pub fn stuck(&self) -> usize {
-            self.0.stuck()
+            self.executor.stuck()
         }
     }
 
@@ -291,8 +299,8 @@ mod seeded {
         fn drop(&mut self) {
             CURRENT.with(|current| {
                 let mut current = current.borrow_mut();
-                if current.as_ref().is_some_and(|installed| Rc::ptr_eq(installed, &self.0)) {
-                    *current = None;
+                if current.as_ref().is_some_and(|installed| Rc::ptr_eq(installed, &self.executor)) {
+                    *current = self.previous.upgrade();
                 }
             });
         }
@@ -673,6 +681,24 @@ mod seeded {
             let ran = executor.run_until_parked();
             assert_eq!(polls.load(Ordering::SeqCst), 2);
             assert_eq!(ran, 2, "two polls ran, but run_until_parked said {ran}");
+        }
+
+        #[test]
+        fn an_executor_installed_and_dropped_inside_another_leaves_the_outer_one_in_place() {
+            let outer = install(1);
+            drop(install(2));
+
+            let ran = Arc::new(AtomicUsize::new(0));
+            let counted = ran.clone();
+            let spawned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::executor::spawn(async move {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                });
+            }));
+
+            assert!(spawned.is_ok(), "spawn found no executor while the outer one is still held");
+            outer.run_until_parked();
+            assert_eq!(ran.load(Ordering::SeqCst), 1);
         }
 
         #[test]

@@ -1122,6 +1122,9 @@ pub struct PageNode<P> {
     /// The segment's props, kept because `update` is not handed the input and
     /// a node that changes itself often needs to read what it is sitting in.
     props: SegmentProps<WinUi>,
+    /// The reducers the render under way listens to, kept between renders
+    /// so a render does not allocate a list of its own.
+    subscribed: RefCell<Vec<TypeId>>,
 }
 
 impl<P: Page> Component for PageNode<P> {
@@ -1138,6 +1141,7 @@ impl<P: Page> Component for PageNode<P> {
         Self {
             page: staged::<P>(input),
             props: input.clone(),
+            subscribed: RefCell::default(),
         }
     }
 
@@ -1182,9 +1186,13 @@ impl<P: Page> Component for PageNode<P> {
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
+
+        let mut subscribed = self.subscribed.borrow_mut();
+        subscribed.clear();
         let view = page.borrow().view(&mut PageCx {
             props: input.clone(),
             cx,
+            subscribed: &mut subscribed,
             page: PhantomData,
         });
         crate::slots::drawn(input);
@@ -1197,6 +1205,8 @@ pub struct LayoutNode<L> {
     /// See `PageNode::page`.
     layout: Option<Shared<L>>,
     props: SegmentProps<WinUi>,
+    /// See `PageNode::subscribed`.
+    subscribed: RefCell<Vec<TypeId>>,
 }
 
 impl<L: Layout> Component for LayoutNode<L> {
@@ -1213,6 +1223,7 @@ impl<L: Layout> Component for LayoutNode<L> {
         Self {
             layout: staged::<L>(input),
             props: input.clone(),
+            subscribed: RefCell::default(),
         }
     }
 
@@ -1252,9 +1263,13 @@ impl<L: Layout> Component for LayoutNode<L> {
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
         leaves_its_fills(input, cx);
         crate::slots::drawing(input);
+
+        let mut subscribed = self.subscribed.borrow_mut();
+        subscribed.clear();
         let view = layout.borrow().view(&mut LayoutCx {
             props: input.clone(),
             cx,
+            subscribed: &mut subscribed,
             layout: PhantomData,
         });
         crate::slots::drawn(input);
@@ -1446,27 +1461,35 @@ impl<S> UpdateCx<'_, S> {
 ///
 /// Taken again when the segment is installed again in the same place: the
 /// one before listens to a scope that is gone.
+///
+/// Taken once per reducer per render: `subscribed` lists what this render
+/// already listens to, and a second read of the same reducer shares it.
 fn use_reducer<R, C>(
     props: &SegmentProps<WinUi>,
     cx: &mut ViewContext<C>,
+    subscribed: &mut Vec<TypeId>,
 ) -> (Rc<R>, guinea_core::feature::Dispatch)
 where
     R: Reducer + PartialEq,
     C: Refreshable,
 {
     let binding = props.binding::<R>();
-    let refresher = Refresher::of(cx);
 
-    // Keyed by the reducer, so a view reading two of them gets two
-    // subscriptions rather than one that replaces the other.
-    let watching = binding.clone();
-    cx.use_effect(std::any::type_name::<R>(), props.identity(), move || {
-        let subscription = watching.on_change(move |_| refresher.refresh());
-        // Ends with this component instance rather than with the scope: one
-        // that had been unmounted and kept listening would be asking a
-        // reconciler slot nobody renders to publish.
-        Some(Box::new(move || drop(subscription)) as Box<dyn FnOnce()>)
-    });
+    if !subscribed.contains(&TypeId::of::<R>()) {
+        subscribed.push(TypeId::of::<R>());
+        let refresher = Refresher::of(cx);
+
+        // Keyed by the reducer, so a view reading two of them gets two
+        // subscriptions rather than one that replaces the other.
+        let watching = binding.clone();
+        cx.use_effect(std::any::type_name::<R>(), props.identity(), move || {
+            let subscription = watching.on_change(move |_| refresher.refresh());
+            // Ends with this component instance rather than with the scope: one
+            // that had been unmounted and kept listening would be asking a
+            // reconciler slot nobody renders to publish.
+            Some(Box::new(move || drop(subscription)) as Box<dyn FnOnce()>)
+        });
+    }
 
     (binding.get(), binding.dispatch())
 }
@@ -1757,6 +1780,7 @@ impl<C: Component> UseRoute for ViewContext<'_, C> {
 pub struct PageCx<'a, 'v, P: Page> {
     props: SegmentProps<WinUi>,
     cx: &'a mut ViewContext<'v, PageNode<P>>,
+    subscribed: &'a mut Vec<TypeId>,
     page: PhantomData<fn() -> P>,
 }
 
@@ -1843,7 +1867,7 @@ impl<P: Page> PageCx<'_, '_, P> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx)
+        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
     }
 }
 
@@ -1852,7 +1876,7 @@ impl<P: Page> Reads for PageCx<'_, '_, P> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx)
+        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
     }
 
     fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
@@ -1879,6 +1903,7 @@ impl<P: Page> std::ops::DerefMut for PageCx<'_, '_, P> {
 pub struct LayoutCx<'a, 'v, L: Layout> {
     props: SegmentProps<WinUi>,
     cx: &'a mut ViewContext<'v, LayoutNode<L>>,
+    subscribed: &'a mut Vec<TypeId>,
     layout: PhantomData<fn() -> L>,
 }
 
@@ -1978,7 +2003,7 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx)
+        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
     }
 }
 
@@ -1987,7 +2012,7 @@ impl<L: Layout> Reads for LayoutCx<'_, '_, L> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx)
+        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
     }
 
     fn dispatch<R>(&self) -> guinea_core::feature::Dispatch

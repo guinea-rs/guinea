@@ -236,21 +236,6 @@ it and disposes it when it goes, and nothing else can. One that outlives
 what it was made for was made in a scope that lives too long. If a leak shows
 up again, measure it first: `ALIVE` counters on the actor's state.
 
-### Background work where only the latest run counts (uniproc)
-
-Asked for by uniproc: `cx.spawn_bg_latest(key, fut)`, or whatever it ends up
-called. While a run with the same key is under way, a new one replaces the one
-waiting - at most one waits, the newest - and the result of a run that a newer
-one overtook never reaches the actor.
-
-Every actor writes it by hand today: a "building" flag, the value waiting, an
-epoch counter, and a restart in the result's handler. uniproc's
-`ProcessesActor` (`crates/domain/src/features/processes/actor.rs`, commit
-`a70b354`) and `latest::Searcher` in `crates/guinea/tests/harness.rs`
-(`in_every_order_the_latest_query_wins`) are two of them. An async handler is
-no way out: each message gets a task of its own, so the order they came in is
-lost - an ordering test went red on `SEED=1`.
-
 ## Harness
 
 ### `settle` is something to remember
@@ -484,8 +469,8 @@ reducers.
 - Backend harnesses other than WinUI: eframe through `egui_kittest`, ratatui
   through `TestBackend`'s cell buffer, Slint through its testing backend
   (pinned to the exact version), iced through `iced_test`.
-- The call site on `send` and `spawn_bg`. `#[track_caller]` is on timers and
-  some registration only; guinea-core's `send` and `spawn_bg` record no
-  location. GPUI's profiler records where each task was spawned and Rerun puts
+- The call site on `send` and `cx.task()`. `#[track_caller]` is on timers,
+  some registration and `Task::spawn`, which keeps it only to name a lane's
+  two policies in a panic; the trace records no location. GPUI's profiler records where each task was spawned and Rerun puts
   a `Location` on every command; in the trace it would be a jump to source.
 

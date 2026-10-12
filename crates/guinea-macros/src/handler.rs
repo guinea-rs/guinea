@@ -165,7 +165,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                         // been told: it holds the same token through its
                         // `AsyncContext`, and that promise is only true if
                         // nothing drops it at the next await.
-                        cx.spawn_bg_detached_with(move |_gone| async move {
+                        cx.task().detached().spawn_with(move |_gone| async move {
                             #fn_name(actx, msg).await;
                         });
                     }

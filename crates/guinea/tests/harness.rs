@@ -60,13 +60,13 @@ mod naive {
 
     actor! {
         Searcher {
-            handlers { Query => { bg Found }, Found }
+            handlers { Query => { task Found }, Found }
         }
     }
 
     #[handler]
     fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
-        cx.spawn_bg::<Found, _>(search(text));
+        cx.task().spawn(search(text));
     }
 
     #[handler]
@@ -105,7 +105,7 @@ mod latest {
 
     actor! {
         Searcher {
-            handlers { Query => { bg Answered }, Answered }
+            handlers { Query => { task Answered }, Answered }
         }
     }
 
@@ -114,7 +114,7 @@ mod latest {
         this.asked += 1;
 
         let asked = this.asked;
-        cx.spawn_bg::<Answered, _>(async move {
+        cx.task().spawn(async move {
             Answered {
                 asked,
                 found: search(text).await,
@@ -138,6 +138,45 @@ mod latest {
     #[installs]
     fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
         let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push, asked: 0 });
+        Ok(Search(results))
+    }
+}
+
+/// Leaves the numbering to `cx.task().latest()`: a new query replaces the
+/// search in flight, and an answer that comes anyway is dropped.
+mod by_policy {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct Searcher {
+        pub push: Push<Results>,
+    }
+
+    actor! {
+        Searcher {
+            handlers { Query => { task Found }, Found }
+        }
+    }
+
+    #[handler]
+    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+        cx.task().latest().spawn(search(text));
+    }
+
+    #[handler]
+    fn found(this: &mut Searcher, found: Found) {
+        this.push.send(found);
+    }
+
+    feature! {
+        pub Search {
+            exports { Results }
+        }
+    }
+
+    #[installs]
+    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+        let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push });
         Ok(Search(results))
     }
 }
@@ -168,6 +207,17 @@ fn in_every_order_the_latest_query_wins(h: &mut Harness) {
     assert_eq!(h.stuck(), 0);
 }
 
+#[guinea::test(iterations = 200)]
+fn in_every_order_the_latest_query_wins_when_the_policy_says_so(h: &mut Harness) {
+    h.install::<by_policy::Search>(&()).unwrap();
+    type_gu_then_guinea(h);
+
+    let results = h.state::<Results>();
+    assert_eq!(results.query, "guinea");
+    assert_eq!(results.found, ["guinea", "guinea-app"]);
+    assert_eq!(h.stuck(), 0);
+}
+
 /// Waits the way the example's metrics do: `tokio::time::sleep` inside the
 /// background task.
 mod sleepy {
@@ -180,13 +230,13 @@ mod sleepy {
 
     actor! {
         Searcher {
-            handlers { Query => { bg Found }, Found }
+            handlers { Query => { task Found }, Found }
         }
     }
 
     #[handler]
     fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
-        cx.spawn_bg::<Found, _>(async move {
+        cx.task().spawn(async move {
             guinea::core::__private::tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             Found { query: text, found: Vec::new() }
         });
@@ -1020,7 +1070,7 @@ mod watching {
 
     actor! {
         Watcher {
-            handlers { Watch => { bg Changed }, Changed }
+            handlers { Watch => { task Changed }, Changed }
         }
     }
 
@@ -1158,13 +1208,13 @@ mod lingering {
 
     actor! {
         Lingerer {
-            handlers { Poke => { bg Poked }, Poked }
+            handlers { Poke => { task Poked }, Poked }
         }
     }
 
     #[handler]
     fn poke(_this: &mut Lingerer, _: Poke, cx: Cx) {
-        cx.spawn_bg::<Poked, _>(async { Poked });
+        cx.task().spawn(async { Poked });
     }
 
     #[handler]
@@ -1256,13 +1306,13 @@ mod supervising {
 
     actor! {
         Supervisor {
-            handlers { Look => { bg Found }, Found }
+            handlers { Look => { task Found }, Found }
         }
     }
 
     #[handler]
     fn look(_this: &mut Supervisor, _: Look, cx: Cx) {
-        cx.spawn_bg::<Found, _>(async { Found });
+        cx.task().spawn(async { Found });
     }
 
     #[handler]

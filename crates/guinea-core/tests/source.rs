@@ -34,7 +34,7 @@ struct Puller;
 guinea_macros::actor! {
     Puller {
         handlers {
-            Open => { bg Pulled }
+            Open => { task Pulled }
             Pulled
         }
     }

@@ -22,8 +22,8 @@ pub struct Poller;
 actor! {
     Poller {
         handlers {
-            Start => { bg Tick },
-            Tick => { bg Tick loop, send Report },
+            Start => { task Tick },
+            Tick => { task Tick loop, send Report },
             Report,
             Stopped,
         }
@@ -33,7 +33,7 @@ actor! {
 
 #[handler]
 fn start(_this: &mut Poller, _: Start, cx: Cx) {
-    cx.spawn_bg::<Tick, _>(async {
+    cx.task().spawn(async {
         tokio::time::sleep(Duration::from_millis(1)).await;
         Tick
     });
@@ -89,7 +89,7 @@ fn the_declared_edges_are_there_to_read() {
     let tick = &shape.handles[1];
     let edges = tick.edges.expect("Tick declared its edges");
     assert_eq!(edges.len(), 2);
-    assert_eq!(edges[0].channel, Channel::Bg);
+    assert_eq!(edges[0].channel, Channel::Task);
     assert!(edges[0].looping);
     assert!((edges[0].target)().ends_with("Tick"));
     assert_eq!(edges[1].channel, Channel::Send);

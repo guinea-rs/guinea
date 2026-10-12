@@ -459,7 +459,7 @@ https://pointfree.co/blog/posts/135-shared-state-in-the-composable-architecture
 4. **Capture the dispatcher at construction**, on the UI thread, as Prism
    does. `AsyncPush` is then obtainable only from a UI-side context.
 
-**Against:** if most off-thread producers are `spawn_bg` (already
+**Against:** if most off-thread producers are `cx.task()` (already
 scope-owned, with results hopping back to the actor), `AsyncPush` is needed
 only for foreign threads such as the agent connection. Count the call sites
 first; MVIKotlin lives without it.
@@ -625,13 +625,14 @@ once proposal 3 exists. Ship tier 1 as documentation or a helper first.
 
 ### Gaps outside the six, judged for a desktop
 
-1. **Latest-wins background computation.** uniproc's `building` + `pending`
-   + `epoch` is a hand-written `conflate()` plus invalidation (Kotlin
-   `mapLatest` / `collectLatest`, TCA
-   `.cancellable(id:, cancelInFlight:)`). A `spawn_bg` variant keyed per
-   actor - at most one in flight, the newest input queued, stale results
-   dropped by generation - removes three fields and two handlers per
-   feature. It is boilerplate every caller repeats, so it belongs in guinea.
+1. ~~**Latest-wins background computation.**~~ Answered by `cx.task()`:
+   uniproc's `building` + `pending` + `epoch` was a hand-written
+   `.conflate()` plus invalidation (Kotlin `mapLatest` / `collectLatest`,
+   TCA `.cancellable(id:, cancelInFlight:)`). A lane per actor and answer,
+   or per `.lane::<K>()` and `.keyed(k)`, takes `latest`, `conflate`,
+   `queue` or `exhaust` - RxJS's `switchMap`, conflation, `concatMap` and
+   `exhaustMap` - and drops a stale answer by generation where it is
+   delivered.
 2. **Window visibility as a cause of sleep.** Decompose maps minimized to
    stopped, visible-unfocused to started, focused to resumed. guinea appears
    to sleep scopes only for route reasons (keep-layouts); `windows.rs` tracks

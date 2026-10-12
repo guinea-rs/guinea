@@ -107,7 +107,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// say - is recorded under a [`Point::Pull`] of the source, a root as
     /// well.
     ///
-    /// Declared as `bg` in `actor!`, like any other work that answers later.
+    /// Declared as `task` in `actor!`, like any other work that answers later.
     ///
     /// ```
     /// use std::cell::RefCell;
@@ -144,7 +144,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// guinea_macros::actor! {
     ///     Launch {
     ///         handlers {
-    ///             Start => { bg Tick }
+    ///             Start => { task Tick }
     ///             Tick
     ///         }
     ///     }

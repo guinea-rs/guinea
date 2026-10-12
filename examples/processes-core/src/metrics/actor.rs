@@ -27,7 +27,7 @@ pub struct Tick;
 actor! {
     MetricsActor {
         handlers {
-            Tick => { bg Tick loop }
+            Tick => { task Tick loop }
         }
     }
 }
@@ -46,7 +46,7 @@ fn tick(this: &mut MetricsActor, _: Tick, cx: Cx) {
 
     this.push.send(Sampled::At { at, cpu, memory });
 
-    cx.spawn_bg::<Tick, _>(async {
+    cx.task().spawn(async {
         tokio::time::sleep(Duration::from_millis(800)).await;
         Tick
     });

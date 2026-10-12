@@ -6,7 +6,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channel {
     Send,
-    Bg,
+    Task,
     Emit,
     Ask,
 }

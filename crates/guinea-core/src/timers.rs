@@ -6,7 +6,7 @@
 //! how devtools tell one from another, and ticks on the UI thread.
 //!
 //! They wait on `tokio::time`, through the same executor as background work,
-//! so they need the runtime `spawn_bg` needs - and under a test harness they
+//! so they need the runtime `cx.task()` needs - and under a test harness they
 //! wait on the test's clock and tick when it is advanced.
 
 use std::any::Any;

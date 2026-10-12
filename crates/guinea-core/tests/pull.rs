@@ -43,7 +43,7 @@ struct Maker;
 guinea_macros::actor! {
     Maker {
         handlers {
-            Open => { bg Made }
+            Open => { task Made }
             Made
         }
     }

@@ -27,6 +27,8 @@ pub enum StoreOp {
 ///         | Point::Spawn { .. }
 ///         | Point::Settled { .. }
 ///         | Point::Cancelled { .. }
+///         | Point::Superseded { .. }
+///         | Point::Skipped { .. }
 ///         | Point::Source { .. }
 ///         | Point::Arrived { .. }
 ///         | Point::Pull { .. }
@@ -76,12 +78,28 @@ pub enum Point {
         took_us: u64,
     },
     /// Background work was dropped where it last awaited, because the actor
-    /// that started it is gone. Nothing comes back.
+    /// that started it is gone or its lane was cancelled. Nothing comes back.
     Cancelled {
         actor: &'static str,
         actor_id: u64,
         output: &'static str,
         took_us: u64,
+    },
+    /// Background work in a lane gave way to newer work there: it was dropped
+    /// unstarted, or cut off, or what it returned came too late to count.
+    /// Nothing comes back.
+    Superseded {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
+        took_us: u64,
+    },
+    /// Background work was turned away unstarted: its lane was busy and
+    /// takes nothing new until it is not.
+    Skipped {
+        actor: &'static str,
+        actor_id: u64,
+        output: &'static str,
     },
     /// An actor opened a source whose items will come to it as `output`.
     /// Recorded under what opened it, which is done with it once it is open:
@@ -197,6 +215,8 @@ impl Point {
             Point::Spawn { .. } => "spawn",
             Point::Settled { .. } => "settled",
             Point::Cancelled { .. } => "cancelled",
+            Point::Superseded { .. } => "superseded",
+            Point::Skipped { .. } => "skipped",
             Point::Source { .. } => "source",
             Point::Arrived { .. } => "arrived",
             Point::Pull { .. } => "pull",
@@ -249,9 +269,22 @@ impl fmt::Display for Point {
                 ..
             } => write!(
                 f,
-                "{actor} is gone: {output} cancelled after {:.1} ms",
+                "{actor}'s work for {output} cancelled after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
+            Point::Superseded {
+                actor,
+                output,
+                took_us,
+                ..
+            } => write!(
+                f,
+                "{actor}'s work for {output} gave way to newer work after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
+            Point::Skipped { actor, output, .. } => {
+                write!(f, "{actor} was busy: work for {output} turned away")
+            }
             Point::Source { actor, output, .. } => write!(f, "{actor} opens a source of {output}"),
             Point::Arrived { actor, output, .. } => write!(f, "{output} arrives at {actor}"),
             Point::Pull { actor, output, .. } => {

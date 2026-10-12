@@ -483,7 +483,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// third argument, its `Cx`. Written bare: the actor and the message are the
 /// two arguments before it, and the macro writes them in. `Cx` is typed by the
 /// message it handles, which is what `actor!`'s flow checks - a handler of
-/// `Refresh` declared `Refresh => { bg Counted }` may spawn work that answers
+/// `Refresh` declared `Refresh => { task Counted }` may spawn work that answers
 /// `Counted`, and nothing else compiles:
 ///
 /// <!-- shown: a handler that starts work -->
@@ -498,7 +498,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 ///
 /// actor! {
 ///     Counting {
-///         handlers { Refresh => { bg Counted }, Counted }
+///         handlers { Refresh => { task Counted }, Counted }
 ///     }
 /// }
 ///
@@ -506,7 +506,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// // arguments before it already say.
 /// #[handler]
 /// fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
-///     cx.spawn_bg::<Counted, _>(async {
+///     cx.task().spawn(async {
 ///         guinea::core::executor::random_delay().await;
 ///         Counted(7)
 ///     });
@@ -523,7 +523,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// `AsyncContext` instead of the actor - the actor itself stays on the UI
 /// thread - and ends with the actor: dropped at its next await once the actor
 /// is gone, unless it listens for that itself. Work that needs the actor's
-/// state is a plain handler that reads it and hands the rest to `spawn_bg`,
+/// state is a plain handler that reads it and hands the rest to `cx.task()`,
 /// as above: the state is read when the message comes, on the UI thread.
 ///
 /// <!-- shown: an async handler -->

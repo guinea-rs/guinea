@@ -71,7 +71,7 @@ mod with_cx {
 
     actor! {
         Counting {
-            handlers { Refresh => { bg Counted }, Counted }
+            handlers { Refresh => { task Counted }, Counted }
         }
     }
 
@@ -79,7 +79,7 @@ mod with_cx {
     // arguments before it already say.
     #[handler]
     fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
-        cx.spawn_bg::<Counted, _>(async {
+        cx.task().spawn(async {
             guinea::core::executor::random_delay().await;
             Counted(7)
         });

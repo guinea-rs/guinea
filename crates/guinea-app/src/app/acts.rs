@@ -55,7 +55,12 @@ impl Log {
         self.children(spawn).iter().any(|child| {
             matches!(
                 self.points.get(child),
-                Some(Point::Settled { .. } | Point::Cancelled { .. })
+                Some(
+                    Point::Settled { .. }
+                        | Point::Cancelled { .. }
+                        | Point::Superseded { .. }
+                        | Point::Skipped { .. }
+                )
             )
         })
     }
@@ -213,6 +218,8 @@ pub enum Step {
     Spawn { actor: &'static str, output: &'static str },
     Settled { actor: &'static str, output: &'static str },
     Cancelled { actor: &'static str, output: &'static str },
+    Superseded { actor: &'static str, output: &'static str },
+    Skipped { actor: &'static str, output: &'static str },
     Source { actor: &'static str, output: &'static str },
     Arrived { actor: &'static str, output: &'static str },
     Pull { actor: &'static str, output: &'static str },
@@ -238,6 +245,8 @@ impl Step {
             Point::Spawn { actor, output, .. } => Step::Spawn { actor, output },
             Point::Settled { actor, output, .. } => Step::Settled { actor, output },
             Point::Cancelled { actor, output, .. } => Step::Cancelled { actor, output },
+            Point::Superseded { actor, output, .. } => Step::Superseded { actor, output },
+            Point::Skipped { actor, output, .. } => Step::Skipped { actor, output },
             Point::Source { actor, output, .. } => Step::Source { actor, output },
             Point::Arrived { actor, output, .. } => Step::Arrived { actor, output },
             Point::Pull { actor, output, .. } => Step::Pull { actor, output },

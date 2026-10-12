@@ -7,19 +7,20 @@ use crate::actor::{AllowedSignal, ManagedActor};
 use std::marker::PhantomData;
 
 mod async_ctx;
-mod background;
 #[cfg(test)]
 mod chain;
 mod source;
+pub mod task;
 
 pub use async_ctx::AsyncContext;
+pub use task::Task;
 
 /// What a handler may do besides change its actor: send on, publish, start
 /// background work.
 ///
 /// Typed by the message being handled, not holding it: the message is the
 /// handler's own argument, and `M` is what `actor!`'s flow checks - a handler
-/// of `Query` declared `Query => { bg Found }` may spawn work that answers
+/// of `Query` declared `Query => { task Found }` may spawn work that answers
 /// `Found`, and nothing else.
 pub struct Cx<A: 'static, M = ()> {
     pub(super) addr: Addr<A>,
@@ -78,7 +79,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// The actor's cancellation token, for work that has to end itself rather
     /// than be dropped at an await - closing a file, telling the other end.
     ///
-    /// [`Cx::spawn_bg`] already guards what it spawns with it.
+    /// [`Cx::task`] already guards what it spawns with it.
     pub fn cancellation(&self) -> Cancel {
         self.addr.cancellation()
     }

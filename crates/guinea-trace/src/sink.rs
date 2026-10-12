@@ -197,6 +197,30 @@ fn write(record: &Record) {
             output = %output,
             took_us
         ),
+        Point::Superseded {
+            actor,
+            actor_id,
+            output,
+            took_us,
+        } => point!(
+            "guinea::superseded",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output,
+            took_us
+        ),
+        Point::Skipped {
+            actor,
+            actor_id,
+            output,
+        } => point!(
+            "guinea::skipped",
+            record,
+            actor = %actor,
+            actor_id,
+            output = %output
+        ),
         Point::Source {
             actor,
             actor_id,

@@ -1,4 +1,5 @@
 use crate::actor::cancel::Cancel;
+use crate::actor::ctx::task::Lanes;
 use crate::actor::envelope::{self, Envelope, MessageEnvelope};
 use crate::actor::event_bus::subscribe::{BusSubscription, Event};
 use crate::actor::event_bus::EventBus;
@@ -107,6 +108,7 @@ struct Actor<A: 'static> {
     queue: RefCell<VecDeque<Box<dyn Envelope<A>>>>,
     is_processing: Cell<bool>,
     cancel: Cancel,
+    lanes: RefCell<Lanes>,
     /// What it hears, for as long as it lives: disposing it ends them.
     subscriptions: RefCell<Vec<BusSubscription>>,
     home: Home,
@@ -178,6 +180,7 @@ impl<A: 'static> Addr<A> {
             queue: RefCell::new(VecDeque::new()),
             is_processing: Cell::new(false),
             cancel: Cancel::new(),
+            lanes: RefCell::default(),
             subscriptions: RefCell::new(Vec::new()),
             home: home.clone(),
         }));
@@ -322,7 +325,13 @@ impl<A: 'static> Addr<A> {
     /// answer. Its scope does this as it lets go of it.
     pub(crate) fn dispose(&self) {
         self.0.cancel.cancel();
+        self.close_lanes();
         self.0.subscriptions.borrow_mut().clear();
+    }
+
+    /// Where `cx.task()` keeps what its policies hold back.
+    pub(crate) fn lanes(&self) -> &RefCell<Lanes> {
+        &self.0.lanes
     }
 }
 

@@ -598,7 +598,7 @@ mod tests {
 
     /// A requester awaiting on one OS thread reaches an answerer on another:
     /// the normal shape, answerer on the UI thread and requester on a
-    /// `spawn_bg` worker. The request is published where the tree is.
+    /// `cx.task()` worker. The request is published where the tree is.
     #[test]
     fn request_resolves_when_subscriber_is_on_a_different_os_thread() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

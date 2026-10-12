@@ -16,7 +16,7 @@ pub(super) struct Chain {
 guinea_macros::actor! {
     Chain {
         handlers {
-            First => { send Second, bg Second }
+            First => { send Second, task Second }
             Second
         }
     }

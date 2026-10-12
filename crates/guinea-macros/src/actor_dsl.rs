@@ -35,7 +35,7 @@ struct Edge {
 #[derive(PartialEq)]
 enum Channel {
     Send,
-    Bg,
+    Task,
     Emit,
     Ask,
 }
@@ -151,7 +151,7 @@ fn parse_sections(tokens: &[TokenTree], manifest: &mut Manifest) -> syn::Result<
     Ok(())
 }
 
-/// `Msg` or `Msg => { send Other, bg Third }`, comma-separated; the comma
+/// `Msg` or `Msg => { send Other, task Third }`, comma-separated; the comma
 /// after a block is optional, as with match arms.
 fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
     let mut decls = Vec::new();
@@ -216,19 +216,19 @@ fn parse_edges(tokens: &[TokenTree]) -> syn::Result<Vec<Edge>> {
         let Some(TokenTree::Ident(head)) = slice.first().cloned() else {
             return Err(syn::Error::new(
                 span_of(&chunk),
-                "expected `send`, `bg`, `emit` or `ask` before the message type",
+                "expected `send`, `task`, `emit` or `ask` before the message type",
             ));
         };
 
         let channel = match head.to_string().as_str() {
             "send" => Channel::Send,
-            "bg" => Channel::Bg,
+            "task" => Channel::Task,
             "emit" => Channel::Emit,
             "ask" => Channel::Ask,
             other => {
                 return Err(syn::Error::new(
                     head.span(),
-                    format!("unknown channel `{other}`; expected send, bg, emit or ask"),
+                    format!("unknown channel `{other}`; expected send, task, emit or ask"),
                 ));
             }
         };
@@ -423,7 +423,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         .iter()
         .filter_map(|decl| decl.edges.as_ref().map(|edges| (&decl.msg, edges)))
         .flat_map(|(msg, edges)| edges.iter().map(move |edge| (msg, edge)))
-        .filter(|(_, edge)| matches!(edge.channel, Channel::Send | Channel::Bg))
+        .filter(|(_, edge)| matches!(edge.channel, Channel::Send | Channel::Task))
         .filter_map(|(msg, edge)| {
             let target = &edge.target;
             let key = quote!(#msg => #target).to_string();
@@ -460,7 +460,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
 
     let channel_of = |channel: &Channel| match channel {
         Channel::Send => quote!(#gc::actor::shape::Channel::Send),
-        Channel::Bg => quote!(#gc::actor::shape::Channel::Bg),
+        Channel::Task => quote!(#gc::actor::shape::Channel::Task),
         Channel::Emit => quote!(#gc::actor::shape::Channel::Emit),
         Channel::Ask => quote!(#gc::actor::shape::Channel::Ask),
     };

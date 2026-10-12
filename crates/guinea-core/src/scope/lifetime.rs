@@ -62,7 +62,7 @@ impl Scope {
     }
 
     /// Wakes this scope, then runs what asked to hear of it, in the order it
-    /// asked.
+    /// asked - until one of them removes the scope or puts it back to sleep.
     pub fn wake(&self) {
         let data = self.alive("waking");
         data.lifetime.asleep.set(false);
@@ -70,6 +70,10 @@ impl Scope {
         let hooks = data.lifetime.wake_hooks.borrow().clone();
         drop(data);
         for hook in hooks {
+            if !self.is_awake() {
+                break;
+            }
+
             hook();
         }
     }

@@ -44,6 +44,40 @@ fn a_tree_takes_every_scope_in_it_along_when_its_owner_lets_go() {
     assert!(!page.is_alive());
 }
 
+#[test]
+fn a_wake_hook_does_not_run_after_an_earlier_hook_removed_its_scope() {
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    let late = Rc::new(std::cell::Cell::new(0));
+
+    page.on_wake(move || page.remove());
+    let counted = late.clone();
+    page.on_wake(move || counted.set(counted.get() + 1));
+    page.sleep();
+
+    page.wake();
+
+    assert!(!page.is_alive());
+    assert_eq!(late.get(), 0, "a removed page's wake hook ran");
+}
+
+#[test]
+fn a_wake_hook_does_not_run_after_an_earlier_hook_put_its_scope_back_to_sleep() {
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    let late = Rc::new(std::cell::Cell::new(0));
+
+    page.on_wake(move || page.sleep());
+    let counted = late.clone();
+    page.on_wake(move || counted.set(counted.get() + 1));
+    page.sleep();
+
+    page.wake();
+
+    assert!(!page.is_awake());
+    assert_eq!(late.get(), 0, "it catches up at the next wake, not while asleep");
+}
+
 #[derive(Clone)]
 struct Ping;
 

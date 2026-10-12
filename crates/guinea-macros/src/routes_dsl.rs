@@ -282,6 +282,11 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         panic!("{}", joined(&field_errors));
     }
 
+    let name_errors = guinea_route_dsl::check_names(&tree);
+    if !name_errors.is_empty() {
+        panic!("{}", joined(&name_errors));
+    }
+
     let guard_errors = guinea_route_dsl::check_guards(&tree);
     if !guard_errors.is_empty() {
         panic!("{}", joined(&guard_errors));

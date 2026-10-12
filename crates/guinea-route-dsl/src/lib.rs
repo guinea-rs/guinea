@@ -450,6 +450,45 @@ pub fn check_guards(tree: &RouteTree) -> Vec<String> {
     errors
 }
 
+/// Pages and layouts that would generate the same names.
+///
+/// A route's variant and the params of a page or a layout are named after the
+/// last segment of its type, so two types ending alike would generate the
+/// same items twice - and the compiler would say so a dozen times, about code
+/// nobody wrote.
+pub fn check_names(tree: &RouteTree) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut named: Vec<syn::Type> = Vec::new();
+
+    let pages = tree.leaves().into_iter().map(|leaf| leaf.ty);
+    for ty in tree.layouts().into_iter().chain(pages) {
+        let name = type_ident(&ty);
+        let Some(seen) = named.iter().find(|seen| type_ident(seen) == name) else {
+            named.push(ty);
+            continue;
+        };
+
+        if same_type(seen, &ty) {
+            errors.push(format!(
+                "routes!: `{}` is declared twice - a page is one route",
+                spelled(&ty)
+            ));
+            continue;
+        }
+
+        errors.push(format!(
+            "routes!: `{}` and `{}` are both named `{name}`, and a route and its params are \
+             named after the last segment of the type - bring one in under another name: \
+             `use {} as ..;`",
+            spelled(seen),
+            spelled(&ty),
+            spelled(&ty)
+        ));
+    }
+
+    errors
+}
+
 fn walk_guards(nodes: &[Node], standing: &[syn::Type], errors: &mut Vec<String>) {
     for node in nodes {
         let (ty, guards, children) = match node {
@@ -1238,6 +1277,50 @@ mod tests {
 
         assert!(check_guards(&tree).is_empty());
         assert_eq!(guards_of(&tree, "Narrower"), ["A"]);
+    }
+
+    #[test]
+    fn two_pages_named_alike_in_two_modules_are_reported() {
+        let tree = tree_of(
+            r#"
+            page(admin::Settings) link("/admin/settings")
+            page(user::Settings) link("/user/settings")
+            page(Other)
+            "#,
+        );
+
+        let errors = check_names(&tree);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].contains("`admin::Settings` and `user::Settings` are both named `Settings`"),
+            "{}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn a_layout_and_a_page_named_alike_are_reported() {
+        let tree = tree_of("layout(shell::Main) { page(Inner) } page(pages::Main)");
+
+        let errors = check_names(&tree);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("`shell::Main` and `pages::Main`"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn a_page_declared_twice_is_reported() {
+        let tree = tree_of("layout(A) { page(Twice) } layout(B) { page(Twice) }");
+
+        let errors = check_names(&tree);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("`Twice` is declared twice"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn a_layout_wrapping_two_areas_is_one_name() {
+        let tree = tree_of("layout(Shell) { layout(A) { page(One) } layout(B) { page(Two) } }");
+
+        assert!(check_names(&tree).is_empty());
     }
 
     fn restorable_of(tree: &RouteTree, page: &str) -> bool {

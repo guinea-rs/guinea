@@ -909,9 +909,9 @@ impl Lanes {
         }
     }
 
-    fn run(&mut self, actor: &Cancel) -> (Run, Ticket) {
+    fn run(&mut self, parent: &Cancel) -> (Run, Ticket) {
         self.runs += 1;
-        let cancel = actor.child();
+        let cancel = parent.child();
         let gave_way = Arc::new(AtomicBool::new(false));
 
         let run = Run {
@@ -933,11 +933,11 @@ impl Lanes {
         key: Option<Box<dyn LaneKey>>,
         kind: Kind,
         waiting: Waiting,
-        actor: &Cancel,
+        parent: &Cancel,
     ) -> Admitted {
         let found = self.open.iter().position(|open| open.is(lane, key.as_deref()));
         let Some(at) = found else {
-            let (running, ticket) = self.run(actor);
+            let (running, ticket) = self.run(parent);
             self.open.push(Open {
                 lane,
                 key,
@@ -953,7 +953,7 @@ impl Lanes {
 
         match kind {
             Kind::Latest => {
-                let (running, ticket) = self.run(actor);
+                let (running, ticket) = self.run(parent);
                 let replaced = std::mem::replace(&mut self.open[at].running, running);
                 replaced.gave_way.store(true, Ordering::SeqCst);
                 replaced.cancel.cancel();
@@ -977,7 +977,7 @@ impl Lanes {
 
     /// The next piece of the lane whose run `run` was, ready to start, if it
     /// has one; `None` when `run` is not its lane's any more.
-    fn finish(&mut self, run: u64, actor: &Cancel) -> Option<Option<(Waiting, Ticket)>> {
+    fn finish(&mut self, run: u64, parent: &Cancel) -> Option<Option<(Waiting, Ticket)>> {
         let at = self.open.iter().position(|open| open.running.run == run)?;
 
         let Some(next) = self.open[at].waiting.take() else {
@@ -985,7 +985,7 @@ impl Lanes {
             return Some(None);
         };
 
-        let (running, ticket) = self.run(actor);
+        let (running, ticket) = self.run(parent);
         self.open[at].running = running;
         Some(Some((next, ticket)))
     }

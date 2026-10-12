@@ -12,32 +12,46 @@ use crate::{Cause, Point, Record, Trace};
 
 pub type Observer = Rc<dyn Fn(&Trace)>;
 
+struct Slot(RefCell<Option<Observer>>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        if self.0.get_mut().take().is_some() {
+            stopped();
+        }
+    }
+}
+
 thread_local! {
-    static OBSERVER: RefCell<Option<Observer>> = const { RefCell::new(None) };
+    static OBSERVER: Slot = const { Slot(RefCell::new(None)) };
 }
 
 static OBSERVED_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 /// Hands every record produced on this thread to `observer`, replacing any
-/// observer already set.
+/// observer already set, until [`stop_observing`] or the thread ends.
 pub fn observe(observer: impl Fn(&Trace) + 'static) {
-    let before = OBSERVER.with(|slot| slot.borrow_mut().replace(Rc::new(observer)));
+    let before = OBSERVER.with(|slot| slot.0.borrow_mut().replace(Rc::new(observer)));
     if before.is_none() {
         OBSERVED_THREADS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
 pub fn stop_observing() {
-    if OBSERVER.with(|slot| slot.borrow_mut().take()).is_some()
-        && OBSERVED_THREADS.fetch_sub(1, Ordering::Relaxed) == 1
-    {
+    if OBSERVER.with(|slot| slot.0.borrow_mut().take()).is_some() {
+        stopped();
+    }
+}
+
+fn stopped() {
+    if OBSERVED_THREADS.fetch_sub(1, Ordering::Relaxed) == 1 {
         take_elsewhere();
     }
 }
 
 /// Whether devtools are watching this thread.
 pub fn is_observed() -> bool {
-    OBSERVER.with(|slot| slot.borrow().is_some())
+    OBSERVER.with(|slot| slot.0.borrow().is_some())
 }
 
 /// Whether devtools are watching any thread.
@@ -127,7 +141,7 @@ fn os_thread_id() -> u32 {
 }
 
 fn observer() -> Option<Observer> {
-    OBSERVER.with(|slot| slot.borrow().clone())
+    OBSERVER.with(|slot| slot.0.borrow().clone())
 }
 
 pub(crate) fn wanted() -> bool {

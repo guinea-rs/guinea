@@ -60,11 +60,11 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     let fn_name = &item.sig.ident;
     let inputs = &item.sig.inputs;
     let cx = if takes_cx {
-        quote!(cx)
+        quote!(__guinea_cx)
     } else {
-        quote!(_cx)
+        quote!(_)
     };
-    let passed_cx = takes_cx.then(|| quote!(, cx));
+    let passed_cx = takes_cx.then(|| quote!(, __guinea_cx));
 
     // A return type is the signal that this handler answers an
     // `Scope::request` rather than reacting to a fire-and-forget event.
@@ -107,8 +107,8 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) {
-                        #fn_name(self, msg #passed_cx);
+                    fn handle(&mut self, __guinea_msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) {
+                        #fn_name(self, __guinea_msg #passed_cx);
                     }
                 }
             }
@@ -132,12 +132,12 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
 
                     fn handle_rpc(
                         &mut self,
-                        msg: #msg_ty,
+                        __guinea_msg: #msg_ty,
                         #cx: #gc::actor::Cx<Self, #msg_ty>,
                     ) -> #gc::actor::event_bus::rpc::Reply<
                         <#msg_ty as #gc::actor::event_bus::rpc::RpcCall>::Response,
                     > {
-                        ::core::convert::Into::into(#fn_name(self, msg #passed_cx))
+                        ::core::convert::Into::into(#fn_name(self, __guinea_msg #passed_cx))
                     }
                 }
             }
@@ -159,14 +159,14 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, msg: #msg_ty, cx: #gc::actor::Cx<Self, #msg_ty>) {
-                        let actx = cx.async_ctx();
+                    fn handle(&mut self, __guinea_msg: #msg_ty, __guinea_cx: #gc::actor::Cx<Self, #msg_ty>) {
+                        let __guinea_actx = __guinea_cx.async_ctx();
                         // `_with`, so the body is left to finish once it has
                         // been told: it holds the same token through its
                         // `AsyncContext`, and that promise is only true if
                         // nothing drops it at the next await.
-                        cx.task().detached().spawn_with(move |_gone| async move {
-                            #fn_name(actx, msg).await;
+                        __guinea_cx.task().detached().spawn_with(move |_| async move {
+                            #fn_name(__guinea_actx, __guinea_msg).await;
                         });
                     }
                 }
@@ -202,14 +202,14 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
 
                     fn handle(
                         &mut self,
-                        msg: #gc::actor::event_bus::RpcRequest<#msg_ty>,
-                        cx: #gc::actor::Cx<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>,
+                        __guinea_msg: #gc::actor::event_bus::RpcRequest<#msg_ty>,
+                        __guinea_cx: #gc::actor::Cx<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>,
                     ) {
-                        let actx = cx.async_ctx();
-                        let (payload, reply_to) = msg.into_parts();
+                        let __guinea_actx = __guinea_cx.async_ctx();
+                        let (__guinea_payload, __guinea_reply_to) = __guinea_msg.into_parts();
                         #gc::actor::event_bus::ReplyTo::<#ret_ty>::later(
-                            reply_to,
-                            async move { #fn_name(actx, payload).await },
+                            __guinea_reply_to,
+                            async move { #fn_name(__guinea_actx, __guinea_payload).await },
                         );
                     }
                 }

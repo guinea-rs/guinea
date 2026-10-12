@@ -80,9 +80,9 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 Type::Reference(reference) => (*reference.elem).clone(),
                 other => other.clone(),
             };
-            (quote!(#params), quote!(#called(cx, params)))
+            (quote!(#params), quote!(#called(__guinea_cx, __guinea_params)))
         }
-        _ => (quote!(()), quote!(#called(cx))),
+        _ => (quote!(()), quote!(#called(__guinea_cx))),
     };
 
     quote! {
@@ -101,10 +101,10 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 });
 
             fn install(
-                cx: &#feature::FeatureInitContext,
-                params: &Self::Params,
+                __guinea_cx: &#feature::FeatureInitContext,
+                __guinea_params: &Self::Params,
             ) -> #gc::__private::anyhow::Result<Self> {
-                let _ = params;
+                let _ = __guinea_params;
                 #call
             }
         }

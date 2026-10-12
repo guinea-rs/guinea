@@ -67,8 +67,8 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
         impl #impl_generics #gc::Reducer for #state #where_clause {
             type Update = #update;
 
-            fn reduce(&mut self, update: #update) {
-                #called(self, update)
+            fn reduce(&mut self, __guinea_update: #update) {
+                #called(self, __guinea_update)
             }
 
             fn show(&self, at: #gc::inspect::Inspector<'_>) {

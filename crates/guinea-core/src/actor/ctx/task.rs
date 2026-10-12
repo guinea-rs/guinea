@@ -132,8 +132,11 @@ impl<A: 'static, M> Cx<A, M> {
     /// It lives as long as the actor does: once the actor's scope goes, the
     /// work is dropped where it last awaited and nothing is sent.
     ///
+    /// Without a policy every piece runs on its own and answers when it is
+    /// done, in whatever order that is:
+    ///
     /// ```
-    /// use std::cell::Cell;
+    /// use std::cell::RefCell;
     /// use std::rc::Rc;
     /// use std::time::Duration;
     ///
@@ -141,12 +144,14 @@ impl<A: 'static, M> Cx<A, M> {
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///
-    /// #[derive(Debug)]
-    /// struct Weather(Rc<Cell<Option<i32>>>);
+    /// struct Weather(Rc<RefCell<Vec<&'static str>>>);
     ///
-    /// struct Fetch;
+    /// struct Fetch {
+    ///     city: &'static str,
+    ///     takes: Duration,
+    /// }
     ///
-    /// struct Fetched(i32);
+    /// struct Fetched(&'static str);
     ///
     /// guinea_macros::actor! {
     ///     Weather {
@@ -158,14 +163,17 @@ impl<A: 'static, M> Cx<A, M> {
     /// }
     ///
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, _: Fetch, cx: Cx<Self, Fetch>) {
-    ///         cx.task().latest().spawn(async { Fetched(21) });
+    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().spawn(async move {
+    ///             tokio::time::sleep(takes).await;
+    ///             Fetched(city)
+    ///         });
     ///     }
     /// }
     ///
     /// impl Handler<Fetched> for Weather {
-    ///     fn handle(&mut self, Fetched(degrees): Fetched, _cx: Cx<Self, Fetched>) {
-    ///         self.0.set(Some(degrees));
+    ///     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
+    ///         self.0.borrow_mut().push(city);
     ///     }
     /// }
     ///
@@ -174,14 +182,15 @@ impl<A: 'static, M> Cx<A, M> {
     /// let _entered = runtime.enter();
     ///
     /// let tree = ScopeTree::new();
-    /// let shown = Rc::new(Cell::new(None));
+    /// let shown = Rc::new(RefCell::new(Vec::new()));
     /// let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
     ///
-    /// weather.send(Fetch);
-    /// assert_eq!(shown.get(), None, "the answer comes later, on the UI thread");
+    /// weather.send(Fetch { city: "Oslo", takes: Duration::from_millis(200) });
+    /// weather.send(Fetch { city: "Rome", takes: Duration::ZERO });
+    /// assert!(shown.borrow().is_empty(), "answers come later, on the UI thread");
     ///
-    /// assert!(ui.run_until(|| shown.get().is_some(), Duration::from_secs(5)));
-    /// assert_eq!(shown.get(), Some(21));
+    /// assert!(ui.run_until(|| shown.borrow().len() == 2, Duration::from_secs(5)));
+    /// assert_eq!(*shown.borrow(), ["Rome", "Oslo"], "the quicker answered first");
     /// ```
     pub fn task(&self) -> Task<'_, A, M> {
         Task {
@@ -246,22 +255,189 @@ impl<'cx, A: 'static, M, P, R> Task<'cx, A, M, P, R> {
 }
 
 impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
-    /// New work replaces the work in flight.
+    /// New work replaces the work in flight: what runs is cut off, and its
+    /// answer, if it was already on its way, is dropped.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use std::time::Duration;
+    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
+    /// # struct Fetch { city: &'static str, takes: Duration }
+    /// # struct Fetched(&'static str);
+    /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
+    /// # impl Handler<Fetched> for Weather {
+    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
+    /// #         self.0.borrow_mut().push(city);
+    /// #     }
+    /// # }
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().latest().spawn(async move {
+    ///             tokio::time::sleep(takes).await;
+    ///             Fetched(city)
+    ///         });
+    ///     }
+    /// }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let shown = Rc::new(RefCell::new(Vec::new()));
+    /// # let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// # let fetch = |city: &'static str, ms: u64| weather.send(Fetch { city, takes: Duration::from_millis(ms) });
+    ///
+    /// fetch("Oslo", 200);
+    /// fetch("Rome", 0);
+    /// # assert!(ui.run_until(|| !shown.borrow().is_empty(), Duration::from_secs(5)));
+    /// # assert!(!ui.run_until(|| shown.borrow().len() > 1, Duration::from_millis(400)));
+    ///
+    /// assert_eq!(*shown.borrow(), ["Rome"], "Oslo was cut off when Rome was asked for");
+    /// ```
     pub fn latest(self) -> Task<'cx, A, M, Latest, R> {
         self.with()
     }
 
-    /// The work in flight finishes; then only the newest that came meanwhile.
+    /// The work in flight finishes; then only the newest that came meanwhile
+    /// runs, and the ones between never start.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use std::time::Duration;
+    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
+    /// # struct Fetch { city: &'static str, takes: Duration }
+    /// # struct Fetched(&'static str);
+    /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
+    /// # impl Handler<Fetched> for Weather {
+    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
+    /// #         self.0.borrow_mut().push(city);
+    /// #     }
+    /// # }
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().conflate().spawn(async move {
+    ///             tokio::time::sleep(takes).await;
+    ///             Fetched(city)
+    ///         });
+    ///     }
+    /// }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let shown = Rc::new(RefCell::new(Vec::new()));
+    /// # let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// # let fetch = |city: &'static str, ms: u64| weather.send(Fetch { city, takes: Duration::from_millis(ms) });
+    ///
+    /// fetch("Oslo", 200);
+    /// fetch("Rome", 0);
+    /// fetch("Paris", 0);
+    /// # assert!(ui.run_until(|| shown.borrow().len() == 2, Duration::from_secs(5)));
+    /// # assert!(!ui.run_until(|| shown.borrow().len() > 2, Duration::from_millis(400)));
+    ///
+    /// assert_eq!(*shown.borrow(), ["Oslo", "Paris"], "Rome gave way to Paris before it started");
+    /// ```
     pub fn conflate(self) -> Task<'cx, A, M, Conflate, R> {
         self.with()
     }
 
     /// Every piece, one at a time, in the order they came.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use std::time::Duration;
+    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
+    /// # struct Fetch { city: &'static str, takes: Duration }
+    /// # struct Fetched(&'static str);
+    /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
+    /// # impl Handler<Fetched> for Weather {
+    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
+    /// #         self.0.borrow_mut().push(city);
+    /// #     }
+    /// # }
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().queue().spawn(async move {
+    ///             tokio::time::sleep(takes).await;
+    ///             Fetched(city)
+    ///         });
+    ///     }
+    /// }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let shown = Rc::new(RefCell::new(Vec::new()));
+    /// # let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// # let fetch = |city: &'static str, ms: u64| weather.send(Fetch { city, takes: Duration::from_millis(ms) });
+    ///
+    /// fetch("Oslo", 200);
+    /// fetch("Rome", 100);
+    /// fetch("Paris", 0);
+    /// # assert!(ui.run_until(|| shown.borrow().len() == 3, Duration::from_secs(5)));
+    ///
+    /// assert_eq!(*shown.borrow(), ["Oslo", "Rome", "Paris"], "in the order asked, not the order quickest");
+    /// ```
     pub fn queue(self) -> Task<'cx, A, M, Queue, R> {
         self.with()
     }
 
-    /// Nothing new while a piece is in flight.
+    /// Nothing new while a piece is in flight: what comes meanwhile is
+    /// dropped without being started.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use std::time::Duration;
+    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
+    /// # struct Fetch { city: &'static str, takes: Duration }
+    /// # struct Fetched(&'static str);
+    /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
+    /// # impl Handler<Fetched> for Weather {
+    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
+    /// #         self.0.borrow_mut().push(city);
+    /// #     }
+    /// # }
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().exhaust().spawn(async move {
+    ///             tokio::time::sleep(takes).await;
+    ///             Fetched(city)
+    ///         });
+    ///     }
+    /// }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let shown = Rc::new(RefCell::new(Vec::new()));
+    /// # let weather = Addr::new(Weather(shown.clone()), &Home::new(tree.scope()));
+    /// # let fetch = |city: &'static str, ms: u64| weather.send(Fetch { city, takes: Duration::from_millis(ms) });
+    ///
+    /// fetch("Oslo", 200);
+    /// fetch("Rome", 0);
+    /// # assert!(ui.run_until(|| !shown.borrow().is_empty(), Duration::from_secs(5)));
+    /// # assert!(!ui.run_until(|| shown.borrow().len() > 1, Duration::from_millis(400)));
+    /// assert_eq!(*shown.borrow(), ["Oslo"], "Rome came while Oslo was in flight");
+    ///
+    /// fetch("Paris", 0);
+    /// # assert!(ui.run_until(|| shown.borrow().len() == 2, Duration::from_secs(5)));
+    /// assert_eq!(*shown.borrow(), ["Oslo", "Paris"], "and Paris after it was done");
+    /// ```
     pub fn exhaust(self) -> Task<'cx, A, M, Exhaust, R> {
         self.with()
     }

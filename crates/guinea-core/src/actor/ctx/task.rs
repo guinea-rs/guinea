@@ -19,14 +19,12 @@
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::panic::Location;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use super::Cx;
 use crate::actor::ManagedActor;
 use crate::actor::addr::{Addr, Reach};
-use crate::actor::cancel::Cancel;
+use crate::actor::cancel::{Cancel, Reason};
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::short_type_name;
@@ -662,29 +660,24 @@ impl Traced {
     }
 }
 
-/// What a run is handed when it starts: the token that ends it, and whether
-/// it was ended by work that took its place.
+/// What a run is handed when it starts: which run it is, and the token that
+/// ends it.
 struct Ticket {
     run: Option<u64>,
     cancel: Cancel,
-    gave_way: Arc<AtomicBool>,
 }
 
 impl Ticket {
-    /// For work in no lane: the actor's own token, and nothing to give way to.
+    /// For work in no lane: the actor's own token.
     fn free(cancel: Cancel) -> Self {
-        Self {
-            run: None,
-            cancel,
-            gave_way: Arc::default(),
-        }
+        Self { run: None, cancel }
     }
 
-    /// How a run that does not answer ended.
+    /// How a run that does not answer ended, as its token says.
     fn cut(&self, traced: &Traced) -> Point {
-        match self.gave_way.load(Ordering::SeqCst) {
-            true => traced.superseded(),
-            false => traced.cancelled(),
+        match self.cancel.reason() {
+            Some(Reason::Superseded) => traced.superseded(),
+            Some(Reason::Cancelled) | None => traced.cancelled(),
         }
     }
 }
@@ -880,7 +873,6 @@ impl Open {
 struct Run {
     run: u64,
     cancel: Cancel,
-    gave_way: Arc<AtomicBool>,
 }
 
 struct Waiting {
@@ -912,17 +904,14 @@ impl Lanes {
     fn run(&mut self, parent: &Cancel) -> (Run, Ticket) {
         self.runs += 1;
         let cancel = parent.child();
-        let gave_way = Arc::new(AtomicBool::new(false));
 
         let run = Run {
             run: self.runs,
             cancel: cancel.clone(),
-            gave_way: gave_way.clone(),
         };
         let ticket = Ticket {
             run: Some(self.runs),
             cancel,
-            gave_way,
         };
         (run, ticket)
     }
@@ -955,8 +944,7 @@ impl Lanes {
             Kind::Latest => {
                 let (running, ticket) = self.run(parent);
                 let replaced = std::mem::replace(&mut self.open[at].running, running);
-                replaced.gave_way.store(true, Ordering::SeqCst);
-                replaced.cancel.cancel();
+                replaced.cancel.cancel_because(Reason::Superseded);
 
                 Admitted {
                     starts: Some((waiting, ticket)),

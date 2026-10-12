@@ -204,14 +204,17 @@ impl FeatureInitContext {
     /// No question and no dialog - for the case where leaving is simply not
     /// allowed yet. When the user should get a say, use
     /// [`confirm_leave`](Self::confirm_leave).
+    ///
+    /// `R` is read when leaving, where a page here reads it: from this
+    /// segment if it claimed `R`, or from the nearest one above that exports
+    /// it. Declaring the guard claims and creates nothing, so it may come
+    /// before the claim it reads. When nothing in reach holds `R`, there is
+    /// nothing unsaved, and leaving is allowed.
     pub fn block_leave_while<R: Reducer>(&self, dirty: impl Fn(&R) -> bool + 'static) {
-        let state = self.scope.state::<R>();
-        self.scope.on_leave(move || {
-            if dirty(&state.borrow()) {
-                Verdict::Block
-            } else {
-                Verdict::Allow
-            }
+        let reach = self.scope_cx.clone();
+        self.scope.on_leave(move || match reach.read::<R>() {
+            Some(state) if dirty(&state) => Verdict::Block,
+            _ => Verdict::Allow,
         });
     }
 
@@ -220,19 +223,17 @@ impl FeatureInitContext {
     /// `question` is a closure rather than a value because it is built at the
     /// moment of asking: the language may have changed since install, and so
     /// may whatever the text names.
+    ///
+    /// `R` is read as [`block_leave_while`](Self::block_leave_while) reads it.
     pub fn confirm_leave<R: Reducer>(
         &self,
         dirty: impl Fn(&R) -> bool + 'static,
         question: impl Fn(&R) -> Ask + 'static,
     ) {
-        let state = self.scope.state::<R>();
-        self.scope.on_leave(move || {
-            let state = state.borrow();
-            if dirty(&state) {
-                Verdict::ask(question(&state))
-            } else {
-                Verdict::Allow
-            }
+        let reach = self.scope_cx.clone();
+        self.scope.on_leave(move || match reach.read::<R>() {
+            Some(state) if dirty(&state) => Verdict::ask(question(&state)),
+            _ => Verdict::Allow,
         });
     }
 

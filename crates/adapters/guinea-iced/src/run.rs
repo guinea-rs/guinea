@@ -20,11 +20,13 @@ use crate::{Envelope, Iced, Nodes, dispatcher, envelope, nav};
 /// What [`run`] calls the root it opens.
 pub const MAIN: &str = "main";
 
-/// The state iced keeps for us: the router, and nothing else.
+/// The state iced keeps for us: the router, and the nodes of the chain it
+/// mounted.
 ///
-/// Every node's own state lives in its segment's scope, where the router's
-/// cache can carry it across navigation - so there is nothing here for one to
-/// be kept in.
+/// The reducers live in each segment's scope, where the router's cache
+/// carries them across navigation. The nodes cannot: a view borrows its node
+/// for the render, so they live here, and [`Nodes`] keeps the ones a page
+/// asked to keep by the router's rules.
 pub struct Shell {
     router: Rc<Router<Iced>>,
     /// The nodes of the mounted chain, owned here because a view borrows them

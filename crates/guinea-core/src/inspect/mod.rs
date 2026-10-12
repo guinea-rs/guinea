@@ -4,8 +4,10 @@
 //! A state that implements [`Inspect`] is walked only where it is open: a
 //! list of a thousand items read through a window of fifty costs fifty, and
 //! every node closed to the viewer costs only its one-line preview, which has
-//! a budget of [`PREVIEW`] bytes. One without falls back on `Debug`, kept to
-//! the same budget; one with neither shows its type's name.
+//! a budget of [`PREVIEW`] bytes. One without falls back on `Debug`, whose
+//! text is kept to the same budget - but a `Debug` of a collection still steps
+//! through all of it, only without writing, so a large state wants
+//! [`Inspect`]. One with neither shows its type's name.
 
 use std::fmt::{self, Debug, Write as _};
 use std::ops::Range;
@@ -406,8 +408,8 @@ impl<'a> Record<'a> {
 }
 
 /// A preview being written: cut, with an ellipsis, once it is out of bytes.
-/// Every write after the cut fails, which is what stops a `Debug` walking
-/// the rest of a value.
+/// Every write after the cut fails, so a `Debug` stops writing; std's
+/// `debug_list` and its kin still step through every entry they are handed.
 struct Preview {
     text: String,
     left: usize,

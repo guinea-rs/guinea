@@ -243,7 +243,8 @@ fn parse_edges(tokens: &[TokenTree]) -> syn::Result<Vec<Edge>> {
         if channel == Channel::Emit {
             if let Some(TokenTree::Ident(scope)) = slice.first() {
                 let scope = scope.to_string();
-                if scope == "local" || scope == "global" {
+                let a_path = matches!(slice.get(1), Some(TokenTree::Punct(p)) if p.as_char() == ':');
+                if (scope == "local" || scope == "global") && !a_path {
                     slice = &slice[1..];
                 }
             }

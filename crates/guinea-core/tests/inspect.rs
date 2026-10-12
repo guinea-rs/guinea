@@ -34,6 +34,12 @@ struct Page<T> {
     rows: Vec<T>,
 }
 
+#[derive(Inspect)]
+struct Visit {
+    at: u64,
+    path: String,
+}
+
 fn children(node: &Node) -> &[(Step, Node)] {
     match &node.opened {
         Some(Opened::Children(children)) => children,
@@ -64,6 +70,16 @@ fn a_struct_shows_its_fields_by_name_and_leaves_out_the_skipped() {
 fn a_tuple_struct_and_a_unit_struct_show_as_debug_would() {
     assert_eq!(Node::of(&Pid(4, "x"), None).preview, r#"Pid(4, "x")"#);
     assert_eq!(Node::of(&Nothing, None).preview, "Nothing");
+}
+
+#[test]
+fn a_field_named_at_is_shown_like_any_other() {
+    let visit = Visit {
+        at: 7,
+        path: "/".into(),
+    };
+
+    assert_eq!(Node::of(&visit, None).preview, r#"Visit { at: 7, path: "/" }"#);
 }
 
 #[test]

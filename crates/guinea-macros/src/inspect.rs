@@ -61,7 +61,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
     Ok(quote! {
         impl #impl_generics #gc::inspect::Inspect for #name #ty_generics #where_clause {
             #[allow(unused_variables)]
-            fn inspect(&self, at: #gc::inspect::Inspector<'_>) {
+            fn inspect(&self, __guinea_at: #gc::inspect::Inspector<'_>) {
                 #body
             }
         }
@@ -72,37 +72,38 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
 /// skipped.
 fn fields(gc: &TokenStream, shown: &str, fields: &Fields) -> syn::Result<(TokenStream, TokenStream)> {
     match fields {
-        Fields::Unit => Ok((quote!(), quote!(at.unit(#shown);))),
+        Fields::Unit => Ok((quote!(), quote!(__guinea_at.unit(#shown);))),
         Fields::Named(named) => {
             let mut bound = Vec::new();
             let mut written = Vec::new();
-            for field in &named.named {
+            for (index, field) in named.named.iter().enumerate() {
                 let ident = field.ident.as_ref().expect("a named field");
-                bound.push(quote!(#ident));
+                let local = format_ident!("__guinea_field_{index}");
+                bound.push(quote!(#ident: #local));
                 if !skipped(field)? {
                     let label = ident.to_string();
-                    written.push(quote!(.field(#label, #ident as &dyn #gc::inspect::Inspect)));
+                    written.push(quote!(.field(#label, #local as &dyn #gc::inspect::Inspect)));
                 }
             }
             Ok((
                 quote!({ #(#bound),* }),
-                quote!(at.record(#shown) #(#written)* .finish();),
+                quote!(__guinea_at.record(#shown) #(#written)* .finish();),
             ))
         }
         Fields::Unnamed(unnamed) => {
             let mut bound = Vec::new();
             let mut written = Vec::new();
             for (index, field) in unnamed.unnamed.iter().enumerate() {
-                let ident = format_ident!("field_{index}");
-                bound.push(quote!(#ident));
+                let local = format_ident!("__guinea_field_{index}");
+                bound.push(quote!(#local));
                 if !skipped(field)? {
                     let label = index.to_string();
-                    written.push(quote!(.field(#label, #ident as &dyn #gc::inspect::Inspect)));
+                    written.push(quote!(.field(#label, #local as &dyn #gc::inspect::Inspect)));
                 }
             }
             Ok((
                 quote!(( #(#bound),* )),
-                quote!(at.tuple(#shown) #(#written)* .finish();),
+                quote!(__guinea_at.tuple(#shown) #(#written)* .finish();),
             ))
         }
     }

@@ -40,6 +40,12 @@ struct Visit {
     path: String,
 }
 
+#[derive(Debug, Inspect)]
+struct Mount {
+    r#type: String,
+    size: u32,
+}
+
 fn children(node: &Node) -> &[(Step, Node)] {
     match &node.opened {
         Some(Opened::Children(children)) => children,
@@ -80,6 +86,19 @@ fn a_field_named_at_is_shown_like_any_other() {
     };
 
     assert_eq!(Node::of(&visit, None).preview, r#"Visit { at: 7, path: "/" }"#);
+}
+
+#[test]
+fn a_raw_field_is_named_as_its_debug_names_it() {
+    let mount = Mount {
+        r#type: "ntfs".into(),
+        size: 4,
+    };
+
+    let node = Node::of(&mount, Some(&Open::default()));
+
+    assert_eq!(node.preview, format!("{mount:?}"));
+    assert_eq!(children(&node)[0].0, Step::Field("type".into()));
 }
 
 #[test]

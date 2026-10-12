@@ -3,6 +3,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Data, DeriveInput, Error, Field, Fields, parse_quote};
 
 pub fn derive_inspect(input: DeriveInput) -> TokenStream {
@@ -18,7 +19,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
 
     let body = match &input.data {
         Data::Struct(data) => {
-            let shown = name.to_string();
+            let shown = name.unraw().to_string();
             let (pattern, written) = fields(&gc, &shown, &data.fields)?;
             quote! {
                 let #name #pattern = self;
@@ -31,7 +32,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
                 .iter()
                 .map(|variant| {
                     let ident = &variant.ident;
-                    let (pattern, written) = fields(&gc, &ident.to_string(), &variant.fields)?;
+                    let (pattern, written) = fields(&gc, &ident.unraw().to_string(), &variant.fields)?;
                     Ok(quote!(Self::#ident #pattern => { #written }))
                 })
                 .collect::<syn::Result<Vec<_>>>()?;
@@ -81,7 +82,7 @@ fn fields(gc: &TokenStream, shown: &str, fields: &Fields) -> syn::Result<(TokenS
                 let local = format_ident!("__guinea_field_{index}");
                 bound.push(quote!(#ident: #local));
                 if !skipped(field)? {
-                    let label = ident.to_string();
+                    let label = ident.unraw().to_string();
                     written.push(quote!(.field(#label, #local as &dyn #gc::inspect::Inspect)));
                 }
             }

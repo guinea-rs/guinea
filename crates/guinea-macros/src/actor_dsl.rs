@@ -401,8 +401,57 @@ fn walk(
     Ok(())
 }
 
+/// The `Req` of `RpcRequest<Req>`. The handler that answers it is handed
+/// `Cx<_, Req>`, so it sends as `Req` and the request's edges are `Req`'s too.
+fn request_payload(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(path) = ty else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if last.ident != "RpcRequest" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &last.arguments else {
+        return None;
+    };
+
+    match arguments.args.first() {
+        Some(syn::GenericArgument::Type(payload)) if arguments.args.len() == 1 => Some(payload),
+        _ => None,
+    }
+}
+
+/// A request handled beside its own payload as a message: both handlers send
+/// as the payload, so the edges either declares would be the other's too.
+fn check_requests(handlers: &[HandlerDecl]) -> syn::Result<()> {
+    let key = |ty: &syn::Type| quote!(#ty).to_string();
+
+    for request in handlers {
+        let Some(payload) = request_payload(&request.msg) else {
+            continue;
+        };
+        let payload = key(payload);
+        let Some(message) = handlers.iter().find(|decl| key(&decl.msg) == payload) else {
+            continue;
+        };
+
+        if request.edges.is_some() || message.edges.is_some() {
+            let request = key(&request.msg);
+            return Err(syn::Error::new_spanned(
+                &message.msg,
+                format!(
+                    "`{payload}` is handled here both as a message and as `{request}`, and both handlers send as `{payload}`: the edges one declares would be the other's too; handle one of them in another actor"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     check_cycles(&manifest.handlers)?;
+    check_requests(&manifest.handlers)?;
 
     let gc = guinea_core_crate_path();
     let Manifest {
@@ -441,11 +490,15 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     let flow_marker = format_ident!("__Flow_{}", ident);
     let declares_flow = handlers.iter().any(|decl| decl.edges.is_some());
 
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let allow_impls: Vec<TokenStream> = handlers
         .iter()
         .filter_map(|decl| decl.edges.as_ref().map(|edges| (&decl.msg, edges)))
-        .flat_map(|(msg, edges)| edges.iter().map(move |edge| (msg, edge)))
+        .flat_map(|(msg, edges)| {
+            std::iter::once(msg)
+                .chain(request_payload(msg))
+                .flat_map(move |sender| edges.iter().map(move |edge| (sender, edge)))
+        })
         .filter(|(_, edge)| matches!(edge.channel, Channel::Send | Channel::Task))
         .filter_map(|(msg, edge)| {
             let target = &edge.target;
@@ -652,6 +705,38 @@ mod tests {
                     Pong => { send Ping loop },
                     Tick => { task Tick loop },
                 }
+            }
+        });
+
+        assert!(checked.is_ok(), "{checked:?}");
+    }
+
+    fn requests(tokens: TokenStream) -> syn::Result<()> {
+        let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+        check_requests(&parse_manifest(&tokens)?.handlers)
+    }
+
+    #[test]
+    fn a_request_handled_beside_its_payload_with_edges_is_refused() {
+        let checked = requests(quote! {
+            Processes {
+                handlers {
+                    RpcRequest<Kill> => { send Killed },
+                    Kill,
+                    Killed,
+                }
+            }
+        });
+
+        let error = checked.expect_err("Kill would send what the request declares").to_string();
+        assert!(error.contains("`Kill`"), "{error}");
+    }
+
+    #[test]
+    fn a_request_handled_beside_its_payload_without_edges_is_allowed() {
+        let checked = requests(quote! {
+            Processes {
+                handlers { RpcRequest<Kill>, Kill }
             }
         });
 

@@ -110,6 +110,58 @@ mod answering_later {
     }
 }
 
+mod answering_and_sending {
+    use super::*;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct LastKilled(pub Option<u32>);
+
+    #[reducer]
+    fn last_killed(this: &mut LastKilled, pid: u32) {
+        this.0 = Some(pid);
+    }
+
+    pub struct Killed(pub u32);
+
+    #[derive(Debug)]
+    pub struct Processes {
+        push: Push<LastKilled>,
+    }
+
+    actor! {
+        Processes {
+            handlers {
+                RpcRequest<Kill> => { send Killed },
+                Killed,
+            }
+            subscribes { RpcRequest<Kill> }
+        }
+    }
+
+    #[handler]
+    fn kill(_this: &mut Processes, Kill(pid): Kill, cx: Cx) -> Outcome {
+        cx.send(Killed(pid));
+        Outcome::Done
+    }
+
+    #[handler]
+    fn killed(this: &mut Processes, Killed(pid): Killed) {
+        this.push.send(pid);
+    }
+
+    feature! {
+        pub Killing {
+            exports { LastKilled }
+        }
+    }
+
+    #[installs]
+    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+        let (killed, _) = cx.state::<LastKilled>().driven_by(|push| Processes { push });
+        Ok(Killing(killed))
+    }
+}
+
 mod asking {
     use super::*;
 
@@ -215,6 +267,15 @@ fn an_answer_given_later_comes_back_to_whoever_asked(h: &mut Harness) {
 
     assert_eq!(asked(h, 7).as_deref(), Some("Done"));
     assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+}
+
+#[guinea::test(iterations = 4)]
+fn an_answerer_sends_what_its_request_declares(h: &mut Harness) {
+    h.install::<answering_and_sending::Killing>(&()).unwrap();
+    h.install::<asking::Asking>(&()).unwrap();
+
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(h.state::<answering_and_sending::LastKilled>().0, Some(7));
 }
 
 #[guinea::test(iterations = 4)]

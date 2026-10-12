@@ -258,10 +258,11 @@ impl<'a, Message: Send + 'static> Observing<'a, Message> {
     /// the node that declared it.
     pub fn on<R: Reducer>(&self, translate: fn(&R::Update) -> Option<Message>) {
         let cursor = self.cursor;
+        let drawn = self.ctx.scope;
         let deliver = self.deliver;
         self.ctx.observe::<R>(move |update| {
             if let Some(message) = translate(update) {
-                envelope::park(Envelope::new(cursor, deliver, Box::new(message)));
+                envelope::park(Envelope::new(cursor, drawn, deliver, Box::new(message)));
             }
         });
     }
@@ -364,9 +365,10 @@ impl<'a, L: Layout> LayoutCx<'a, L> {
     /// Seals widgets that speak this layout's own message.
     pub fn mine(&self, element: impl Into<Element<'a, L::Message>>) -> Element<'a, Envelope> {
         let cursor = self.props.cursor;
+        let drawn = self.props.scope();
         element
             .into()
-            .map(move |message| Envelope::new(cursor, deliver_layout::<L>, Box::new(message)))
+            .map(move |message| Envelope::new(cursor, drawn, deliver_layout::<L>, Box::new(message)))
     }
 
     /// The next segment down the chain, for the layout to place where it
@@ -443,6 +445,7 @@ pub struct MountLayout<L>(pub PhantomData<L>);
 impl<P: Page> Mount<Iced> for MountPage<P> {
     fn view<'a>(&self, props: SegmentProps<Iced>, nodes: &'a Nodes) -> Element<'a, Envelope> {
         let cursor = props.cursor;
+        let drawn = props.scope();
         let Some(page) = nodes.get::<P>(cursor) else {
             // A view asked for before the shell caught up with a navigation.
             // Drawing nothing beats a panic on a frame that is about to be
@@ -457,7 +460,7 @@ impl<P: Page> Mount<Iced> for MountPage<P> {
         };
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
         page.view(&mut cx)
-            .map(move |message| Envelope::new(cursor, deliver_page::<P>, Box::new(message)))
+            .map(move |message| Envelope::new(cursor, drawn, deliver_page::<P>, Box::new(message)))
     }
 }
 

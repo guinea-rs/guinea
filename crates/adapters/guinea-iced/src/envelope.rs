@@ -8,8 +8,8 @@
 //! An envelope avoids it by carrying its own delivery: the message, the
 //! function that knows how to apply it (monomorphised for the node that made
 //! it, so the node type never has to be named anywhere else), and where in the
-//! chain that node sat. Nothing between the widget and the node reads any of
-//! it.
+//! chain that node sat and in which scope. Nothing between the widget and the
+//! node reads any of it.
 
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
+use guinea_core::scope::Scope;
 use guinea_router::router::{Router, SegmentProps};
 
 use crate::{Iced, Nodes, UpdateCx, dispatcher};
@@ -36,6 +37,9 @@ enum Payload {
     Answer(bool),
     Node {
         cursor: usize,
+        /// The scope of the segment that made it. A node installed again at
+        /// `cursor`, under other params, has a scope of its own.
+        drawn: Scope,
         deliver: Deliver,
         message: Box<dyn Any + Send>,
     },
@@ -51,9 +55,15 @@ impl Envelope {
         Envelope(Payload::Answer(allowed))
     }
 
-    pub(crate) fn new(cursor: usize, deliver: Deliver, message: Box<dyn Any + Send>) -> Self {
+    pub(crate) fn new(
+        cursor: usize,
+        drawn: Scope,
+        deliver: Deliver,
+        message: Box<dyn Any + Send>,
+    ) -> Self {
         Envelope(Payload::Node {
             cursor,
+            drawn,
             deliver,
             message,
         })
@@ -172,12 +182,22 @@ fn apply(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Envelope) {
         Payload::Answer(allowed) => router.answer(allowed),
         Payload::Node {
             cursor,
+            drawn,
             deliver,
             message,
         } => {
             let Some(props) = props_at(router, cursor) else {
                 return;
             };
+
+            if props.scope() != drawn {
+                tracing::debug!(
+                    cursor,
+                    "message arrived after the segment that made it was installed again; dropped"
+                );
+                return;
+            }
+
             deliver(&props, nodes, message);
         }
     }

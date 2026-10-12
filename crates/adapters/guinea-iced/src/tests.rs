@@ -7,6 +7,7 @@
 use std::any::Any;
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_core::scope::Scope;
 use guinea_macros::reducer;
 use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
@@ -204,17 +205,21 @@ impl Mounted {
     fn leaf(&self) -> &Leaf {
         self.nodes.get::<Leaf>(1).expect("a leaf is mounted")
     }
+
+    fn scope(&self, cursor: usize) -> Scope {
+        self.router.scope_at(cursor).expect("a segment is mounted there")
+    }
 }
 
-fn to_leaf(message: LeafMsg) -> Envelope {
-    Envelope::new(1, deliver_page::<Leaf>, Box::new(message))
+fn to_leaf(mounted: &Mounted, message: LeafMsg) -> Envelope {
+    Envelope::new(1, mounted.scope(1), deliver_page::<Leaf>, Box::new(message))
 }
 
 #[test]
 fn a_message_reaches_its_own_node_and_no_other() {
     let mut mounted = Mounted::at(&WITH_LEAF);
 
-    mounted.send(to_leaf(LeafMsg::Pick(2)));
+    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
 
     assert_eq!(mounted.leaf().picked, 2);
     assert_eq!(
@@ -232,7 +237,7 @@ fn a_message_reaches_its_own_node_and_no_other() {
 #[test]
 fn an_observer_translates_rather_than_mutates() {
     let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(to_leaf(LeafMsg::Pick(2)));
+    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
 
     // The domain replaces the list with a shorter one, leaving the selection
     // past the end.
@@ -265,7 +270,7 @@ fn an_observer_translates_rather_than_mutates() {
 #[test]
 fn a_cached_page_comes_back_to_the_state_it_left() {
     let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(to_leaf(LeafMsg::Pick(2)));
+    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
 
     // What navigating away and back does: the chain is torn down to nothing
     // and installed again.
@@ -282,7 +287,12 @@ fn a_cached_page_comes_back_to_the_state_it_left() {
 #[test]
 fn a_page_that_did_not_ask_starts_fresh() {
     let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(Envelope::new(0, crate::deliver_layout::<Shell>, Box::new(ShellMsg)));
+    mounted.send(Envelope::new(
+        0,
+        mounted.scope(0),
+        crate::deliver_layout::<Shell>,
+        Box::new(ShellMsg),
+    ));
 
     assert_eq!(mounted.nodes.get::<Shell>(0).expect("mounted").hits, 1);
 
@@ -389,10 +399,70 @@ fn a_message_for_a_node_that_left_the_chain_is_dropped() {
 
     // A click that raced a navigation. The position still exists; what sits
     // there is a different page.
-    mounted.send(to_leaf(LeafMsg::Pick(9)));
+    mounted.send(to_leaf(&mounted, LeafMsg::Pick(9)));
 
     assert!(
         mounted.nodes.get::<Leaf>(1).is_none(),
         "delivering it would have made a node for a page that is not there"
+    );
+}
+
+#[derive(Default)]
+struct Numbered {
+    pid: u32,
+    picked: Option<u32>,
+}
+
+#[derive(Clone)]
+struct PickHere;
+
+#[page]
+impl Page for Numbered {
+    type Params = u32;
+    type Message = PickHere;
+
+    fn install(_ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<(Self, ())> {
+        Ok((Self { pid: *pid, picked: None }, ()))
+    }
+
+    fn update(&mut self, _message: PickHere, _cx: &mut UpdateCx<'_, Self>) {
+        self.picked = Some(self.pid);
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, PickHere> {
+        iced::widget::text("").into()
+    }
+}
+
+const WITH_NUMBERED: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Numbered>()];
+
+#[test]
+fn a_message_for_a_node_installed_again_with_other_params_is_dropped() {
+    let router = std::rc::Rc::new(Router::<Iced>::new(FeatureHost::detached()));
+    let mut mounted = Mounted {
+        router,
+        nodes: Nodes::default(),
+    };
+    mounted
+        .router
+        .activate(&WITH_NUMBERED, vec![Box::new(()), Box::new(1u32)])
+        .expect("pid 1");
+    mounted.nodes.sync(&WITH_NUMBERED);
+
+    let from_pid_1 = Envelope::new(1, mounted.scope(1), deliver_page::<Numbered>, Box::new(PickHere));
+
+    mounted
+        .router
+        .activate(&WITH_NUMBERED, vec![Box::new(()), Box::new(2u32)])
+        .expect("pid 2");
+    mounted.nodes.sync(&WITH_NUMBERED);
+    assert_eq!(mounted.nodes.get::<Numbered>(1).expect("mounted").pid, 2);
+
+    mounted.send(from_pid_1);
+
+    assert_eq!(
+        mounted.nodes.get::<Numbered>(1).expect("mounted").picked,
+        None,
+        "the pick was made on the page for pid 1, which is gone"
     );
 }

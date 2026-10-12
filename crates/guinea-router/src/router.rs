@@ -1052,7 +1052,6 @@ impl<U: Ui> Drop for Drawing<'_, U> {
 struct Held<U: Ui> {
     chain: &'static [SegmentEntry<U>],
     params: Vec<Box<dyn Any>>,
-    shared_len: usize,
     arrival: Arrival,
     settled: Box<dyn FnOnce(bool)>,
 }
@@ -1270,14 +1269,7 @@ impl<U: Ui> Router<U> {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
 
-        // A question still on screen belongs to a navigation nobody wants any
-        // more. Last intent wins, and it is safe precisely because deciding
-        // mutated nothing.
-        let superseded = self.pending.borrow_mut().take();
-        if let Some(parked) = superseded {
-            (parked.settled)(false);
-            self.questioned();
-        }
+        self.supersede();
 
         let chain = route.chain();
         let params = route.params();
@@ -1305,7 +1297,6 @@ impl<U: Ui> Router<U> {
                     let superseded = self.held.borrow_mut().replace(Held {
                         chain,
                         params,
-                        shared_len,
                         arrival,
                         settled: Box::new(settled),
                     });
@@ -1464,6 +1455,24 @@ impl<U: Ui> Router<U> {
             } else {
                 decision.block();
             }
+        }
+    }
+
+    /// Settles whatever has not happened yet - a question still on screen,
+    /// a navigation held for the end of a frame - as not having arrived.
+    ///
+    /// Both belong to a navigation nobody wants any more: last intent wins,
+    /// and it is safe precisely because neither has mutated anything.
+    fn supersede(&self) {
+        let parked = self.pending.borrow_mut().take();
+        if let Some(parked) = parked {
+            (parked.settled)(false);
+            self.questioned();
+        }
+
+        let held = self.held.borrow_mut().take();
+        if let Some(held) = held {
+            (held.settled)(false);
         }
     }
 
@@ -1976,7 +1985,8 @@ impl<U: Ui> Router<U> {
             return Ok(false);
         };
 
-        match self.commit(held.chain, held.shared_len, held.params, held.arrival) {
+        let shared_len = self.shared_len(held.chain, &held.params);
+        match self.commit(held.chain, shared_len, held.params, held.arrival) {
             Ok(_) => {
                 (held.settled)(true);
                 Ok(true)

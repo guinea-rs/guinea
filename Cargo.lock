@@ -7713,7 +7713,7 @@ dependencies = [
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.103.0"
+version = "0.104.0"
 dependencies = [
  "windows-collections 0.100.0",
  "windows-core 0.100.0",
@@ -7721,6 +7721,7 @@ dependencies = [
  "windows-reference",
  "windows-threading 0.100.0",
  "windows-time",
+ "windows-window-pre",
 ]
 
 [[package]]
@@ -7835,6 +7836,13 @@ name = "windows-time"
 version = "0.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de136aac4d76b9ea94b2589774be8bcd91b31b2dd7dae54abdd63335590095e4"
+dependencies = [
+ "windows-core 0.100.0",
+]
+
+[[package]]
+name = "windows-window-pre"
+version = "0.104.0"
 dependencies = [
  "windows-core 0.100.0",
 ]

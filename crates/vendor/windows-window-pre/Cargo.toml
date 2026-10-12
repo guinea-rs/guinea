@@ -1,0 +1,22 @@
+[package]
+name = "windows-window-pre"
+version = "0.104.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+description = "windows-window from microsoft/windows-rs at e978672b0, published for guinea until windows-rs releases it"
+repository = "https://github.com/guinea-rs/guinea"
+categories = ["os::windows-apis"]
+readme = "readme.md"
+
+[workspace]
+
+[lib]
+name = "windows_window"
+
+[dependencies]
+windows-core = { version = "0.100.0", default-features = false }
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []

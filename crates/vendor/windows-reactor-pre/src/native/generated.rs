@@ -335,6 +335,7 @@ struct GeneratedInfoBar {
 }
 struct GeneratedImage {
     value: native::Image,
+    source: Rc<Cell<bool>>,
     image_opened: Rc<RefCell<NativeUnitEvent>>,
     _image_opened: GeneratedRevoker,
     image_failed: Rc<RefCell<NativeUnitEvent>>,
@@ -485,10 +486,10 @@ fn theme_style_info(
 }
 enum GeneratedCollection {
     Visual(native::UIElementCollection),
-    Inspectable(windows_collections::IVector<IInspectable>),
-    ICommandBarElement(windows_collections::IVector<native::ICommandBarElement>),
-    MenuBarItem(windows_collections::IVector<native::MenuBarItem>),
-    SelectorBarItem(windows_collections::IVector<native::SelectorBarItem>),
+    Inspectable(IVector<IInspectable>),
+    ICommandBarElement(IVector<native::ICommandBarElement>),
+    MenuBarItem(IVector<native::MenuBarItem>),
+    SelectorBarItem(IVector<native::SelectorBarItem>),
 }
 impl GeneratedCollection {
     fn size(&self) -> Result<u32, WinUiError> {
@@ -634,12 +635,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -666,7 +668,7 @@ impl GeneratedHandle {
                     let observed = match read_click() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -681,12 +683,13 @@ impl GeneratedHandle {
                         event_queue_click.observe(object, EventId::Click, observation.clone());
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -708,7 +711,7 @@ impl GeneratedHandle {
                         let observed = match read_is_checked_changed() {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         };
@@ -726,7 +729,7 @@ impl GeneratedHandle {
                         );
                         let observation = dispatch.then_some(observation);
                         if dispatch {
-                            WinUiAdapter::dispatch_optional_bool(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_is_checked_changed,
                                 object,
@@ -782,12 +785,12 @@ impl GeneratedHandle {
                             ) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_pointer_event_info(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_pressed,
                                     object,
@@ -820,12 +823,12 @@ impl GeneratedHandle {
                             ) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_pointer_event_info(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_moved,
                                     object,
@@ -858,12 +861,12 @@ impl GeneratedHandle {
                             ) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_pointer_event_info(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_entered,
                                     object,
@@ -896,12 +899,12 @@ impl GeneratedHandle {
                             ) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_pointer_event_info(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_exited,
                                     object,
@@ -939,12 +942,12 @@ impl GeneratedHandle {
                             ) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_pointer_event_info(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_released,
                                     object,
@@ -965,12 +968,13 @@ impl GeneratedHandle {
                             let dispatch = true;
                             let observation = None;
                             if dispatch {
-                                WinUiAdapter::dispatch_unit(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_capture_lost,
                                     object,
                                     EventId::PointerCaptureLost,
                                     observation,
+                                    (),
                                 );
                             }
                         })?;
@@ -985,12 +989,13 @@ impl GeneratedHandle {
                             let dispatch = true;
                             let observation = None;
                             if dispatch {
-                                WinUiAdapter::dispatch_unit(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_pointer_canceled,
                                     object,
                                     EventId::PointerCanceled,
                                     observation,
+                                    (),
                                 );
                             }
                         })?;
@@ -1005,7 +1010,7 @@ impl GeneratedHandle {
                             let value = match WinUiAdapter::key_event_info(args) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
@@ -1015,7 +1020,7 @@ impl GeneratedHandle {
                                 .as_ref()
                                 .is_some_and(|callback| callback.call(value));
                             if let Err(error) = args.SetHandled(handled) {
-                                super::app::report_error(error);
+                                report_error(error);
                             }
                         })?;
                 let _preview_key_down = GeneratedRevoker::Event(revoker);
@@ -1026,7 +1031,7 @@ impl GeneratedHandle {
                     let value = match WinUiAdapter::key_event_info(args) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error.into());
+                            report_error(error.into());
                             return;
                         }
                     };
@@ -1036,7 +1041,7 @@ impl GeneratedHandle {
                         .as_ref()
                         .is_some_and(|callback| callback.call(value));
                     if let Err(error) = args.SetHandled(handled) {
-                        super::app::report_error(error);
+                        report_error(error);
                     }
                 })?;
                 let _key_up = GeneratedRevoker::Event(revoker);
@@ -1051,7 +1056,7 @@ impl GeneratedHandle {
                             let value = match WinUiAdapter::character_event_info(args) {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
@@ -1061,7 +1066,7 @@ impl GeneratedHandle {
                                 .as_ref()
                                 .is_some_and(|callback| callback.call(value));
                             if let Err(error) = args.SetHandled(handled) {
-                                super::app::report_error(error);
+                                report_error(error);
                             }
                         })?;
                 let _character_received = GeneratedRevoker::Event(revoker);
@@ -1084,12 +1089,12 @@ impl GeneratedHandle {
                         ) {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error.into());
+                                report_error(error.into());
                                 return;
                             }
                         };
                         if dispatch {
-                            WinUiAdapter::dispatch_focus_event_info(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_got_focus,
                                 object,
@@ -1119,12 +1124,12 @@ impl GeneratedHandle {
                         ) {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error.into());
+                                report_error(error.into());
                                 return;
                             }
                         };
                         if dispatch {
-                            WinUiAdapter::dispatch_focus_event_info(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_lost_focus,
                                 object,
@@ -1147,12 +1152,12 @@ impl GeneratedHandle {
                         let value = match WinUiAdapter::drag_kind(args, &drop_policy_drag_enter) {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error.into());
+                                report_error(error.into());
                                 return;
                             }
                         };
                         if dispatch {
-                            WinUiAdapter::dispatch_drag_kind(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_drag_enter,
                                 object,
@@ -1175,12 +1180,12 @@ impl GeneratedHandle {
                         let value = match WinUiAdapter::drag_kind(args, &drop_policy_drag_over) {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error.into());
+                                report_error(error.into());
                                 return;
                             }
                         };
                         if dispatch {
-                            WinUiAdapter::dispatch_drag_kind(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_drag_over,
                                 object,
@@ -1198,12 +1203,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_drag_leave,
                             object,
                             EventId::DragLeave,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -1225,7 +1231,7 @@ impl GeneratedHandle {
                         args,
                         &drop_policy_drop,
                     ) {
-                        super::app::report_error(error.into());
+                        report_error(error.into());
                     }
                 })?;
                 let _drop = GeneratedRevoker::Event(revoker);
@@ -1282,12 +1288,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_back_requested,
                             object,
                             EventId::BackRequested,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -1299,12 +1306,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_pane_toggle_requested,
                             object,
                             EventId::PaneToggleRequested,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -1332,7 +1340,7 @@ impl GeneratedHandle {
                             let observed = match read_value_changed() {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error);
+                                    report_error(error);
                                     return;
                                 }
                             };
@@ -1353,12 +1361,12 @@ impl GeneratedHandle {
                             let payload = match args.NewValue() {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error);
+                                    report_error(error);
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_f64(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_value_changed,
                                     object,
@@ -1384,12 +1392,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -1409,12 +1418,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -1442,12 +1452,12 @@ impl GeneratedHandle {
                     {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_item_clicked,
                             object,
@@ -1478,7 +1488,7 @@ impl GeneratedHandle {
                     let observed = match read_text_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1496,7 +1506,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_text_changed,
                             object,
@@ -1522,12 +1532,12 @@ impl GeneratedHandle {
                     {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_suggestion_chosen,
                             object,
@@ -1558,7 +1568,7 @@ impl GeneratedHandle {
                     let observed = match read_password_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1576,7 +1586,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_password_changed,
                             object,
@@ -1604,7 +1614,7 @@ impl GeneratedHandle {
                     let observed = match read_value_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1625,12 +1635,12 @@ impl GeneratedHandle {
                     let payload = match args.NewValue().map(number_box_value) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_optional_f64(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_value_changed,
                             object,
@@ -1661,7 +1671,7 @@ impl GeneratedHandle {
                         let observed = match read_is_pane_open_changed() {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         };
@@ -1679,7 +1689,7 @@ impl GeneratedHandle {
                         );
                         let observation = dispatch.then_some(observation);
                         if dispatch {
-                            WinUiAdapter::dispatch_bool(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_is_pane_open_changed,
                                 object,
@@ -1725,12 +1735,12 @@ impl GeneratedHandle {
                     let payload = match args.DisplayMode().map(navigation_view_display_mode) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_navigation_view_display_mode(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_display_mode_changed,
                             object,
@@ -1765,7 +1775,7 @@ impl GeneratedHandle {
                     let observed = match read_pane_closed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1783,7 +1793,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_bool(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_pane_closed,
                             object,
@@ -1812,7 +1822,7 @@ impl GeneratedHandle {
                     let observed = match read_toggled() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1827,7 +1837,7 @@ impl GeneratedHandle {
                         event_queue_toggled.observe(object, EventId::Toggled, observation.clone());
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_bool(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_toggled,
                             object,
@@ -1859,7 +1869,7 @@ impl GeneratedHandle {
                         let observed = match read_is_checked_changed() {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         };
@@ -1877,7 +1887,7 @@ impl GeneratedHandle {
                         );
                         let observation = dispatch.then_some(observation);
                         if dispatch {
-                            WinUiAdapter::dispatch_optional_bool(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_is_checked_changed,
                                 object,
@@ -1921,7 +1931,7 @@ impl GeneratedHandle {
                         let observed = match read_checked() {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         };
@@ -1939,7 +1949,7 @@ impl GeneratedHandle {
                         );
                         let observation = dispatch.then_some(observation);
                         if dispatch {
-                            WinUiAdapter::dispatch_optional_bool(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_checked,
                                 object,
@@ -1971,7 +1981,7 @@ impl GeneratedHandle {
                     let observed = match read_selection_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -1989,7 +1999,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_selection_index(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selection_changed,
                             object,
@@ -2017,12 +2027,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_closed,
                             object,
                             EventId::Closed,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2037,42 +2048,48 @@ impl GeneratedHandle {
             ObjectType::ScrollView => Self::ScrollView(native::ScrollView::new()?),
             ObjectType::Image => {
                 let value = native::Image::new()?;
+                let source = Rc::new(Cell::new(false));
+                let managed_source = Rc::clone(&source);
                 let image_opened = Rc::new(RefCell::new(NativeUnitEvent::default()));
                 let event_for_callback = Rc::clone(&image_opened);
                 let event_queue_image_opened = Rc::clone(event_queue);
                 let revoker = value.ImageOpened(move |_, _| {
-                    let dispatch = true;
+                    let dispatch = !managed_source.get();
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_image_opened,
                             object,
                             EventId::ImageOpened,
                             observation,
+                            (),
                         );
                     }
                 })?;
                 let _image_opened = GeneratedRevoker::Event(revoker);
+                let managed_source = Rc::clone(&source);
                 let image_failed = Rc::new(RefCell::new(NativeUnitEvent::default()));
                 let event_for_callback = Rc::clone(&image_failed);
                 let event_queue_image_failed = Rc::clone(event_queue);
                 let revoker = value.ImageFailed(move |_, _| {
-                    let dispatch = true;
+                    let dispatch = !managed_source.get();
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_image_failed,
                             object,
                             EventId::ImageFailed,
                             observation,
+                            (),
                         );
                     }
                 })?;
                 let _image_failed = GeneratedRevoker::Event(revoker);
                 Self::Image(Box::new(GeneratedImage {
                     value,
+                    source,
                     image_opened,
                     _image_opened,
                     image_failed,
@@ -2126,7 +2143,7 @@ impl GeneratedHandle {
                     let observed = match read_value_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -2144,7 +2161,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_optional_f64(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_value_changed,
                             object,
@@ -2175,7 +2192,7 @@ impl GeneratedHandle {
                         let observed = match read_is_expanded_changed() {
                             Ok(value) => value,
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         };
@@ -2193,7 +2210,7 @@ impl GeneratedHandle {
                         );
                         let observation = dispatch.then_some(observation);
                         if dispatch {
-                            WinUiAdapter::dispatch_bool(
+                            WinUiAdapter::dispatch(
                                 &event_for_callback,
                                 &event_queue_is_expanded_changed,
                                 object,
@@ -2238,7 +2255,7 @@ impl GeneratedHandle {
                             let observed = match read_selection_changed() {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error);
+                                    report_error(error);
                                     return;
                                 }
                             };
@@ -2256,7 +2273,7 @@ impl GeneratedHandle {
                             );
                             let observation = dispatch.then_some(observation);
                             if dispatch {
-                                WinUiAdapter::dispatch_selection_index(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_selection_changed,
                                     object,
@@ -2288,7 +2305,7 @@ impl GeneratedHandle {
                     let observed = match read_selection_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -2306,7 +2323,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_selection_index(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selection_changed,
                             object,
@@ -2343,7 +2360,7 @@ impl GeneratedHandle {
                             let observed = match read_selection_changed() {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error);
+                                    report_error(error);
                                     return;
                                 }
                             };
@@ -2361,7 +2378,7 @@ impl GeneratedHandle {
                             );
                             let observation = dispatch.then_some(observation);
                             if dispatch {
-                                WinUiAdapter::dispatch_selection_index(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_selection_changed,
                                     object,
@@ -2413,12 +2430,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_add_tab_button_click,
                             object,
                             EventId::AddTabButtonClick,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2436,7 +2454,7 @@ impl GeneratedHandle {
                     let observed = match read_selection_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -2454,7 +2472,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_selection_index(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selection_changed,
                             object,
@@ -2483,18 +2501,18 @@ impl GeneratedHandle {
                         {
                             Ok(value) => Rc::<str>::from(value.to_string_lossy()),
                             Err(error) => {
-                                super::app::report_error(error);
+                                report_error(error);
                                 return;
                             }
                         },
                         Err(error) if error.code().is_ok() => Rc::<str>::from(""),
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_tab_close_requested,
                             object,
@@ -2515,12 +2533,12 @@ impl GeneratedHandle {
                     let value = match WinUiAdapter::tab_item_tags(&source_tab_items_changed) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error.into());
+                            report_error(error.into());
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_string_list(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_tab_items_changed,
                             object,
@@ -2553,12 +2571,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_closed,
                             object,
                             EventId::Closed,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2570,12 +2589,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_action_button_click,
                             object,
                             EventId::ActionButtonClick,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2597,12 +2617,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2623,12 +2644,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2651,12 +2673,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_click,
                             object,
                             EventId::Click,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2679,7 +2702,7 @@ impl GeneratedHandle {
                     let observed = match read_color_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -2700,12 +2723,12 @@ impl GeneratedHandle {
                     let payload = match args.NewColor().map(from_native_color) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_color(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_color_changed,
                             object,
@@ -2736,12 +2759,12 @@ impl GeneratedHandle {
                         Ok(value) => Some(value),
                         Err(error) if error.code().is_ok() => None,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_optional_date_time(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selected_date_changed,
                             object,
@@ -2772,12 +2795,12 @@ impl GeneratedHandle {
                         Ok(value) => Some(value),
                         Err(error) if error.code().is_ok() => None,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_optional_time_span(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selected_time_changed,
                             object,
@@ -2807,12 +2830,12 @@ impl GeneratedHandle {
                         Ok(value) => Some(value),
                         Err(error) if error.code().is_ok() => None,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     if dispatch {
-                        WinUiAdapter::dispatch_optional_date_time(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_date_changed,
                             object,
@@ -2842,12 +2865,12 @@ impl GeneratedHandle {
                     let payload = match args.Result().map(content_dialog_result) {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
                     match WinUiAdapter::content_dialog_closed(&event_queue_closed, object) {
-                        Ok(true) if dispatch => WinUiAdapter::dispatch_content_dialog_result(
+                        Ok(true) if dispatch => WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_closed,
                             object,
@@ -2856,7 +2879,7 @@ impl GeneratedHandle {
                             payload,
                         ),
                         Ok(_) => {}
-                        Err(error) => super::app::report_error(error.into()),
+                        Err(error) => report_error(error.into()),
                     }
                 })?;
                 let _closed = GeneratedRevoker::Event(revoker);
@@ -2875,12 +2898,13 @@ impl GeneratedHandle {
                     let dispatch = true;
                     let observation = None;
                     if dispatch {
-                        WinUiAdapter::dispatch_unit(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_selected_dates_changed,
                             object,
                             EventId::SelectedDatesChanged,
                             observation,
+                            (),
                         );
                     }
                 })?;
@@ -2911,7 +2935,7 @@ impl GeneratedHandle {
                             let observed = match read_selection_changed() {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error);
+                                    report_error(error);
                                     return;
                                 }
                             };
@@ -2929,7 +2953,7 @@ impl GeneratedHandle {
                             );
                             let observation = dispatch.then_some(observation);
                             if dispatch {
-                                WinUiAdapter::dispatch_selection_index(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_selection_changed,
                                     object,
@@ -2954,12 +2978,12 @@ impl GeneratedHandle {
                             {
                                 Ok(value) => value,
                                 Err(error) => {
-                                    super::app::report_error(error.into());
+                                    report_error(error.into());
                                     return;
                                 }
                             };
                             if dispatch {
-                                WinUiAdapter::dispatch_string_list(
+                                WinUiAdapter::dispatch(
                                     &event_for_callback,
                                     &event_queue_drag_items_completed,
                                     object,
@@ -2991,7 +3015,7 @@ impl GeneratedHandle {
                     let observed = match read_text_changed() {
                         Ok(value) => value,
                         Err(error) => {
-                            super::app::report_error(error);
+                            report_error(error);
                             return;
                         }
                     };
@@ -3009,7 +3033,7 @@ impl GeneratedHandle {
                     );
                     let observation = dispatch.then_some(observation);
                     if dispatch {
-                        WinUiAdapter::dispatch_string(
+                        WinUiAdapter::dispatch(
                             &event_for_callback,
                             &event_queue_text_changed,
                             object,
@@ -3274,7 +3298,7 @@ impl GeneratedHandle {
                     .and_then(|object| {
                         object.Items().map_err(Into::into).and_then(|value| {
                             value
-                                .cast::<windows_collections::IVector<IInspectable>>()
+                                .cast::<IVector<IInspectable>>()
                                 .map(GeneratedCollection::Inspectable)
                                 .map_err(Into::into)
                         })
@@ -3288,7 +3312,7 @@ impl GeneratedHandle {
                     .and_then(|object| {
                         object.Items().map_err(Into::into).and_then(|value| {
                             value
-                                .cast::<windows_collections::IVector<IInspectable>>()
+                                .cast::<IVector<IInspectable>>()
                                 .map(GeneratedCollection::Inspectable)
                                 .map_err(Into::into)
                         })
@@ -3302,7 +3326,7 @@ impl GeneratedHandle {
                     .and_then(|object| {
                         object.Items().map_err(Into::into).and_then(|value| {
                             value
-                                .cast::<windows_collections::IVector<IInspectable>>()
+                                .cast::<IVector<IInspectable>>()
                                 .map(GeneratedCollection::Inspectable)
                                 .map_err(Into::into)
                         })
@@ -3328,7 +3352,7 @@ impl GeneratedHandle {
                     .map_err(Into::into)
                     .and_then(|value| {
                         value
-                            .cast::<windows_collections::IVector<native::ICommandBarElement>>()
+                            .cast::<IVector<native::ICommandBarElement>>()
                             .map(GeneratedCollection::ICommandBarElement)
                             .map_err(Into::into)
                     }),
@@ -3339,7 +3363,7 @@ impl GeneratedHandle {
                     .map_err(Into::into)
                     .and_then(|value| {
                         value
-                            .cast::<windows_collections::IVector<native::ICommandBarElement>>()
+                            .cast::<IVector<native::ICommandBarElement>>()
                             .map(GeneratedCollection::ICommandBarElement)
                             .map_err(Into::into)
                     }),
@@ -3358,7 +3382,7 @@ impl GeneratedHandle {
                     .and_then(|object| {
                         object.Items().map_err(Into::into).and_then(|value| {
                             value
-                                .cast::<windows_collections::IVector<IInspectable>>()
+                                .cast::<IVector<IInspectable>>()
                                 .map(GeneratedCollection::Inspectable)
                                 .map_err(Into::into)
                         })
@@ -4021,7 +4045,7 @@ impl GeneratedHandle {
                     let collection = native::TransitionCollection::new()?;
                     for value in values.iter() {
                         let transition = match value {
-                            crate::ThemeTransition::Reposition => {
+                            ThemeTransition::Reposition => {
                                 native::RepositionThemeTransition::new()?
                                     .cast::<native::Transition>()?
                             }
@@ -4571,7 +4595,7 @@ impl GeneratedHandle {
                 EventId::ColorChanged,
                 FeedbackExpectation::Exact(Property {
                     id: PropertyId::Color,
-                    value: PropertyValue::Color(crate::Color::rgb(255, 255, 255)),
+                    value: PropertyValue::Color(Color::rgb(255, 255, 255)),
                 }),
             )),
             (ObjectType::GridView, PropertyId::SelectedIndex, Some(value)) => Some((
@@ -5634,7 +5658,7 @@ impl GeneratedHandle {
                     .iter()
                     .map(|value| Some(windows_reference::IReference::from(value.as_ref()).into()))
                     .collect();
-                let values: windows_collections::IVector<IInspectable> = values.into();
+                let values: IVector<IInspectable> = values.into();
                 object.value.SetItemsSource(&values).map_err(Into::into)
             }),
             (Self::VariableSizedWrapGrid(object), PropertyId::Orientation, None) => Some(
@@ -5763,7 +5787,7 @@ impl GeneratedHandle {
                                 Some(windows_reference::IReference::from(value.as_ref()).into())
                             })
                             .collect();
-                        let values: windows_collections::IVector<IInspectable> = values.into();
+                        let values: IVector<IInspectable> = values.into();
                         object.SetItemsSource(&values).map_err(Into::into)
                     }),
             ),
@@ -6066,6 +6090,50 @@ impl GeneratedHandle {
                             })
                             .map_err(Into::into)
                     }),
+            ),
+            (Self::NavigationView(object), PropertyId::IsBackEnabled, None) => Some(
+                object
+                    .value
+                    .cast::<native::IDependencyObject>()
+                    .map_err(Into::into)
+                    .and_then(|object| {
+                        native::NavigationView::IsBackEnabledProperty()
+                            .map_err(Into::into)
+                            .and_then(|property| object.ClearValue(&property).map_err(Into::into))
+                    }),
+            ),
+            (
+                Self::NavigationView(object),
+                PropertyId::IsBackEnabled,
+                Some(PropertyValue::Bool(value)),
+            ) => Some(
+                object
+                    .value
+                    .cast::<native::INavigationView2>()
+                    .map_err(Into::into)
+                    .and_then(|object| object.SetIsBackEnabled(*value).map_err(Into::into)),
+            ),
+            (Self::NavigationView(object), PropertyId::IsPaneVisible, None) => Some(
+                object
+                    .value
+                    .cast::<native::IDependencyObject>()
+                    .map_err(Into::into)
+                    .and_then(|object| {
+                        native::NavigationView::IsPaneVisibleProperty()
+                            .map_err(Into::into)
+                            .and_then(|property| object.ClearValue(&property).map_err(Into::into))
+                    }),
+            ),
+            (
+                Self::NavigationView(object),
+                PropertyId::IsPaneVisible,
+                Some(PropertyValue::Bool(value)),
+            ) => Some(
+                object
+                    .value
+                    .cast::<native::INavigationView2>()
+                    .map_err(Into::into)
+                    .and_then(|object| object.SetIsPaneVisible(*value).map_err(Into::into)),
             ),
             (Self::NavigationView(object), PropertyId::IsSettingsVisible, None) => Some(
                 object
@@ -6629,7 +6697,7 @@ impl GeneratedHandle {
                     .iter()
                     .map(|value| Some(windows_reference::IReference::from(value.as_ref()).into()))
                     .collect();
-                let values: windows_collections::IVector<IInspectable> = values.into();
+                let values: IVector<IInspectable> = values.into();
                 object.value.SetItemsSource(&values).map_err(Into::into)
             }),
             (Self::RadioButtons(object), PropertyId::SelectedIndex, None) => Some(
@@ -6836,15 +6904,6 @@ impl GeneratedHandle {
             ),
             (Self::Image(object), PropertyId::Source, None) => {
                 Some(object.value.SetSource(None).map_err(Into::into))
-            }
-            (Self::Image(object), PropertyId::Source, Some(PropertyValue::ImageSource(value))) => {
-                match value.value() {
-                    ImageSourceValue::Uri(value) => Some(
-                        uri_image(value)
-                            .and_then(|image| object.value.SetSource(&image).map_err(Into::into)),
-                    ),
-                    ImageSourceValue::Encoded(_) => None,
-                }
             }
             (Self::Image(object), PropertyId::Stretch, None) => Some(
                 object
@@ -7460,16 +7519,6 @@ impl GeneratedHandle {
             (Self::ImageIcon(object), PropertyId::Source, None) => {
                 Some(object.SetSource(None).map_err(Into::into))
             }
-            (
-                Self::ImageIcon(object),
-                PropertyId::Source,
-                Some(PropertyValue::ImageSource(value)),
-            ) => match value.value() {
-                ImageSourceValue::Uri(value) => Some(
-                    uri_image(value).and_then(|image| object.SetSource(&image).map_err(Into::into)),
-                ),
-                ImageSourceValue::Encoded(_) => None,
-            },
             (Self::FontIcon(object), PropertyId::Glyph, None) => Some(
                 object
                     .cast::<native::IDependencyObject>()
@@ -7772,7 +7821,7 @@ impl GeneratedHandle {
                                 Some(windows_reference::IReference::from(value.as_ref()).into())
                             })
                             .collect();
-                        let values: windows_collections::IVector<IInspectable> = values.into();
+                        let values: IVector<IInspectable> = values.into();
                         object.SetItemsSource(&values).map_err(Into::into)
                     }),
             ),
@@ -10190,6 +10239,18 @@ impl GeneratedHandle {
                             .map_err(Into::into),
                     }),
             ),
+            (Self::NavigationView(object), RelationId::PaneHeader) => Some(
+                object
+                    .value
+                    .cast::<native::INavigationView2>()
+                    .map_err(Into::into)
+                    .and_then(|object| match child {
+                        Some(child) => object.SetPaneHeader(child).map_err(Into::into),
+                        None => object
+                            .SetPaneHeader(None::<&native::UIElement>)
+                            .map_err(Into::into),
+                    }),
+            ),
             (Self::NavigationView(object), RelationId::PaneFooter) => Some(match child {
                 Some(child) => object.value.SetPaneFooter(child).map_err(Into::into),
                 None => object
@@ -10873,6 +10934,7 @@ impl GeneratedHandle {
             _ => None,
         }
     }
+    #[cfg(any(test, feature = "test"))]
     fn unit_event(&self, event: EventId) -> Option<&Rc<RefCell<NativeUnitEvent>>> {
         match (self, event) {
             (Self::Button(object), EventId::Click) => Some(&object.click),

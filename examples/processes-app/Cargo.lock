@@ -1195,8 +1195,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "windows-canvas-pre",
- "windows-reactor-pre",
+ "windows-canvas-pre 0.104.0",
+ "windows-reactor-pre 0.104.0",
  "windows-reactor-setup",
 ]
 
@@ -1238,10 +1238,10 @@ source = "git+https://github.com/guinea-rs/guinea-plugins?tag=v0.29.0#2d8835852f
 dependencies = [
  "guinea-mark",
  "tracing",
- "windows-canvas-pre",
+ "windows-canvas-pre 0.103.0",
  "windows-core",
  "windows-numerics",
- "windows-reactor-pre",
+ "windows-reactor-pre 0.103.0",
 ]
 
 [[package]]
@@ -1255,7 +1255,7 @@ dependencies = [
  "guinea-router",
  "tracing",
  "windows-core",
- "windows-reactor-pre",
+ "windows-reactor-pre 0.104.0",
 ]
 
 [[package]]
@@ -2597,10 +2597,21 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 [[package]]
 name = "windows-canvas-pre"
 version = "0.103.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f6f02987fdd027f3b305dbc6010aa34975755893b70fbbd0ef740c7887c902"
 dependencies = [
  "windows-core",
  "windows-numerics",
- "windows-reactor-pre",
+ "windows-reactor-pre 0.103.0",
+]
+
+[[package]]
+name = "windows-canvas-pre"
+version = "0.104.0"
+dependencies = [
+ "windows-core",
+ "windows-numerics",
+ "windows-reactor-pre 0.104.0",
 ]
 
 [[package]]
@@ -2682,6 +2693,8 @@ dependencies = [
 [[package]]
 name = "windows-reactor-pre"
 version = "0.103.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d75c6053f154ce22dc02f27f4f89fb0cb74971a207dc2e570dcfd4d106501612"
 dependencies = [
  "windows-collections",
  "windows-core",
@@ -2689,6 +2702,19 @@ dependencies = [
  "windows-reference",
  "windows-threading",
  "windows-time",
+]
+
+[[package]]
+name = "windows-reactor-pre"
+version = "0.104.0"
+dependencies = [
+ "windows-collections",
+ "windows-core",
+ "windows-future",
+ "windows-reference",
+ "windows-threading",
+ "windows-time",
+ "windows-window-pre",
 ]
 
 [[package]]
@@ -2781,6 +2807,13 @@ name = "windows-time"
 version = "0.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de136aac4d76b9ea94b2589774be8bcd91b31b2dd7dae54abdd63335590095e4"
+dependencies = [
+ "windows-core",
+]
+
+[[package]]
+name = "windows-window-pre"
+version = "0.104.0"
 dependencies = [
  "windows-core",
 ]

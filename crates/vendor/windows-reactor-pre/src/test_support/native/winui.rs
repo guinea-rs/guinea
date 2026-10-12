@@ -1,23 +1,41 @@
-pub fn window_has_explicit_icon(hwnd: *mut core::ffi::c_void) -> bool {
-    unsafe {
-        native::SendMessageW(
-            hwnd.cast(),
-            native::WM_GETICON as u32,
-            native::ICON_BIG as usize,
-            0,
-        ) != 0
-            || native::SendMessageW(
-                hwnd.cast(),
-                native::WM_GETICON as u32,
-                native::ICON_SMALL as usize,
-                0,
-            ) != 0
+use super::*;
+
+impl Runtime<WinUiAdapter> {
+    pub fn set_native_event_waker(&mut self, waker: impl Fn() + 'static) {
+        let waker = Rc::new(waker);
+        let native = Rc::clone(&waker);
+        self.set_native_event_wakers(move || native(), move || waker());
     }
 }
 
-#[cfg(any(test, feature = "test"))]
+impl ComponentHost<WinUiAdapter> {
+    pub fn set_native_event_waker(&mut self, waker: impl Fn() + 'static) {
+        self.runtime_mut_internal().set_native_event_waker(waker);
+    }
+}
+
 impl WinUiAdapter {
-    pub fn validate_graph(&self, graph: &crate::RetainedGraph) -> Result<(), WinUiError> {
+    pub fn open_window_with_policy(
+        &self,
+        root: ObjectId,
+        policy: &WindowPolicy,
+    ) -> Result<NativeWindow, WinUiError> {
+        let window = self.create_window_with_policy(root, policy)?;
+        window.activate()?;
+        Ok(window)
+    }
+
+    pub fn create_window(&self, root: ObjectId) -> Result<NativeWindow, WinUiError> {
+        self.create_window_with_policy(root, &WindowPolicy::new())
+    }
+
+    pub fn open_window(&self, root: ObjectId) -> Result<NativeWindow, WinUiError> {
+        let window = self.create_window(root)?;
+        window.activate()?;
+        Ok(window)
+    }
+
+    pub fn validate_graph(&self, graph: &RetainedGraph) -> Result<(), WinUiError> {
         let Some(root) = graph.root() else {
             return Ok(());
         };
@@ -83,8 +101,7 @@ impl WinUiAdapter {
                         _ => None,
                     })
                     .unwrap_or_default();
-                let properties =
-                    value.cast::<windows_collections::IMap<HSTRING, IInspectable>>()?;
+                let properties = value.cast::<IMap<HSTRING, IInspectable>>()?;
                 let actual = properties.Lookup(&self.data_text_key)?;
                 let actual = actual
                     .cast::<windows_reference::IReference<HSTRING>>()?
@@ -93,7 +110,7 @@ impl WinUiAdapter {
                     return Err(WinUiError::StateMismatch(object));
                 }
             }
-            if let Some(selection) = crate::selection_contract(kind) {
+            if let Some(selection) = selection_contract(kind) {
                 let selected = self.read_selected_item(object, selection)?;
                 let selected = selected.as_ref().and_then(|selected| {
                     self.event_queue
@@ -216,7 +233,7 @@ impl WinUiAdapter {
             }
             for contract in relation_contracts(kind) {
                 match contract.cardinality {
-                    crate::Cardinality::One => {
+                    Cardinality::One => {
                         if let Some(child) = graph.child(object, contract.id) {
                             if self.owners.get(&child) != Some(&(object, contract.id)) {
                                 return Err(WinUiError::StateMismatch(object));
@@ -224,7 +241,7 @@ impl WinUiAdapter {
                             pending.push(child);
                         }
                     }
-                    crate::Cardinality::Many => {
+                    Cardinality::Many => {
                         let children = graph.children(object, contract.id).unwrap_or_default();
                         for child in children {
                             if self.owners.get(child) != Some(&(object, contract.id)) {
@@ -297,7 +314,7 @@ impl WinUiAdapter {
             .Document()?
             .SetText(native::TextSetOptions::None, text)?;
         let text = read_rich_edit_text(&value.value).map_err(WinUiError::from)?;
-        Self::dispatch_string(
+        Self::dispatch(
             &value.text_changed,
             &self.event_queue,
             object,
@@ -359,12 +376,10 @@ impl WinUiAdapter {
         Ok(items.shells.pool.borrow().shells.len())
     }
 
-    #[cfg(any(test, feature = "test"))]
     pub fn queued_event_count(&self) -> usize {
         self.event_queue.events.borrow().len()
     }
 
-    #[cfg(any(test, feature = "test"))]
     pub fn total_virtual_shell_count(&self) -> usize {
         self.virtual_items
             .values()
@@ -372,7 +387,6 @@ impl WinUiAdapter {
             .sum()
     }
 
-    #[cfg(any(test, feature = "test"))]
     pub fn virtual_shell_counts(&self) -> (usize, usize) {
         self.virtual_items
             .values()
@@ -392,7 +406,7 @@ impl WinUiAdapter {
         };
         let value = value.value.clone();
         let timer = native::DispatcherQueue::GetForCurrentThread()?.CreateTimer()?;
-        timer.SetInterval(windows_time::TimeSpan::from_millis(10))?;
+        timer.SetInterval(TimeSpan::from_millis(10))?;
         timer.SetIsRepeating(true)?;
         let state = Rc::new(RefCell::new(
             None::<(
@@ -479,7 +493,7 @@ impl WinUiAdapter {
         let Some(event) = handle.unit_event(EventId::Click) else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::dispatch_unit(event, &self.event_queue, object, EventId::Click, None);
+        Self::dispatch(event, &self.event_queue, object, EventId::Click, None, ());
         Ok(())
     }
 
@@ -528,7 +542,7 @@ impl WinUiAdapter {
     pub fn simulate_calendar_date(
         &self,
         object: ObjectId,
-        value: windows_time::DateTime,
+        value: DateTime,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::CalendarDatePicker(handle))) =
             self.handles.get(&object)
@@ -542,7 +556,7 @@ impl WinUiAdapter {
     pub fn simulate_pointer_released(
         &self,
         object: ObjectId,
-        value: crate::PointerEventInfo,
+        value: PointerEventInfo,
     ) -> Result<(), WinUiError> {
         self.simulate_pointer_event(object, EventId::PointerReleased, value)
     }
@@ -571,7 +585,7 @@ impl WinUiAdapter {
         &self,
         object: ObjectId,
         event: EventId,
-        value: crate::DragKind,
+        value: DragKind,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
@@ -582,20 +596,20 @@ impl WinUiAdapter {
             EventId::DragOver => &border.drag_over,
             _ => return Err(WinUiError::InvalidEvent(object, event)),
         };
-        Self::dispatch_drag_kind(native_event, &self.event_queue, object, event, None, value);
+        Self::dispatch(native_event, &self.event_queue, object, event, None, value);
         Ok(())
     }
 
     pub fn simulate_dropped_data(
         &self,
         object: ObjectId,
-        value: crate::DroppedData,
+        value: DroppedData,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::queue_dropped_data(
+        Self::queue_event(
             &border.drop,
             &self.event_queue,
             object,
@@ -617,7 +631,7 @@ impl WinUiAdapter {
             Some(Handle::ListView(list)) => &list.drag_items_completed,
             _ => return Err(WinUiError::InvalidObject(object)),
         };
-        Self::dispatch_string_list(
+        Self::dispatch(
             event,
             &self.event_queue,
             object,
@@ -641,7 +655,7 @@ impl WinUiAdapter {
             .cast::<native::ISelector>()?
             .SetSelectedIndex(native_selection_index(value)?)?;
         if self.event_queue.events.borrow().len() == queued {
-            Self::dispatch_selection_index(
+            Self::dispatch(
                 &list.selection_changed,
                 &self.event_queue,
                 object,
@@ -662,16 +676,7 @@ impl WinUiAdapter {
     pub fn list_view_state(
         &self,
         object: ObjectId,
-    ) -> Result<
-        (
-            Option<usize>,
-            crate::ListViewSelectionMode,
-            bool,
-            bool,
-            bool,
-        ),
-        WinUiError,
-    > {
+    ) -> Result<(Option<usize>, ListViewSelectionMode, bool, bool, bool), WinUiError> {
         let Some(Handle::ListView(list)) = self.handles.get(&object) else {
             return Err(WinUiError::InvalidObject(object));
         };
@@ -679,10 +684,10 @@ impl WinUiAdapter {
         let list_base = list.value.cast::<native::IListViewBase>()?;
         let element = list.value.cast::<native::IUIElement>()?;
         let selection_mode = match list_base.SelectionMode()? {
-            native::ListViewSelectionMode::None => crate::ListViewSelectionMode::None,
-            native::ListViewSelectionMode::Single => crate::ListViewSelectionMode::Single,
-            native::ListViewSelectionMode::Multiple => crate::ListViewSelectionMode::Multiple,
-            native::ListViewSelectionMode::Extended => crate::ListViewSelectionMode::Extended,
+            native::ListViewSelectionMode::None => ListViewSelectionMode::None,
+            native::ListViewSelectionMode::Single => ListViewSelectionMode::Single,
+            native::ListViewSelectionMode::Multiple => ListViewSelectionMode::Multiple,
+            native::ListViewSelectionMode::Extended => ListViewSelectionMode::Extended,
             _ => unreachable!("unknown ListViewSelectionMode"),
         };
         Ok((
@@ -697,14 +702,14 @@ impl WinUiAdapter {
     pub fn tree_view_selection_mode(
         &self,
         object: ObjectId,
-    ) -> Result<crate::TreeViewSelectionMode, WinUiError> {
+    ) -> Result<TreeViewSelectionMode, WinUiError> {
         let Some(Handle::TreeView(tree)) = self.handles.get(&object) else {
             return Err(WinUiError::InvalidObject(object));
         };
         match tree.value.SelectionMode()? {
-            native::TreeViewSelectionMode::None => Ok(crate::TreeViewSelectionMode::None),
-            native::TreeViewSelectionMode::Single => Ok(crate::TreeViewSelectionMode::Single),
-            native::TreeViewSelectionMode::Multiple => Ok(crate::TreeViewSelectionMode::Multiple),
+            native::TreeViewSelectionMode::None => Ok(TreeViewSelectionMode::None),
+            native::TreeViewSelectionMode::Single => Ok(TreeViewSelectionMode::Single),
+            native::TreeViewSelectionMode::Multiple => Ok(TreeViewSelectionMode::Multiple),
             _ => unreachable!("unknown TreeViewSelectionMode"),
         }
     }
@@ -717,7 +722,7 @@ impl WinUiAdapter {
         let Some(Handle::TreeView(tree)) = self.handles.get(&object) else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::dispatch_string(
+        Self::dispatch(
             &tree.item_invoked,
             &self.event_queue,
             object,
@@ -749,7 +754,7 @@ impl WinUiAdapter {
             ) => &value.tab_close_requested,
             _ => return Err(WinUiError::InvalidEvent(object, event)),
         };
-        Self::dispatch_string(
+        Self::dispatch(
             native_event,
             &self.event_queue,
             object,
@@ -773,7 +778,7 @@ impl WinUiAdapter {
             ) => &value.tab_items_changed,
             _ => return Err(WinUiError::InvalidEvent(object, event)),
         };
-        Self::dispatch_string_list(
+        Self::dispatch(
             native_event,
             &self.event_queue,
             object,
@@ -787,11 +792,7 @@ impl WinUiAdapter {
         Ok(())
     }
 
-    pub fn simulate_color_changed(
-        &self,
-        object: ObjectId,
-        value: crate::Color,
-    ) -> Result<(), WinUiError> {
+    pub fn simulate_color_changed(&self, object: ObjectId, value: Color) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::ColorPicker(control))) =
             self.handles.get(&object)
         else {
@@ -815,7 +816,7 @@ impl WinUiAdapter {
         {
             return Ok(());
         }
-        Self::dispatch_color(
+        Self::dispatch(
             &control.color_changed,
             &self.event_queue,
             object,
@@ -826,17 +827,55 @@ impl WinUiAdapter {
         Ok(())
     }
 
+    pub fn navigation_view_flags(&self, object: ObjectId) -> Result<(bool, bool), WinUiError> {
+        let Some(Handle::Generated(GeneratedHandle::NavigationView(control))) =
+            self.handles.get(&object)
+        else {
+            return Err(WinUiError::InvalidObject(object));
+        };
+        let control = control.value.cast::<native::INavigationView2>()?;
+        Ok((control.IsBackEnabled()?, control.IsPaneVisible()?))
+    }
+
+    pub fn navigation_view_pane_header_matches(
+        &self,
+        object: ObjectId,
+        expected: Option<ObjectId>,
+    ) -> Result<bool, WinUiError> {
+        let Some(Handle::Generated(GeneratedHandle::NavigationView(control))) =
+            self.handles.get(&object)
+        else {
+            return Err(WinUiError::InvalidObject(object));
+        };
+        let actual = match control
+            .value
+            .cast::<native::INavigationView2>()?
+            .PaneHeader()
+        {
+            Ok(header) => Some(com_identity(&header)?),
+            Err(error) if error.code().is_ok() => None,
+            Err(error) => return Err(error.into()),
+        };
+        let expected = expected
+            .map(|object| {
+                self.ui_element(object)
+                    .and_then(|element| com_identity(&element))
+            })
+            .transpose()?;
+        Ok(actual == expected)
+    }
+
     pub fn simulate_navigation_display_mode_changed(
         &self,
         object: ObjectId,
-        value: crate::NavigationViewDisplayMode,
+        value: NavigationViewDisplayMode,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::NavigationView(control))) =
             self.handles.get(&object)
         else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::dispatch_navigation_view_display_mode(
+        Self::dispatch(
             &control.display_mode_changed,
             &self.event_queue,
             object,
@@ -850,14 +889,14 @@ impl WinUiAdapter {
     pub fn simulate_selected_date_changed(
         &self,
         object: ObjectId,
-        value: Option<windows_time::DateTime>,
+        value: Option<DateTime>,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::DatePicker(control))) =
             self.handles.get(&object)
         else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::dispatch_optional_date_time(
+        Self::dispatch(
             &control.selected_date_changed,
             &self.event_queue,
             object,
@@ -871,14 +910,14 @@ impl WinUiAdapter {
     pub fn simulate_selected_time_changed(
         &self,
         object: ObjectId,
-        value: Option<windows_time::TimeSpan>,
+        value: Option<TimeSpan>,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::TimePicker(control))) =
             self.handles.get(&object)
         else {
             return Err(WinUiError::InvalidObject(object));
         };
-        Self::dispatch_optional_time_span(
+        Self::dispatch(
             &control.selected_time_changed,
             &self.event_queue,
             object,
@@ -889,7 +928,7 @@ impl WinUiAdapter {
         Ok(())
     }
 
-    pub fn color_picker_color(&self, object: ObjectId) -> Result<crate::Color, WinUiError> {
+    pub fn color_picker_color(&self, object: ObjectId) -> Result<Color, WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::ColorPicker(control))) =
             self.handles.get(&object)
         else {
@@ -912,7 +951,7 @@ impl WinUiAdapter {
     }
 
     pub fn image_has_decode_failure_subscription(&self, object: ObjectId) -> bool {
-        self.encoded_image_failures.contains_key(&object)
+        self.image_subscriptions.contains_key(&object)
     }
 
     pub fn image_source_is_svg(&self, object: ObjectId) -> Result<bool, WinUiError> {
@@ -960,7 +999,7 @@ impl WinUiAdapter {
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
         let flyout = menu
-            .flyout
+            ._flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?;
@@ -977,7 +1016,7 @@ impl WinUiAdapter {
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
         Ok(menu
-            .flyout
+            ._flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?
@@ -989,7 +1028,7 @@ impl WinUiAdapter {
             .menus
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
-        menu.flyout
+        menu._flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?
@@ -1002,7 +1041,7 @@ impl WinUiAdapter {
             .command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            .native
+            ._native
             .cast::<native::IFlyoutBase>()?;
         let target = self
             .ui_element(target)?
@@ -1016,7 +1055,7 @@ impl WinUiAdapter {
             .command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            .native
+            ._native
             .cast::<native::IFlyoutBase>()?
             .IsOpen()?)
     }
@@ -1025,7 +1064,7 @@ impl WinUiAdapter {
         self.command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            .native
+            ._native
             .cast::<native::IFlyoutBase>()?
             .Hide()?;
         Ok(())
@@ -1051,7 +1090,7 @@ impl WinUiAdapter {
         &self,
         object: ObjectId,
         event: EventId,
-        value: crate::KeyEventInfo,
+        value: KeyEventInfo,
     ) -> Result<bool, WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
@@ -1072,7 +1111,7 @@ impl WinUiAdapter {
     pub fn simulate_character_event(
         &self,
         object: ObjectId,
-        value: crate::CharacterEventInfo,
+        value: CharacterEventInfo,
     ) -> Result<bool, WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
@@ -1090,7 +1129,7 @@ impl WinUiAdapter {
         &self,
         object: ObjectId,
         event: EventId,
-        value: crate::FocusEventInfo,
+        value: FocusEventInfo,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
@@ -1101,14 +1140,7 @@ impl WinUiAdapter {
             EventId::LostFocus => &border.lost_focus,
             _ => return Err(WinUiError::InvalidEvent(object, event)),
         };
-        Self::dispatch_focus_event_info(
-            native_event,
-            &self.event_queue,
-            object,
-            event,
-            None,
-            value,
-        );
+        Self::dispatch(native_event, &self.event_queue, object, event, None, value);
         Ok(())
     }
 
@@ -1116,7 +1148,7 @@ impl WinUiAdapter {
         &self,
         object: ObjectId,
         event: EventId,
-        value: crate::PointerEventInfo,
+        value: PointerEventInfo,
     ) -> Result<(), WinUiError> {
         let Some(Handle::Generated(GeneratedHandle::Border(border))) = self.handles.get(&object)
         else {
@@ -1130,14 +1162,7 @@ impl WinUiAdapter {
             EventId::PointerReleased => &border.pointer_released,
             _ => return Err(WinUiError::InvalidEvent(object, event)),
         };
-        Self::dispatch_pointer_event_info(
-            native_event,
-            &self.event_queue,
-            object,
-            event,
-            None,
-            value,
-        );
+        Self::dispatch(native_event, &self.event_queue, object, event, None, value);
         Ok(())
     }
 
@@ -1278,8 +1303,8 @@ impl WinUiAdapter {
         object: ObjectId,
         selected: Option<ObjectId>,
     ) -> Result<(), WinUiError> {
-        let selection = crate::selection_contract(self.kind(object)?)
-            .ok_or(WinUiError::InvalidObject(object))?;
+        let selection =
+            selection_contract(self.kind(object)?).ok_or(WinUiError::InvalidObject(object))?;
         let selected = selected
             .map(|selected| {
                 self.event_queue
@@ -1297,8 +1322,8 @@ impl WinUiAdapter {
     }
 
     pub fn selected_item(&self, object: ObjectId) -> Result<Option<ObjectId>, WinUiError> {
-        let selection = crate::selection_contract(self.kind(object)?)
-            .ok_or(WinUiError::InvalidObject(object))?;
+        let selection =
+            selection_contract(self.kind(object)?).ok_or(WinUiError::InvalidObject(object))?;
         let selected = self.read_selected_item(object, selection)?;
         Ok(selected.as_ref().and_then(|selected| {
             self.event_queue
@@ -1383,14 +1408,14 @@ impl WinUiAdapter {
     pub fn text_box_appearance(
         &self,
         object: ObjectId,
-    ) -> Result<(String, bool, crate::TextWrapping), WinUiError> {
+    ) -> Result<(String, bool, TextWrapping), WinUiError> {
         let Some(Handle::TextBox(value)) = self.handles.get(&object) else {
             return Err(WinUiError::InvalidObject(object));
         };
         let wrapping = match value.value.TextWrapping()? {
-            native::TextWrapping::NoWrap => crate::TextWrapping::NoWrap,
-            native::TextWrapping::Wrap => crate::TextWrapping::Wrap,
-            native::TextWrapping::WrapWholeWords => crate::TextWrapping::WrapWholeWords,
+            native::TextWrapping::NoWrap => TextWrapping::NoWrap,
+            native::TextWrapping::Wrap => TextWrapping::Wrap,
+            native::TextWrapping::WrapWholeWords => TextWrapping::WrapWholeWords,
             _ => return Err(WinUiError::StateMismatch(object)),
         };
         Ok((

@@ -1,3 +1,42 @@
+trait IntoEventPayload {
+    fn into_payload(self) -> EventPayload;
+}
+
+impl IntoEventPayload for () {
+    fn into_payload(self) -> EventPayload {
+        EventPayload::Unit
+    }
+}
+
+macro_rules! into_event_payload {
+    ($($type:ty => $variant:ident,)*) => {
+        $(impl IntoEventPayload for $type {
+            fn into_payload(self) -> EventPayload {
+                EventPayload::$variant(self)
+            }
+        })*
+    };
+}
+
+into_event_payload! {
+    bool => Bool,
+    Color => Color,
+    ContentDialogResult => ContentDialogResult,
+    DragKind => DragKind,
+    DroppedData => DroppedData,
+    f64 => F64,
+    FocusEventInfo => FocusEventInfo,
+    NavigationViewDisplayMode => NavigationViewDisplayMode,
+    Option<bool> => OptionalBool,
+    Option<DateTime> => OptionalDateTime,
+    Option<f64> => OptionalF64,
+    Option<TimeSpan> => OptionalTimeSpan,
+    Option<usize> => SelectionIndex,
+    PointerEventInfo => PointerEventInfo,
+    Rc<str> => String,
+    Vec<String> => StringList,
+}
+
 impl WinUiAdapter {
     fn dispatch_text_changed(
         event: &Rc<RefCell<NativeTextEvent>>,
@@ -36,276 +75,39 @@ impl WinUiAdapter {
         Self::schedule_event_wake(event_queue);
     }
 
-    fn dispatch_unit(
-        event: &Rc<RefCell<NativeUnitEvent>>,
+    fn dispatch<T: IntoEventPayload>(
+        event: &Rc<RefCell<NativeValueEvent<T>>>,
         event_queue: &Rc<NativeEventQueue>,
         object: ObjectId,
         event_id: EventId,
         observation: Option<Observation>,
+        value: T,
     ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::Unit,
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
+        if Self::queue_event(event, event_queue, object, event_id, observation, value) {
             Self::schedule_event_wake(event_queue);
         }
     }
 
-    fn dispatch_bool(
-        event: &Rc<RefCell<NativeBoolEvent>>,
+    fn queue_event<T: IntoEventPayload>(
+        event: &Rc<RefCell<NativeValueEvent<T>>>,
         event_queue: &Rc<NativeEventQueue>,
         object: ObjectId,
         event_id: EventId,
         observation: Option<Observation>,
-        value: bool,
-    ) {
+        value: T,
+    ) -> bool {
         let event = event.borrow();
         let queued = event.callback.is_some().then(|| QueuedEvent {
             object,
             event: event_id,
             revision: event.revision,
-            payload: EventPayload::Bool(value),
+            payload: value.into_payload(),
         });
-        if observation.is_some() || queued.is_some() {
+        let queue = observation.is_some() || queued.is_some();
+        if queue {
             event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
         }
-    }
-
-    fn dispatch_content_dialog_result(
-        event: &Rc<RefCell<NativeContentDialogResultEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: ContentDialogResult,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::ContentDialogResult(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_f64(
-        event: &Rc<RefCell<NativeF64Event>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: f64,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::F64(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_color(
-        event: &Rc<RefCell<NativeColorEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::Color,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::Color(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_optional_bool(
-        event: &Rc<RefCell<NativeOptionalBoolEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Option<bool>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::OptionalBool(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_optional_f64(
-        event: &Rc<RefCell<NativeOptionalF64Event>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Option<f64>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::OptionalF64(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_optional_date_time(
-        event: &Rc<RefCell<NativeOptionalDateTimeEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Option<windows_time::DateTime>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::OptionalDateTime(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_optional_time_span(
-        event: &Rc<RefCell<NativeOptionalTimeSpanEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Option<windows_time::TimeSpan>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::OptionalTimeSpan(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_navigation_view_display_mode(
-        event: &Rc<RefCell<NativeNavigationViewDisplayModeEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::NavigationViewDisplayMode,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::NavigationViewDisplayMode(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_selection_index(
-        event: &Rc<RefCell<NativeSelectionIndexEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Option<usize>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::SelectionIndex(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_string(
-        event: &Rc<RefCell<NativeTextEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Rc<str>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::String(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_string_list(
-        event: &Rc<RefCell<NativeStringListEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: Vec<String>,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::StringList(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
+        queue
     }
 
     fn item_tags(source: &native::IItemsControl) -> Result<Vec<String>, WinUiError> {
@@ -338,73 +140,18 @@ impl WinUiAdapter {
         Ok(tags)
     }
 
-    fn dispatch_pointer_event_info(
-        event: &Rc<RefCell<NativePointerEventInfoEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::PointerEventInfo,
-    ) {
-        if Self::queue_pointer_event_info(event, event_queue, object, event_id, observation, value)
-        {
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn dispatch_drag_kind(
-        event: &Rc<RefCell<NativeDragKindEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::DragKind,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::DragKind(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    fn queue_dropped_data(
-        event: &Rc<RefCell<NativeDroppedDataEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::DroppedData,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::DroppedData(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-        }
-    }
-
     fn drag_kind(
         args: Ref<native::DragEventArgs>,
         policy: &Rc<RefCell<Option<Rc<DragDropPolicy>>>>,
-    ) -> Result<crate::DragKind, WinUiError> {
+    ) -> Result<DragKind, WinUiError> {
         let args = args.unwrap();
         let data = args.DataView()?;
         let kind = if data.Contains("Shell IDList Array")? {
-            crate::DragKind::StorageItems
+            DragKind::StorageItems
         } else if data.Contains("Text")? {
-            crate::DragKind::Text
+            DragKind::Text
         } else {
-            crate::DragKind::Unsupported
+            DragKind::Unsupported
         };
         let policy = policy.borrow();
         let action = policy.as_ref().and_then(|policy| policy.action(kind));
@@ -418,7 +165,7 @@ impl WinUiAdapter {
         } else {
             ui.SetIsCaptionVisible(false)?;
         }
-        Ok(action.map_or(crate::DragKind::Unsupported, |_| kind))
+        Ok(action.map_or(DragKind::Unsupported, |_| kind))
     }
 
     fn dispatch_dropped_data(
@@ -434,11 +181,11 @@ impl WinUiAdapter {
         let deferral = args.GetDeferral()?;
         let data = args.DataView()?;
         let kind = if data.Contains("Shell IDList Array")? {
-            crate::DragKind::StorageItems
+            DragKind::StorageItems
         } else if data.Contains("Text")? {
-            crate::DragKind::Text
+            DragKind::Text
         } else {
-            crate::DragKind::Unsupported
+            DragKind::Unsupported
         };
         let action = policy
             .borrow()
@@ -448,15 +195,14 @@ impl WinUiAdapter {
         let Some(action) = action else {
             args.SetAcceptedOperation(native::DataPackageOperation::None)?;
             deferral.Complete()?;
-            Self::queue_dropped_data(
+            Self::dispatch(
                 event,
                 event_queue,
                 object,
                 event_id,
                 observation,
-                crate::DroppedData::Unsupported,
+                DroppedData::Unsupported,
             );
-            Self::schedule_event_wake(event_queue);
             return Ok(());
         };
         args.SetAcceptedOperation(Self::native_drag_operation(action.operation))?;
@@ -466,7 +212,7 @@ impl WinUiAdapter {
         let result_for_handler = Arc::clone(&result);
         let event_queue = Rc::clone(event_queue);
         let deferral_for_handler = deferral.clone();
-        let callback = super::app::AppContext::ui_callback_once(move || {
+        let callback = AppContext::ui_callback_once(move || {
             let result = result_for_handler.lock().unwrap().take().unwrap();
             match result {
                 Ok(value) if subscribed => {
@@ -482,15 +228,15 @@ impl WinUiAdapter {
                     Self::schedule_event_wake(&event_queue);
                 }
                 Ok(_) => {}
-                Err(error) => super::app::report_error(error),
+                Err(error) => report_error(error),
             }
             if let Err(error) = deferral_for_handler.Complete() {
-                super::app::report_error(error);
+                report_error(error);
             }
             Ok(())
         })?;
         match kind {
-            crate::DragKind::StorageItems => {
+            DragKind::StorageItems => {
                 let operation = data.GetStorageItemsAsync()?;
                 let completion = callback.clone();
                 let completion_deferral = deferral.clone();
@@ -499,12 +245,12 @@ impl WinUiAdapter {
                         let mut dropped = Vec::with_capacity(items.Size()? as usize);
                         for index in 0..items.Size()? {
                             let item = items.GetAt(index)?;
-                            dropped.push(crate::DroppedStorageItem {
+                            dropped.push(DroppedStorageItem {
                                 name: item.Name()?,
                                 path: item.Path()?,
                             });
                         }
-                        Ok(crate::DroppedData::StorageItems(dropped))
+                        Ok(DroppedData::StorageItems(dropped))
                     });
                     *result.lock().unwrap() = Some(value);
                     if completion.invoke().is_err() {
@@ -516,13 +262,13 @@ impl WinUiAdapter {
                     return Err(error.into());
                 }
             }
-            crate::DragKind::Text => {
+            DragKind::Text => {
                 let operation = data.GetTextAsync()?;
                 let completion = callback.clone();
                 let completion_deferral = deferral.clone();
                 if let Err(error) = operation.when(move |value| {
                     *result.lock().unwrap() =
-                        Some(value.map(|value| crate::DroppedData::Text(value.to_string_lossy())));
+                        Some(value.map(|value| DroppedData::Text(value.to_string_lossy())));
                     if completion.invoke().is_err() {
                         _ = completion_deferral.Complete();
                     }
@@ -532,39 +278,17 @@ impl WinUiAdapter {
                     return Err(error.into());
                 }
             }
-            crate::DragKind::Unsupported => unreachable!(),
+            DragKind::Unsupported => unreachable!(),
         }
         Ok(())
     }
 
-    fn native_drag_operation(value: crate::DragDropOperation) -> native::DataPackageOperation {
+    fn native_drag_operation(value: DragDropOperation) -> native::DataPackageOperation {
         match value {
-            crate::DragDropOperation::Copy => native::DataPackageOperation::Copy,
-            crate::DragDropOperation::Move => native::DataPackageOperation::Move,
-            crate::DragDropOperation::Link => native::DataPackageOperation::Link,
+            DragDropOperation::Copy => native::DataPackageOperation::Copy,
+            DragDropOperation::Move => native::DataPackageOperation::Move,
+            DragDropOperation::Link => native::DataPackageOperation::Link,
         }
-    }
-
-    fn queue_pointer_event_info(
-        event: &Rc<RefCell<NativePointerEventInfoEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::PointerEventInfo,
-    ) -> bool {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::PointerEventInfo(value),
-        });
-        let dispatch = observation.is_some() || queued.is_some();
-        if dispatch {
-            event_queue.queue(observation, queued);
-        }
-        dispatch
     }
 
     fn handle_selection_changed(
@@ -579,7 +303,7 @@ impl WinUiAdapter {
             Ok(selected) => Some(selected),
             Err(error) if error.code().is_ok() => None,
             Err(error) => {
-                super::app::report_error(error);
+                report_error(error);
                 return;
             }
         };
@@ -604,7 +328,7 @@ impl WinUiAdapter {
                 match GeneratedHandle::selection_payload(payload_property, selected) {
                     Ok(value) => value,
                     Err(error) => {
-                        super::app::report_error(error.into());
+                        report_error(error.into());
                         return;
                     }
                 }
@@ -618,7 +342,7 @@ impl WinUiAdapter {
                 object,
                 event: event_id,
                 revision: event.revision,
-                payload: EventPayload::Selection(crate::SelectionChange {
+                payload: EventPayload::Selection(SelectionChange {
                     item: selected_object,
                     value,
                 }),
@@ -635,7 +359,7 @@ impl WinUiAdapter {
         release_capture: bool,
         focus_on_release: bool,
         pending_focus_states: &Rc<RefCell<HashMap<ObjectId, ElementFocusState>>>,
-    ) -> Result<crate::PointerEventInfo, WinUiError> {
+    ) -> Result<PointerEventInfo, WinUiError> {
         let args = args.unwrap();
         let local = args.GetCurrentPoint(element)?;
         let local_position = local.Position()?;
@@ -680,14 +404,14 @@ impl WinUiAdapter {
                             Ok(true) => {}
                             Ok(false) => {
                                 pending_focus_states.borrow_mut().remove(&object);
-                                super::app::report_error(windows_core::Error::new(
+                                report_error(windows_core::Error::new(
                                     native::E_FAIL,
                                     "dispatcher rejected pointer focus cleanup",
                                 ));
                             }
                             Err(error) => {
                                 pending_focus_states.borrow_mut().remove(&object);
-                                super::app::report_error(error);
+                                report_error(error);
                             }
                         }
                     }
@@ -696,7 +420,7 @@ impl WinUiAdapter {
                     }
                     Err(error) => {
                         pending_focus_states.borrow_mut().remove(&object);
-                        super::app::report_error(error);
+                        report_error(error);
                     }
                 }
             });
@@ -710,7 +434,7 @@ impl WinUiAdapter {
                 .into());
             }
         }
-        Ok(crate::PointerEventInfo {
+        Ok(PointerEventInfo {
             x: f64::from(local_position.x),
             y: f64::from(local_position.y),
             window_x: f64::from(window_position.x),
@@ -725,29 +449,29 @@ impl WinUiAdapter {
         })
     }
 
-    fn input_modifiers() -> Result<crate::InputModifiers, WinUiError> {
+    fn input_modifiers() -> Result<InputModifiers, WinUiError> {
         let mut keys = [0u8; 256];
         if !unsafe { native::GetKeyboardState(keys.as_mut_ptr()) }.as_bool() {
             return Err(windows_core::Error::from_thread().into());
         }
-        let mut modifiers = crate::InputModifiers::NONE;
+        let mut modifiers = InputModifiers::NONE;
         if keys[0x10] & 0x80 != 0 {
-            modifiers |= crate::InputModifiers::SHIFT;
+            modifiers |= InputModifiers::SHIFT;
         }
         if keys[0x11] & 0x80 != 0 {
-            modifiers |= crate::InputModifiers::CONTROL;
+            modifiers |= InputModifiers::CONTROL;
         }
         if keys[0x12] & 0x80 != 0 {
-            modifiers |= crate::InputModifiers::ALT;
+            modifiers |= InputModifiers::ALT;
         }
         if keys[0x5b] & 0x80 != 0 || keys[0x5c] & 0x80 != 0 {
-            modifiers |= crate::InputModifiers::WINDOWS;
+            modifiers |= InputModifiers::WINDOWS;
         }
         Ok(modifiers)
     }
 
-    fn physical_key_status(value: native::CorePhysicalKeyStatus) -> crate::PhysicalKeyStatus {
-        crate::PhysicalKeyStatus {
+    fn physical_key_status(value: native::CorePhysicalKeyStatus) -> PhysicalKeyStatus {
+        PhysicalKeyStatus {
             repeat_count: value.repeat_count,
             scan_code: value.scan_code,
             is_extended: value.is_extended_key,
@@ -759,29 +483,29 @@ impl WinUiAdapter {
 
     fn input_modifiers_from_virtual_keys(
         value: native::VirtualKeyModifiers,
-    ) -> crate::InputModifiers {
-        let mut modifiers = crate::InputModifiers::NONE;
+    ) -> InputModifiers {
+        let mut modifiers = InputModifiers::NONE;
         if value.contains(native::VirtualKeyModifiers::Shift) {
-            modifiers |= crate::InputModifiers::SHIFT;
+            modifiers |= InputModifiers::SHIFT;
         }
         if value.contains(native::VirtualKeyModifiers::Control) {
-            modifiers |= crate::InputModifiers::CONTROL;
+            modifiers |= InputModifiers::CONTROL;
         }
         if value.contains(native::VirtualKeyModifiers::Menu) {
-            modifiers |= crate::InputModifiers::ALT;
+            modifiers |= InputModifiers::ALT;
         }
         if value.contains(native::VirtualKeyModifiers::Windows) {
-            modifiers |= crate::InputModifiers::WINDOWS;
+            modifiers |= InputModifiers::WINDOWS;
         }
         modifiers
     }
 
     fn key_event_info(
         args: &native::KeyRoutedEventArgs,
-    ) -> Result<crate::KeyEventInfo, WinUiError> {
-        Ok(crate::KeyEventInfo {
-            key: crate::VirtualKey(args.Key()?.0 as u32),
-            original_key: crate::VirtualKey(args.OriginalKey()?.0 as u32),
+    ) -> Result<KeyEventInfo, WinUiError> {
+        Ok(KeyEventInfo {
+            key: VirtualKey(args.Key()?.0 as u32),
+            original_key: VirtualKey(args.OriginalKey()?.0 as u32),
             status: Self::physical_key_status(args.KeyStatus()?),
             modifiers: Self::input_modifiers()?,
         })
@@ -789,8 +513,8 @@ impl WinUiAdapter {
 
     fn character_event_info(
         args: &native::CharacterReceivedRoutedEventArgs,
-    ) -> Result<crate::CharacterEventInfo, WinUiError> {
-        Ok(crate::CharacterEventInfo {
+    ) -> Result<CharacterEventInfo, WinUiError> {
+        Ok(CharacterEventInfo {
             character: args.Character()?,
             status: Self::physical_key_status(args.KeyStatus()?),
             modifiers: Self::input_modifiers()?,
@@ -803,7 +527,7 @@ impl WinUiAdapter {
         args: Ref<native::RoutedEventArgs>,
         got_focus: bool,
         pending_focus_states: &Rc<RefCell<HashMap<ObjectId, ElementFocusState>>>,
-    ) -> Result<crate::FocusEventInfo, WinUiError> {
+    ) -> Result<FocusEventInfo, WinUiError> {
         let args = args.unwrap();
         let original = args.OriginalSource()?;
         let element_identity: &windows_core::IUnknown = element.into();
@@ -821,28 +545,7 @@ impl WinUiAdapter {
         } else {
             ElementFocusState::Unfocused
         };
-        Ok(crate::FocusEventInfo { state, is_direct })
-    }
-
-    fn dispatch_focus_event_info(
-        event: &Rc<RefCell<NativeFocusEventInfoEvent>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: crate::FocusEventInfo,
-    ) {
-        let event = event.borrow();
-        let queued = event.callback.is_some().then(|| QueuedEvent {
-            object,
-            event: event_id,
-            revision: event.revision,
-            payload: EventPayload::FocusEventInfo(value),
-        });
-        if observation.is_some() || queued.is_some() {
-            event_queue.queue(observation, queued);
-            Self::schedule_event_wake(event_queue);
-        }
+        Ok(FocusEventInfo { state, is_direct })
     }
 
     fn schedule_event_wake(event_queue: &Rc<NativeEventQueue>) {
@@ -857,7 +560,7 @@ impl WinUiAdapter {
             Ok(queue) => queue,
             Err(error) => {
                 event_queue.wake_pending.set(false);
-                super::app::report_error(error);
+                report_error(error);
                 return;
             }
         };
@@ -873,14 +576,14 @@ impl WinUiAdapter {
             Ok(true) => {}
             Ok(false) => {
                 event_queue.wake_pending.set(false);
-                super::app::report_error(windows_core::Error::new(
+                report_error(windows_core::Error::new(
                     native::E_FAIL,
                     "DispatcherQueue rejected the Reactor event wake",
                 ));
             }
             Err(error) => {
                 event_queue.wake_pending.set(false);
-                super::app::report_error(error);
+                report_error(error);
             }
         }
     }

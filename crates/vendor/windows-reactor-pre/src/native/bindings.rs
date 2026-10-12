@@ -1,22 +1,28 @@
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPackageDependency(packagedependencyid : windows_core::PCWSTR, rank : i32, options : AddPackageDependencyOptions, packagedependencycontext : *mut PACKAGEDEPENDENCY_CONTEXT, packagefullname : *mut windows_core::PWSTR) -> windows_core::HRESULT);
-windows_core::link!("user32.dll" "system" fn ClientToScreen(hwnd : HWND, lppoint : LPPOINT) -> windows_core::BOOL);
 windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut u32, packagefullname : windows_core::PWSTR) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
 windows_core::link!("user32.dll" "system" fn GetKeyboardState(lpkeystate : PBYTE) -> windows_core::BOOL);
-windows_core::link!("kernel32.dll" "system" fn GetLastError() -> u32);
+windows_core::link!("user32.dll" "system" fn GetMonitorInfoW(hmonitor : HMONITOR, lpmi : LPMONITORINFO) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
+windows_core::link!("user32.dll" "system" fn GetWindowPlacement(hwnd : HWND, lpwndpl : *mut WINDOWPLACEMENT) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn IsIconic(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
+windows_core::link!("user32.dll" "system" fn MonitorFromRect(lprc : LPCRECT, dwflags : u32) -> HMONITOR);
+windows_core::link!("user32.dll" "system" fn MonitorFromWindow(hwnd : HWND, dwflags : u32) -> HMONITOR);
 windows_core::link!("user32.dll" "system" fn PostQuitMessage(nexitcode : i32));
+windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : LPDWORD, pvdata : *mut core::ffi::c_void, pcbdata : LPDWORD) -> LSTATUS);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetForegroundWindow(hwnd : HWND) -> windows_core::BOOL);
-windows_core::link!("kernel32.dll" "system" fn SetLastError(dwerrcode : u32));
 windows_core::link!("user32.dll" "system" fn SetLayeredWindowAttributes(hwnd : HWND, crkey : COLORREF, balpha : u8, dwflags : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetProcessDpiAwarenessContext(value : DPI_AWARENESS_CONTEXT) -> windows_core::BOOL);
-windows_core::link!("user32.dll" "system" fn SetWindowLongW(hwnd : HWND, nindex : i32, dwnewlong : i32) -> i32);
+windows_core::link!("user32.dll" "system" fn SetThreadDpiAwarenessContext(dpicontext : DPI_AWARENESS_CONTEXT) -> DPI_AWARENESS_CONTEXT);
+windows_core::link!("user32.dll" "system" fn SetWindowPlacement(hwnd : HWND, lpwndpl : *const WINDOWPLACEMENT) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : u32) -> windows_core::BOOL);
 windows_core::link!("shell32.dll" "system" fn ShellExecuteW(hwnd : HWND, lpoperation : windows_core::PCWSTR, lpfile : windows_core::PCWSTR, lpparameters : windows_core::PCWSTR, lpdirectory : windows_core::PCWSTR, nshowcmd : i32) -> HINSTANCE);
+windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 pub const APPMODEL_ERROR_NO_PACKAGE: i32 = 15700;
 pub type AddPackageDependencyOptions = u32;
@@ -211,6 +217,33 @@ impl windows_core::RuntimeName for AppWindow {
 }
 unsafe impl Send for AppWindow {}
 unsafe impl Sync for AppWindow {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppWindowChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AppWindowChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for AppWindowChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppWindowChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for AppWindowChangedEventArgs {
+    type Vtable = <IAppWindowChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppWindowChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppWindowChangedEventArgs {
+    type Target = IAppWindowChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppWindowChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Windowing.AppWindowChangedEventArgs";
+}
+unsafe impl Send for AppWindowChangedEventArgs {}
+unsafe impl Sync for AppWindowChangedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppWindowPresenter(windows_core::IUnknown);
@@ -2488,6 +2521,20 @@ impl windows_core::RuntimeType for ContentDialogResult {
     );
 }
 #[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ContentSizePolicy(pub i32);
+impl ContentSizePolicy {
+    pub const ResizeContentToParentWindow: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for ContentSizePolicy {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for ContentSizePolicy {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Content.ContentSizePolicy;i4)",
+    );
+}
+#[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Control(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(
@@ -3137,6 +3184,114 @@ unsafe impl Send for DesktopAcrylicBackdrop {}
 unsafe impl Sync for DesktopAcrylicBackdrop {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesktopChildSiteBridge(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    DesktopChildSiteBridge,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+windows_core::imp::required_hierarchy!(DesktopChildSiteBridge, DesktopSiteBridge);
+impl windows_core::RuntimeType for DesktopChildSiteBridge {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDesktopChildSiteBridge>();
+}
+unsafe impl windows_core::Interface for DesktopChildSiteBridge {
+    type Vtable = <IDesktopChildSiteBridge as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDesktopChildSiteBridge as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DesktopChildSiteBridge {
+    type Target = IDesktopChildSiteBridge;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DesktopChildSiteBridge {
+    const NAME: &'static str = "Microsoft.UI.Content.DesktopChildSiteBridge";
+}
+unsafe impl Send for DesktopChildSiteBridge {}
+unsafe impl Sync for DesktopChildSiteBridge {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesktopSiteBridge(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    DesktopSiteBridge,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for DesktopSiteBridge {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDesktopSiteBridge>();
+}
+unsafe impl windows_core::Interface for DesktopSiteBridge {
+    type Vtable = <IDesktopSiteBridge as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDesktopSiteBridge as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DesktopSiteBridge {
+    type Target = IDesktopSiteBridge;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DesktopSiteBridge {
+    const NAME: &'static str = "Microsoft.UI.Content.DesktopSiteBridge";
+}
+unsafe impl Send for DesktopSiteBridge {}
+unsafe impl Sync for DesktopSiteBridge {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesktopWindowXamlSource(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    DesktopWindowXamlSource,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl DesktopWindowXamlSource {
+    pub(crate) fn new() -> windows_core::Result<Self> {
+        Self::IDesktopWindowXamlSourceFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IDesktopWindowXamlSourceFactory<
+        R,
+        F: FnOnce(&IDesktopWindowXamlSourceFactory) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<
+            DesktopWindowXamlSource,
+            IDesktopWindowXamlSourceFactory,
+        > = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
+impl windows_core::RuntimeType for DesktopWindowXamlSource {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IDesktopWindowXamlSource>();
+}
+unsafe impl windows_core::Interface for DesktopWindowXamlSource {
+    type Vtable = <IDesktopWindowXamlSource as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IDesktopWindowXamlSource as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for DesktopWindowXamlSource {
+    type Target = IDesktopWindowXamlSource;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for DesktopWindowXamlSource {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Hosting.DesktopWindowXamlSource";
+}
+unsafe impl Send for DesktopWindowXamlSource {}
+unsafe impl Sync for DesktopWindowXamlSource {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatcherQueue(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(
     DispatcherQueue,
@@ -3500,7 +3655,9 @@ impl windows_core::RuntimeName for DropDownButton {
 }
 unsafe impl Send for DropDownButton {}
 unsafe impl Sync for DropDownButton {}
+pub const ERROR_FILE_NOT_FOUND: i32 = 2;
 pub const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+pub const ERROR_PATH_NOT_FOUND: i32 = 3;
 pub const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x80004005_u32 as _);
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4769,7 +4926,21 @@ pub type HINSTANCE = *mut HINSTANCE__;
 pub struct HINSTANCE__ {
     pub unused: i32,
 }
+pub type HKEY = *mut HKEY__;
+pub const HKEY_CURRENT_USER: HKEY = -2147483647 as _;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HKEY__ {
+    pub unused: i32,
+}
+pub type HMONITOR = *mut HMONITOR__;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HMONITOR__ {
+    pub unused: i32,
+}
 pub type HWND = *mut HWND__;
+pub const HWND_TOPMOST: HWND = -1 as _;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HWND__ {
@@ -5054,15 +5225,6 @@ impl windows_core::RuntimeType for IAppWindow {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IAppWindow {
-    pub(crate) fn SetIsShownInSwitchers(&self, value: bool) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).SetIsShownInSwitchers)(
-                windows_core::Interface::as_raw(self),
-                value,
-            )
-            .ok()
-        }
-    }
     pub(crate) fn Presenter(&self) -> windows_core::Result<AppWindowPresenter> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -5093,20 +5255,6 @@ impl IAppWindow {
             .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
-    pub(crate) fn Hide(&self) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).Hide)(windows_core::Interface::as_raw(self)).ok()
-        }
-    }
-    pub(crate) fn MoveAndResize(&self, rect: RectInt32) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).MoveAndResize)(
-                windows_core::Interface::as_raw(self),
-                rect,
-            )
-            .ok()
-        }
-    }
     pub(crate) fn SetIcon(&self, iconpath: &str) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetIcon)(
@@ -5116,14 +5264,42 @@ impl IAppWindow {
             .ok()
         }
     }
+    pub(crate) fn Changed<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<AppWindow>, windows_core::Ref<AppWindowChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<AppWindow, AppWindowChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<AppWindow, AppWindowChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<AppWindow, AppWindowChangedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Changed)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveChanged,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct IAppWindow_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     Id: usize,
     IsShownInSwitchers: usize,
-    pub SetIsShownInSwitchers:
-        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    SetIsShownInSwitchers: usize,
     IsVisible: usize,
     OwnerWindowId: usize,
     Position: usize,
@@ -5140,16 +5316,27 @@ pub struct IAppWindow_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
     Destroy: usize,
-    pub Hide: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    Hide: usize,
     Move: usize,
-    pub MoveAndResize:
-        unsafe extern "system" fn(*mut core::ffi::c_void, RectInt32) -> windows_core::HRESULT,
+    MoveAndResize: usize,
     MoveAndResizeRelativeToDisplayArea: usize,
     Resize: usize,
     pub SetIcon: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    SetIconWithIconId: usize,
+    SetPresenter: usize,
+    SetPresenterByKind: usize,
+    Show: usize,
+    ShowWithActivation: usize,
+    pub Changed: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IAppWindow2,
@@ -5191,6 +5378,19 @@ pub struct IAppWindow2_Vtbl {
     MoveInZOrderBelow: usize,
     pub ResizeClient:
         unsafe extern "system" fn(*mut core::ffi::c_void, SizeInt32) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppWindowChangedEventArgs,
+    IAppWindowChangedEventArgs_Vtbl,
+    0x2182bc5d_fdac_5c3e_bf37_7d8d684e9d1d
+);
+impl windows_core::RuntimeType for IAppWindowChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IAppWindowChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
     IAppWindowPresenter,
@@ -6010,6 +6210,36 @@ impl IBitmapImage {
             .ok()
         }
     }
+    pub(crate) fn ImageOpened<F>(
+        &self,
+        handler: F,
+    ) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<RoutedEventArgs>)
+            + 'static,
+    {
+        let handler: RoutedEventHandler = {
+            let com = windows_core::imp::DelegateBox::<RoutedEventHandler, F>::new(
+                &RoutedEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).ImageOpened)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveImageOpened,
+            ))
+        }
+    }
     pub(crate) fn ImageFailed<F>(
         &self,
         handler: F,
@@ -6065,8 +6295,13 @@ pub struct IBitmapImage_Vtbl {
     SetAutoPlay: usize,
     DownloadProgress: usize,
     RemoveDownloadProgress: usize,
-    ImageOpened: usize,
-    RemoveImageOpened: usize,
+    pub ImageOpened: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveImageOpened:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub ImageFailed: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -8909,6 +9144,162 @@ impl windows_core::RuntimeType for IDesktopAcrylicBackdropFactory {
 }
 #[repr(C)]
 pub struct IDesktopAcrylicBackdropFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDesktopChildSiteBridge,
+    IDesktopChildSiteBridge_Vtbl,
+    0xb2f2ff7b_1825_51b0_b80b_7599889c569f
+);
+impl windows_core::RuntimeType for IDesktopChildSiteBridge {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDesktopChildSiteBridge {
+    pub(crate) fn SetResizePolicy(&self, value: ContentSizePolicy) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetResizePolicy)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IDesktopChildSiteBridge_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    ResizePolicy: usize,
+    pub SetResizePolicy: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        ContentSizePolicy,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDesktopSiteBridge,
+    IDesktopSiteBridge_Vtbl,
+    0xf0ae8750_905c_50a2_8a12_4545c6245bb4
+);
+impl windows_core::RuntimeType for IDesktopSiteBridge {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IDesktopSiteBridge_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IDesktopWindowXamlSource,
+    IDesktopWindowXamlSource_Vtbl,
+    0x553af92c_1381_51d6_bee0_f34beb042ea8
+);
+impl windows_core::RuntimeType for IDesktopWindowXamlSource {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDesktopWindowXamlSource {
+    pub(crate) fn SetContent<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetContent)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn SiteBridge(&self) -> windows_core::Result<DesktopChildSiteBridge> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).SiteBridge)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub(crate) fn Initialize(&self, parentwindowid: WindowId) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).Initialize)(
+                windows_core::Interface::as_raw(self),
+                parentwindowid,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IDesktopWindowXamlSource_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    Content: usize,
+    pub SetContent: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    HasFocus: usize,
+    SystemBackdrop: usize,
+    SetSystemBackdrop: usize,
+    pub SiteBridge: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    TakeFocusRequested: usize,
+    RemoveTakeFocusRequested: usize,
+    GotFocus: usize,
+    RemoveGotFocus: usize,
+    NavigateFocus: usize,
+    pub Initialize:
+        unsafe extern "system" fn(*mut core::ffi::c_void, WindowId) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDesktopWindowXamlSource2,
+    IDesktopWindowXamlSource2_Vtbl,
+    0xfb02b9f1_8588_5bd3_8951_4664a675d872
+);
+impl windows_core::RuntimeType for IDesktopWindowXamlSource2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IDesktopWindowXamlSource2 {
+    pub(crate) fn SetShouldConstrainPopupsToWorkArea(
+        &self,
+        value: bool,
+    ) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetShouldConstrainPopupsToWorkArea)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IDesktopWindowXamlSource2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    ShouldConstrainPopupsToWorkArea: usize,
+    pub SetShouldConstrainPopupsToWorkArea:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IDesktopWindowXamlSourceFactory,
+    IDesktopWindowXamlSourceFactory_Vtbl,
+    0x7d2db617_14e7_5d49_aeec_ae10887e595d
+);
+impl windows_core::RuntimeType for IDesktopWindowXamlSourceFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IDesktopWindowXamlSourceFactory_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
     pub CreateInstance: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -12935,6 +13326,25 @@ impl INavigationView2 {
             .ok()
         }
     }
+    pub(crate) fn IsBackEnabled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsBackEnabled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetIsBackEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsBackEnabled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
     pub(crate) fn SetPaneTitle(&self, value: &str) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetPaneTitle)(
@@ -12956,6 +13366,28 @@ impl INavigationView2 {
             .ok()
         }
     }
+    pub(crate) fn PaneHeader(&self) -> windows_core::Result<UIElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).PaneHeader)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub(crate) fn SetPaneHeader<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<UIElement>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetPaneHeader)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub(crate) fn SetPaneCustomContent<P0>(&self, value: P0) -> windows_core::Result<()>
     where
         P0: windows_core::Param<UIElement>,
@@ -12964,6 +13396,25 @@ impl INavigationView2 {
             (windows_core::Interface::vtable(self).SetPaneCustomContent)(
                 windows_core::Interface::as_raw(self),
                 value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn IsPaneVisible(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsPaneVisible)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetIsPaneVisible(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsPaneVisible)(
+                windows_core::Interface::as_raw(self),
+                value,
             )
             .ok()
         }
@@ -12977,8 +13428,10 @@ pub struct INavigationView2_Vtbl {
         *mut core::ffi::c_void,
         NavigationViewBackButtonVisible,
     ) -> windows_core::HRESULT,
-    IsBackEnabled: usize,
-    SetIsBackEnabled: usize,
+    pub IsBackEnabled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsBackEnabled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     PaneTitle: usize,
     pub SetPaneTitle: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -12999,13 +13452,25 @@ pub struct INavigationView2_Vtbl {
         *mut core::ffi::c_void,
         NavigationViewPaneDisplayMode,
     ) -> windows_core::HRESULT,
-    PaneHeader: usize,
-    SetPaneHeader: usize,
+    pub PaneHeader: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub SetPaneHeader: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     PaneCustomContent: usize,
     pub SetPaneCustomContent: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    ContentOverlay: usize,
+    SetContentOverlay: usize,
+    pub IsPaneVisible:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsPaneVisible:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     INavigationViewDisplayModeChangedEventArgs,
@@ -13341,12 +13806,22 @@ pub struct INavigationViewStatics2_Vtbl {
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
-    IsBackEnabledProperty: usize,
+    pub IsBackEnabledProperty: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub PaneTitleProperty: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
     pub PaneDisplayModeProperty: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    PaneHeaderProperty: usize,
+    PaneCustomContentProperty: usize,
+    ContentOverlayProperty: usize,
+    pub IsPaneVisibleProperty: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
@@ -13585,63 +14060,6 @@ windows_core::imp::interface_hierarchy!(
 #[repr(C)]
 pub struct IOutputStream_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
-}
-windows_core::imp::define_interface!(
-    IOverlappedPresenter,
-    IOverlappedPresenter_Vtbl,
-    0x21693970_4f4c_5172_9e9d_682a2d174884
-);
-impl windows_core::RuntimeType for IOverlappedPresenter {
-    const SIGNATURE: windows_core::imp::ConstBuffer =
-        windows_core::imp::ConstBuffer::for_interface::<Self>();
-}
-impl IOverlappedPresenter {
-    pub(crate) fn SetIsAlwaysOnTop(&self, value: bool) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).SetIsAlwaysOnTop)(
-                windows_core::Interface::as_raw(self),
-                value,
-            )
-            .ok()
-        }
-    }
-    pub(crate) fn SetBorderAndTitleBar(
-        &self,
-        hasborder: bool,
-        hastitlebar: bool,
-    ) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).SetBorderAndTitleBar)(
-                windows_core::Interface::as_raw(self),
-                hasborder,
-                hastitlebar,
-            )
-            .ok()
-        }
-    }
-}
-#[repr(C)]
-pub struct IOverlappedPresenter_Vtbl {
-    pub base__: windows_core::IInspectable_Vtbl,
-    HasBorder: usize,
-    HasTitleBar: usize,
-    IsAlwaysOnTop: usize,
-    pub SetIsAlwaysOnTop:
-        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
-    IsMaximizable: usize,
-    SetIsMaximizable: usize,
-    IsMinimizable: usize,
-    SetIsMinimizable: usize,
-    IsModal: usize,
-    SetIsModal: usize,
-    IsResizable: usize,
-    SetIsResizable: usize,
-    State: usize,
-    Maximize: usize,
-    Minimize: usize,
-    Restore: usize,
-    pub SetBorderAndTitleBar:
-        unsafe extern "system" fn(*mut core::ffi::c_void, bool, bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IOverlappedPresenter3,
@@ -17700,6 +18118,69 @@ impl ISvgImageSource {
             .ok()
         }
     }
+    pub(crate) fn Opened<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<SvgImageSource>, windows_core::Ref<SvgImageSourceOpenedEventArgs>)
+            + 'static,
+    {
+        let handler: TypedEventHandler<SvgImageSource, SvgImageSourceOpenedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<SvgImageSource, SvgImageSourceOpenedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<SvgImageSource, SvgImageSourceOpenedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Opened)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveOpened,
+            ))
+        }
+    }
+    pub(crate) fn OpenFailed<F>(
+        &self,
+        handler: F,
+    ) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<SvgImageSource>, windows_core::Ref<SvgImageSourceFailedEventArgs>)
+            + 'static,
+    {
+        let handler: TypedEventHandler<SvgImageSource, SvgImageSourceFailedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<SvgImageSource, SvgImageSourceFailedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<SvgImageSource, SvgImageSourceFailedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).OpenFailed)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveOpenFailed,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct ISvgImageSource_Vtbl {
@@ -17709,6 +18190,24 @@ pub struct ISvgImageSource_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    RasterizePixelWidth: usize,
+    SetRasterizePixelWidth: usize,
+    RasterizePixelHeight: usize,
+    SetRasterizePixelHeight: usize,
+    pub Opened: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveOpened:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub OpenFailed: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveOpenFailed:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ISvgImageSourceFactory,
@@ -17728,6 +18227,32 @@ pub struct ISvgImageSourceFactory_Vtbl {
         *mut *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ISvgImageSourceFailedEventArgs,
+    ISvgImageSourceFailedEventArgs_Vtbl,
+    0x76e66278_7804_5439_a50d_14c5ba896714
+);
+impl windows_core::RuntimeType for ISvgImageSourceFailedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISvgImageSourceFailedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ISvgImageSourceOpenedEventArgs,
+    ISvgImageSourceOpenedEventArgs_Vtbl,
+    0x1c9860d5_38d0_5b21_8d48_072f1e254e39
+);
+impl windows_core::RuntimeType for ISvgImageSourceOpenedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ISvgImageSourceOpenedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
     ISwapChainPanel,
@@ -23523,8 +24048,11 @@ impl windows_core::RuntimeType for KeyboardAcceleratorPlacementMode {
     );
 }
 pub type LPARAM = isize;
-pub type LPPOINT = *mut POINT;
+pub type LPCRECT = *const RECT;
+pub type LPDWORD = *mut u32;
+pub type LPMONITORINFO = *mut MONITORINFO;
 pub type LRESULT = isize;
+pub type LSTATUS = i32;
 pub const LWA_ALPHA: i32 = 2;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24007,6 +24535,15 @@ impl windows_core::RuntimeType for ListViewSelectionMode {
 }
 pub const MB_ICONERROR: i32 = 16;
 pub const MB_YESNO: i32 = 4;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MONITORINFO {
+    pub cbSize: u32,
+    pub rcMonitor: RECT,
+    pub rcWork: RECT,
+    pub dwFlags: u32,
+}
+pub const MONITOR_DEFAULTTONEAREST: i32 = 2;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MenuBar(windows_core::IUnknown);
@@ -24539,6 +25076,16 @@ impl NavigationView {
             .and_then(|| windows_core::imp::Type::from_abi(result__))
         })
     }
+    pub(crate) fn IsBackEnabledProperty() -> windows_core::Result<DependencyProperty> {
+        Self::INavigationViewStatics2(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).IsBackEnabledProperty)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
     pub(crate) fn PaneTitleProperty() -> windows_core::Result<DependencyProperty> {
         Self::INavigationViewStatics2(|this| unsafe {
             let mut result__ = core::mem::zeroed();
@@ -24553,6 +25100,16 @@ impl NavigationView {
         Self::INavigationViewStatics2(|this| unsafe {
             let mut result__ = core::mem::zeroed();
             (windows_core::Interface::vtable(this).PaneDisplayModeProperty)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    pub(crate) fn IsPaneVisibleProperty() -> windows_core::Result<DependencyProperty> {
+        Self::INavigationViewStatics2(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).IsPaneVisibleProperty)(
                 windows_core::Interface::as_raw(this),
                 &mut result__,
             )
@@ -25999,7 +26556,16 @@ impl windows_core::RuntimeName for ProgressRing {
 }
 unsafe impl Send for ProgressRing {}
 unsafe impl Sync for ProgressRing {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RECT {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
 pub const RPC_E_CHANGED_MODE: windows_core::HRESULT = windows_core::HRESULT(0x80010106_u32 as _);
+pub const RRF_RT_REG_DWORD: i32 = 16;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RadioButton(windows_core::IUnknown);
@@ -26433,22 +26999,6 @@ impl windows_core::RuntimeName for RatingControl {
 }
 unsafe impl Send for RatingControl {}
 unsafe impl Sync for RatingControl {}
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct RectInt32 {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
-}
-impl windows_core::imp::TypeKind for RectInt32 {
-    type TypeKind = windows_core::imp::CopyType;
-}
-impl windows_core::RuntimeType for RectInt32 {
-    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
-        b"struct(Windows.Graphics.RectInt32;i4;i4;i4;i4)",
-    );
-}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rectangle(windows_core::IUnknown);
@@ -27291,6 +27841,13 @@ unsafe impl Send for Run {}
 unsafe impl Sync for Run {}
 pub const STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED: windows_core::HRESULT =
     windows_core::HRESULT(0x80670016_u32 as _);
+pub const SWP_NOACTIVATE: i32 = 16;
+pub const SWP_NOSIZE: i32 = 1;
+pub const SWP_NOZORDER: i32 = 4;
+pub const SW_HIDE: i32 = 0;
+pub const SW_RESTORE: i32 = 9;
+pub const SW_SHOWMAXIMIZED: i32 = 3;
+pub const SW_SHOWMINIMIZED: i32 = 2;
 pub const SW_SHOWNORMAL: i32 = 1;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28558,6 +29115,62 @@ impl windows_core::RuntimeName for SvgImageSource {
 }
 unsafe impl Send for SvgImageSource {}
 unsafe impl Sync for SvgImageSource {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SvgImageSourceFailedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    SvgImageSourceFailedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for SvgImageSourceFailedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ISvgImageSourceFailedEventArgs>();
+}
+unsafe impl windows_core::Interface for SvgImageSourceFailedEventArgs {
+    type Vtable = <ISvgImageSourceFailedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID =
+        <ISvgImageSourceFailedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SvgImageSourceFailedEventArgs {
+    type Target = ISvgImageSourceFailedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SvgImageSourceFailedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceFailedEventArgs";
+}
+unsafe impl Send for SvgImageSourceFailedEventArgs {}
+unsafe impl Sync for SvgImageSourceFailedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SvgImageSourceOpenedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    SvgImageSourceOpenedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for SvgImageSourceOpenedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ISvgImageSourceOpenedEventArgs>();
+}
+unsafe impl windows_core::Interface for SvgImageSourceOpenedEventArgs {
+    type Vtable = <ISvgImageSourceOpenedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID =
+        <ISvgImageSourceOpenedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for SvgImageSourceOpenedEventArgs {
+    type Target = ISvgImageSourceOpenedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for SvgImageSourceOpenedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Media.Imaging.SvgImageSourceOpenedEventArgs";
+}
+unsafe impl Send for SvgImageSourceOpenedEventArgs {}
+unsafe impl Sync for SvgImageSourceOpenedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwapChainPanel(windows_core::IUnknown);
@@ -31315,15 +31928,29 @@ impl windows_core::RuntimeName for Visual {
 }
 unsafe impl Send for Visual {}
 unsafe impl Sync for Visual {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WINDOWPLACEMENT {
+    pub length: u32,
+    pub flags: u32,
+    pub showCmd: u32,
+    pub ptMinPosition: POINT,
+    pub ptMaxPosition: POINT,
+    pub rcNormalPosition: RECT,
+}
 pub const WINDOWSAPPSDK_RUNTIME_VERSION_BUILD: u32 = 1;
 pub const WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR: u32 = 2;
 pub const WINDOWSAPPSDK_RUNTIME_VERSION_MINOR: u32 = 5;
 pub const WINDOWSAPPSDK_RUNTIME_VERSION_REVISION: u32 = 0;
 pub const WINDOWSAPPSDK_RUNTIME_VERSION_UINT64: u64 = 562971428323328;
-pub const WM_GETICON: i32 = 127;
 pub const WM_SETICON: i32 = 128;
+pub const WM_SETTINGCHANGE: i32 = 26;
+pub const WM_THEMECHANGED: i32 = 794;
 pub type WPARAM = usize;
 pub const WS_EX_LAYERED: i32 = 524288;
+pub const WS_EX_TOOLWINDOW: i32 = 128;
+pub const WS_EX_TOPMOST: i32 = 8;
+pub const WS_POPUP: u32 = 2147483648;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WebView2(windows_core::IUnknown);
@@ -31444,6 +32071,18 @@ impl windows_core::RuntimeName for WindowEventArgs {
 }
 unsafe impl Send for WindowEventArgs {}
 unsafe impl Sync for WindowEventArgs {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WindowId {
+    pub value: u64,
+}
+impl windows_core::imp::TypeKind for WindowId {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for WindowId {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"struct(Microsoft.UI.WindowId;u8)");
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct XamlBindingHelper(windows_core::IUnknown);

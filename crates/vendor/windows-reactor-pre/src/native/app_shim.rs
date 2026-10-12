@@ -1,5 +1,6 @@
-use super::bindings::*;
-use std::cell::RefCell;
+use super::*;
+use bindings::Application;
+use bindings::*;
 use windows_core::*;
 
 implement_decl! {

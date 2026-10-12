@@ -1,22 +1,8 @@
-use super::app_shim::{create_application, install_xaml_controls_resources};
-use super::bindings::*;
-use super::bootstrap;
-use super::transient_menu::TransientMenuHost;
-use super::{NativeWindow, WinUiAdapter};
-use crate::{
-    Callback, ColorScheme, Component, ComponentContext, ComponentHost, ComponentNode,
-    ComponentUiServices, Menu, View, ViewContext, WindowPolicy, WindowPublication, WindowSize,
-    component,
-};
-use std::any::Any;
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
-use std::marker::PhantomData;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use windows_core::Interface;
+use super::*;
+use bindings::Application;
+use bindings::*;
+
+mod application;
 
 windows_core::link!("kernel32.dll" "system" fn FindResourceW(module: *mut std::ffi::c_void, name: *const u16, resource_type: *const u16) -> *mut std::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void);
@@ -107,10 +93,6 @@ impl AppContext {
         Ok(AppCallback { proxy, id })
     }
 
-    pub fn component_services(&self) -> Arc<dyn crate::ComponentServices> {
-        self.services.clone()
-    }
-
     /// Registers application-lifetime work that can be invoked through the dispatcher.
     ///
     /// The registration remains active until application shutdown. Use component effects,
@@ -142,7 +124,10 @@ impl AppContext {
         let handle = APP_TRANSIENT_MENU.with(|host| {
             let mut host = host.borrow_mut();
             if host.is_none() {
-                *host = Some(TransientMenuHost::new(self.dispatcher.clone())?);
+                *host = Some(TransientMenuHost::new(
+                    self.dispatcher.clone(),
+                    MenuTheme::Application,
+                )?);
             }
             Ok::<_, windows_core::Error>(host.as_ref().unwrap().handle())
         })?;
@@ -178,7 +163,7 @@ struct DispatcherTimerRegistration {
     ui_thread: u32,
 }
 
-impl crate::ComponentTimerRegistration for DispatcherTimerRegistration {
+impl ComponentTimerRegistration for DispatcherTimerRegistration {
     fn cancel(&self) {
         if self.cancelled.swap(true, Ordering::AcqRel) {
             return;
@@ -205,7 +190,7 @@ struct DispatcherTimerState {
     timer: DispatcherQueueTimer,
 }
 
-impl crate::ComponentServices for DispatcherComponentServices {
+impl ComponentServices for DispatcherComponentServices {
     fn spawn_background(&self, work: Box<dyn FnOnce() + Send>) {
         windows_threading::submit(work);
     }
@@ -214,11 +199,11 @@ impl crate::ComponentServices for DispatcherComponentServices {
         &self,
         delay: Duration,
         callback: Box<dyn FnOnce() + Send>,
-    ) -> Arc<dyn crate::ComponentTimerRegistration> {
+    ) -> Arc<dyn ComponentTimerRegistration> {
         let id = NEXT_APP_TIMER.fetch_add(1, Ordering::Relaxed);
         let timer = self.dispatcher.CreateTimer().unwrap();
         timer
-            .SetInterval(windows_time::TimeSpan::try_from(delay).unwrap())
+            .SetInterval(TimeSpan::try_from(delay).unwrap())
             .unwrap();
         timer.SetIsRepeating(false).unwrap();
         let tick = timer.Tick(move |_, _| fire_timer(id)).unwrap();
@@ -360,10 +345,10 @@ impl Component for StaticView {
 struct ComponentWindowState {
     host: ComponentHost<WinUiAdapter>,
     window: NativeWindow,
-    lifecycle: ComponentWindowLifecycle,
-    window_color_scheme: Option<(u64, Callback<ColorScheme>)>,
-    window_size: Option<(u64, Callback<WindowSize>)>,
-    window_observation_generation: u64,
+    lifecycle: Rc<Cell<ComponentWindowLifecycle>>,
+    color_scheme_generation: Option<u64>,
+    size_generation: Option<u64>,
+    placement_generation: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -403,6 +388,10 @@ enum WindowWork {
     Activate(u64),
     Close(u64),
     Closed(u64),
+    Input {
+        root: ComponentNode,
+        window: u64,
+    },
     Operation {
         window: u64,
         operation: Box<dyn FnOnce(*mut core::ffi::c_void)>,
@@ -414,6 +403,11 @@ enum WindowWork {
     Size {
         generation: u64,
         size: WindowSize,
+        window: u64,
+    },
+    Placement {
+        generation: u64,
+        placement: WindowPlacement,
         window: u64,
     },
     ColorScheme {
@@ -428,11 +422,53 @@ enum WindowWork {
 }
 
 #[derive(Default)]
+struct WindowDispatch {
+    active: Cell<bool>,
+    deferred: RefCell<Vec<AppCallback>>,
+}
+
+impl WindowDispatch {
+    fn callback(
+        self: &Rc<Self>,
+        context: &AppContext,
+        work: impl Fn() -> windows_core::Result<()> + 'static,
+    ) -> AppCallback {
+        let dispatch = Rc::clone(self);
+        let registration = Rc::new(std::cell::OnceCell::<AppCallback>::new());
+        let wake = Rc::clone(&registration);
+        let callback = context.callback(move || {
+            let wake = wake.get().unwrap();
+            if dispatch.active.replace(true) {
+                let mut deferred = dispatch.deferred.borrow_mut();
+                if !deferred.iter().any(|callback| callback.id == wake.id) {
+                    deferred.push(wake.clone());
+                }
+                return Ok(());
+            }
+            // Native calls can pump a nested dispatcher loop. All window and application
+            // drivers share this boundary so a nested wake cannot reenter an active owner.
+            let result = work();
+            dispatch.active.set(false);
+            let deferred = std::mem::take(&mut *dispatch.deferred.borrow_mut());
+            for callback in deferred {
+                if let Err(error) = callback.invoke() {
+                    report_error(error);
+                }
+            }
+            result
+        });
+        assert!(registration.set(callback.clone()).is_ok());
+        callback
+    }
+}
+
+#[derive(Default)]
 struct LiveWindowServices {
     active: Cell<bool>,
     pending: RefCell<VecDeque<WindowWork>>,
     wake: RefCell<Option<AppCallback>>,
     wake_pending: Cell<bool>,
+    dispatch: Rc<WindowDispatch>,
 }
 
 impl LiveWindowServices {
@@ -476,13 +512,16 @@ impl LiveWindowServices {
         }
         // Committed state cannot be rejected. Each caller matches one semantic owner so repeated
         // updates replace one bounded queue entry instead of growing with event volume.
-        {
+        let retired = {
             let mut pending = self.pending.borrow_mut();
-            if let Some(index) = pending.iter().rposition(matches) {
-                pending.remove(index);
-            }
+            let retired = pending
+                .iter()
+                .rposition(matches)
+                .and_then(|index| pending.remove(index));
             pending.push_back(work);
-        }
+            retired
+        };
+        drop(retired);
         self.rearm();
         true
     }
@@ -495,6 +534,24 @@ impl LiveWindowServices {
             },
             |work| matches!(work, WindowWork::Publish { window: current, .. } if *current == window),
         )
+    }
+
+    fn update_input(&self, root: ComponentNode, window: u64) -> bool {
+        self.push_durable(
+            WindowWork::Input { root, window },
+            |work| matches!(work, WindowWork::Input { window: current, .. } if *current == window),
+        )
+    }
+
+    fn take_publication(&self, window: u64) -> Option<WindowPublication> {
+        let mut pending = self.pending.borrow_mut();
+        let index = pending.iter().position(
+            |work| matches!(work, WindowWork::Publish { window: current, .. } if *current == window),
+        )?;
+        let WindowWork::Publish { publication, .. } = pending.remove(index).unwrap() else {
+            unreachable!()
+        };
+        Some(publication)
     }
 
     fn size(&self, generation: u64, size: WindowSize, window: u64) -> bool {
@@ -532,6 +589,23 @@ impl LiveWindowServices {
                         window: current_window,
                         ..
                     } if *current_generation == generation && *current_window == window
+                )
+            },
+        )
+    }
+
+    fn placement(&self, generation: u64, placement: WindowPlacement, window: u64) -> bool {
+        self.push_durable(
+            WindowWork::Placement {
+                generation,
+                placement,
+                window,
+            },
+            |work| {
+                matches!(
+                    work,
+                    WindowWork::Placement { generation: current_generation, window: current, .. }
+                        if *current_generation == generation && *current == window
                 )
             },
         )
@@ -603,6 +677,7 @@ struct LiveApplicationState {
     exit_when_empty: bool,
     next_window: u64,
     windows: HashMap<u64, ComponentWindow>,
+    changed: Option<AppCallback>,
 }
 
 struct LiveApplication {
@@ -620,11 +695,13 @@ impl LiveApplication {
             exit_when_empty,
             next_window: 1,
             windows: HashMap::new(),
+            changed: None,
         }));
         let drain_state = Rc::clone(&state);
         let drain_services = Rc::clone(&services);
-        let drain_requests =
-            context.callback(move || drain_window_requests(&drain_state, &drain_services));
+        let drain_requests = services.dispatch.callback(context, move || {
+            drain_window_requests(&drain_state, &drain_services)
+        });
         services.activate(drain_requests.clone());
         Ok(Self {
             drain_requests,
@@ -634,7 +711,7 @@ impl LiveApplication {
     }
 
     fn open(&self, root: ComponentNode, policy: WindowPolicy) -> windows_core::Result<()> {
-        open_component_window(&self.state, &self.services, root, policy)
+        open_component_window(&self.state, &self.services, root, policy).map(|_| ())
     }
 }
 
@@ -644,123 +721,17 @@ impl Drop for LiveApplication {
         self.drain_requests.clone().cancel();
         let windows = std::mem::take(&mut self.state.borrow_mut().windows);
         for (_, window) in windows {
+            let native = window.state.borrow().as_ref().and_then(|state| {
+                (state.lifecycle.get() != ComponentWindowLifecycle::Closed)
+                    .then(|| state.window.clone())
+            });
+            if let Some(native) = native
+                && let Err(error) = native.close()
+            {
+                report_error(error.into());
+            }
             window.dispose();
         }
-    }
-}
-
-#[cfg(feature = "test")]
-fn with_primary_component_window<T>(
-    operation: impl FnOnce(&ComponentWindowState) -> Result<T, &'static str>,
-) -> Result<T, &'static str> {
-    APP_COMPONENT_APPLICATION.with(|application| {
-        let application = application.borrow();
-        let application = application.as_ref().ok_or("application is not running")?;
-        let state = application.state.borrow();
-        let window = state.windows.values().next().ok_or("window is not open")?;
-        let window = window.state.borrow();
-        let window = window.as_ref().ok_or("window is closed")?;
-        operation(window)
-    })
-}
-
-#[cfg(feature = "test")]
-pub fn bring_live_virtual_index(index: usize) -> Result<(), &'static str> {
-    with_primary_component_window(|window| {
-        let collection = window
-            .host
-            .runtime()
-            .graph()
-            .objects()
-            .find(|object| {
-                window.host.runtime().graph().kind(*object)
-                    == Some(crate::ObjectType::ItemsRepeater)
-            })
-            .ok_or("virtual collection is not mounted")?;
-        window
-            .host
-            .runtime()
-            .adapter()
-            .realize_virtual_item(collection, index)
-            .map_err(|_| "virtual index could not be realized")
-    })
-}
-
-#[cfg(feature = "test")]
-pub fn live_virtual_shell_counts() -> Result<(usize, usize), &'static str> {
-    with_primary_component_window(|window| {
-        Ok(window.host.runtime().adapter().virtual_shell_counts())
-    })
-}
-
-#[cfg(feature = "test")]
-pub struct LiveTickSubscription {
-    _tick: windows_core::EventRevoker,
-    timer: DispatcherQueueTimer,
-}
-
-#[cfg(feature = "test")]
-impl Drop for LiveTickSubscription {
-    fn drop(&mut self) {
-        _ = self.timer.Stop();
-    }
-}
-
-#[cfg(feature = "test")]
-pub fn subscribe_live_tick(
-    tick_callback: impl Fn() + 'static,
-) -> windows_core::Result<LiveTickSubscription> {
-    subscribe_live_interval(Duration::from_millis(16), tick_callback)
-}
-
-#[cfg(feature = "test")]
-pub fn subscribe_live_interval(
-    interval: Duration,
-    tick_callback: impl Fn() + 'static,
-) -> windows_core::Result<LiveTickSubscription> {
-    let dispatcher = DispatcherQueue::GetForCurrentThread()?;
-    let timer = dispatcher.CreateTimer()?;
-    timer.SetInterval(windows_time::TimeSpan::try_from(interval).unwrap())?;
-    timer.SetIsRepeating(true)?;
-    let tick = timer.Tick(move |_, _| {
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(&tick_callback)).is_err() {
-            std::process::abort();
-        }
-    })?;
-    timer.Start()?;
-    Ok(LiveTickSubscription { _tick: tick, timer })
-}
-
-#[cfg(feature = "test")]
-#[must_use = "dropping the subscription stops rendering notifications"]
-pub struct LiveRenderingSubscription {
-    _rendering: windows_core::EventRevoker,
-}
-
-#[cfg(feature = "test")]
-pub fn subscribe_live_rendering(
-    rendering_callback: impl Fn() + 'static,
-) -> windows_core::Result<LiveRenderingSubscription> {
-    let rendering = CompositionTarget::Rendering(move |_, _| {
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(&rendering_callback)).is_err() {
-            std::process::abort();
-        }
-    })?;
-    Ok(LiveRenderingSubscription {
-        _rendering: rendering,
-    })
-}
-
-#[cfg(feature = "test")]
-pub fn schedule_live_test_exit(success: bool) -> windows_core::Result<()> {
-    let dispatcher = DispatcherQueue::GetForCurrentThread()?;
-    let handler = DispatcherQueueHandler::new(move || {
-        std::process::exit(i32::from(!success));
-    });
-    if dispatcher.TryEnqueueWithPriority(DispatcherQueuePriority::Low, &handler)? {
-        Ok(())
-    } else {
-        std::process::exit(1);
     }
 }
 
@@ -861,7 +832,7 @@ fn open_component_window(
     services: &Rc<LiveWindowServices>,
     root: ComponentNode,
     policy: WindowPolicy,
-) -> windows_core::Result<()> {
+) -> windows_core::Result<u64> {
     let id = {
         let mut application = application.borrow_mut();
         let id = application.next_window;
@@ -876,25 +847,32 @@ fn open_component_window(
     });
     let mut host = ComponentHost::mount_with_all_services(
         WinUiAdapter::default(),
-        context.component_services(),
+        context.services.clone(),
         ui_services,
         [root],
     )?;
     let drain_state = Rc::clone(&state);
-    let drain = context.callback(move || drain_component_window(&drain_state));
+    let changed_application = Rc::downgrade(application);
+    let drain = services.dispatch.callback(&context, move || {
+        drain_component_window(&drain_state)?;
+        if let Some(application) = changed_application.upgrade()
+            && let Some(changed) = &application.borrow().changed
+        {
+            changed.invoke()?;
+        }
+        Ok(())
+    });
     let wake = drain.clone();
     host.set_waker(move || {
         if let Err(error) = wake.invoke() {
             report_error(error);
         }
     });
-    let native_drain_state = Rc::downgrade(&state);
+    let native_drain = drain.clone();
     let wake = drain.clone();
     host.set_native_event_wakers(
         move || {
-            if let Some(native_drain_state) = native_drain_state.upgrade()
-                && let Err(error) = drain_component_window(&native_drain_state)
-            {
+            if let Err(error) = invoke_registered_app_callback(native_drain.id) {
                 report_error(error);
             }
         },
@@ -914,7 +892,7 @@ fn open_component_window(
     let mut window = match host
         .runtime()
         .adapter()
-        .open_window_with_policy(root, &policy)
+        .create_window_with_policy(root, &policy)
     {
         Ok(window) => window,
         Err(error) => {
@@ -923,27 +901,45 @@ fn open_component_window(
         }
     };
     let close_services = Rc::clone(services);
-    let native_closed_state = Rc::downgrade(&state);
+    let lifecycle = Rc::new(Cell::new(ComponentWindowLifecycle::Open));
+    let closed_lifecycle = Rc::clone(&lifecycle);
     if let Err(error) = window.set_closed(move || {
-        if let Some(native_closed_state) = native_closed_state.upgrade()
-            && let Some(state) = native_closed_state.borrow_mut().as_mut()
-        {
-            state.lifecycle.mark_closed();
-        }
+        let mut lifecycle = closed_lifecycle.get();
+        lifecycle.mark_closed();
+        closed_lifecycle.set(lifecycle);
         close_services.push_critical(WindowWork::Closed(id));
         Ok(())
     }) {
         drain.cancel();
+        if let Err(error) = window.close() {
+            report_error(error.into());
+        }
         return Err(error.into());
     }
+    let native = window.clone();
     *state.borrow_mut() = Some(ComponentWindowState {
         host,
         window,
-        lifecycle: ComponentWindowLifecycle::Open,
-        window_color_scheme: None,
-        window_size: None,
-        window_observation_generation: 0,
+        lifecycle,
+        color_scheme_generation: None,
+        size_generation: None,
+        placement_generation: None,
     });
+    let publication = services.take_publication(id).unwrap();
+    let initialized = apply_component_window_publication(
+        state.borrow_mut().as_mut().unwrap(),
+        services,
+        id,
+        publication,
+        true,
+    );
+    if let Err(error) = initialized {
+        drain.cancel();
+        if let Err(error) = native.close() {
+            report_error(error.into());
+        }
+        return Err(error);
+    }
     assert!(
         application
             .borrow_mut()
@@ -951,6 +947,65 @@ fn open_component_window(
             .insert(id, ComponentWindow { drain, state },)
             .is_none()
     );
+    if let Err(error) = native.activate() {
+        if let Some(window) = application.borrow_mut().windows.remove(&id) {
+            window.dispose();
+        }
+        if let Err(error) = native.close() {
+            report_error(error.into());
+        }
+        return Err(error.into());
+    }
+    Ok(id)
+}
+
+fn apply_component_window_publication(
+    state: &mut ComponentWindowState,
+    services: &Rc<LiveWindowServices>,
+    window: u64,
+    publication: WindowPublication,
+    initial: bool,
+) -> windows_core::Result<()> {
+    let size_generation = publication.on_size.map(|observer| observer.generation);
+    let color_scheme_generation = publication
+        .on_color_scheme
+        .map(|observer| observer.generation);
+    let placement_generation = publication.on_placement.map(|observer| observer.generation);
+    if state.size_generation != size_generation {
+        state.size_generation = size_generation;
+        let observer = size_generation.map(|generation| {
+            let services = Rc::clone(services);
+            Rc::new(move |size| {
+                _ = services.size(generation, size, window);
+            }) as Rc<dyn Fn(WindowSize)>
+        });
+        state.window.set_size_observer(observer)?;
+    }
+    state.window.apply_publication(
+        publication.title.as_deref(),
+        publication.visuals.as_ref(),
+        initial,
+    )?;
+    if state.color_scheme_generation != color_scheme_generation {
+        state.color_scheme_generation = color_scheme_generation;
+        let observer = color_scheme_generation.map(|generation| {
+            let services = Rc::clone(services);
+            Rc::new(move |scheme| {
+                _ = services.color_scheme(generation, scheme, window);
+            }) as Rc<dyn Fn(ColorScheme)>
+        });
+        state.window.set_color_scheme_observer(observer)?;
+    }
+    if state.placement_generation != placement_generation {
+        state.placement_generation = placement_generation;
+        let observer = placement_generation.map(|generation| {
+            let services = Rc::clone(services);
+            Rc::new(move |placement| {
+                _ = services.placement(generation, placement, window);
+            }) as Rc<dyn Fn(WindowPlacement)>
+        });
+        state.window.set_placement_observer(observer)?;
+    }
     Ok(())
 }
 
@@ -981,7 +1036,7 @@ fn drain_window_requests(
                     application.windows.get(&id).and_then(|window| {
                         let state = window.state.borrow();
                         let state = state.as_ref()?;
-                        (state.lifecycle == ComponentWindowLifecycle::Open)
+                        (state.lifecycle.get() == ComponentWindowLifecycle::Open)
                             .then(|| state.window.clone())
                     })
                 };
@@ -995,7 +1050,10 @@ fn drain_window_requests(
                     application.windows.get(&id).and_then(|window| {
                         let mut state = window.state.borrow_mut();
                         let state = state.as_mut()?;
-                        state.lifecycle.begin_close().then(|| state.window.clone())
+                        let mut lifecycle = state.lifecycle.get();
+                        let closing = lifecycle.begin_close();
+                        state.lifecycle.set(lifecycle);
+                        closing.then(|| state.window.clone())
                     })
                 };
                 if let Some(native) = window
@@ -1004,9 +1062,9 @@ fn drain_window_requests(
                     let application = application.borrow();
                     if let Some(window) = application.windows.get(&id)
                         && let Some(state) = window.state.borrow_mut().as_mut()
-                        && state.lifecycle == ComponentWindowLifecycle::Closing
+                        && state.lifecycle.get() == ComponentWindowLifecycle::Closing
                     {
-                        state.lifecycle = ComponentWindowLifecycle::Open;
+                        state.lifecycle.set(ComponentWindowLifecycle::Open);
                     }
                     return Err(error.into());
                 }
@@ -1014,13 +1072,24 @@ fn drain_window_requests(
             WindowWork::Closed(id) => {
                 close_component_window(application, services, id)?;
             }
+            WindowWork::Input { root, window } => {
+                let application = application.borrow();
+                if let Some(window) = application.windows.get(&window) {
+                    let mut state = window.state.borrow_mut();
+                    if let Some(state) = state.as_mut()
+                        && state.lifecycle.get() == ComponentWindowLifecycle::Open
+                    {
+                        state.host.update_root(root)?;
+                    }
+                }
+            }
             WindowWork::Operation { window, operation } => {
                 let native = {
                     let application = application.borrow();
                     application.windows.get(&window).and_then(|window| {
                         let state = window.state.borrow();
                         let state = state.as_ref()?;
-                        (state.lifecycle == ComponentWindowLifecycle::Open)
+                        (state.lifecycle.get() == ComponentWindowLifecycle::Open)
                             .then(|| state.window.clone())
                     })
                 };
@@ -1040,34 +1109,10 @@ fn drain_window_requests(
                 let Some(state) = state.as_mut() else {
                     continue;
                 };
-                if state.lifecycle != ComponentWindowLifecycle::Open {
+                if state.lifecycle.get() != ComponentWindowLifecycle::Open {
                     continue;
                 }
-                state.window_observation_generation =
-                    state.window_observation_generation.wrapping_add(1);
-                let generation = state.window_observation_generation;
-                let size_observer = publication.on_size.as_ref().map(|_| {
-                    let services = Rc::clone(services);
-                    Rc::new(move |size| {
-                        _ = services.size(generation, size, window);
-                    }) as Rc<dyn Fn(WindowSize)>
-                });
-                let color_scheme_observer = publication.on_color_scheme.as_ref().map(|_| {
-                    let services = Rc::clone(services);
-                    Rc::new(move |scheme| {
-                        _ = services.color_scheme(generation, scheme, window);
-                    }) as Rc<dyn Fn(ColorScheme)>
-                });
-                state.window.apply_publication(
-                    publication.title.as_deref(),
-                    publication.visuals.as_ref(),
-                    color_scheme_observer,
-                    size_observer,
-                )?;
-                state.window_color_scheme = publication
-                    .on_color_scheme
-                    .map(|callback| (generation, callback));
-                state.window_size = publication.on_size.map(|callback| (generation, callback));
+                apply_component_window_publication(state, services, window, publication, false)?;
             }
             WindowWork::ColorScheme {
                 generation,
@@ -1079,11 +1124,9 @@ fn drain_window_requests(
                     application.windows.get(&window).and_then(|window| {
                         let state = window.state.borrow();
                         let state = state.as_ref()?;
-                        (state.lifecycle == ComponentWindowLifecycle::Open)
-                            .then_some(state.window_color_scheme.as_ref())
+                        (state.lifecycle.get() == ComponentWindowLifecycle::Open)
+                            .then(|| state.host.window_color_scheme_callback(generation))
                             .flatten()
-                            .filter(|(current, _)| *current == generation)
-                            .map(|(_, callback)| callback.clone())
                     })
                 };
                 if let Some(callback) = callback {
@@ -1100,15 +1143,32 @@ fn drain_window_requests(
                     application.windows.get(&window).and_then(|window| {
                         let state = window.state.borrow();
                         let state = state.as_ref()?;
-                        (state.lifecycle == ComponentWindowLifecycle::Open)
-                            .then_some(state.window_size.as_ref())
+                        (state.lifecycle.get() == ComponentWindowLifecycle::Open)
+                            .then(|| state.host.window_size_callback(generation))
                             .flatten()
-                            .filter(|(current, _)| *current == generation)
-                            .map(|(_, callback)| callback.clone())
                     })
                 };
                 if let Some(callback) = callback {
                     callback.call(size);
+                }
+            }
+            WindowWork::Placement {
+                generation,
+                placement,
+                window,
+            } => {
+                let callback = {
+                    let application = application.borrow();
+                    application.windows.get(&window).and_then(|window| {
+                        let state = window.state.borrow();
+                        let state = state.as_ref()?;
+                        (state.lifecycle.get() == ComponentWindowLifecycle::Open)
+                            .then(|| state.host.window_placement_callback(generation))
+                            .flatten()
+                    })
+                };
+                if let Some(callback) = callback {
+                    callback.call(placement);
                 }
             }
             WindowWork::Open { policy, root } => {
@@ -1120,6 +1180,9 @@ fn drain_window_requests(
         services.rearm();
     } else {
         exit_if_no_windows(application)?;
+    }
+    if let Some(changed) = &application.borrow().changed {
+        changed.invoke()?;
     }
     Ok(())
 }
@@ -1183,7 +1246,7 @@ fn is_packaged_process() -> windows_core::Result<bool> {
     match result {
         ERROR_INSUFFICIENT_BUFFER => Ok(true),
         APPMODEL_ERROR_NO_PACKAGE => Ok(false),
-        _ => Err(windows_core::HRESULT::from(windows_core::WIN32_ERROR(result as u32)).into()),
+        _ => Err(HRESULT::from(windows_core::WIN32_ERROR(result as u32)).into()),
     }
 }
 
@@ -1196,7 +1259,7 @@ fn bootstrap_runtime() -> windows_core::Result<()> {
             Ok(())
         } else {
             Err(windows_core::Error::new(
-                windows_core::HRESULT(0x8007007e_u32 as i32),
+                HRESULT(0x8007007e_u32 as i32),
                 "self-contained Windows App Runtime files are missing",
             ))
         };
@@ -1266,164 +1329,11 @@ fn exit_ui_thread() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "../tests/native/app.rs"]
+mod tests;
 
-    #[test]
-    fn canceled_queued_app_callback_is_ignored() {
-        let id = NEXT_APP_CALLBACK.fetch_add(1, Ordering::Relaxed);
-        let invoked = Rc::new(Cell::new(false));
-        let callback_invoked = Rc::clone(&invoked);
-        APP_CALLBACKS.with(|callbacks| {
-            callbacks.borrow_mut().insert(
-                id,
-                Rc::new(move || {
-                    callback_invoked.set(true);
-                    Ok(())
-                }),
-            );
-            callbacks.borrow_mut().remove(&id);
-        });
-
-        invoke_registered_app_callback(id).unwrap();
-
-        assert!(!invoked.get());
-    }
-
-    #[test]
-    fn component_window_lifecycle_serializes_close() {
-        let mut lifecycle = ComponentWindowLifecycle::Open;
-        assert!(lifecycle.begin_close());
-        assert_eq!(lifecycle, ComponentWindowLifecycle::Closing);
-        assert!(!lifecycle.begin_close());
-        lifecycle.mark_closed();
-        assert_eq!(lifecycle, ComponentWindowLifecycle::Closed);
-        assert!(!lifecycle.begin_close());
-    }
-
-    #[test]
-    fn routine_window_work_is_coalesced_at_the_latest_position() {
-        let services = LiveWindowServices::default();
-        services.active.set(true);
-        assert!(services.publish(
-            WindowPublication {
-                title: Some("first".to_string()),
-                ..Default::default()
-            },
-            1,
-        ));
-        assert!(services.push(WindowWork::Activate(1)));
-        assert!(services.publish(
-            WindowPublication {
-                title: Some("second".to_string()),
-                ..Default::default()
-            },
-            1,
-        ));
-        assert!(services.size(
-            7,
-            WindowSize {
-                width: 100.0,
-                height: 100.0,
-            },
-            1,
-        ));
-        assert!(services.size(
-            7,
-            WindowSize {
-                width: 200.0,
-                height: 150.0,
-            },
-            1,
-        ));
-
-        assert!(matches!(services.pop(), Some(WindowWork::Activate(1))));
-        assert!(matches!(
-            services.pop(),
-            Some(WindowWork::Publish {
-                publication: WindowPublication {
-                    title: Some(title),
-                    ..
-                },
-                window: 1,
-            }) if title == "second"
-        ));
-        assert!(matches!(
-            services.pop(),
-            Some(WindowWork::Size {
-                generation: 7,
-                size: WindowSize {
-                    width: 200.0,
-                    height: 150.0,
-                },
-                window: 1,
-            })
-        ));
-        assert!(services.pop().is_none());
-    }
-
-    #[test]
-    fn durable_window_work_survives_routine_queue_saturation() {
-        let services = LiveWindowServices::default();
-        services.active.set(true);
-        for window in 0..WINDOW_WORK_CAPACITY {
-            assert!(services.push(WindowWork::Activate(window as u64)));
-        }
-        assert!(!services.push(WindowWork::Activate(WINDOW_WORK_CAPACITY as u64)));
-
-        for title in ["first", "latest"] {
-            assert!(services.publish(
-                WindowPublication {
-                    title: Some(title.to_string()),
-                    ..Default::default()
-                },
-                7,
-            ));
-        }
-        for width in [100.0, 200.0] {
-            assert!(services.size(
-                11,
-                WindowSize {
-                    width,
-                    height: 150.0,
-                },
-                7,
-            ));
-        }
-        for scheme in [ColorScheme::Light, ColorScheme::Dark] {
-            assert!(services.color_scheme(11, scheme, 7));
-        }
-
-        assert_eq!(services.pending.borrow().len(), WINDOW_WORK_CAPACITY + 3);
-        for _ in 0..WINDOW_WORK_CAPACITY {
-            assert!(matches!(services.pop(), Some(WindowWork::Activate(_))));
-        }
-        assert!(matches!(
-            services.pop(),
-            Some(WindowWork::Publish {
-                publication: WindowPublication {
-                    title: Some(title),
-                    ..
-                },
-                window: 7,
-            }) if title == "latest"
-        ));
-        assert!(matches!(
-            services.pop(),
-            Some(WindowWork::Size {
-                generation: 11,
-                size: WindowSize { width: 200.0, .. },
-                window: 7,
-            })
-        ));
-        assert!(matches!(
-            services.pop(),
-            Some(WindowWork::ColorScheme {
-                generation: 11,
-                scheme: ColorScheme::Dark,
-                window: 7,
-            })
-        ));
-        assert!(services.pop().is_none());
-    }
-}
+#[cfg(feature = "test")]
+#[path = "../test_support/native/app.rs"]
+mod test_support;
+#[cfg(feature = "test")]
+pub use test_support::*;

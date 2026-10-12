@@ -140,6 +140,8 @@ pub enum FieldError {
     CaptureWithoutField { page: syn::Type, capture: String },
     /// The page declares a field its pattern never captures.
     FieldWithoutCapture { page: syn::Type, field: String },
+    /// The pattern captures two segments under one name.
+    RepeatedCapture { page: syn::Type, capture: String },
     /// A `~` field on a route that has to be reconstructed whole.
     LooseFieldOnOutwardRoute {
         page: syn::Type,
@@ -164,6 +166,13 @@ impl fmt::Display for FieldError {
                 type_ident(page),
                 field,
                 field
+            ),
+            FieldError::RepeatedCapture { page, capture } => write!(
+                f,
+                "routes!: `{}` captures `:{}` twice - one field holds one segment, so each \
+                 capture needs a name of its own",
+                type_ident(page),
+                capture
             ),
             FieldError::LooseFieldOnOutwardRoute { page, field, tier } => write!(
                 f,
@@ -219,8 +228,8 @@ pub fn build(leaves: &[Leaf]) -> Result<MatchTree, Vec<Conflict>> {
     }
 }
 
-/// Checks that every capture has a field to land in, and every field a capture
-/// to fill it.
+/// Checks that every capture has a field to land in, every field a capture
+/// to fill it, and no two captures one name.
 ///
 /// Left unchecked, either one reaches the compiler as an unresolved identifier
 /// inside generated code, which says nothing about the declaration that caused
@@ -253,7 +262,23 @@ pub fn check_fields(leaves: &[Leaf]) -> Vec<FieldError> {
             continue;
         }
 
-        let captures = captures_of(leaf);
+        let mut captures: Vec<String> = Vec::new();
+        let mut repeated: Vec<String> = Vec::new();
+
+        for capture in captures_of(leaf) {
+            if !captures.contains(&capture) {
+                captures.push(capture);
+                continue;
+            }
+
+            if !repeated.contains(&capture) {
+                errors.push(FieldError::RepeatedCapture {
+                    page: leaf.ty.clone(),
+                    capture: capture.clone(),
+                });
+                repeated.push(capture);
+            }
+        }
 
         for capture in &captures {
             if !leaf.fields.iter().any(|field| &field.name == capture) {
@@ -440,15 +465,13 @@ fn captures_of(leaf: &Leaf) -> Vec<String> {
         return Vec::new();
     };
 
-    let mut captures: Vec<String> = Vec::new();
-    for segment in parse_pattern(link) {
-        if let Segment::Capture(name) = segment
-            && !captures.contains(&name)
-        {
-            captures.push(name);
-        }
-    }
-    captures
+    parse_pattern(link)
+        .into_iter()
+        .filter_map(|segment| match segment {
+            Segment::Capture(name) => Some(name),
+            Segment::Literal(_) => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -646,6 +669,16 @@ mod tests {
         };
         assert_eq!(type_ident(page), "Processes");
         assert_eq!(field, "context");
+    }
+
+    #[test]
+    fn a_capture_named_twice_is_an_error() {
+        let leaves = leaves_of(r#"page(Pair) link("/pair/:id/:id") { id: String }"#);
+        let errors = check_fields(&leaves);
+
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let text = errors[0].to_string();
+        assert!(text.contains("`Pair` captures `:id` twice"), "{text}");
     }
 
     #[test]

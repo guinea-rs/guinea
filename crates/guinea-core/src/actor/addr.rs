@@ -390,6 +390,7 @@ impl<A: 'static> Addr<A> {
             return;
         }
         self.0.is_processing.set(true);
+        let _turn = Turn(&self.0);
 
         crate::notify::turn(|| {
             self.handled(|actor| envelope::deliver(actor, self, msg, cause));
@@ -405,22 +406,36 @@ impl<A: 'static> Addr<A> {
         });
     }
 
-    /// Handles what was queued while the actor was busy, then lets it be.
-    /// What is still queued once the actor is disposed is dropped unhandled.
+    /// Handles what was queued while the actor was busy, until the queue is
+    /// empty or the actor is disposed.
     fn drain_queue(&self) {
-        loop {
-            if self.0.cancel.is_cancelled() {
-                let dropped = std::mem::take(&mut *self.0.queue.borrow_mut());
-                drop(dropped);
-                break;
-            }
-
+        while !self.0.cancel.is_cancelled() {
             let next = self.0.queue.borrow_mut().pop_front();
             let Some(mut queued) = next else { break };
 
             self.handled(|actor| Envelope::<A>::handle(queued.as_mut(), actor, self));
         }
+    }
+}
 
+/// An actor's turn at its messages: when it ends, however it ends, the actor
+/// takes messages again, and what is still queued - behind a disposal or a
+/// handler that panicked - is dropped unhandled.
+struct Turn<'a, A: 'static>(&'a Actor<A>);
+
+impl<A: 'static> Drop for Turn<'_, A> {
+    fn drop(&mut self) {
+        let left = std::mem::take(&mut *self.0.queue.borrow_mut());
+
+        if std::thread::panicking() && !left.is_empty() {
+            tracing::warn!(
+                "{} panicked handling a message; the {} queued behind it are dropped",
+                short_type_name::<A>(),
+                left.len()
+            );
+        }
+
+        drop(left);
         self.0.is_processing.set(false);
     }
 }
@@ -624,6 +639,49 @@ mod tests {
         addr.send(Leave);
 
         assert_eq!(*log.borrow(), ["leave"], "handled after its scope was removed");
+    }
+
+    struct Boom;
+
+    impl Handler<Boom> for Counting {
+        fn handle(&mut self, _: Boom, _cx: crate::actor::Cx<Self, Boom>) {
+            panic!("boom");
+        }
+    }
+
+    #[test]
+    fn an_actor_whose_handler_panicked_still_handles_what_comes_next() {
+        let home = TestHome::new();
+        let heard = Rc::new(Cell::new(0));
+        let addr = Addr::bare(Counting(heard.clone()), &home);
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| addr.send(Boom)));
+        addr.send(Heard);
+
+        assert!(panicked.is_err());
+        assert_eq!(heard.get(), 1, "the message after the panic was never handled");
+    }
+
+    struct Fuse;
+
+    impl Handler<Fuse> for Counting {
+        fn handle(&mut self, _: Fuse, cx: crate::actor::Cx<Self, Fuse>) {
+            cx.addr().send(Heard);
+            panic!("fuse");
+        }
+    }
+
+    #[test]
+    fn what_a_panicking_handler_queued_goes_with_it() {
+        let home = TestHome::new();
+        let heard = Rc::new(Cell::new(0));
+        let addr = Addr::bare(Counting(heard.clone()), &home);
+
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| addr.send(Fuse)));
+        addr.send(Heard);
+
+        assert!(panicked.is_err());
+        assert_eq!(heard.get(), 1, "what the panicking turn queued was handled after all");
     }
 
     #[test]

@@ -100,7 +100,7 @@ pub(crate) use seeded::queue_ui;
 #[cfg(feature = "test-utils")]
 mod seeded {
     use std::cell::{Cell, RefCell};
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::future::Future;
     use std::pin::Pin;
     use std::rc::Rc;
@@ -276,7 +276,7 @@ mod seeded {
         /// Tasks that are neither finished nor ready - waiting on a timer the
         /// clock has not reached, or on something nothing here will wake.
         pub fn stuck(&self) -> usize {
-            self.0.tasks.borrow().len()
+            self.0.stuck()
         }
     }
 
@@ -400,6 +400,16 @@ mod seeded {
                     return ran;
                 }
             }
+        }
+
+        fn stuck(&self) -> usize {
+            let ready: HashSet<u64> = lock(&self.ready.polls).iter().copied().collect();
+
+            self.tasks
+                .borrow()
+                .keys()
+                .filter(|id| !ready.contains(id))
+                .count()
         }
 
         fn wake_next(&self, horizon: Duration) -> bool {
@@ -602,6 +612,19 @@ mod seeded {
                 next.err().and_then(|panic| panic.downcast_ref::<&str>().map(|text| text.to_string()))
             );
             assert_eq!(ran.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn a_task_its_timer_woke_is_ready_not_stuck() {
+            let executor = install(4);
+            crate::executor::spawn(async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            });
+            executor.run_until_parked();
+            assert_eq!(executor.stuck(), 1, "waiting on a timer the clock has not reached");
+
+            assert!(executor.wake_next(Duration::from_secs(1)));
+            assert_eq!(executor.stuck(), 0, "its timer fired and it is ready, yet it is counted as stuck");
         }
 
         #[test]

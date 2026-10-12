@@ -1435,3 +1435,10 @@ fn a_harness_settles_again_after_a_task_panicked(h: &mut Harness) {
     assert_eq!(second, Ok(1), "settling the next task");
     assert!(ran.load(Ordering::SeqCst));
 }
+
+#[guinea::test(iterations = 1)]
+fn a_task_ready_to_run_is_not_stuck(h: &mut Harness) {
+    guinea::core::executor::spawn(async {});
+
+    assert_eq!(h.stuck(), 0, "a task nothing has polled yet is ready, not waiting");
+}

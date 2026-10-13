@@ -253,7 +253,7 @@ where
 
     fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
         let (payload, reply_to) = msg.into_parts();
-        self.handle_rpc(payload, cx.handling()).send(reply_to);
+        self.handle_rpc(payload, cx.asked()).send(reply_to);
     }
 }
 

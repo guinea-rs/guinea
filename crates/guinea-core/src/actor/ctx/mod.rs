@@ -1,6 +1,7 @@
 use crate::actor::addr::Addr;
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
+use crate::actor::event_bus::{RpcCall, RpcRequest};
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
 use crate::actor::{AllowedSignal, ManagedActor};
@@ -41,11 +42,6 @@ impl<A: 'static, M> Cx<A, M> {
         }
     }
 
-    /// The same actor, as the handler of another message.
-    pub(crate) fn handling<N>(self) -> Cx<A, N> {
-        Cx::new(self.addr)
-    }
-
     pub fn addr(&self) -> Addr<A> {
         self.addr.clone()
     }
@@ -82,6 +78,13 @@ impl<A: 'static, M> Cx<A, M> {
     /// [`Cx::task`] already guards what it spawns with it.
     pub fn cancellation(&self) -> Cancel {
         self.addr.cancellation()
+    }
+}
+
+impl<A: 'static, Req: RpcCall> Cx<A, RpcRequest<Req>> {
+    /// The handler of a request, as the handler of what it asks.
+    pub(crate) fn asked(self) -> Cx<A, Req> {
+        Cx::new(self.addr)
     }
 }
 

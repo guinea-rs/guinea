@@ -162,12 +162,14 @@ impl Page for Processes {
 }
 
 thread_local! {
+    static ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static NAVIGATOR: std::cell::RefCell<Option<guinea::router::NavigateHandle<guinea::winui::WinUi, Route>>> =
         const { std::cell::RefCell::new(None) };
 }
 
 /// Hands the test the way it navigates, for a navigation that does not come
-/// from a draw.
+/// from a draw - only when the test asked, since the handle holds the router
+/// for as long as it is kept.
 #[derive(Default)]
 pub struct Services;
 
@@ -176,8 +178,10 @@ impl Page for Services {
     type Params = ServicesParams;
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let nav = cx.navigate::<Route>();
-        NAVIGATOR.with(|kept| *kept.borrow_mut() = Some(nav));
+        if ASKED.get() {
+            let nav = cx.navigate::<Route>();
+            NAVIGATOR.with(|kept| *kept.borrow_mut() = Some(nav));
+        }
         TextBlock::new().text("services").into()
     }
 }
@@ -332,8 +336,10 @@ fn a_navigation_has_the_page_it_drew_in_its_chain(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_navigation_drawn_a_drain_later_has_what_it_drew_in_its_chain(h: &mut Harness) {
+    ASKED.set(true);
     let mut app = Mounted::routed(h, Route::Services {}).unwrap();
     app.settle();
+    ASKED.set(false);
     let nav = NAVIGATOR.with(|kept| kept.borrow_mut().take()).expect("services drew");
 
     let act = h.record("go", || nav.to(Route::Processes {}));

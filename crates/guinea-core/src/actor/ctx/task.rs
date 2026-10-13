@@ -413,7 +413,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
         A::Flow: Allows<M, Out>,
         Fut: Future<Output = Out> + Send + 'static,
     {
-        self.reply(Location::caller(), move |_| fut, false);
+        self.reply(Location::caller(), move |_| fut, Ends::Dropped);
     }
 
     /// Starts what `work` makes of the token it is handed, for work that
@@ -483,10 +483,10 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
         Fut: Future<Output = Out> + Send + 'static,
         F: FnOnce(Cancel) -> Fut + 'static,
     {
-        self.reply(Location::caller(), work, true);
+        self.reply(Location::caller(), work, Ends::Itself);
     }
 
-    fn reply<Out, Fut, F>(self, at: &'static Location<'static>, work: F, listens: bool)
+    fn reply<Out, Fut, F>(self, at: &'static Location<'static>, work: F, ends: Ends)
     where
         Out: Send + 'static,
         A: Handler<Out> + ManagedActor,
@@ -506,7 +506,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
         launch(addr, spawning, short_type_name::<Out>(), move |traced| -> Start {
             Box::new(move |ticket: Ticket| {
                 let fut = work(ticket.cancel.clone());
-                crate::executor::spawn(run_reply(reach, traced, ticket, fut, listens));
+                crate::executor::spawn(run_reply(reach, traced, ticket, fut, ends));
             })
         });
     }
@@ -524,7 +524,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
     where
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.detached_at(Location::caller(), move |_| fut, false);
+        self.detached_at(Location::caller(), move |_| fut, Ends::Dropped);
     }
 
     /// [`Task::spawn_with`], answering no one.
@@ -538,10 +538,10 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
         Fut: Future<Output = ()> + Send + 'static,
         F: FnOnce(Cancel) -> Fut + 'static,
     {
-        self.detached_at(Location::caller(), work, true);
+        self.detached_at(Location::caller(), work, Ends::Itself);
     }
 
-    fn detached_at<Fut, F>(self, at: &'static Location<'static>, work: F, listens: bool)
+    fn detached_at<Fut, F>(self, at: &'static Location<'static>, work: F, ends: Ends)
     where
         Fut: Future<Output = ()> + Send + 'static,
         F: FnOnce(Cancel) -> Fut + 'static,
@@ -567,7 +567,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
         launch(addr, spawning, "()", move |traced| -> Start {
             Box::new(move |ticket: Ticket| {
                 let fut = work(ticket.cancel.clone());
-                crate::executor::spawn(run_detached(reach, traced, ticket, fut, listens));
+                crate::executor::spawn(run_detached(reach, traced, ticket, fut, ends));
             })
         });
     }
@@ -683,6 +683,25 @@ impl Ticket {
     }
 }
 
+/// How work stops when its token is cancelled.
+#[derive(Clone, Copy)]
+enum Ends {
+    /// It was handed the token and stops itself: it runs to its end.
+    Itself,
+    /// It never saw the token: cancelling drops it where it awaits.
+    Dropped,
+}
+
+impl Ends {
+    /// The work's output; `None` when it was dropped on cancellation.
+    async fn wait<F: Future>(self, work: F, cancel: &Cancel) -> Option<F::Output> {
+        match self {
+            Ends::Itself => Some(work.await),
+            Ends::Dropped => cancel.guard(work).await,
+        }
+    }
+}
+
 type Start = Box<dyn FnOnce(Ticket)>;
 
 struct Spawning {
@@ -744,7 +763,7 @@ fn launch<A: 'static>(
     }
 }
 
-async fn run_reply<A, Out, Fut>(reach: Reach<A>, traced: Traced, ticket: Ticket, fut: Fut, listens: bool)
+async fn run_reply<A, Out, Fut>(reach: Reach<A>, traced: Traced, ticket: Ticket, fut: Fut, ends: Ends)
 where
     A: Handler<Out>,
     Out: Send + 'static,
@@ -752,10 +771,7 @@ where
 {
     let unwinding = Unwinding::arm(reach, traced, &ticket);
     let running = trace::within(Some(traced.spawned), fut);
-    let result = match listens {
-        true => Some(running.await),
-        false => ticket.cancel.guard(running).await,
-    };
+    let result = ends.wait(running, &ticket.cancel).await;
     drop(unwinding);
 
     let Some(result) = result.filter(|_| !ticket.cancel.is_cancelled()) else {
@@ -779,20 +795,14 @@ where
     });
 }
 
-async fn run_detached<A, Fut>(reach: Reach<A>, traced: Traced, ticket: Ticket, fut: Fut, listens: bool)
+async fn run_detached<A, Fut>(reach: Reach<A>, traced: Traced, ticket: Ticket, fut: Fut, ends: Ends)
 where
     A: 'static,
     Fut: Future<Output = ()>,
 {
     let unwinding = Unwinding::arm(reach, traced, &ticket);
     let running = trace::within(Some(traced.spawned), fut);
-    let ran = match listens {
-        true => {
-            running.await;
-            true
-        }
-        false => ticket.cancel.guard(running).await.is_some(),
-    };
+    let ran = ends.wait(running, &ticket.cancel).await.is_some();
     drop(unwinding);
 
     if !ran || ticket.cancel.is_cancelled() {
@@ -870,15 +880,16 @@ impl<A: 'static> Addr<A> {
             return true;
         };
 
-        let next = self.lanes().borrow_mut().finish(run, &self.cancellation());
-        let Some(next) = next else {
-            return false;
-        };
+        let finished = self.lanes().borrow_mut().finish(run, &self.cancellation());
 
-        if let Some((waiting, ticket)) = next {
-            (waiting.start)(ticket);
+        match finished {
+            Finished::Stale => false,
+            Finished::Freed => true,
+            Finished::Next(waiting, ticket) => {
+                (waiting.start)(ticket);
+                true
+            }
         }
-        true
     }
 
     /// Drops what waits in its lanes, as the actor goes: what runs ends with
@@ -941,6 +952,16 @@ struct Waiting {
 struct Admitted {
     starts: Option<(Waiting, Ticket)>,
     skipped: Option<Waiting>,
+}
+
+/// What a lane makes of one of its runs ending.
+enum Finished {
+    /// The run is not its lane's any more: a newer one replaced it.
+    Stale,
+    /// Nothing waited: the lane is free.
+    Freed,
+    /// What waited, ready to start as the lane's next run.
+    Next(Waiting, Ticket),
 }
 
 impl Lanes {
@@ -1021,19 +1042,20 @@ impl Lanes {
         }
     }
 
-    /// The next piece of the lane whose run `run` was, ready to start, if it
-    /// has one; `None` when `run` is not its lane's any more.
-    fn finish(&mut self, run: u64, parent: &Cancel) -> Option<Option<(Waiting, Ticket)>> {
-        let at = self.open.iter().position(|open| open.running.run == run)?;
+    /// Ends the run `run`: the lane goes free, or hands itself to what waited.
+    fn finish(&mut self, run: u64, parent: &Cancel) -> Finished {
+        let Some(at) = self.open.iter().position(|open| open.running.run == run) else {
+            return Finished::Stale;
+        };
 
         let Some(next) = self.open[at].waiting.take() else {
             self.open.swap_remove(at);
-            return Some(None);
+            return Finished::Freed;
         };
 
         let (running, ticket) = self.run(parent);
         self.open[at].running = running;
-        Some(Some((next, ticket)))
+        Finished::Next(next, ticket)
     }
 
     fn take(&mut self, which: impl Fn(&Open) -> bool) -> Vec<Open> {

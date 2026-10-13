@@ -245,6 +245,173 @@ mod listening {
     //@show-end
 }
 
+mod answering_async {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    pub struct Processes;
+
+    actor! {
+        Processes {
+            handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
+        }
+    }
+
+    #[handler]
+    async fn kill(_cx: AsyncContext<Processes>, Kill(pid): Kill) -> Outcome {
+        guinea::core::executor::yield_now().await;
+
+        match pid {
+            4 => Outcome::Denied,
+            _ => Outcome::Done,
+        }
+    }
+
+    feature! {
+        pub Killing {}
+    }
+
+    #[installs]
+    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+        cx.spawn(Processes);
+        Ok(Killing)
+    }
+}
+
+mod dropping {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    pub struct Processes;
+
+    actor! {
+        Processes {
+            handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
+        }
+    }
+
+    impl Handler<RpcRequest<Kill>> for Processes {
+        const ANSWERS: bool = true;
+
+        fn handle(&mut self, _: RpcRequest<Kill>, _cx: Cx<Self, RpcRequest<Kill>>) {}
+    }
+
+    feature! {
+        pub Killing {}
+    }
+
+    #[installs]
+    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+        cx.spawn(Processes);
+        Ok(Killing)
+    }
+}
+
+mod listening_and_replying {
+    use super::*;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Heard(pub Vec<u32>);
+
+    #[reducer]
+    fn heard(this: &mut Heard, pid: u32) {
+        this.0.push(pid);
+    }
+
+    #[derive(Debug)]
+    pub struct Audit {
+        push: Push<Heard>,
+    }
+
+    actor! {
+        Audit {
+            handlers { RpcRequest<Kill> }
+            subscribes { RpcRequest<Kill> }
+        }
+    }
+
+    #[handler]
+    fn hearing(this: &mut Audit, request: RpcRequest<Kill>) {
+        this.push.send(request.payload.0);
+        request.reply(Outcome::Denied);
+    }
+
+    feature! {
+        pub Auditing {
+            exports { Heard }
+        }
+    }
+
+    #[installs]
+    fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+        let (heard, _) = cx.state::<Heard>().driven_by(|push| Audit { push });
+        Ok(Auditing(heard))
+    }
+}
+
+mod cycle {
+    use super::*;
+
+    #[derive(Clone, Debug, guinea::Request)]
+    #[request(reply = Looped)]
+    pub struct Loop;
+
+    #[derive(Clone, Debug)]
+    pub struct Looped;
+
+    #[derive(Clone, Debug, guinea::Request)]
+    #[request(reply = Backed)]
+    pub struct Back;
+
+    #[derive(Clone, Debug)]
+    pub struct Backed;
+
+    #[derive(Debug, Default)]
+    pub struct There;
+
+    #[derive(Debug, Default)]
+    pub struct Again;
+
+    actor! {
+        There {
+            handlers { RpcRequest<Loop> }
+            subscribes { RpcRequest<Loop> }
+        }
+    }
+
+    actor! {
+        Again {
+            handlers { RpcRequest<Back> }
+            subscribes { RpcRequest<Back> }
+        }
+    }
+
+    #[handler]
+    async fn there(cx: AsyncContext<There>, _: Loop) -> Looped {
+        let _ = cx.request(Back, Duration::from_secs(5)).await;
+        Looped
+    }
+
+    #[handler]
+    async fn again(cx: AsyncContext<Again>, _: Back) -> Backed {
+        let _ = cx.request(Loop, Duration::from_secs(5)).await;
+        Backed
+    }
+
+    feature! {
+        pub Looping {}
+    }
+
+    #[installs]
+    fn looping(cx: &FeatureInitContext) -> anyhow::Result<Looping> {
+        cx.spawn(There);
+        cx.spawn(Again);
+        Ok(Looping)
+    }
+}
+
 fn asked(h: &Harness, pid: u32) -> Option<String> {
     h.dispatch::<Said>().emit(asking::Ask(pid));
     h.settled();
@@ -307,6 +474,78 @@ fn the_answerer_goes_with_its_segment(h: &mut Harness) {
     area.leave();
     let said = asked(h, 7).expect("an answer, not a wait for the timeout");
     assert!(said.starts_with("nobody answers"), "{said}");
+}
+
+#[guinea::test(iterations = 4)]
+fn an_answerer_written_async_answers_with_what_it_returns(h: &mut Harness) {
+    h.install::<answering_async::Killing>(&()).unwrap();
+    h.install::<asking::Asking>(&()).unwrap();
+
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+}
+
+#[guinea::test(iterations = 4)]
+fn a_listener_hears_the_request_and_its_reply_goes_nowhere(h: &mut Harness) {
+    h.install::<listening_and_replying::Auditing>(&()).unwrap();
+    h.install::<answering::Killing>(&()).unwrap();
+    h.install::<asking::Asking>(&()).unwrap();
+
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(h.state::<listening_and_replying::Heard>().0, [7]);
+}
+
+#[guinea::test(iterations = 4)]
+fn the_answerer_s_place_is_free_again_once_its_segment_goes(h: &mut Harness) {
+    h.install::<asking::Asking>(&()).unwrap();
+
+    let first = h.child();
+    first.install::<answering::Killing>(&()).unwrap();
+    first.leave();
+
+    let second = h.child();
+    second.install::<answering::Killing>(&()).unwrap();
+    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+}
+
+#[guinea::test(iterations = 4)]
+fn a_request_whose_answerer_sleeps_says_so_at_once(h: &mut Harness) {
+    h.install::<asking::Asking>(&()).unwrap();
+
+    let area = h.child();
+    area.install::<answering::Killing>(&()).unwrap();
+    area.context().scope.sleep();
+
+    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
+    assert!(said.contains("is asleep"), "{said}");
+}
+
+#[guinea::test(iterations = 4)]
+fn a_request_its_answerer_drops_says_so_at_once(h: &mut Harness) {
+    h.install::<dropping::Killing>(&()).unwrap();
+    h.install::<asking::Asking>(&()).unwrap();
+
+    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
+    assert!(said.contains("without an answer"), "{said}");
+}
+
+#[guinea::test(iterations = 4)]
+fn a_request_that_waits_on_itself_panics_where_it_closes_the_loop(h: &mut Harness) {
+    h.install::<cycle::Looping>(&()).unwrap();
+    let scope = h.segment().context().scope;
+
+    guinea::core::executor::spawn(async move {
+        let _ = scope.request(cycle::Loop, Duration::from_secs(5)).await;
+    });
+    let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.settled()));
+
+    let panic = settled.expect_err("the loop closed without a word");
+    let said = panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|said| said.to_string()))
+        .unwrap_or_default();
+    assert!(said.contains("RPC cycle detected"), "{said}");
 }
 
 #[test]

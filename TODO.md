@@ -236,6 +236,66 @@ it and disposes it when it goes, and nothing else can. One that outlives
 what it was made for was made in a scope that lives too long. If a leak shows
 up again, measure it first: `ALIVE` counters on the actor's state.
 
+## Router: one way for a page to outlive leaving
+
+Decided in conversation 2026-10-13, not started.
+
+### `CACHE_STATE_IN_MEMORY` goes; `keep` is the only way
+
+Two mechanisms do one thing today:
+
+| | `keep` in `routes!` | `const CACHE_STATE_IN_MEMORY` on `Page` |
+|---|---|---|
+| Declared | at the segment's place in the tree | on the `Page` trait, in all six adapters |
+| What outlives leaving | the whole scope, asleep: reducers, sections, actors | reducer cells only: the router snapshots them on leave and restores them into a new scope (`snapshot_states` / `restore_states`) |
+| Actors | sleep and wake as the same actors | made anew, with whatever they mirrored back at defaults |
+| Params | woken only for the same capture | restored only for the same capture |
+| Limit | only right under what stays (`kept_until`) | anywhere |
+
+The cache is the weaker copy: it moves state out of the scope into the
+router and leaves the actors behind, so an actor's fields and its reducer
+disagree after a return - uniproc's Services sorts from `Name` and
+`Command` goes without a target. The only thing the cache does that `keep`
+cannot is outlive its parent, and no caller needs that: all three users
+(uniproc `Services` and `Wsl`, processes-iced `Metrics`) sit right under a
+layout that stays.
+
+- Delete the const from every `Page`, `SegmentEntry::cache_state`, the
+  router's `state_cache` and `Cached`, and `snapshot_states` /
+  `restore_states` in `scope/state.rs`.
+- iced keeps a page's node by `keep` instead of by the cache flag
+  (`nodes.rs`).
+- processes-iced `Metrics` moves to `keep`; its module doc says what the
+  cache covered and is rewritten.
+- Test first: back on a `keep` page, the same actor answers with the state
+  it had.
+- Breaking: a minor bump.
+- Open: `keep` stays in `routes!` (whether a segment can be kept depends on
+  where it sits), or moves to `#[page(keep)]` - one place either way, never
+  both.
+
+### Not doing
+
+- `cx.read::<R>()` for actors. Reading turns the flow around - actor, push,
+  reducer, UI - and makes the reducer shared memory with its own questions
+  (does a read after a push in the same turn see it). The mirrors that asked
+  for it come from the cache splitting lifetimes and from view state living
+  in features; both go without it. Back on the table only with a caller that
+  cannot be written otherwise.
+- A topology builder for `driven_by` (1:N, N:1, N:M). Every writer in uniproc
+  is 1:1, and no live N:1 case is in sight. `docs/topology.md` is the
+  rejected draft.
+
+### For uniproc (its session's)
+
+- `Services` and `Wsl` declared `keep`, each with a wake hook that catches up,
+  as `ProcessesArea` does.
+- Actions carry their target - `Command(name, kind)`, `Terminate(pid)` - so
+  the selection is a field of the page, not of the feature.
+- Sort is the actor's input, taken from `Sort`; not mirrored into the reducer.
+- `MachineSummary` is computed by one feature and exported to the other;
+  today processes and metrics both compute it from the same report.
+
 ## Harness
 
 ### `settle` is something to remember

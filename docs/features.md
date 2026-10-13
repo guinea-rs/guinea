@@ -135,10 +135,10 @@ impl Feature for ProcessesFeature {
 impl Layout for TabsLayout {
     type Installs = (Tabs, Option<AdvancedMetrics>);
 
-    fn init(cx: &Cx<Self>, p: &Params) -> anyhow::Result<Self::Installs> {
+    fn init(cx: &Cx<Self>, p: &Params, settings: Settings) -> anyhow::Result<Self::Installs> {
         let tabs = cx.install::<Tabs>(p)?;
 
-        let metrics = cx.require::<Settings>()?.advanced
+        let metrics = settings.advanced
             .then(|| cx.install::<AdvancedMetrics>(p))
             .transpose()?;
 
@@ -299,8 +299,8 @@ Slint под `Reads` не подпадает: он собирает вид од�
 `read::<Language<L10n>>().0.strings()` у каждого вызова. Соглашение:
 
 - трейт называется `<Плагин>Access`: `L10nAccess`, `StoreAccess`;
-- он реализован для любого `C: Reads` (или `C: Services` — для того, что
-  плагин даёт сервисом), один раз на все бэкенды;
+- он реализован для любого `C: Reads`, один раз на все бэкенды; то, что
+  плагин даёт сервисом, берут аргументом, и шорткат — метод самого сервиса;
 - методы названы по тому, что возвращают: `cx.l10n::<L10n>()`,
   `cx.settings::<S>()`, — без `get_`, `use_` и `read_`.
 
@@ -315,7 +315,7 @@ impl<C: Reads> L10nAccess for C {}
 ```
 
 Стартовый маршрут — тоже место, где спрашивают плагины: `run` отдаёт
-замыканию `initial` контекст приложения, `|cx| restore(cx.try_require::<Store>())`.
+замыканию `initial` установленное приложение, `|app| restore(app.service::<Store>())`.
 
 ## Как от всего этого отказаться
 

@@ -8,4 +8,3 @@
 pub mod app;
 pub mod feature;
 pub mod observability;
-pub mod services;

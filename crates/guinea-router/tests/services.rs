@@ -1,12 +1,45 @@
-//! What a router hands out to code that has nothing else.
+//! What a router hands out to code that has nothing else, and what a guard
+//! takes to decide.
+
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use guinea_app::app::GuineaApp;
 use guinea_app::feature::FeatureHost;
-use guinea_app::services::Services;
+use guinea_core::SharedState;
+use guinea_core::guard::Verdict;
+use guinea_macros::given;
+use guinea_router::enter::{Enter, EnterCx};
 use guinea_router::headless::Headless;
 use guinea_router::router::Router;
 
+#[derive(Clone)]
 struct Store(&'static str);
+
+#[derive(Clone)]
+struct Session {
+    admin: bool,
+}
+
+struct RequiresAdmin;
+
+impl Enter for RequiresAdmin {
+    #[given]
+    fn decide(_cx: &EnterCx<'_>, session: Option<Session>) -> Verdict {
+        match session {
+            Some(session) if session.admin => Verdict::Allow,
+            _ => Verdict::Block,
+        }
+    }
+}
+
+struct RequiresSession;
+
+impl Enter for RequiresSession {
+    #[given]
+    fn decide(_cx: &EnterCx<'_>, _session: Session) -> Verdict {
+        Verdict::Allow
+    }
+}
 
 #[test]
 fn a_router_hands_out_what_the_application_provided() {
@@ -16,7 +49,33 @@ fn a_router_hands_out_what_the_application_provided() {
         .expect("install");
     let router = Router::<Headless>::new(FeatureHost::under(&runtime.context()));
 
-    let store = router.try_require::<Store>().map(|store| store.0);
+    let store = router.service::<Store>().map(|store| store.0);
 
     assert_eq!(store, Some("db"));
+}
+
+#[test]
+fn a_guard_decides_on_what_it_takes_and_on_its_absence() {
+    let services = SharedState::new();
+    let blocked = matches!(RequiresAdmin::decide(&EnterCx::new(&services, "/admin")), Verdict::Block);
+
+    services.provide(Session { admin: true }, "test").unwrap();
+    let allowed = matches!(RequiresAdmin::decide(&EnterCx::new(&services, "/admin")), Verdict::Allow);
+
+    assert_eq!((blocked, allowed), (true, true));
+}
+
+#[test]
+fn a_guard_without_what_it_cannot_do_without_panics_naming_it() {
+    let services = SharedState::new();
+
+    let decided = catch_unwind(AssertUnwindSafe(|| {
+        RequiresSession::decide(&EnterCx::new(&services, "/audit"));
+    }));
+    let said = decided
+        .err()
+        .and_then(|panic| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+
+    assert!(said.contains("RequiresSession") && said.contains("Session"), "{said}");
 }

@@ -10,8 +10,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
-use guinea_app::feature::{FeatureHost, ScopeContext};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::FeatureHost;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use ratatui::crossterm::cursor::Show;
 use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
@@ -46,11 +46,11 @@ const TICK: Duration = Duration::from_millis(50);
 /// `initial` is a closure rather than a value because where an application
 /// starts is often something only the installed plugins know - a route saved
 /// by the last run, read out of the store the store plugin just provided.
-/// Called once, after `install`, before the first frame, with the
-/// application's context to ask them through.
+/// Called once, after `install`, before the first frame, with the installed
+/// application to read them from.
 pub fn run<R, F>(
     app: GuineaApp,
-    initial: impl FnOnce(&ScopeContext) -> R,
+    initial: impl FnOnce(&AppRuntime) -> R,
     mut on_event: F,
 ) -> anyhow::Result<()>
 where
@@ -69,7 +69,7 @@ where
         Err(error) => return Err(error),
     };
     let context = runtime.context();
-    let initial = initial(&context);
+    let initial = initial(&runtime);
     install_runtime(runtime);
 
     let router = Rc::new(Router::<Tui>::new(FeatureHost::under(&context)));

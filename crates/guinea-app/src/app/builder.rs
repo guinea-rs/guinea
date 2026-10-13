@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use anyhow::Context as _;
-use guinea_core::SharedState;
 use guinea_core::actor::{Addr, ManagedActor};
-use crate::feature::{AppFeatureDeinitContext, ScopeContext};
+use guinea_core::{SharedState, short_type_name};
+use crate::feature::ScopeContext;
+use crate::feature::given::Context as _;
 
 use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
@@ -61,51 +61,29 @@ impl PluginBuilder {
         Ok(Installed::new())
     }
 
-    pub fn provide<T: Send + Sync + 'static>(&self, value: T) -> &Self {
-        self.provide_arc(Arc::new(value))
-    }
+    /// Provides `value` as the one `T` of the application: what every install
+    /// function taking a `T` is handed, by clone.
+    ///
+    /// Providing a second `T` is a setup mistake, and panics naming who
+    /// provided the first.
+    pub fn provide<T: Clone + Send + Sync + 'static>(&self, value: T) -> &Self {
+        let by = self.registry.borrow().current();
 
-    pub fn provide_arc<T: Send + Sync + 'static>(&self, value: Arc<T>) -> &Self {
-        if self.services.insert_arc(value).is_some() {
-            tracing::warn!(
-                service = std::any::type_name::<T>(),
-                by = self.registry.borrow().current(),
-                "service replaced"
+        if let Err(first) = self.cx.provided().provide(value, by) {
+            panic!(
+                "`{}` is provided by `{first}`, and again by `{by}` - an application has one \
+                 of each service",
+                short_type_name::<T>()
             );
         }
         self
     }
 
-    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        let service = std::any::type_name::<T>();
-        let who = self.registry.borrow().current();
-
-        match self.services.try_get::<T>() {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => anyhow::bail!(
-                "`{who}` requires service `{service}`, but nothing provided it - \
-                 install the plugin that provides it first, usually by calling \
-                 `b.plugin(..)?` at the top of `{who}`"
-            ),
-            Err(poisoned) => Err(anyhow::Error::new(poisoned))
-                .with_context(|| format!("`{who}` requires service `{service}`")),
-        }
-    }
-
-    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.services.get::<T>()
-    }
-
     /// Runs `f` when the application exits - after what was set up after it,
     /// and before what was set up before it.
-    pub fn on_cleanup(
-        &self,
-        f: impl for<'a> FnOnce(&mut AppFeatureDeinitContext<'a>) -> anyhow::Result<()> + 'static,
-    ) -> &Self {
-        let services = self.services.clone();
+    pub fn on_cleanup(&self, f: impl FnOnce() -> anyhow::Result<()> + 'static) -> &Self {
         self.host.on_cleanup(move || {
-            let mut ctx = AppFeatureDeinitContext { shared: &services };
-            if let Err(e) = f(&mut ctx) {
+            if let Err(e) = f() {
                 tracing::error!(error = %e, "an application cleanup failed");
             }
         });
@@ -225,5 +203,17 @@ impl Deref for PluginBuilder {
 
     fn deref(&self) -> &ScopeContext {
         &self.cx
+    }
+}
+
+impl crate::feature::given::Context for PluginBuilder {
+    fn provided(&self) -> &SharedState {
+        self.cx.provided()
+    }
+}
+
+impl crate::feature::given::Context for FeatureBuilder {
+    fn provided(&self) -> &SharedState {
+        self.inner.provided()
     }
 }

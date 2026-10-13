@@ -1012,7 +1012,34 @@ mod navigating {
         }
     }
 
+    #[derive(Clone)]
     pub struct Greeting(pub &'static str);
+
+    pub mod greeted {
+        use guinea::prelude::*;
+
+        use super::Greeting;
+
+        #[derive(Default, Clone, PartialEq, Debug)]
+        pub struct Heard(pub &'static str);
+
+        #[reducer]
+        fn heard(this: &mut Heard, greeting: &'static str) {
+            this.0 = greeting;
+        }
+
+        feature! {
+            pub Greeted {
+                exports { Heard }
+            }
+        }
+
+        #[installs]
+        fn greeted(cx: &FeatureInitContext, greeting: Option<Greeting>) -> anyhow::Result<Greeted> {
+            let greeting = greeting.map_or("nobody", |greeting| greeting.0);
+            Ok(Greeted(cx.state::<Heard>().seed(Heard(greeting)).plain()))
+        }
+    }
 
     /// The shell: where the application is, a way to the list, and a clock
     /// that lives as long as the shell does.
@@ -1094,21 +1121,23 @@ mod navigating {
     /// Reads what the harness provided, in a segment installed only after a
     /// navigation.
     #[derive(Default)]
-    pub struct Other {
-        greeting: &'static str,
-    }
+    pub struct Other;
 
     #[page]
     impl Page for Other {
         type Params = OtherParams;
+        type Installs = greeted::Greeted;
 
-        fn install(ctx: &FeatureInitContext, _params: &OtherParams) -> anyhow::Result<(Self, ())> {
-            let greeting = ctx.require::<Greeting>().map_or("nobody", |greeting| greeting.0);
-            Ok((Self { greeting }, ()))
+        fn install(
+            ctx: &FeatureInitContext,
+            _params: &OtherParams,
+        ) -> anyhow::Result<(Self, greeted::Greeted)> {
+            Ok((Self, ctx.install(&())?))
         }
 
-        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
-            TextBlock::new().text(format!("other says {}", self.greeting)).into()
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            let (heard, _) = cx.read::<greeted::Heard>();
+            TextBlock::new().text(format!("other says {}", heard.0)).into()
         }
     }
 

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use super::builder::FeatureBuilder;
 use crate::feature::ScopeContext;
+use crate::feature::given::Context as _;
 use crate::observability::Observed;
 
 /// An installed application: everything the recipe built, plus the hooks that
@@ -16,6 +17,12 @@ impl AppRuntime {
     /// provided. What a backend hands the closure that picks the first route.
     pub fn context(&self) -> ScopeContext {
         ScopeContext::clone(&self.builder)
+    }
+
+    /// What was provided as `T`, for whoever holds the application: the
+    /// backend picking the first route, the code around `run`.
+    pub fn service<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
+        self.builder.provided().get::<T>()
     }
 }
 

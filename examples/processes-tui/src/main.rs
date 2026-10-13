@@ -7,7 +7,6 @@ mod pages;
 mod routes;
 
 use guinea::app::GuineaApp;
-use guinea::services::Services as _;
 use guinea::ratatui::{Flow, Tui, pressed, run};
 use guinea_router::router::Router;
 use ratatui::crossterm::event::{Event, KeyCode};
@@ -83,7 +82,7 @@ fn main() -> anyhow::Result<()> {
 
     run(
         app,
-        |cx| initial_route(cx.try_require::<Store>().as_deref()),
+        |app| initial_route(app.service::<Store>().as_ref()),
         on_key,
     )
 }
@@ -122,7 +121,7 @@ fn on_key(
     // route - including `back` - is where the next run should start.
     if let (Some(route), Some(store)) = (
         router.current_route::<Route>(),
-        router.try_require::<Store>(),
+        router.service::<Store>(),
     ) {
         remember(&store, &route);
     }
@@ -143,7 +142,7 @@ mod tests {
         let mut app = TestApp::new();
         app.install(guinea_plugin_store::StorePlugin::at(dir.path().join("store")))
             .expect("the store plugin");
-        let store = app.require::<Store>().expect("the store");
+        let store = app.service::<Store>().expect("the store");
 
         assert!(
             matches!(initial_route(Some(&store)), Route::Processes { .. }),

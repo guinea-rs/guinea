@@ -233,9 +233,8 @@ pub mod backend {
 }
 
 
-pub use guinea_app::{app, app_meta, feature, services};
+pub use guinea_app::{app, app_meta, feature};
 pub use guinea_core::timers;
-pub use guinea_app::services::Services;
 
 pub use guinea_core as core;
 pub use guinea_meta as meta;
@@ -245,7 +244,7 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Inspect, Mark, Remote, Request, actor, app, feature, handler, installs, reducer,
+    Event, Inspect, Mark, Remote, Request, actor, app, feature, given, handler, installs, reducer,
     routes, segment, slot,
 };
 
@@ -268,7 +267,7 @@ pub mod prelude {
     pub use guinea_app::app::{
         AppFeature, Application, FeatureBuilder, GuineaApp, Installed, Plugin, PluginBuilder,
     };
-    pub use guinea_app::feature::{Feature, FeatureInitContext, ScopeContext};
+    pub use guinea_app::feature::{Feature, FeatureInitContext, Install, ScopeContext};
     pub use guinea_core::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, Reply};
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Receives};
@@ -276,5 +275,7 @@ pub mod prelude {
     pub use guinea_core::__private::anyhow;
     pub use guinea_core::inspect::Inspect;
     pub use guinea_core::{Load, Reducer};
-    pub use guinea_macros::{Event, Inspect, actor, app, feature, handler, installs, reducer, routes};
+    pub use guinea_macros::{
+        Event, Inspect, actor, app, feature, given, handler, installs, reducer, routes,
+    };
 }

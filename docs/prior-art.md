@@ -651,8 +651,8 @@ once proposal 3 exists. Ship tier 1 as documentation or a helper first.
    background work still in flight at the end of a test. It would complement
    guinea's seeded determinism.
 5. ~~**Dependency overrides for tests.**~~ Already answered: a test hands
-   its own value to `Harness::provide`, and the feature reads it with
-   `require_or_default`, so uniproc's `ProcessesDeps` is a TCA `@Dependency`
+   its own value to `Harness::provide`, and the feature takes it as an
+   install argument, so uniproc's `ProcessesDeps` is a TCA `@Dependency`
    built on the framework's own mechanism, not a hand-rolled one.
 6. **A guard on UI-originated navigation** (`dropUnlessResumed`): ignore a
    navigation fired from a scope that is no longer active, such as a double

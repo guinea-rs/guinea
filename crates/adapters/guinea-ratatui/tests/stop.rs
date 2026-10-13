@@ -37,7 +37,7 @@ impl Plugin for Opened {
     type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.on_cleanup(move |_| {
+        app.on_cleanup(move || {
             self.0.store(true, Ordering::SeqCst);
             Ok(())
         });

@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use guinea_macros::given;
+
 use super::{AppFeature, AppHost, FeatureBuilder, Plugin, PluginBuilder};
+use crate::feature::given::Context as _;
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -32,6 +35,7 @@ impl Plugin for Settings {
     }
 }
 
+#[derive(Clone)]
 struct Store(&'static str);
 
 struct Updater;
@@ -41,8 +45,7 @@ impl Plugin for Updater {
     const ID: &'static str = "test.updater";
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.plugin(Settings)?;
-        let store = app.require::<Store>()?;
-        trace(store.0);
+        trace("updater");
         Ok(())
     }
 }
@@ -97,8 +100,9 @@ impl Plugin for Orphan {
     type Exports = ();
 
     const ID: &'static str = "test.orphan";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.require::<Store>()?;
+
+    #[given]
+    fn build(self, _app: &mut PluginBuilder, _store: Store) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -120,7 +124,7 @@ fn a_plugin_pulled_twice_is_built_once() {
     app.plugin(Updater).unwrap();
     app.plugin(Left).unwrap();
 
-    assert_eq!(taken(), vec!["settings", "db", "left"]);
+    assert_eq!(taken(), vec!["settings", "updater", "left"]);
 }
 
 #[test]
@@ -129,7 +133,7 @@ fn a_diamond_builds_the_shared_dependency_once() {
     app.plugin(Left).unwrap();
     app.plugin(Updater).unwrap();
 
-    assert_eq!(taken(), vec!["settings", "left", "db"]);
+    assert_eq!(taken(), vec!["settings", "left", "updater"]);
 }
 
 #[test]
@@ -174,7 +178,7 @@ fn a_feature_may_pull_plugins_and_read_what_they_provide() {
     let mut app = builder();
     app.feature(Startup).unwrap();
 
-    assert_eq!(app.require::<Store>().unwrap().0, "db");
+    assert_eq!(app.provided().get::<Store>().map(|store| store.0), Some("db"));
 }
 
 #[test]
@@ -201,6 +205,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     assert_eq!(bus.count_subscribers::<Tick>(), 0);
 }
 
+#[derive(Clone)]
 struct Greeting(&'static str);
 
 struct GreetingPlugin;
@@ -228,7 +233,7 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
     let host = crate::feature::FeatureHost::under(&runtime.context());
     let scope = host
         .install(|ctx| {
-            assert_eq!(ctx.require::<Greeting>()?.0, "hello");
+            assert_eq!(ctx.provided().get::<Greeting>().map(|greeting| greeting.0), Some("hello"));
             ctx.subscribe(|_: Ping| trace("pinged"));
             Ok(())
         })
@@ -257,8 +262,8 @@ impl Plugin for NeedsMeta {
 
     const ID: &'static str = "test.needs-meta";
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let meta = app.require::<super::AppMeta>()?;
+    #[given]
+    fn build(self, _app: &mut PluginBuilder, meta: super::AppMeta) -> anyhow::Result<()> {
         trace(if meta.identifier == "dev.uniproc.test" {
             "read the identifier"
         } else {
@@ -311,7 +316,7 @@ impl Plugin for Opened {
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         trace("opened");
-        app.on_cleanup(|_| {
+        app.on_cleanup(|| {
             trace("closed");
             Ok(())
         });
@@ -381,7 +386,7 @@ fn an_installed_application_hands_out_what_its_plugins_provided() {
         .install()
         .expect("install");
 
-    let store = runtime.context().try_require::<Store>().map(|store| store.0);
+    let store = runtime.service::<Store>().map(|store| store.0);
 
     assert_eq!(store, Some("db"));
 }

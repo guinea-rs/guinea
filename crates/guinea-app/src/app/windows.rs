@@ -174,8 +174,8 @@ impl Event for WindowChanged {}
 
 /// Commands to the windows an application's roots live in.
 ///
-/// A shell provides one; anything that needs it asks
-/// `try_require::<WindowService>()` - `try`, because a backend without windows
+/// A shell provides one; anything that needs it takes an
+/// `Option<WindowService>` - optional, because a backend without windows
 /// provides nothing and that is a normal state, not a misconfiguration.
 pub trait Windows: Send + Sync + 'static {
     /// Where the root's window is now, as far as the shell knows.

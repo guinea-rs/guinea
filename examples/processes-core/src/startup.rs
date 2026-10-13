@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use guinea::prelude::*;
@@ -6,6 +5,7 @@ use guinea_plugin_store::Store;
 
 use crate::events::ProcessKilled;
 
+#[derive(Clone)]
 pub struct StartedAt(pub Instant);
 
 const LAUNCHES: [&str; 2] = ["app", "launches"];
@@ -35,11 +35,11 @@ pub struct Startup;
 impl AppFeature for Startup {
     type Exports = ();
 
-    fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-        app.provide(StartedAt(Instant::now()));
-        let started: Arc<StartedAt> = app.require()?;
+    #[given]
+    fn install(self, app: &mut FeatureBuilder, store: Store) -> anyhow::Result<()> {
+        let started = Instant::now();
+        app.provide(StartedAt(started));
 
-        let store = app.require::<Store>()?;
         let launches = store.get::<u64>(LAUNCHES)?.unwrap_or_default() + 1;
         store.set(LAUNCHES, &launches)?;
         tracing::info!(launches, "started");
@@ -52,8 +52,8 @@ impl AppFeature for Startup {
             tracing::info!(process = %event.name, "process killed");
         });
 
-        app.on_cleanup(move |_| {
-            let uptime = started.0.elapsed();
+        app.on_cleanup(move || {
+            let uptime = started.elapsed();
             tracing::info!(?uptime, "shutdown ran");
             Ok(())
         });

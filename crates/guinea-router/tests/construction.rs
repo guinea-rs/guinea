@@ -10,9 +10,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
+use guinea_core::SharedState;
 use guinea_core::feature::Bound;
-use guinea_macros::{reducer, routes};
-use guinea_router::construction::check;
+use guinea_macros::{feature, installs, reducer, routes};
+use guinea_router::construction::{check, unprovided};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
 use guinea_router::router::{Router, SegmentEntry};
 
@@ -141,7 +142,37 @@ impl Page for Greedy {
     fn view(_cx: &mut HeadlessCx<Self>) {}
 }
 
+/// What a feature below takes, and what it can do without.
+#[derive(Clone)]
+struct Clock;
+
+#[derive(Clone)]
+struct Zone;
+
+feature! {
+    Ticking {}
+}
+
+#[installs]
+fn ticking(_cx: &FeatureInitContext, _clock: Clock, _zone: Option<Zone>) -> anyhow::Result<Ticking> {
+    Ok(Ticking)
+}
+
+struct Clocked;
+
+impl Page for Clocked {
+    type Params = ();
+    type Installs = Ticking;
+
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Ticking> {
+        ctx.install::<Ticking>(&())
+    }
+
+    fn view(_cx: &mut HeadlessCx<Self>) {}
+}
+
 const DOUBLED: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entry::<Doubling>()];
+const CLOCKED: [SegmentEntry<Headless>; 2] = [layout_entry::<Shell>(), segment_entry::<Clocked>()];
 const TWICE_ABOVE_READ: [SegmentEntry<Headless>; 3] = [
     layout_entry::<Shell>(),
     layout_entry::<Inner>(),
@@ -197,6 +228,21 @@ fn a_feature_listed_twice_by_one_segment_is_refused() {
 }
 
 #[test]
+fn what_a_feature_on_the_tree_takes_and_nothing_provided_is_named_where_it_is_installed() {
+    let missing = unprovided(&[&CLOCKED, &READ], &SharedState::new());
+
+    assert_eq!(missing, ["`Clocked` installs `Ticking`, which takes `Clock` - nothing provided it"]);
+}
+
+#[test]
+fn a_tree_whose_features_were_given_what_they_take_is_whole() {
+    let services = SharedState::new();
+    services.provide(Clock, "test").unwrap();
+
+    assert_eq!(unprovided(&[&CLOCKED], &services), Vec::<String>::new());
+}
+
+#[test]
 fn a_reducer_claimed_below_where_it_is_exported_is_a_warning() {
     let construction = check(&[&SHADOWED]);
 
@@ -241,4 +287,32 @@ fn the_first_navigation_refuses_a_tree_built_wrong_before_installing_anything() 
         "the route taken was fine, the tree it belongs to was not; got {message:?}"
     );
     assert_eq!(INSTALLED.get(), 0, "nothing installed before the tree was checked");
+}
+
+mod unprovided_on_navigation {
+    use super::*;
+
+    routes! {
+        backend = guinea_router::headless::Headless,
+        Route {
+            page(Reader)
+            page(Clocked)
+        }
+    }
+
+    #[test]
+    fn the_first_navigation_refuses_a_tree_whose_features_were_not_given_what_they_take() {
+        let router = Rc::new(Router::<Headless>::new(FeatureHost::detached()));
+
+        let outcome = catch_unwind(AssertUnwindSafe(|| router.navigate(Route::Reader {}).map(|_| ())));
+
+        let message = match &outcome {
+            Err(panic) => panic.downcast_ref::<String>().cloned(),
+            Ok(_) => None,
+        };
+        assert!(
+            message.as_deref().is_some_and(|it| it.contains("`Clocked` installs `Ticking`, which takes `Clock`")),
+            "the route taken was fine, a page elsewhere on the tree was not; got {message:?}"
+        );
+    }
 }

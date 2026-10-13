@@ -20,7 +20,7 @@ pub mod semantics;
 mod slots;
 mod winui;
 
-pub use guinea_app::feature::FeatureInitContext;
+pub use guinea_app::feature::{FeatureInitContext, Install};
 pub use guinea_core::guard::{Ask, Verdict};
 pub use guinea_macros::{winui_layout as layout, winui_page as page};
 pub use mark::MarkExt;

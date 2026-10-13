@@ -267,7 +267,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that installs -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    /// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
     /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -295,9 +295,9 @@ pub trait Page: Sized + 'static {
     ///
     /// /// A feature with parameters: which machine to list.
     /// #[installs]
-    /// fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Processes> {
+    /// fn processes(cx: &Install<str>) -> anyhow::Result<Processes> {
     ///     let listing = cx.state::<Listing>().plain();
-    ///     listing.push(format!("processes on {context}"));
+    ///     listing.push(format!("processes on {}", cx.params()));
     ///     Ok(Processes(listing))
     /// }
     ///
@@ -398,9 +398,12 @@ pub trait Page: Sized + 'static {
     /// impl Page for Table {
     ///     type Message = Msg;
     ///
-    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
-    ///         let saved = ctx.require_or_default::<SavedWidths>();
-    ///         Ok((Self { widths: saved.0 }, ()))
+    ///     fn install(
+    ///         _ctx: &FeatureInitContext,
+    ///         _params: &(),
+    ///         saved: Option<SavedWidths>,
+    ///     ) -> anyhow::Result<(Self, ())> {
+    ///         Ok((Self { widths: saved.unwrap_or_default().0 }, ()))
     ///     }
     ///
     ///     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -830,10 +833,14 @@ pub trait Layout: Sized + 'static {
     ///     type Params = ();
     ///     type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
     ///
-    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
+    ///     fn install(
+    ///         ctx: &FeatureInitContext,
+    ///         _params: &(),
+    ///         refresh: Option<Refresh>,
+    ///     ) -> anyhow::Result<(Self, Self::Installs)> {
     ///         // A setting the application may `provide`, and a default when
     ///         // it does not.
-    ///         let refresh = ctx.require_or_default::<Refresh>();
+    ///         let refresh = refresh.unwrap_or_default();
     ///         let title = ctx
     ///             .state::<Title>()
     ///             .seed(Title(format!("every {} ms", refresh.every_ms)));

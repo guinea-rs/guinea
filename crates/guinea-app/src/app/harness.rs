@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus};
@@ -50,6 +50,11 @@ impl TestApp {
     pub fn install_feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<&mut Self> {
         self.builder.feature(feature)?;
         Ok(self)
+    }
+
+    /// What was provided as `T`, for the test holding the application.
+    pub fn service<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
+        self.builder.services.get::<T>()
     }
 
     /// Tears the application down: everything it set up, the last first.
@@ -167,7 +172,7 @@ impl Harness {
 
     /// Provides one service, as a plugin would - for a test that needs a
     /// value and no plugin around it.
-    pub fn provide<T: Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
+    pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
         self.app.provide(value);
         self
     }
@@ -382,17 +387,6 @@ impl<'h> Segment<'h> {
         }
     }
 
-    /// A service the harness was provided, as a feature installing here
-    /// would [`require`](FeatureInitContext::require) it.
-    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        self.cx.require::<T>()
-    }
-
-    /// See [`FeatureInitContext::try_require`].
-    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.cx.try_require::<T>()
-    }
-
     /// Tears the segment down, as leaving a page does.
     pub fn leave(self) {}
 
@@ -405,16 +399,6 @@ impl<'h> Segment<'h> {
     /// The harness this segment belongs to.
     pub fn harness(&self) -> &'h Harness {
         self.harness
-    }
-}
-
-impl crate::services::Services for Segment<'_> {
-    fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        Segment::try_require(self)
-    }
-
-    fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        Segment::require(self)
     }
 }
 

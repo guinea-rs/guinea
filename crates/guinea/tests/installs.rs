@@ -25,6 +25,7 @@ mod counting {
         this.0 += by;
     }
 
+    #[derive(Clone)]
     pub struct Ready;
 
     feature! {
@@ -34,8 +35,7 @@ mod counting {
     }
 
     #[installs]
-    fn counting(cx: &FeatureInitContext) -> anyhow::Result<Counting> {
-        cx.require::<Ready>()?;
+    fn counting(cx: &FeatureInitContext, _ready: Ready) -> anyhow::Result<Counting> {
         let count = cx.state::<Count>().seed(Count(7)).plain();
         Ok(Counting(count))
     }
@@ -47,9 +47,9 @@ mod counting {
     }
 
     #[installs]
-    fn halfway(cx: &FeatureInitContext) -> anyhow::Result<Halfway> {
+    fn halfway(cx: &FeatureInitContext, ready: Option<Ready>) -> anyhow::Result<Halfway> {
         let count = cx.state::<Count>().plain();
-        cx.require::<Ready>()?;
+        ready.ok_or_else(|| anyhow::anyhow!("nothing provides Ready yet"))?;
         Ok(Halfway(count))
     }
 }

@@ -5,6 +5,7 @@ mod actor_dsl;
 mod app_dsl;
 mod elm;
 mod feature_dsl;
+mod given;
 mod handler;
 mod harness_test;
 mod inspect;
@@ -53,15 +54,20 @@ pub fn app(input: TokenStream) -> TokenStream {
 }
 
 /// The function that installs a feature: whatever it returns is the feature,
-/// its second argument is what it is installed with.
+/// what its `Install` carries is what it is installed with, and every
+/// argument after the context is a service the application provided.
 ///
 /// ```ignore
 /// #[installs]
-/// fn tabs(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Tabs> {
-///     let (tabs, _) = cx.state::<contracts::Tabs>().driven_by(|push| TabsActor::new(push));
+/// fn tabs(cx: &Install<String>, store: Store, clock: Option<Clock>) -> anyhow::Result<Tabs> {
+///     let (tabs, _) = cx.state::<contracts::Tabs>().driven_by(|push| TabsActor::new(cx.params(), push));
 ///     Ok(Tabs(tabs))
 /// }
 /// ```
+///
+/// A service is taken by clone, so it is taken by value; `Option<T>` is `None`
+/// when nothing provided `T`. What is missing refuses the install before the
+/// function runs, all of it named at once.
 ///
 /// A function taking `&mut FeatureBuilder` installs the application `app!`
 /// declared instead:
@@ -79,6 +85,27 @@ pub fn app(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn installs(_attr: TokenStream, item: TokenStream) -> TokenStream {
     installs::installs_impl(item)
+}
+
+/// Services as arguments, for a method a trait gives one context: a plugin's
+/// `build`, an application feature's `install`, an enter guard's `decide`.
+///
+/// ```ignore
+/// impl Plugin for WindowStatePlugin {
+///     const ID: &'static str = "window-state";
+///     type Exports = ();
+///
+///     #[given]
+///     fn build(self, app: &mut PluginBuilder, store: Store) -> anyhow::Result<()> { .. }
+/// }
+/// ```
+///
+/// Every argument after the context is taken as [`installs`] takes it. What is
+/// missing is the error the method returns, or a panic when it returns no
+/// `Result`.
+#[proc_macro_attribute]
+pub fn given(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    given::given_impl(item)
 }
 
 /// Makes a function a reducer: `impl Reducer` written from its signature. The

@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
-use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
 use guinea_app::feature::ScopeContext;
 use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{
@@ -72,11 +72,11 @@ where
 /// window closes.
 ///
 /// `initial` runs after the plugins are installed, and is handed the
-/// application's context to ask them through.
+/// installed application to read what they provided from.
 pub fn run<R>(
     app: GuineaApp,
     window: Window,
-    initial: impl FnOnce(&ScopeContext) -> R + 'static,
+    initial: impl FnOnce(&AppRuntime) -> R + 'static,
 ) -> anyhow::Result<()>
 where
     R: RouteChain<WinUi> + Clone + PartialEq + 'static,
@@ -97,10 +97,11 @@ where
             }
         };
         let context = runtime.context();
+        let initial = initial(&runtime);
         install_runtime(runtime);
         let installed = Installed;
 
-        cx.open_component_window::<Shown>(opening(&context, window, initial(&context)))?;
+        cx.open_component_window::<Shown>(opening(&context, window, initial))?;
         Ok(installed)
     });
 

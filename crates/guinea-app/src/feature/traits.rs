@@ -1,9 +1,7 @@
 use std::panic::Location;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use guinea_core::timers::{Period, Timer};
-use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
@@ -11,10 +9,6 @@ use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::{Reducer, Scope, Section};
-
-pub struct AppFeatureDeinitContext<'a> {
-    pub shared: &'a SharedState,
-}
 
 /// What installing into a scope may do, wherever the scope is: a segment's in
 /// a window, or the application's own.
@@ -30,8 +24,7 @@ pub struct ScopeContext {
     /// Whose what is registered through this context is: the feature or
     /// plugin installing, or the scope's own. A section of `scope`.
     section: Section,
-    /// What plugins provided during application startup.
-    pub services: SharedState,
+    pub(crate) services: SharedState,
 }
 
 impl ScopeContext {
@@ -81,6 +74,24 @@ impl std::ops::Deref for FeatureInitContext {
     }
 }
 
+impl super::given::Context for ScopeContext {
+    fn provided(&self) -> &SharedState {
+        &self.services
+    }
+}
+
+impl super::given::Context for FeatureInitContext {
+    fn provided(&self) -> &SharedState {
+        &self.services
+    }
+}
+
+impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
+    fn provided(&self) -> &SharedState {
+        &self.services
+    }
+}
+
 /// A named unit with its own lifetime, its own state, and one bit saying it is
 /// installed here.
 ///
@@ -127,6 +138,12 @@ pub trait Feature: Sized + 'static {
     const DECLARED: Option<Declared> = None;
 
     fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+
+    /// What `install` takes and cannot do without. `#[installs]` fills it in,
+    /// for a route tree to be checked against what was provided before it
+    /// is entered.
+    #[doc(hidden)]
+    fn needs(_into: &mut Vec<super::given::Need>) {}
 }
 
 /// What `feature!` declares about a feature: what it exports. `#[installs]`
@@ -290,41 +307,12 @@ impl ScopeContext {
         self.section.answers(answer);
     }
 
-    /// A service a plugin provided at startup.
-    ///
-    /// The counterpart of `PluginBuilder::provide`: this is how a page reaches
-    /// the store, or anything else an application-level plugin set up.
-    pub fn require<T: Send + Sync + 'static>(&self) -> anyhow::Result<Arc<T>> {
-        let service = std::any::type_name::<T>();
-        match self.services.try_get::<T>() {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => anyhow::bail!(
-                "no plugin provided service `{service}` - install the plugin that \
-                 provides it on the application, before the window opens"
-            ),
-            Err(poisoned) => Err(anyhow::Error::new(poisoned))
-                .with_context(|| format!("requiring service `{service}`")),
-        }
-    }
-
-    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.services.get::<T>()
-    }
-
     /// `R` as it is now, from this scope or the nearest one above that
     /// exports it; `None` when nothing in reach does. Read once: nothing here
     /// hears it change - [`observe`](Self::observe) does.
     pub fn read<R: Reducer>(&self) -> Option<Rc<R>> {
         let owner = self.scope.owner_of::<R>()?;
         Some(owner.binding::<R>().get())
-    }
-
-    /// What the application provided, or `T::default()` when it provided
-    /// nothing: for settings with a sensible default that an application may
-    /// override.
-    pub fn require_or_default<T: Clone + Default + Send + Sync + 'static>(&self) -> T {
-        self.try_require::<T>()
-            .map_or_else(T::default, |provided| T::clone(&provided))
     }
 
     /// Reacts to what happens to `R`, wherever `R` lives.

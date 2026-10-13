@@ -13,9 +13,8 @@ use guinea_core::scope::Reducer;
 /// A page or a layout being drawn, as far as reading goes - whatever backend
 /// draws it.
 ///
-/// What lets a plugin offer one shortcut on every backend, the way
-/// [`Services`](crate::services::Services) lets it offer one on every context
-/// that holds services. A segment reads `R` through it and is drawn again when
+/// What lets a plugin offer one shortcut on every backend. A segment reads
+/// `R` through it and is drawn again when
 /// `R` changes: by subscribing, or by drawing every frame anyway. A backend
 /// that builds its view once and binds it is not one of these - it binds.
 pub trait Reads {

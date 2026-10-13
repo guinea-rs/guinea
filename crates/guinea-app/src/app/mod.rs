@@ -50,8 +50,7 @@ impl GuineaApp {
     }
 
     /// Declares who this application is. Provided as a service, so any plugin
-    /// can ask for it with `require::<AppMeta>()` instead of being handed the
-    /// same strings by hand.
+    /// can take an `AppMeta` instead of being handed the same strings by hand.
     ///
     /// Installed before anything else, so where it sits in the chain does not
     /// matter - an application's identity is not a step in a sequence, and a
@@ -67,7 +66,7 @@ impl GuineaApp {
     /// its roots live in, say. Installed before any plugin, like
     /// [`meta`](Self::meta) and for the same reason: a plugin requiring it
     /// must not depend on where this call sat in the chain.
-    pub fn provide<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+    pub fn provide<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
         self.services.push(Box::new(move |app| {
             app.provide(value);
         }));

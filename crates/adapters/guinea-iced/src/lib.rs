@@ -48,7 +48,7 @@ pub use run::{MAIN, run};
 pub use guinea_core::guard::{Ask, Verdict};
 /// What `install` is handed. Re-exported because `#[page]` writes signatures
 /// that name it, and a node should not have to import it just for that.
-pub use guinea_app::feature::FeatureInitContext;
+pub use guinea_app::feature::{FeatureInitContext, Install};
 /// Writes down the associated types a node left out. See [`Page`].
 pub use guinea_macros::{iced_layout as layout, iced_page as page};
 

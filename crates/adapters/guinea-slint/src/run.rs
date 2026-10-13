@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
-use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
-use guinea_app::feature::{FeatureHost, ScopeContext};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::FeatureHost;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
 
@@ -30,8 +30,8 @@ pub const MAIN: &str = "main";
 /// `initial` is a closure rather than a value because where an application
 /// starts is often something only the installed plugins know - a route saved
 /// by the last run, read out of the store the store plugin just provided.
-/// Called once, after `install`, before the first frame, with the
-/// application's context to ask them through.
+/// Called once, after `install`, before the first frame, with the installed
+/// application to read them from.
 ///
 /// ```ignore
 /// guinea_slint::run(app, AppWindow::new()?, initial_route, |window, route| {
@@ -45,7 +45,7 @@ pub const MAIN: &str = "main";
 pub fn run<R, W, S>(
     app: GuineaApp,
     window: W,
-    initial: impl FnOnce(&ScopeContext) -> R,
+    initial: impl FnOnce(&AppRuntime) -> R,
     show: S,
 ) -> anyhow::Result<()>
 where
@@ -74,6 +74,8 @@ where
         Err(error) => return Err(error),
     };
     let context = runtime.context();
+    let saved = runtime.service::<SavedGeometry>();
+    let initial = initial(&runtime);
     install_runtime(runtime);
 
     let router = Rc::new(Router::<Slint>::new(FeatureHost::under(&context)));
@@ -87,10 +89,9 @@ where
     // runs has a key that outlives the id. One window per `run`, so it is the
     // main one; an application opening more names them itself.
     guinea_app::app::roots::set_label(root_id, MAIN);
-    restore(&shell, root_id, &context);
+    restore(&shell, root_id, saved);
     let _watching = windows::watch(shell.clone());
 
-    let initial = initial(&context);
     let window = Rc::new(window);
     let show = Rc::new(show);
     let route = Rc::new(RefCell::new(initial.clone()));
@@ -126,11 +127,11 @@ where
 ///
 /// Before the loop starts, which is the whole point: a window restored after
 /// it is on screen jumps, and a jump is what this is meant to avoid.
-fn restore(shell: &SlintWindows, root: RootId, app: &ScopeContext) {
+fn restore(shell: &SlintWindows, root: RootId, saved: Option<SavedGeometry>) {
     let Some(label) = guinea_app::app::roots::label(root) else {
         return;
     };
-    let Some(saved) = app.services.get::<SavedGeometry>() else {
+    let Some(saved) = saved else {
         return;
     };
     let Some(geometry) = saved.for_label(&label) else {

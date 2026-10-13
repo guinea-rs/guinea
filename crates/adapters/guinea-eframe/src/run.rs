@@ -8,8 +8,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_app::app::{GuineaApp, Stop, install_runtime, shutdown_current};
-use guinea_app::feature::{FeatureHost, ScopeContext};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::feature::FeatureHost;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 
 use crate::{Egui, dispatcher, nav};
@@ -27,13 +27,13 @@ pub const MAIN: &str = "main";
 /// A closure rather than a value because where an application starts is often
 /// something only the installed plugins know - a route saved by the last run,
 /// read out of the store the store plugin just provided. Called once, after
-/// `install`, before the first frame, with the application's context to ask
-/// them through.
+/// `install`, before the first frame, with the installed application to read
+/// them from.
 pub fn run<R>(
     app: GuineaApp,
     title: &str,
     options: eframe::NativeOptions,
-    initial: impl FnOnce(&ScopeContext) -> R,
+    initial: impl FnOnce(&AppRuntime) -> R,
 ) -> anyhow::Result<()>
 where
     R: RouteChain<Egui> + Clone + PartialEq + 'static,
@@ -50,7 +50,7 @@ where
         Err(error) => return Err(error),
     };
     let context = runtime.context();
-    let initial = initial(&context);
+    let initial = initial(&runtime);
     install_runtime(runtime);
 
     let router = Rc::new(Router::<Egui>::new(FeatureHost::under(&context)));

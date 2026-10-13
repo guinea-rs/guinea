@@ -151,7 +151,7 @@ mod installing {
     use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -179,9 +179,9 @@ mod installing {
 
     /// A feature with parameters: which machine to list.
     #[installs]
-    fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Processes> {
+    fn processes(cx: &Install<str>) -> anyhow::Result<Processes> {
         let listing = cx.state::<Listing>().plain();
-        listing.push(format!("processes on {context}"));
+        listing.push(format!("processes on {}", cx.params()));
         Ok(Processes(listing))
     }
 
@@ -312,9 +312,12 @@ mod starting_from_a_setting {
     impl Page for Table {
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
-            let saved = ctx.require_or_default::<SavedWidths>();
-            Ok((Self { widths: saved.0 }, ()))
+        fn install(
+            _ctx: &FeatureInitContext,
+            _params: &(),
+            saved: Option<SavedWidths>,
+        ) -> anyhow::Result<(Self, ())> {
+            Ok((Self { widths: saved.unwrap_or_default().0 }, ()))
         }
 
         fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -695,6 +698,7 @@ mod per_context {
     //@show a layout per context
     //@hide
     use guinea_macros::{feature, installs, reducer};
+    use guinea_winui::Install;
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     use windows_reactor::View;
@@ -715,9 +719,9 @@ mod per_context {
     }
 
     #[installs]
-    fn connection(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Connection> {
+    fn connection(cx: &Install<str>) -> anyhow::Result<Connection> {
         let machine = cx.state::<Machine>().plain();
-        machine.push(context.to_string());
+        machine.push(cx.params().to_string());
         Ok(Connection(machine))
     }
     //@unhide
@@ -812,10 +816,14 @@ mod layout_installing {
         type Params = ();
         type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
+        fn install(
+            ctx: &FeatureInitContext,
+            _params: &(),
+            refresh: Option<Refresh>,
+        ) -> anyhow::Result<(Self, Self::Installs)> {
             // A setting the application may `provide`, and a default when
             // it does not.
-            let refresh = ctx.require_or_default::<Refresh>();
+            let refresh = refresh.unwrap_or_default();
             let title = ctx
                 .state::<Title>()
                 .seed(Title(format!("every {} ms", refresh.every_ms)));

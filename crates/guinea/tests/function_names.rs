@@ -75,8 +75,8 @@ feature! {
 }
 
 #[installs]
-fn params(cx: &FeatureInitContext, _: &Settings) -> anyhow::Result<Configured> {
-    let _ = cx;
+fn params(cx: &Install<Settings>) -> anyhow::Result<Configured> {
+    let _ = cx.params();
     Ok(Configured)
 }
 

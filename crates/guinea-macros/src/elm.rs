@@ -66,6 +66,9 @@ fn adapter_path(package: &str, facade: &str) -> TokenStream {
 
 pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) -> TokenStream1 {
     let mut item = syn::parse_macro_input!(item as ItemImpl);
+    if let Err(error) = crate::given::segment_install(&mut item) {
+        return error.to_compile_error().into();
+    }
     let adapter = adapter_path(package, facade);
 
     let declared_type = |name: &str| {

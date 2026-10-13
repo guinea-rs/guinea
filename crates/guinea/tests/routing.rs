@@ -66,6 +66,7 @@ mod routing {
         }
     }
 
+    #[derive(Clone)]
     struct Greeting(&'static str);
 
     struct GreetingPlugin;
@@ -80,17 +81,26 @@ mod routing {
         }
     }
 
+    guinea_macros::feature! {
+        Greeted {}
+    }
+
+    #[guinea_macros::installs]
+    fn greeted(_cx: &FeatureInitContext, greeting: Greeting) -> anyhow::Result<Greeted> {
+        assert_eq!(greeting.0, "hello");
+        Ok(Greeted)
+    }
+
     #[derive(Default)]
     struct NeedsAService;
 
     #[page]
     impl Page for NeedsAService {
         type Params = ();
+        type Installs = Greeted;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
-            let greeting = ctx.require::<Greeting>()?;
-            assert_eq!(greeting.0, "hello");
-            Ok((Self::default(), ()))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Greeted)> {
+            Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {
@@ -99,7 +109,7 @@ mod routing {
     }
 
     #[test]
-    fn a_page_can_read_what_an_application_plugin_provided() {
+    fn a_page_s_feature_takes_what_an_application_plugin_provided() {
         let runtime = guinea::app::GuineaApp::new()
             .plugin(GreetingPlugin)
             .install()
@@ -111,7 +121,7 @@ mod routing {
 
         router
             .activate(page_chain::<NeedsAService>(), vec![Box::new(())])
-            .expect("the page's install must find the service the plugin provided");
+            .expect("the page's feature must be handed the service the plugin provided");
     }
 
     #[test]

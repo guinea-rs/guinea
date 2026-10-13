@@ -517,10 +517,14 @@ fn installed_for<U: Ui>(route: &impl RouteChain<U>, app: Option<Scope>) {
     );
 }
 
-/// Panics on a tree built wrong, before anything in it is installed, and
-/// says what deserves a word without refusing it.
-fn built_right<U: Ui>(tree: &[&'static [SegmentEntry<U>]]) {
-    let construction = crate::construction::check(tree);
+/// Panics on a tree built wrong, or with a feature on it nothing gave what it
+/// takes, before anything in it is installed - and says what deserves a word
+/// without refusing it.
+fn built_right<U: Ui>(tree: &[&'static [SegmentEntry<U>]], services: &guinea_core::SharedState) {
+    let mut construction = crate::construction::check(tree);
+    construction
+        .errors
+        .extend(crate::construction::unprovided(tree, services));
 
     for warning in &construction.warnings {
         tracing::warn!("{warning}");
@@ -1105,15 +1109,13 @@ pub struct Router<U: Ui> {
     listed: std::cell::Cell<bool>,
 }
 
-/// What the application's plugins provided, for code that has a router and
-/// no context - a terminal's key handler.
-impl<U: Ui> guinea_app::services::Services for Router<U> {
-    fn try_require<T: Send + Sync + 'static>(&self) -> Option<std::sync::Arc<T>> {
+impl<U: Ui> Router<U> {
+    /// What was provided as `T`, for code that holds the router and is no
+    /// install - a terminal's key handler.
+    pub fn service<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
         self.host.services().get::<T>()
     }
-}
 
-impl<U: Ui> Router<U> {
     /// Which root this router belongs to.
     ///
     /// One per host, so routers sharing a host share a root - and a router
@@ -1263,7 +1265,7 @@ impl<U: Ui> Router<U> {
     {
         if !self.listed.replace(true) {
             crate::observability::register(self);
-            built_right(R::tree());
+            built_right(R::tree(), self.host.services());
         }
         installed_for(&route, self.host.application().map(|app| app.scope));
 

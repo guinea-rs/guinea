@@ -438,7 +438,8 @@ mod reports {
         Ok(Reports(running))
     }
 
-    /// What a plugin provides, for a feature to read.
+    /// What a plugin provides, for a feature to take.
+    #[derive(Clone)]
     pub struct Prefix(pub &'static str);
 
     pub struct Prefixing;
@@ -471,7 +472,7 @@ mod reports {
             }
 
             IN_PLACE.set(true);
-            app.on_cleanup(|_| {
+            app.on_cleanup(|| {
                 IN_PLACE.set(false);
                 Ok(())
             });
@@ -484,8 +485,7 @@ mod reports {
     }
 
     #[installs]
-    fn prefixed(cx: &FeatureInitContext) -> anyhow::Result<Prefixed> {
-        let prefix = cx.require::<Prefix>()?;
+    fn prefixed(_cx: &FeatureInitContext, prefix: Prefix) -> anyhow::Result<Prefixed> {
         assert_eq!(prefix.0, "proc-");
         Ok(Prefixed)
     }
@@ -503,8 +503,8 @@ mod reports {
     }
 
     #[installs]
-    fn limited(cx: &FeatureInitContext) -> anyhow::Result<Limited> {
-        LIMITED_TO.set(Some(cx.require_or_default::<Limit>()));
+    fn limited(_cx: &FeatureInitContext, limit: Option<Limit>) -> anyhow::Result<Limited> {
+        LIMITED_TO.set(Some(limit.unwrap_or_default()));
         Ok(Limited)
     }
 }
@@ -824,64 +824,6 @@ fn a_plugin_installed_into_the_harness_serves_its_features(h: &mut Harness) {
 fn a_service_provided_to_the_harness_serves_its_features(h: &mut Harness) {
     h.provide(reports::Prefix("proc-"));
     h.child().install::<reports::Prefixed>(&()).unwrap();
-}
-
-#[guinea::test(iterations = 2)]
-fn a_segment_requires_what_the_harness_was_provided(h: &mut Harness) {
-    h.provide(reports::Prefix("proc-"));
-
-    assert_eq!(h.segment().require::<reports::Prefix>().unwrap().0, "proc-");
-    assert_eq!(h.child().try_require::<reports::Prefix>().map(|prefix| prefix.0), Some("proc-"));
-    assert!(h.segment().try_require::<reports::Limit>().is_none());
-    assert!(h.segment().require::<reports::Limit>().is_err());
-}
-
-mod everywhere {
-    use super::*;
-    use guinea::Services;
-    use guinea::enter::EnterCx;
-
-    pub fn prefix<C: Services + ?Sized>(cx: &C) -> Option<&'static str> {
-        cx.try_require::<reports::Prefix>().map(|prefix| prefix.0)
-    }
-
-    thread_local! {
-        pub static FROM_A_PLUGIN: std::cell::Cell<Option<&'static str>> =
-            const { std::cell::Cell::new(None) };
-    }
-
-    pub struct Probe;
-
-    impl Plugin for Probe {
-        const ID: &'static str = "test.probe";
-        type Exports = ();
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            FROM_A_PLUGIN.set(prefix(app));
-            Ok(())
-        }
-    }
-
-    pub fn from_a_guard(segment: &guinea::app::Segment<'_>) -> Option<&'static str> {
-        prefix(&EnterCx::new(&segment.context().services, "Route"))
-    }
-}
-
-#[guinea::test(iterations = 2)]
-fn one_extension_reaches_a_service_from_every_context(h: &mut Harness) {
-    h.provide(reports::Prefix("proc-"));
-    h.plugin(everywhere::Probe).unwrap();
-    let segment = h.child();
-
-    let found = [
-        everywhere::FROM_A_PLUGIN.get(),
-        everywhere::prefix(segment.context()),
-        everywhere::prefix(&segment),
-        everywhere::from_a_guard(&segment),
-    ];
-
-    assert_eq!(found, [Some("proc-"); 4]);
-    assert!(guinea::Services::require::<reports::Limit>(&segment).is_err());
 }
 
 #[guinea::test(iterations = 2)]

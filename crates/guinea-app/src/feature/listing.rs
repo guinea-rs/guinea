@@ -7,6 +7,7 @@
 use guinea_core::feature::{Bound, Exported, Named};
 use guinea_core::scope::Reducer;
 
+use super::given::Need;
 use super::traits::Feature;
 
 /// One thing a segment installs.
@@ -17,16 +18,21 @@ pub struct Listed {
     pub feature: bool,
     /// What segments below may read of it.
     pub exports: Vec<Named>,
+    /// What it takes from the application and cannot do without.
+    pub needs: Vec<Need>,
 }
 
 impl Listed {
     pub fn feature<F: Feature>() -> Self {
         let mut exports = Vec::new();
         F::Exports::named(&mut exports);
+        let mut needs = Vec::new();
+        F::needs(&mut needs);
         Self {
             what: Named::of::<F>(),
             feature: true,
             exports,
+            needs,
         }
     }
 
@@ -36,6 +42,7 @@ impl Listed {
             what: Named::of::<R>(),
             feature: false,
             exports: Vec::new(),
+            needs: Vec::new(),
         }
     }
 }

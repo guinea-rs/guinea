@@ -13,14 +13,20 @@
 //! struct RequiresAdmin;
 //!
 //! impl Enter for RequiresAdmin {
-//!     fn decide(cx: &EnterCx<'_>) -> Verdict {
-//!         match cx.try_require::<Session>() {
+//!     #[given]
+//!     fn decide(_cx: &EnterCx<'_>, session: Option<Session>) -> Verdict {
+//!         match session {
 //!             Some(session) if session.is_admin() => Verdict::Allow,
 //!             _ => Verdict::Block,
 //!         }
 //!     }
 //! }
 //! ```
+//!
+//! What a guard takes it usually takes as an `Option`: its answer to "there
+//! is no session" is its own to make, and for most guards it is
+//! [`Verdict::Block`]. One it takes outright and nothing provided panics the
+//! navigation that asked.
 //!
 //! ```ignore
 //! routes! {
@@ -37,9 +43,7 @@
 //! opens, so that removing protection reads as removing protection.
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
-use guinea_app::services::Services;
 use guinea_core::SharedState;
 use guinea_core::guard::Verdict;
 
@@ -70,26 +74,6 @@ impl<'a> EnterCx<'a> {
         Self { services, route }
     }
 
-    /// A service a plugin provided at startup, or `None` when nothing did.
-    ///
-    /// `None` rather than an error: a guard's answer to "there is no session
-    /// service" is its own to make, and for most guards it is [`Verdict::Block`].
-    #[deprecated(
-        since = "0.18.9",
-        note = "`try_require`, as every other context names it; in 0.19 `require` returns a Result here too"
-    )]
-    pub fn require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.services.get::<T>()
-    }
-
-    /// A service a plugin provided at startup, or `None` when nothing did.
-    ///
-    /// `None` rather than an error: a guard's answer to "there is no session
-    /// service" is its own to make, and for most guards it is [`Verdict::Block`].
-    pub fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.services.get::<T>()
-    }
-
     /// Where the navigation was heading, for a log line that says what was
     /// refused.
     pub fn route(&self) -> &str {
@@ -97,9 +81,9 @@ impl<'a> EnterCx<'a> {
     }
 }
 
-impl Services for EnterCx<'_> {
-    fn try_require<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        EnterCx::try_require(self)
+impl guinea_app::feature::given::Context for EnterCx<'_> {
+    fn provided(&self) -> &SharedState {
+        self.services
     }
 }
 

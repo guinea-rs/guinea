@@ -2,16 +2,18 @@
 //!
 //! ```ignore
 //! #[installs]
-//! fn agent_link(cx: &FeatureInitContext, params: &AgentLinkParams) -> anyhow::Result<AgentLink> {
+//! fn agent_link(cx: &Install<AgentLinkParams>, store: Store) -> anyhow::Result<AgentLink> {
 //!     let (link, _) = cx.state::<AgentLinkState>().driven_by(|port| AgentLinkActor::new(port));
 //!     Ok(AgentLink(link))
 //! }
 //! ```
 //!
 //! Everything the trait wants is already in the signature: the feature is what
-//! it returns, `Params` is what its second argument points at - `()` when
-//! there is none - and `Exports` is what the manifest listed. So the macro
-//! writes `impl Feature` from those, and the function stays a function.
+//! it returns, `Params` is what its `Install` carries - `()` for a plain
+//! `&FeatureInitContext` - and `Exports` is what the manifest listed. Every
+//! argument after the context is a service the application provided, taken
+//! by clone before the function runs; see `#[given]`. So the macro writes
+//! `impl Feature` from those, and the function stays a function.
 //!
 //! A function whose first argument is `&mut FeatureBuilder` installs the
 //! application `app!` declared, and gets `impl Application` instead.
@@ -41,8 +43,19 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     let feature = crate::segment::context_path();
     let name = &function.sig.ident;
 
+    let taken = match crate::given::taken(function.sig.inputs.iter().skip(1)) {
+        Ok(taken) => taken,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    let given: Vec<_> = (0..taken.len())
+        .map(|at| quote::format_ident!("__guinea_given_{at}"))
+        .collect();
+    let named: Vec<_> = given.iter().map(|ident| quote!(#ident)).collect();
+    let types: Vec<&Type> = taken.iter().map(|typed| &*typed.ty).collect();
+
     if builds_the_application(&function) {
         let app = crate::app_dsl::app_path();
+        let taking = crate::given::taking(quote!(&*__builder), &named, &types, quote!(?));
         return quote! {
             #function
 
@@ -50,7 +63,8 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 fn install(
                     __builder: &mut #app::FeatureBuilder,
                 ) -> #gc::__private::anyhow::Result<Self> {
-                    #name(__builder)
+                    #taking
+                    #name(__builder, #(#given),*)
                 }
             }
         }
@@ -75,16 +89,26 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
         quote!(#name::<#(#turbofish),*>)
     };
 
-    let (params, call) = match function.sig.inputs.iter().nth(1) {
-        Some(FnArg::Typed(second)) => {
-            let params = match &*second.ty {
-                Type::Reference(reference) => (*reference.elem).clone(),
-                other => other.clone(),
-            };
-            (quote!(#params), quote!(#called(__guinea_cx, __guinea_params)))
-        }
-        _ => (quote!(()), quote!(#called(__guinea_cx))),
+    let (params, cx) = match carried(&function) {
+        Some(params) => (
+            quote!(#params),
+            quote!(&#feature::Install::new(__guinea_cx, __guinea_params)),
+        ),
+        None => (quote!(()), quote!(__guinea_cx)),
     };
+    let taking = crate::given::taking(quote!(__guinea_cx), &named, &types, quote!(?));
+    let needs = (!types.is_empty()).then(|| {
+        quote! {
+            fn needs(__guinea_into: &mut ::std::vec::Vec<#feature::given::Need>) {
+                #[allow(unused_imports)]
+                use #feature::given::{Optional as _, Required as _};
+
+                __guinea_into.extend(
+                    [#((&#feature::given::Given::<#types>::new()).need()),*].into_iter().flatten(),
+                );
+            }
+        }
+    });
 
     quote! {
         #function
@@ -106,11 +130,41 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 __guinea_params: &Self::Params,
             ) -> #gc::__private::anyhow::Result<Self> {
                 let _ = __guinea_params;
-                #call
+                #taking
+                #called(#cx, #(#given),*)
             }
+
+            #needs
         }
     }
     .into()
+}
+
+/// The `P` of a first argument `&Install<P>` - `()` for a bare `&Install` -
+/// or `None` for any other context.
+fn carried(function: &ItemFn) -> Option<Type> {
+    let Some(FnArg::Typed(first)) = function.sig.inputs.first() else {
+        return None;
+    };
+    let Type::Reference(reference) = &*first.ty else {
+        return None;
+    };
+    let Type::Path(path) = &*reference.elem else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if last.ident != "Install" {
+        return None;
+    }
+
+    let carried = match &last.arguments {
+        PathArguments::AngleBracketed(arguments) => arguments.args.iter().find_map(|argument| match argument {
+            GenericArgument::Type(ty) => Some(ty.clone()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    Some(carried.unwrap_or_else(|| syn::parse_quote!(())))
 }
 
 /// Whether the first argument is `&mut FeatureBuilder` - the application's

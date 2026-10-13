@@ -52,6 +52,9 @@ pub fn segment_impl(attr: TokenStream1, item: TokenStream1) -> TokenStream1 {
     };
 
     let mut item = syn::parse_macro_input!(item as ItemImpl);
+    if let Err(error) = crate::given::segment_install(&mut item) {
+        return error.to_compile_error().into();
+    }
     let context = context_path();
 
     let declares_installs = item

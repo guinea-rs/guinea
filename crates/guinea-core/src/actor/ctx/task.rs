@@ -774,9 +774,12 @@ where
     let result = ends.wait(running, &ticket.cancel).await;
     drop(unwinding);
 
-    let Some(result) = result.filter(|_| !ticket.cancel.is_cancelled()) else {
-        traced.end_anywhere(ticket.cut(&traced));
-        return;
+    let result = match result {
+        Some(result) if !ticket.cancel.is_cancelled() => result,
+        _ => {
+            traced.end_anywhere(ticket.cut(&traced));
+            return;
+        }
     };
 
     invoke_on_ui(move || {

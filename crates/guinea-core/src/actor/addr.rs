@@ -289,17 +289,6 @@ impl<A: 'static> Addr<A> {
         self.send_under(msg, trace::current());
     }
 
-    /// [`Addr::send`], for a test that stabilizes what it set off.
-    #[cfg(feature = "test-utils")]
-    pub fn send_test<M>(&self, msg: M) -> crate::test_kit::Interaction<()>
-    where
-        M: 'static,
-        A: Handler<M>,
-    {
-        self.send(msg);
-        crate::test_kit::Interaction::new(())
-    }
-
     pub fn id(&self) -> usize {
         self.0.id
     }

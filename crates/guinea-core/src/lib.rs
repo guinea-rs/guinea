@@ -14,8 +14,6 @@ pub mod observability;
 pub mod shared_state;
 pub mod scope;
 pub mod semantics;
-#[cfg(feature = "test-utils")]
-pub mod test_kit;
 pub mod timers;
 pub mod trace;
 mod type_name;

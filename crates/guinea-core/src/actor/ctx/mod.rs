@@ -46,11 +46,6 @@ impl<A: 'static, M> Cx<A, M> {
         self.addr.clone()
     }
 
-    /// The same actor, handling nothing in particular.
-    pub fn detach(&self) -> Cx<A, ()> {
-        Cx::new(self.addr.clone())
-    }
-
     /// Sends to this actor's own queue, handled once the current message is.
     pub fn send<Out>(&self, msg: Out)
     where
@@ -200,20 +195,5 @@ mod tests {
         home.tree.remove();
 
         assert!(cancel.is_cancelled(), "teardown has to reach the tasks too");
-    }
-
-    #[test]
-    fn detach_keeps_the_address() {
-        let home = TestHome::new();
-        let log = Rc::new(RefCell::new(Vec::new()));
-        let addr = Addr::new(
-            Chain { log },
-            &home,
-        );
-
-        let cx = Cx::<_, First>::new(addr.clone());
-        let bare = cx.detach();
-
-        assert_eq!(bare.addr().id(), addr.id());
     }
 }

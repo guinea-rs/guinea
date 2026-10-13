@@ -1,17 +1,20 @@
-//! `feature!` - a feature's manifest: its name and what it exports.
+//! `feature!` - a feature's manifest: its name, what it exports and what it
+//! feeds.
 //!
 //! ```ignore
 //! feature! {
 //!     pub AgentLink {
 //!         exports { AgentLinkState }
+//!         feeds { AgentReport }
 //!     }
 //! }
 //! ```
 //!
 //! A list, not a struct: the manifest says what the feature is, and the
 //! feature itself is what `#[installs]` builds. The type it makes holds one
-//! `Bound` per export, in the order listed - `AgentLink(link)` - so the only
-//! way to have one is to have claimed each thing it exports.
+//! `Bound` per export, then one `Feed` per feed, in the order listed -
+//! `AgentLink(link, report)` - so the only way to have one is to have claimed
+//! each thing it exports and opened each feed.
 
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
@@ -26,6 +29,7 @@ struct Manifest {
     name: Ident,
     generics: Generics,
     exports: Vec<Type>,
+    feeds: Vec<Type>,
 }
 
 impl Parse for Manifest {
@@ -40,20 +44,25 @@ impl Parse for Manifest {
         braced!(body in input);
 
         let mut exports = Vec::new();
+        let mut feeds = Vec::new();
         while !body.is_empty() {
             let section: Ident = body.parse()?;
-            if section != "exports" {
-                return Err(syn::Error::new(
-                    section.span(),
-                    format!("unknown section `{section}`; a feature lists `exports`"),
-                ));
-            }
+            let into = match section.to_string().as_str() {
+                "exports" => &mut exports,
+                "feeds" => &mut feeds,
+                _ => {
+                    return Err(syn::Error::new(
+                        section.span(),
+                        format!("unknown section `{section}`; a feature lists `exports` and `feeds`"),
+                    ));
+                }
+            };
 
             let listed;
             braced!(listed in body);
             let types: Punctuated<Type, Token![,]> =
                 listed.parse_terminated(Type::parse, Token![,])?;
-            exports.extend(types);
+            into.extend(types);
         }
 
         Ok(Manifest {
@@ -62,6 +71,7 @@ impl Parse for Manifest {
             name,
             generics,
             exports,
+            feeds,
         })
     }
 }
@@ -78,13 +88,14 @@ fn expand(manifest: Manifest) -> TokenStream {
         name,
         generics,
         exports,
+        feeds,
     } = manifest;
 
-    if exports.is_empty() && !generics.params.is_empty() {
+    if exports.is_empty() && feeds.is_empty() && !generics.params.is_empty() {
         return syn::Error::new(
             name.span(),
-            "a generic feature holds what it exports, and this one exports nothing to hold its \
-             parameters - list what it exports, or drop the parameters",
+            "a generic feature holds what it exports and feeds, and this one has nothing to hold \
+             its parameters - list what it exports, or drop the parameters",
         )
         .to_compile_error();
     }
@@ -93,7 +104,7 @@ fn expand(manifest: Manifest) -> TokenStream {
     let feature = crate::segment::context_path();
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
-    let declared = if exports.is_empty() {
+    let declared = if exports.is_empty() && feeds.is_empty() {
         quote! {
             #(#attrs)*
             #vis struct #name;
@@ -101,7 +112,8 @@ fn expand(manifest: Manifest) -> TokenStream {
     } else {
         let fields = exports
             .iter()
-            .map(|export| quote!(#vis #gc::feature::Bound<#export>));
+            .map(|export| quote!(#vis #gc::feature::Bound<#export>))
+            .chain(feeds.iter().map(|fed| quote!(#vis #gc::feed::Feed<#fed>)));
         quote! {
             #(#attrs)*
             #vis struct #name #generics (#(#fields),*) #where_clause;

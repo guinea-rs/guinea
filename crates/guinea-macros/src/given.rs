@@ -57,21 +57,34 @@ pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type],
     }
 
     let feature = context_path();
+    let uses = probes();
+    let probed: Vec<TokenStream> = types.iter().map(|ty| probe(ty)).collect();
 
     quote! {
         let (#(#patterns,)*): (#(#types,)*) = {
-            #[allow(unused_imports)]
-            use #feature::given::{Optional as _, Required as _};
+            #uses
 
-            let __guinea_services = #feature::given::services(#cx);
-            #feature::given::check::<Self>(
-                __guinea_services,
-                &[#((&#feature::given::Given::<#types>::new()).need()),*],
-            ) #refused;
+            let __guinea_reach = #feature::given::reach(#cx);
+            #feature::given::check::<Self>(&__guinea_reach, &[#(#probed.need()),*]) #refused;
 
-            (#((&#feature::given::Given::<#types>::new()).take(__guinea_services),)*)
+            (#(#probed.take(&__guinea_reach),)*)
         };
     }
+}
+
+/// The traits [`probe`] picks among, in scope for it.
+pub(crate) fn probes() -> TokenStream {
+    let feature = context_path();
+    quote! {
+        #[allow(unused_imports)]
+        use #feature::given::{Bare as _, Once as _, Twice as _};
+    }
+}
+
+/// What an argument of type `ty` is taken through.
+pub(crate) fn probe(ty: &Type) -> TokenStream {
+    let feature = context_path();
+    quote!((&&#feature::given::Given::<#ty>::new()))
 }
 
 /// `?` when the function returns a `Result`, a panic when it cannot.

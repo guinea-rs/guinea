@@ -65,7 +65,7 @@ pub fn unprovided<U: Ui>(tree: &[&'static [SegmentEntry<U>]], services: &SharedS
         (entry.lists)(&mut listed);
 
         for item in &listed {
-            for need in item.needs.iter().filter(|need| !services.has(need.id)) {
+            for need in item.needs.iter().filter(|need| !need.fed && !services.has(need.id)) {
                 let said = format!(
                     "`{}` installs `{}`, which takes `{}` - nothing provided it",
                     short((entry.type_name)()),

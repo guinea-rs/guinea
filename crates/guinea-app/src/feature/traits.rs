@@ -1,5 +1,6 @@
 use std::panic::Location;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use guinea_core::timers::{Period, Timer};
 use guinea_core::SharedState;
@@ -7,6 +8,7 @@ use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
+use guinea_core::feed::{Feed, FeedWriter};
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::{Reducer, Scope, Section};
 
@@ -78,17 +80,29 @@ impl super::given::Context for ScopeContext {
     fn provided(&self) -> &SharedState {
         &self.services
     }
+
+    fn scope(&self) -> Option<Scope> {
+        Some(self.scope)
+    }
 }
 
 impl super::given::Context for FeatureInitContext {
     fn provided(&self) -> &SharedState {
         &self.services
     }
+
+    fn scope(&self) -> Option<Scope> {
+        Some(self.scope)
+    }
 }
 
 impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
     fn provided(&self) -> &SharedState {
         &self.services
+    }
+
+    fn scope(&self) -> Option<Scope> {
+        Some(self.scope)
     }
 }
 
@@ -340,6 +354,29 @@ impl ScopeContext {
                 callback(update);
             }
         }));
+    }
+
+    /// Opens the feed of `T` here: the writer is this feature's alone, and
+    /// what it [`feed`](FeedWriter::feed)s is for others to follow.
+    ///
+    /// When following it starts and stops matters to whoever produces the
+    /// value, answer [`Followed<T>`](guinea_core::feed::Followed) here.
+    ///
+    /// # Panics
+    ///
+    /// When this scope already has a feed of `T`, naming where it was opened.
+    #[track_caller]
+    pub fn feed<T: Send + Sync + 'static>(&self) -> FeedWriter<T> {
+        self.section.feed::<T>()
+    }
+
+    /// Hands `run` every value `feed` takes while this scope is awake,
+    /// starting with the one it has, for as long as this scope lives.
+    ///
+    /// Asleep, it is told nothing; woken, it is handed the value once if the
+    /// feed moved meanwhile.
+    pub fn follow<T: Send + Sync + 'static>(&self, feed: Feed<T>, run: impl Fn(Arc<T>) + 'static) {
+        feed.follow(self.scope, run);
     }
 
     /// Hears `M` on the bus of this scope's tree, for as long as this scope

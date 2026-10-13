@@ -34,8 +34,17 @@ struct Change {
     cause: Option<Cause>,
 }
 
+/// A feed that took a value, on its way to its followers.
+struct Fed {
+    scope: Scope,
+    of: TypeId,
+    /// Hands the feed's value now to each follower that has not seen it.
+    deliver: fn(Scope),
+}
+
 thread_local! {
     static MARKED: RefCell<Vec<Change>> = const { RefCell::new(Vec::new()) };
+    static FED: RefCell<Vec<Fed>> = const { RefCell::new(Vec::new()) };
     static OPENED: Cell<Option<Instant>> = const { Cell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
     static DRAINING: Cell<bool> = const { Cell::new(false) };
@@ -70,9 +79,9 @@ pub fn turn<R>(f: impl FnOnce() -> R) -> R {
 }
 
 pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
-    let opened_the_round = MARKED.with(|marked| {
+    let was_pending = pending();
+    MARKED.with(|marked| {
         let mut marked = marked.borrow_mut();
-        let was_empty = marked.is_empty();
 
         let seen = marked.iter().any(|c| c.cell == cell && c.scope == scope);
 
@@ -87,11 +96,27 @@ pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
                 cause: trace::current(),
             });
         }
-
-        was_empty
     });
 
-    if opened_the_round {
+    marked(was_pending);
+}
+
+/// Marks the feed of `of` in `scope` as moved: its followers are handed the
+/// value it has when the turn ends, with the state the turn changed.
+pub(crate) fn feed(scope: Scope, of: TypeId, deliver: fn(Scope)) {
+    let was_pending = pending();
+    FED.with(|fed| {
+        let mut fed = fed.borrow_mut();
+        if !fed.iter().any(|fed| fed.scope == scope && fed.of == of) {
+            fed.push(Fed { scope, of, deliver });
+        }
+    });
+
+    marked(was_pending);
+}
+
+fn marked(was_pending: bool) {
+    if !was_pending {
         OPENED.with(|opened| opened.set(Some(Instant::now())));
     }
 
@@ -117,7 +142,7 @@ const SETTLE_ROUNDS: usize = 16;
 /// [`SETTLE_ROUNDS`]: a cycle ends in a warning, not in a stack that never
 /// stops growing.
 pub fn drain() {
-    if DRAINING.with(Cell::get) || MARKED.with(|marked| marked.borrow().is_empty()) {
+    if DRAINING.with(Cell::get) || !pending() {
         return;
     }
 
@@ -137,14 +162,16 @@ pub fn drain() {
     let mut rounds = 0usize;
     let mut cells = 0usize;
     let mut listeners = 0usize;
+    let mut feeds = 0usize;
 
-    'drained: while MARKED.with(|marked| !marked.borrow().is_empty()) {
+    'drained: while pending() {
         let mut touched: Vec<(Scope, TypeId, Option<Cause>)> = Vec::new();
 
         // State first, and until it stops moving: an observer turning someone
         // else's update into its own is how one piece of state follows another,
-        // and all of it has to settle before anything is told to redraw.
-        while MARKED.with(|marked| !marked.borrow().is_empty()) {
+        // and all of it has to settle before anything is told to redraw. A
+        // feed's follower is one of those.
+        while pending() {
             rounds += 1;
             if rounds > SETTLE_ROUNDS {
                 tracing::warn!(
@@ -152,6 +179,7 @@ pub fn drain() {
                     "state did not settle - an observer or a listener is feeding itself"
                 );
                 MARKED.with(|marked| marked.borrow_mut().clear());
+                FED.with(|fed| fed.borrow_mut().clear());
                 break 'drained;
             }
 
@@ -181,6 +209,17 @@ pub fn drain() {
                     (observer.run)(&*update);
                 }
             }
+
+            let fed = FED.with(|fed| std::mem::take(&mut *fed.borrow_mut()));
+            for fed in fed {
+                if !fed.scope.is_alive() {
+                    gone += 1;
+                    continue;
+                }
+
+                feeds += 1;
+                (fed.deliver)(fed.scope);
+            }
         }
 
         cells += touched.len();
@@ -207,6 +246,7 @@ pub fn drain() {
         cells,
         listeners,
         updates,
+        feeds,
         rounds,
         gone,
         waited_us = opened.map(|at| at.elapsed().as_micros()).unwrap_or(0),
@@ -214,9 +254,9 @@ pub fn drain() {
     );
 }
 
-/// Whether any cell is waiting to be drained.
+/// Whether any cell or feed is waiting to be drained.
 pub fn pending() -> bool {
-    MARKED.with(|marked| !marked.borrow().is_empty())
+    MARKED.with(|marked| !marked.borrow().is_empty()) || FED.with(|fed| !fed.borrow().is_empty())
 }
 
 #[cfg(test)]

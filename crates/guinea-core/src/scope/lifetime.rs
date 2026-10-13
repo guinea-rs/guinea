@@ -13,6 +13,8 @@ pub(super) struct Lifetime {
     asleep: Rc<std::cell::Cell<bool>>,
     /// Run when it is shown again. See [`Scope::on_wake`].
     wake_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
+    /// Run when it is put to sleep. See [`Scope::on_sleep`].
+    sleep_hooks: RefCell<Vec<Rc<dyn Fn()>>>,
 }
 
 /// Whether a scope is awake, for something it owns to ask on its own.
@@ -57,8 +59,22 @@ impl Scope {
     /// their ticks, its actors and callbacks are not told what the buses
     /// carry - and nothing is queued for later: what happened meanwhile is
     /// missed. A router does this to a `keep` segment it leaves.
+    ///
+    /// Then runs what asked to hear of it, in the order it asked - until one
+    /// of them removes the scope or wakes it.
     pub fn sleep(&self) {
-        self.alive("putting to sleep").lifetime.asleep.set(true);
+        let data = self.alive("putting to sleep");
+        data.lifetime.asleep.set(true);
+
+        let hooks = data.lifetime.sleep_hooks.borrow().clone();
+        drop(data);
+        for hook in hooks {
+            if !self.is_alive() || self.is_awake() {
+                break;
+            }
+
+            hook();
+        }
     }
 
     /// Wakes this scope, then runs what asked to hear of it, in the order it
@@ -96,5 +112,12 @@ impl Scope {
     pub fn on_wake(&self, hook: impl Fn() + 'static) {
         let data = self.alive("waiting for a wake");
         data.lifetime.wake_hooks.borrow_mut().push(Rc::new(hook));
+    }
+
+    /// Runs `hook` every time this scope is put to sleep: for what it owns to
+    /// stop counting it as there.
+    pub fn on_sleep(&self, hook: impl Fn() + 'static) {
+        let data = self.alive("waiting for a sleep");
+        data.lifetime.sleep_hooks.borrow_mut().push(Rc::new(hook));
     }
 }

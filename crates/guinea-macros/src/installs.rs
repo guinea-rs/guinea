@@ -98,14 +98,13 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     };
     let taking = crate::given::taking(quote!(__guinea_cx), &named, &types, quote!(?));
     let needs = (!types.is_empty()).then(|| {
+        let uses = crate::given::probes();
+        let probed = types.iter().map(|ty| crate::given::probe(ty));
         quote! {
             fn needs(__guinea_into: &mut ::std::vec::Vec<#feature::given::Need>) {
-                #[allow(unused_imports)]
-                use #feature::given::{Optional as _, Required as _};
+                #uses
 
-                __guinea_into.extend(
-                    [#((&#feature::given::Given::<#types>::new()).need()),*].into_iter().flatten(),
-                );
+                __guinea_into.extend([#(#probed.need()),*].into_iter().flatten());
             }
         }
     });

@@ -17,18 +17,21 @@ mod request;
 mod routes_dsl;
 mod segment;
 
-/// A feature's manifest: its name, and the reducers it exports.
+/// A feature's manifest: its name, the reducers it exports and the feeds it
+/// opens.
 ///
 /// ```ignore
 /// feature! {
 ///     pub Tabs {
 ///         exports { contracts::Tabs }
+///         feeds { contracts::OpenTab }
 ///     }
 /// }
 /// ```
 ///
-/// It makes the feature's type - one `Bound` per export, in the order listed -
-/// and what it exports. What installs it is an [`installs`] function.
+/// It makes the feature's type - one `Bound` per export, then one `Feed` per
+/// feed, in the order listed - and what it exports. What installs it is an
+/// [`installs`] function.
 #[proc_macro]
 pub fn feature(input: TokenStream) -> TokenStream {
     feature_dsl::feature_impl(input)

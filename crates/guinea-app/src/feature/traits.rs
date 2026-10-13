@@ -6,7 +6,7 @@ use guinea_core::timers::{Period, Timer};
 use anyhow::Context as _;
 use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
-use guinea_core::actor::{Addr, Handler, Home, ManagedActor};
+use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
 use guinea_core::actor::event_bus::subscribe::Event;
 use guinea_core::feature::{Claim, Exported};
 use guinea_core::guard::{Ask, Verdict};
@@ -378,21 +378,16 @@ impl ScopeContext {
         Addr::new(actor, &Home::in_section(self.section))
     }
 
-    /// Sends `message()` to `addr` every `period`, for as long as this scope
-    /// lives.
+    /// Hands `to` a `message()` every `period`, for as long as this scope
+    /// lives: `to` is an actor that handles it, or a function that takes it.
     #[track_caller]
-    pub fn every<A, M>(
+    pub fn every<M: 'static>(
         &self,
         period: impl Into<Period>,
-        addr: &Addr<A>,
         message: impl Fn() -> M + 'static,
-    ) -> Timer
-    where
-        A: Handler<M>,
-        M: Send + 'static,
-    {
-        let addr = addr.clone();
-        self.section.repeat(period, move || addr.send(message()))
+        to: impl Receives<M>,
+    ) -> Timer {
+        self.section.repeat(period, move || to.receive(message()))
     }
 
     /// Runs `run` every `period`, for as long as this scope lives.

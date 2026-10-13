@@ -657,7 +657,7 @@ mod polling {
     #[installs]
     fn polling(cx: &FeatureInitContext) -> anyhow::Result<Polling> {
         let (samples, sampler) = cx.state::<Samples>().driven_by(|push| Sampler { push });
-        cx.every(std::time::Duration::from_millis(100), &sampler, || Sample);
+        cx.every(std::time::Duration::from_millis(100), || Sample, sampler);
         Ok(Polling(samples))
     }
 }
@@ -963,7 +963,7 @@ mod navigating {
         #[installs]
         fn frame_clock(cx: &FeatureInitContext) -> anyhow::Result<FrameClock> {
             let (ticks, ticker) = cx.state::<FrameTicks>().driven_by(|push| FrameTicker { push });
-            cx.every(std::time::Duration::from_secs(1), &ticker, || Tick);
+            cx.every(std::time::Duration::from_secs(1), || Tick, ticker);
             Ok(FrameClock(ticks))
         }
     }
@@ -1007,7 +1007,7 @@ mod navigating {
         #[installs]
         fn list_clock(cx: &FeatureInitContext) -> anyhow::Result<ListClock> {
             let (ticks, ticker) = cx.state::<ListTicks>().driven_by(|push| ListTicker { push });
-            cx.every(std::time::Duration::from_secs(1), &ticker, || Tick);
+            cx.every(std::time::Duration::from_secs(1), || Tick, ticker);
             Ok(ListClock(ticks))
         }
     }

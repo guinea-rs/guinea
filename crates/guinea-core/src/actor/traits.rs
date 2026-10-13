@@ -50,5 +50,23 @@ impl<A> EventSubscription<A> for () {
     fn subscribe_into(_: &Addr<A>) {}
 }
 
+/// What can be handed an `M`: a function that takes it, or an actor that
+/// handles it.
+pub trait Receives<M>: 'static {
+    fn receive(&self, message: M);
+}
+
+impl<M, F: Fn(M) + 'static> Receives<M> for F {
+    fn receive(&self, message: M) {
+        self(message)
+    }
+}
+
+impl<M: 'static, A: Handler<M>> Receives<M> for Addr<A> {
+    fn receive(&self, message: M) {
+        self.send(message)
+    }
+}
+
 pub trait AllowedSignal<M: 'static> {}
 impl<M: 'static> AllowedSignal<M> for M {}

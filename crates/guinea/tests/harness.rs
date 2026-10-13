@@ -323,7 +323,7 @@ mod polling {
     #[installs]
     fn polling(cx: &FeatureInitContext) -> anyhow::Result<Polling> {
         let (samples, sampler) = cx.state::<Samples>().driven_by(|push| Sampler { push });
-        cx.every(std::time::Duration::from_millis(100), &sampler, || Sample);
+        cx.every(std::time::Duration::from_millis(100), || Sample, sampler);
         Ok(Polling(samples))
     }
 }
@@ -1204,7 +1204,7 @@ mod lingering {
     #[installs]
     fn lingering(cx: &FeatureInitContext) -> anyhow::Result<Lingering> {
         let (pokes, addr) = cx.state::<Pokes>().driven_by(|push| Lingerer { push, _alive: Alive::new() });
-        cx.every(ms(100), &addr, || Poke);
+        cx.every(ms(100), || Poke, addr);
         Ok(Lingering(pokes))
     }
 }

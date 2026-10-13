@@ -1,9 +1,10 @@
 //! Timers, owned by the scope that set them up.
 //!
-//! A timer lives as long as its scope: the application's as long as the
-//! application, a feature's as long as the segment it is installed in. There
-//! is no timer without an owner. Each remembers where it was set up, which is
-//! how devtools tell one from another, and ticks on the UI thread.
+//! A timer is one of the things a scope holds, beside its actors and what it
+//! hears: it lives as long as the scope, ticks only while the scope is awake,
+//! and its wait ends the moment the scope goes. There is no timer without an
+//! owner. Each remembers where it was set up, which is how devtools tell one
+//! from another, and ticks on the UI thread.
 //!
 //! They wait on `tokio::time`, through the same executor as background work,
 //! so they need the runtime `cx.task()` needs - and under a test harness they
@@ -11,21 +12,18 @@
 
 use std::any::Any;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::panic::Location;
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use crate::actor::Cancel;
 use crate::observability::changes::{self, Change};
-use crate::scope::{Awake, Scope, Section};
-use crate::ui_thread::{invoke_on_ui, on_ui_thread};
+use crate::scope::{Scope, Section, next_key};
+use crate::ui_thread::invoke_on_ui;
 
 /// How long between ticks.
 pub enum Period {
     Fixed(Duration),
-    /// Asked again before every tick: for a period the user can change.
-    Varying(Box<dyn Fn() -> Duration>),
     /// See [`Period::follows`].
     Following {
         now: Box<dyn Fn() -> Option<Duration>>,
@@ -51,14 +49,9 @@ pub trait Changing: 'static {
 }
 
 impl Period {
-    pub fn varying(period: impl Fn() -> Duration + 'static) -> Self {
-        Period::Varying(Box::new(period))
-    }
-
     /// As long as `source` says, through `period`: a change cuts the wait
-    /// under way short and the next tick comes a new period after it, the
-    /// way [`Timer::period`] does. While `source` has nothing to read, the
-    /// timer does not tick.
+    /// under way short, and the next tick comes a new period after it. While
+    /// `source` has nothing to read, the timer does not tick.
     ///
     /// ```
     /// # use std::any::Any;
@@ -125,19 +118,19 @@ impl Period {
     fn next(&self) -> Option<Duration> {
         match self {
             Period::Fixed(period) => Some(*period),
-            Period::Varying(period) => Some(period()),
             Period::Following { now, .. } => now(),
         }
     }
 
-    /// Starts watching what it follows, for timer `id`: a change re-arms it
-    /// on the UI thread, wherever the change happened.
-    fn watch(&self, id: u64) -> Option<Box<dyn Any>> {
+    /// Starts watching what it follows, for the timer under `key` in `scope`:
+    /// a change starts its wait again on the UI thread, wherever the change
+    /// happened.
+    fn watch(&self, scope: Scope, key: usize) -> Option<Box<dyn Any>> {
         match self {
             Period::Following { watch, .. } => {
-                Some(watch(Box::new(move || invoke_on_ui(move || follow(id)))))
+                Some(watch(Box::new(move || invoke_on_ui(move || follow(scope, key)))))
             }
-            _ => None,
+            Period::Fixed(_) => None,
         }
     }
 }
@@ -157,48 +150,34 @@ pub struct TimerInfo {
     pub place: &'static Location<'static>,
     /// The feature that set it up.
     pub feature: Option<&'static str>,
-    /// The scope that owns it; `None` for the application.
-    pub scope: Option<Scope>,
-    /// The period of the last tick, or of the first one to come.
+    /// The scope that owns it.
+    pub scope: Scope,
+    /// The period of the wait under way, or of the last one.
     pub period: Duration,
 }
 
 struct Entry {
     info: TimerInfo,
     period: Period,
-    /// Which chain of wake-ups is the live one. Changing the period starts a
-    /// new chain, and whatever the old one had already queued is dropped
-    /// when it comes due.
-    generation: u64,
-    active: Option<Box<dyn Fn() -> bool>>,
-    /// The owning scope's, when a scope owns it: asleep, it skips its ticks.
-    awake: Option<Awake>,
-    /// What keeps the value a [`Period::Following`] follows watched.
-    watching: Option<Box<dyn Any>>,
     run: Box<dyn FnMut()>,
+    /// Ends the wait under way: when the timer goes, and when a new wait
+    /// takes its place.
+    waiting: Cancel,
+    /// What keeps the value a [`Period::Following`] follows watched.
+    _watching: Option<Box<dyn Any>>,
     traced: bool,
 }
 
-thread_local! {
-    static RUNNING: RefCell<HashMap<u64, Weak<RefCell<Entry>>>> = RefCell::new(HashMap::new());
-    static PENDING: RefCell<HashMap<u64, Box<dyn FnOnce()>>> = RefCell::new(HashMap::new());
-}
-
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-static NEXT_PENDING: AtomicU64 = AtomicU64::new(1);
-
-/// What keeps a timer running; the context that set it up holds it.
-pub struct Ticking {
-    entry: Rc<RefCell<Entry>>,
-}
+/// A timer as its scope holds it: dropping it stops the timer.
+pub(crate) struct Ticking(Rc<RefCell<Entry>>);
 
 impl Drop for Ticking {
     fn drop(&mut self) {
         let (id, traced) = {
-            let entry = self.entry.borrow();
+            let entry = self.0.borrow();
+            entry.waiting.cancel();
             (entry.info.id, entry.traced)
         };
-        RUNNING.with(|running| running.borrow_mut().remove(&id));
 
         if traced {
             changes::changed(|| Change::TimerStopped { id });
@@ -206,64 +185,32 @@ impl Drop for Ticking {
     }
 }
 
+impl Ticking {
+    fn entry(&self) -> Rc<RefCell<Entry>> {
+        self.0.clone()
+    }
+
+    fn info(&self) -> Option<TimerInfo> {
+        let entry = self.0.borrow();
+        entry.traced.then(|| entry.info.clone())
+    }
+}
+
 /// A timer that was set up, for saying more about it.
 ///
 /// Holding it does not keep the timer running, and dropping it does not stop
-/// it: that is up to the context.
+/// it: the scope that set it up does both.
 #[derive(Clone)]
 pub struct Timer {
     entry: Weak<RefCell<Entry>>,
 }
 
 impl Timer {
-    fn change(self, change: impl FnOnce(&mut Entry)) -> Self {
-        if let Some(entry) = self.entry.upgrade() {
-            change(&mut entry.borrow_mut());
-        }
-        self
-    }
-
     /// What devtools call it, instead of where it was set up.
     pub fn named(self, name: &'static str) -> Self {
-        self.change(|entry| entry.info.name = Some(name))
-    }
-
-    /// Ticks only while `active` says so; the period runs on regardless.
-    pub fn when(self, active: impl Fn() -> bool + 'static) -> Self {
-        self.change(|entry| entry.active = Some(Box::new(active)))
-    }
-
-    /// Changes how often it ticks, from now.
-    ///
-    /// The wait already under way is cut short rather than waited out, which
-    /// is the difference from a [`Period::Varying`] that answers differently
-    /// the next time it is asked: an hourly timer told to tick every second
-    /// does so within the second, not within the hour.
-    pub fn period(self, period: impl Into<Period>) -> Self {
-        let Some(entry) = self.entry.upgrade() else {
-            return self;
-        };
-
-        let id = entry.borrow().info.id;
-        let period = period.into();
-        let watching = period.watch(id);
-
-        let (generation, next, unwatched) = {
-            let mut entry = entry.borrow_mut();
-            entry.period = period;
-            let unwatched = std::mem::replace(&mut entry.watching, watching);
-            entry.generation += 1;
-
-            let next = entry.period.next();
-            if let Some(next) = next {
-                entry.info.period = next;
-            }
-
-            (entry.generation, next, unwatched)
-        };
-        drop(unwatched);
-
-        wake_after(id, generation, next);
+        if let Some(entry) = self.entry.upgrade() {
+            entry.borrow_mut().info.name = Some(name);
+        }
         self
     }
 
@@ -292,100 +239,102 @@ impl Timer {
 
 impl Section {
     /// Runs `run` every `period`, for as long as this section's scope lives.
+    ///
+    /// # Panics
+    ///
+    /// When the scope is gone.
     #[track_caller]
     pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
+        let place = Location::caller();
         let scope = self.scope();
-        let (ticking, timer) = start(
-            Location::caller(),
-            self.feature(),
-            Some(scope),
-            period.into(),
-            run,
-        );
-        scope.hold_timer(ticking);
+
+        let key = next_key();
+        let period = period.into();
+        let watching = period.watch(scope, key);
+
+        let entry = Rc::new(RefCell::new(Entry {
+            info: TimerInfo {
+                id: key as u64,
+                name: None,
+                place,
+                feature: self.feature(),
+                scope,
+                period: Duration::ZERO,
+            },
+            period,
+            run: Box::new(run),
+            waiting: Cancel::new(),
+            _watching: watching,
+            traced: true,
+        }));
+
+        let timer = Timer {
+            entry: Rc::downgrade(&entry),
+        };
+        scope.hold_timer(key, Ticking(entry.clone()));
+        changes::changed(|| Change::TimerStarted { id: key as u64 });
+        wait(scope, key, &mut entry.borrow_mut());
 
         timer
     }
 }
 
-/// Starts a timer: what keeps it running, for its scope to hold, and the
-/// timer itself, for the caller to name.
-fn start(
-    place: &'static Location<'static>,
-    feature: Option<&'static str>,
-    scope: Option<Scope>,
-    period: Period,
-    run: impl FnMut() + 'static,
-) -> (Ticking, Timer) {
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let first = period.next();
-    let watching = period.watch(id);
-    let awake = scope.map(|scope| scope.awake());
+impl Scope {
+    /// The timers this scope and every scope under it run, that devtools may
+    /// see, oldest first.
+    pub fn timers(&self) -> Vec<TimerInfo> {
+        let mut timers = Vec::new();
+        for scope in self.subtree() {
+            scope.each_timer(|ticking| timers.extend(ticking.info()));
+        }
 
-    let entry = Rc::new(RefCell::new(Entry {
-        info: TimerInfo {
-            id,
-            name: None,
-            place,
-            feature,
-            scope,
-            period: first.unwrap_or_default(),
-        },
-        period,
-        generation: 0,
-        active: None,
-        awake,
-        watching,
-        run: Box::new(run),
-        traced: true,
-    }));
-
-    RUNNING.with(|running| running.borrow_mut().insert(id, Rc::downgrade(&entry)));
-    changes::changed(|| Change::TimerStarted { id });
-    wake_after(id, 0, first);
-
-    let timer = Timer {
-        entry: Rc::downgrade(&entry),
-    };
-    (Ticking { entry }, timer)
-}
-
-/// The timers running on this thread that devtools may see, oldest first.
-pub fn running() -> Vec<TimerInfo> {
-    let mut timers: Vec<TimerInfo> = RUNNING.with(|running| {
-        running
-            .borrow()
-            .values()
-            .filter_map(Weak::upgrade)
-            .filter(|entry| entry.borrow().traced)
-            .map(|entry| entry.borrow().info.clone())
-            .collect()
-    });
-
-    timers.sort_by_key(|timer| timer.id);
-    timers
-}
-
-fn tick(id: u64, generation: u64) {
-    let entry = RUNNING.with(|running| running.borrow().get(&id).and_then(Weak::upgrade));
-    let Some(entry) = entry else {
-        return;
-    };
-
-    // Left over from a period that has since changed: the chain it belonged
-    // to ended when the new one was armed.
-    if entry.borrow().generation != generation {
-        return;
+        timers.sort_by_key(|timer| timer.id);
+        timers
     }
 
-    let (active, traced, name, place) = {
-        let entry = entry.borrow();
-        let active = entry.active.as_ref().is_none_or(|active| active())
-            && entry.awake.as_ref().is_none_or(Awake::now);
-        (active, entry.traced, entry.info.name, entry.info.place)
+    /// The timers this scope runs itself, oldest first - not those of the
+    /// scopes under it.
+    pub fn timers_here(&self) -> Vec<TimerInfo> {
+        let mut timers = Vec::new();
+        self.each_timer(|ticking| timers.extend(ticking.info()));
+        timers
+    }
+}
+
+/// Starts the next wait of the timer under `key` in `scope`, ending the one
+/// under way. With nothing to wait by, there is no next wait until what the
+/// period follows changes.
+fn wait(scope: Scope, key: usize, entry: &mut Entry) {
+    entry.waiting.cancel();
+    let waiting = Cancel::new();
+    entry.waiting = waiting.clone();
+
+    let Some(after) = entry.period.next() else {
+        return;
+    };
+    entry.info.period = after;
+
+    crate::executor::spawn(async move {
+        if waiting.guard(tokio::time::sleep(after)).await.is_none() {
+            return;
+        }
+        invoke_on_ui(move || tick(scope, key, waiting));
+    });
+}
+
+fn tick(scope: Scope, key: usize, waited: Cancel) {
+    if waited.is_cancelled() {
+        return;
+    }
+    let Some(entry) = scope.held_timer(key, Ticking::entry) else {
+        return;
     };
 
-    if active {
+    if scope.is_awake() {
+        let (id, traced, name, place) = {
+            let entry = entry.borrow();
+            (entry.info.id, entry.traced, entry.info.name, entry.info.place)
+        };
         let mut run = std::mem::replace(&mut entry.borrow_mut().run, Box::new(|| {}));
 
         {
@@ -403,97 +352,27 @@ fn tick(id: u64, generation: u64) {
         entry.borrow_mut().run = run;
     }
 
-    let next = {
-        let mut entry = entry.borrow_mut();
-        let next = entry.period.next();
-        if let Some(next) = next {
-            entry.info.period = next;
-        }
-
-        next
-    };
-
-    // With the generation this tick came from, not the one the entry holds
-    // now: a `Timer::period` from inside `run` has already armed its own
-    // chain, and this one is over.
-    wake_after(id, generation, next);
-}
-
-/// What a [`Period::Following`] does when its value changes: starts a new
-/// chain from now, as [`Timer::period`] does, and ends the one under way.
-fn follow(id: u64) {
-    let entry = RUNNING.with(|running| running.borrow().get(&id).and_then(Weak::upgrade));
-    let Some(entry) = entry else {
+    if waited.is_cancelled() {
         return;
-    };
-
-    let (generation, next) = {
-        let mut entry = entry.borrow_mut();
-        entry.generation += 1;
-
-        let next = entry.period.next();
-        if let Some(next) = next {
-            entry.info.period = next;
-        }
-
-        (entry.generation, next)
-    };
-
-    wake_after(id, generation, next);
+    }
+    wait(scope, key, &mut entry.borrow_mut());
 }
 
-/// Arms one tick: a task that waits `after` on the clock guinea's work runs by
-/// and hands the tick to the UI thread - tokio's in an application, the test's
-/// own under a harness. With nothing to wait by, the chain ends here.
-fn wake_after(id: u64, generation: u64, after: Option<Duration>) {
-    let Some(after) = after else {
-        return;
-    };
-
-    crate::executor::spawn(async move {
-        tokio::time::sleep(after).await;
-        invoke_on_ui(move || tick(id, generation));
-    });
-}
-
-/// Runs `run` once on the UI thread, `delay` from now: for gathering what
-/// happens in a burst into one go.
-///
-/// Not a timer - nothing lists it, nothing traces it - and nothing holds it:
-/// `run` should hold weakly whatever may be gone by the time it runs.
-///
-/// # Panics
-///
-/// When called off the UI thread: `run` is not `Send`, so it cannot be
-/// taken there. Call it from the UI thread, or from work handed to it with
-/// [`invoke_on_ui`].
-#[track_caller]
-pub fn after(delay: Duration, run: impl FnOnce() + 'static) {
-    assert!(
-        on_ui_thread() != Some(false),
-        "timers::after called off the UI thread, where its closure would never run; call it on the UI thread, or inside guinea_core::ui_thread::invoke_on_ui"
-    );
-
-    let id = NEXT_PENDING.fetch_add(1, Ordering::Relaxed);
-    PENDING.with(|pending| pending.borrow_mut().insert(id, Box::new(run)));
-
-    crate::executor::spawn(async move {
-        tokio::time::sleep(delay).await;
-        invoke_on_ui(move || {
-            let run = PENDING.with(|pending| pending.borrow_mut().remove(&id));
-            if let Some(run) = run {
-                run();
-            }
-        });
-    });
+/// What a [`Period::Following`] does when its value changes: waits anew from
+/// now, by what the value says now.
+fn follow(scope: Scope, key: usize) {
+    if let Some(entry) = scope.held_timer(key, Ticking::entry) {
+        wait(scope, key, &mut entry.borrow_mut());
+    }
 }
 
 #[cfg(all(test, feature = "test-utils"))]
 mod tests {
     use super::*;
     use crate::executor::{Installed, install};
+    use crate::scope::ScopeTree;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// The test's own clock: timers wait on it, and it moves only when told.
     fn clock() -> Installed {
@@ -508,21 +387,21 @@ mod tests {
         counter.load(Ordering::SeqCst)
     }
 
-    fn counting(period: u64) -> (Ticking, Timer, Arc<AtomicUsize>) {
+    #[track_caller]
+    fn counting(tree: &ScopeTree, period: impl Into<Period>) -> (Timer, Arc<AtomicUsize>) {
         let counter = Arc::new(AtomicUsize::new(0));
 
         let c = counter.clone();
-        let (ticking, timer) = start(
-            Location::caller(),
-            None,
-            None,
-            Duration::from_millis(period).into(),
-            move || {
-                c.fetch_add(1, Ordering::SeqCst);
-            },
-        );
+        let timer = tree.section().repeat(period, move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        });
 
-        (ticking, timer, counter)
+        (timer, counter)
+    }
+
+    #[track_caller]
+    fn every(tree: &ScopeTree, ms: u64) -> (Timer, Arc<AtomicUsize>) {
+        counting(tree, Duration::from_millis(ms))
     }
 
     fn watched(run: impl FnOnce()) -> Vec<Change> {
@@ -539,12 +418,13 @@ mod tests {
     #[test]
     fn devtools_hear_when_a_timer_starts_and_when_it_stops() {
         let _clock = clock();
+        let tree = ScopeTree::new();
         let mut id = None;
 
         let seen = watched(|| {
-            let (ticking, timer, _) = counting(30);
+            let (timer, _) = every(&tree, 30);
             id = timer.id();
-            drop(ticking);
+            tree.remove();
         });
 
         let id = id.expect("running");
@@ -554,13 +434,14 @@ mod tests {
     #[test]
     fn an_untraced_timer_leaves_devtools_at_once_and_stops_unheard() {
         let _clock = clock();
+        let tree = ScopeTree::new();
         let mut id = None;
 
         let seen = watched(|| {
-            let (ticking, timer, _) = counting(30);
+            let (timer, _) = every(&tree, 30);
             id = timer.id();
             let _timer = timer.untraced();
-            drop(ticking);
+            tree.remove();
         });
 
         let id = id.expect("running");
@@ -568,39 +449,10 @@ mod tests {
     }
 
     #[test]
-    fn after_runs_once_when_its_delay_is_up() {
-        let clock = clock();
-        let ran = Rc::new(std::cell::Cell::new(0));
-
-        let counter = ran.clone();
-        after(Duration::from_millis(16), move || counter.set(counter.get() + 1));
-
-        wait(&clock, 15);
-        assert_eq!(ran.get(), 0, "ran before its delay was up");
-
-        wait(&clock, 1);
-        assert_eq!(ran.get(), 1);
-
-        wait(&clock, 100);
-        assert_eq!(ran.get(), 1, "ran again");
-    }
-
-    #[test]
-    fn after_is_no_timer_devtools_hear_of() {
-        let clock = clock();
-
-        let seen = watched(|| {
-            after(Duration::from_millis(16), || {});
-            wait(&clock, 16);
-        });
-
-        assert_eq!(seen, []);
-    }
-
-    #[test]
     fn a_timer_ticks_every_period() {
         let clock = clock();
-        let (_ticking, _timer, counter) = counting(30);
+        let tree = ScopeTree::new();
+        let (_timer, counter) = every(&tree, 30);
 
         wait(&clock, 29);
         assert_eq!(count(&counter), 0, "ticked before its period was up");
@@ -613,8 +465,9 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_says_whose_it_is_without_asking_the_running_timers() {
+    fn a_tick_says_whose_it_is() {
         let clock = clock();
+        let tree = ScopeTree::new();
         let ticks = Rc::new(RefCell::new(Vec::new()));
         let heard = ticks.clone();
         crate::trace::observe(move |trace| {
@@ -626,7 +479,7 @@ mod tests {
         });
 
         let place = Location::caller();
-        let (_ticking, timer) = start(place, None, None, Duration::from_millis(30).into(), || {});
+        let (timer, _) = every(&tree, 30);
         let timer = timer.named("flush");
         wait(&clock, 30);
         crate::trace::stop_observing();
@@ -637,108 +490,78 @@ mod tests {
                 timer: timer.id().expect("running"),
                 name: Some("flush"),
                 file: place.file(),
-                line: place.line(),
+                line: place.line() + 1,
             }]
         );
     }
 
     #[test]
-    fn a_timer_stops_with_what_keeps_it() {
+    fn a_timer_stops_with_its_scope() {
         let clock = clock();
-        let (ticking, _timer, counter) = counting(30);
+        let tree = ScopeTree::new();
+        let (_timer, counter) = every(&tree, 30);
 
         wait(&clock, 30);
         assert_eq!(count(&counter), 1);
-        drop(ticking);
+        tree.remove();
 
         wait(&clock, 90);
         assert_eq!(count(&counter), 1);
     }
 
     #[test]
-    fn a_timer_dropped_before_its_first_tick_never_ticks() {
+    fn a_timer_gone_with_its_scope_leaves_nothing_waiting() {
         let clock = clock();
-        let (ticking, _timer, counter) = counting(200);
+        let tree = crate::scope::ScopeTree::new();
+        tree.section().repeat(Duration::from_secs(60), || {});
+        clock.run_until_parked();
+        assert_eq!(clock.stuck(), 1, "its wait is under way");
 
-        drop(ticking);
+        tree.remove();
+        clock.run_until_parked();
+
+        assert_eq!(clock.stuck(), 0, "the wait outlived the timer it was for");
+    }
+
+    #[test]
+    fn a_timer_gone_before_its_first_tick_never_ticks() {
+        let clock = clock();
+        let tree = ScopeTree::new();
+        let (_timer, counter) = every(&tree, 200);
+
+        tree.remove();
 
         wait(&clock, 250);
         assert_eq!(count(&counter), 0);
     }
 
     #[test]
-    fn changing_the_period_cuts_the_wait_short_and_ends_the_old_chain() {
-        let clock = clock();
-        let (_ticking, timer, counter) = counting(60_000);
-
-        let timer = timer.period(Duration::from_millis(20));
-        wait(&clock, 20);
-        assert_eq!(count(&counter), 1, "a minute's wait was waited out");
-
-        let _timer = timer.period(Duration::from_secs(60));
-        wait(&clock, 80);
-        assert_eq!(
-            count(&counter),
-            1,
-            "the twenty-millisecond chain kept ticking after the period changed"
-        );
-
-        wait(&clock, 60_000);
-        assert_eq!(count(&counter), 2);
-    }
-
-    #[test]
-    fn a_timer_ticks_only_while_active() {
-        let clock = clock();
-        let (_ticking, timer, counter) = counting(30);
-
-        let active = Arc::new(AtomicBool::new(false));
-        let a = active.clone();
-        let _timer = timer.when(move || a.load(Ordering::SeqCst));
-
-        wait(&clock, 60);
-        assert_eq!(count(&counter), 0);
-
-        active.store(true, Ordering::SeqCst);
-        wait(&clock, 30);
-        assert_eq!(count(&counter), 1);
-
-        active.store(false, Ordering::SeqCst);
-        wait(&clock, 60);
-        assert_eq!(count(&counter), 1);
-    }
-
-    #[test]
     fn a_timer_skips_its_ticks_while_its_scope_sleeps() {
         let clock = clock();
-        let scope = crate::scope::ScopeTree::new();
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let c = counter.clone();
-        let (_ticking, _timer) = start(
-            Location::caller(),
-            None,
-            Some(scope.scope()),
-            Duration::from_millis(30).into(),
-            move || {
-                c.fetch_add(1, Ordering::SeqCst);
-            },
-        );
+        let tree = ScopeTree::new();
+        let (_timer, counter) = every(&tree, 30);
 
         wait(&clock, 30);
         assert_eq!(count(&counter), 1);
 
-        scope.sleep();
+        tree.sleep();
         wait(&clock, 90);
         assert_eq!(count(&counter), 1, "ticked while its scope slept");
 
-        scope.wake();
+        tree.wake();
         wait(&clock, 30);
-        assert_eq!(
-            count(&counter),
-            2,
-            "the ticks it slept through were saved up for it"
-        );
+        assert_eq!(count(&counter), 2, "the ticks it slept through were saved up for it");
+    }
+
+    #[test]
+    #[should_panic(expected = "starting a timer")]
+    fn a_timer_for_a_scope_that_is_gone_is_a_mistake() {
+        let _clock = clock();
+        let tree = ScopeTree::new();
+        let section = tree.section();
+        tree.remove();
+
+        section.repeat(Duration::from_millis(30), || {});
     }
 
     type Watcher = (u64, Arc<dyn Fn() + Send + Sync>);
@@ -790,29 +613,17 @@ mod tests {
         }
     }
 
-    fn following(knob: &Knob) -> (Ticking, Timer, Arc<AtomicUsize>) {
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        let c = counter.clone();
-        let (ticking, timer) = start(
-            Location::caller(),
-            None,
-            None,
-            Period::follows(knob.clone(), Duration::from_millis),
-            move || {
-                c.fetch_add(1, Ordering::SeqCst);
-            },
-        );
-
-        (ticking, timer, counter)
+    fn following(tree: &ScopeTree, knob: &Knob) -> (Timer, Arc<AtomicUsize>) {
+        counting(tree, Period::follows(knob.clone(), Duration::from_millis))
     }
 
     #[test]
     fn a_period_that_follows_a_value_changes_the_moment_the_value_does() {
         let clock = clock();
+        let tree = ScopeTree::new();
         let knob = Knob::default();
         knob.set(1_000);
-        let (_ticking, _timer, counter) = following(&knob);
+        let (_timer, counter) = following(&tree, &knob);
 
         wait(&clock, 100);
         knob.set(50);
@@ -825,10 +636,26 @@ mod tests {
     }
 
     #[test]
+    fn a_change_leaves_only_the_new_wait_waiting() {
+        let clock = clock();
+        let tree = ScopeTree::new();
+        let knob = Knob::default();
+        knob.set(60_000);
+        let (_timer, _counter) = following(&tree, &knob);
+        clock.run_until_parked();
+
+        knob.set(50);
+        clock.run_until_parked();
+
+        assert_eq!(clock.stuck(), 1, "the minute's wait went on beside the new one");
+    }
+
+    #[test]
     fn a_period_with_nothing_to_follow_waits_for_something() {
         let clock = clock();
+        let tree = ScopeTree::new();
         let knob = Knob::default();
-        let (_ticking, _timer, counter) = following(&knob);
+        let (_timer, counter) = following(&tree, &knob);
 
         wait(&clock, 10_000);
         assert_eq!(count(&counter), 0, "ticked with no period to tick by");
@@ -841,55 +668,71 @@ mod tests {
     #[test]
     fn what_a_period_follows_is_watched_for_as_long_as_the_timer_runs() {
         let _clock = clock();
+        let tree = ScopeTree::new();
         let knob = Knob::default();
         knob.set(1_000);
 
-        let (ticking, _timer, _counter) = following(&knob);
+        let (_timer, _counter) = following(&tree, &knob);
         assert_eq!(knob.watchers(), 1);
 
-        drop(ticking);
+        tree.remove();
         assert_eq!(knob.watchers(), 0, "the timer stopped and kept watching");
     }
 
     #[test]
-    fn a_tick_may_list_the_running_timers_itself() {
+    fn a_tick_may_list_the_timers_itself() {
         let clock = clock();
+        let tree = ScopeTree::new();
         let seen = Arc::new(AtomicUsize::new(0));
 
         let s = seen.clone();
-        let (_ticking, _timer) = start(
-            Location::caller(),
-            None,
-            None,
-            Duration::from_millis(30).into(),
-            move || {
-                s.store(running().len(), Ordering::SeqCst);
-            },
-        );
+        let scope = tree.scope();
+        tree.section().repeat(Duration::from_millis(30), move || {
+            s.store(scope.timers().len(), Ordering::SeqCst);
+        });
 
         wait(&clock, 30);
         assert_eq!(count(&seen), 1);
     }
 
     #[test]
+    fn a_tick_may_start_another_timer() {
+        let clock = clock();
+        let tree = ScopeTree::new();
+        let section = tree.section();
+
+        tree.section().repeat(Duration::from_millis(30), move || {
+            section.repeat(Duration::from_secs(60), || {});
+        });
+
+        wait(&clock, 30);
+        assert_eq!(tree.scope().timers().len(), 2);
+    }
+
+    #[test]
     fn a_running_timer_says_where_it_was_set_up_and_what_it_is_called() {
         let _clock = clock();
-        let (ticking, timer, _counter) = counting(1_000);
-        let (_kept, hidden, _) = counting(1_000);
+        let tree = ScopeTree::new();
+        let page = tree.child();
+        let (timer, _) = every(&tree, 1_000);
+        let (hidden, _) = every(&tree, 1_000);
+        let below = page.section().repeat(Duration::from_millis(1_000), || {});
 
         let timer = timer.named("sweep");
         let hidden = hidden.untraced().id();
 
         let id = timer.id().expect("running");
-        let listed = running();
+        let listed = tree.scope().timers();
         let info = listed.iter().find(|info| info.id == id).expect("listed");
         assert_eq!(info.name, Some("sweep"));
         assert!(info.place.file().ends_with("timers.rs"));
         assert_eq!(info.period, Duration::from_millis(1_000));
+        assert_eq!(info.scope, tree.scope());
         assert!(listed.iter().all(|info| Some(info.id) != hidden));
+        assert!(listed.iter().any(|info| Some(info.id) == below.id()), "a timer below is listed too");
+        assert!(tree.scope().timers_here().iter().all(|info| Some(info.id) != below.id()));
 
-        drop(ticking);
-        assert!(running().iter().all(|info| info.id != id));
+        tree.remove();
         assert_eq!(timer.id(), None);
     }
 }

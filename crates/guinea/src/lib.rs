@@ -271,7 +271,7 @@ pub mod prelude {
     pub use guinea_app::feature::{Feature, FeatureInitContext, ScopeContext};
     pub use guinea_core::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, Reply};
-    pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Receives};
     pub use guinea_core::feature::{Bound, Dispatch, Push};
     pub use guinea_core::__private::anyhow;
     pub use guinea_core::inspect::Inspect;

@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use guinea::app::Harness;
 use guinea::core::actor::shape::name;
-use guinea::core::timers;
 use guinea::prelude::*;
 
 /// Both features answer it, each for its own state.
@@ -171,7 +170,7 @@ fn whose(h: &Harness) -> Vec<Whose> {
     for actor in scope.actors_here() {
         held.push(("actor", short(actor.type_name), actor.owner.feature));
     }
-    for timer in timers::running().into_iter().filter(|timer| timer.scope == Some(scope)) {
+    for timer in scope.timers_here() {
         held.push(("timer", "repeat", timer.feature));
     }
 

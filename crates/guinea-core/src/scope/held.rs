@@ -91,8 +91,39 @@ impl Scope {
         self.take(next_key(), Taken::Installed(Box::new(installed)));
     }
 
-    pub(crate) fn hold_timer(&self, ticking: Ticking) {
-        self.take(next_key(), Taken::Timer(ticking));
+    /// Runs the timer `ticking` under `key` until this scope goes.
+    ///
+    /// # Panics
+    ///
+    /// When this scope is already gone.
+    pub(crate) fn hold_timer(&self, key: usize, ticking: Ticking) {
+        self.alive("starting a timer");
+        self.take(key, Taken::Timer(ticking));
+    }
+
+    /// Reads the timer this scope holds under `key`, with the table borrowed
+    /// only for as long as `read` takes.
+    pub(crate) fn held_timer<R>(&self, key: usize, read: impl FnOnce(&Ticking) -> R) -> Option<R> {
+        let data = self.data()?;
+        let held = data.held.0.borrow();
+
+        match held.get(&key)? {
+            Taken::Timer(ticking) => Some(read(ticking)),
+            _ => None,
+        }
+    }
+
+    /// Reads every timer this scope holds itself, oldest first.
+    pub(crate) fn each_timer(&self, mut read: impl FnMut(&Ticking)) {
+        let Some(data) = self.data() else {
+            return;
+        };
+
+        for taken in data.held.0.borrow().values() {
+            if let Taken::Timer(ticking) = taken {
+                read(ticking);
+            }
+        }
     }
 
     /// Runs `run` when this scope goes, in its turn among what it took on -

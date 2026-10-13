@@ -44,8 +44,8 @@ impl AppFeature for Startup {
         store.set(LAUNCHES, &launches)?;
         tracing::info!(launches, "started");
 
-        let addr = app.spawn(Housekeeping::default());
-        app.every(Duration::from_secs(5), &addr, || Sweep)
+        let housekeeping = app.spawn(Housekeeping::default());
+        app.every(Duration::from_secs(5), || Sweep, housekeeping)
             .named("housekeeping");
 
         app.subscribe::<ProcessKilled>(|event| {

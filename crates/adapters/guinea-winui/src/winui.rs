@@ -1552,10 +1552,8 @@ fn router_context() -> &'static windows_reactor::Context<Option<RouterHandle>> {
 /// The route tree as a component, and the root of a window that has one.
 ///
 /// It owns the router, which is what makes a window a root: `Router::new` opens
-/// a `FeatureHost`, and the host's registration is what publishes `RootOpened`
-/// and `RootClosed`. Both now happen where they should - when the window's
-/// component is created and dropped - rather than inside a render hook, which
-/// is where the old shape had to put them.
+/// a `FeatureHost`, whose registration opens the root when the window's
+/// component is created and closes it when the component is dropped.
 pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
     router: Rc<Router<WinUi>>,
     route: R,

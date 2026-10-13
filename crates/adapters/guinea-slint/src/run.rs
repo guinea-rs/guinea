@@ -125,9 +125,7 @@ where
 /// Puts the window back where it was last time, if anything remembers.
 ///
 /// Before the loop starts, which is the whole point: a window restored after
-/// it is on screen jumps, and a jump is what this is meant to avoid. Asks
-/// rather than waits to be told - `RootOpened` travels through the UI queue
-/// and would arrive too late.
+/// it is on screen jumps, and a jump is what this is meant to avoid.
 fn restore(shell: &SlintWindows, root: RootId, app: &ScopeContext) {
     let Some(label) = guinea_app::app::roots::label(root) else {
         return;

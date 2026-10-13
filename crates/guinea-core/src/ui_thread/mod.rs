@@ -39,25 +39,17 @@ pub fn on_ui_thread() -> Option<bool> {
 /// Runs `f` on the UI thread.
 ///
 /// Under `test-utils` a seeded executor on this thread takes it first, then
-/// the application's dispatcher, then the test queue [`run_queued`] runs:
-/// the feature adds a place for work to go and takes none away, so an
-/// application built with it - `cargo build --all-targets` unifies
-/// dev-dependencies' features - still runs.
+/// the application's dispatcher.
+///
+/// # Panics
+///
+/// When neither is there to take it.
 pub fn invoke_on_ui<F>(f: F)
 where
     F: FnOnce() + Send + 'static,
 {
-    if let Err(f) = try_invoke_on_ui(f) {
-        #[cfg(feature = "test-utils")]
-        QUEUED.lock().unwrap().push(Box::new(f));
-
-        #[cfg(not(feature = "test-utils"))]
-        {
-            drop(f);
-            panic!(
-                "UiDispatcher not initialized! Call guinea_core::ui_thread::set_ui_dispatcher at startup."
-            );
-        }
+    if try_invoke_on_ui(f).is_err() {
+        panic!("UiDispatcher not initialized! Call guinea_core::ui_thread::set_ui_dispatcher at startup.");
     }
 }
 
@@ -79,18 +71,5 @@ where
             Ok(())
         }
         None => Err(f),
-    }
-}
-
-#[cfg(feature = "test-utils")]
-static QUEUED: std::sync::Mutex<Vec<UiTask>> = std::sync::Mutex::new(Vec::new());
-
-/// Runs, here, what [`invoke_on_ui`] queued for want of a UI thread: a test's
-/// stand-in for one.
-#[cfg(feature = "test-utils")]
-pub fn run_queued() {
-    let tasks = std::mem::take(&mut *QUEUED.lock().unwrap());
-    for task in tasks {
-        task();
     }
 }

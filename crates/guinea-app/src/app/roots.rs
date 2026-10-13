@@ -24,7 +24,6 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use guinea_core::actor::event_bus::Event;
 use guinea_core::scope::Scope;
 
 /// Names one root for as long as it is open.
@@ -46,17 +45,6 @@ impl std::fmt::Display for RootId {
         write!(f, "root#{}", self.0)
     }
 }
-
-/// A root was opened.
-#[derive(Clone, Copy, Debug)]
-pub struct RootOpened(pub RootId);
-
-/// A root was closed, and its scopes are gone with it.
-#[derive(Clone, Copy, Debug)]
-pub struct RootClosed(pub RootId);
-
-impl Event for RootOpened {}
-impl Event for RootClosed {}
 
 thread_local! {
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
@@ -145,12 +133,10 @@ pub fn is_open(id: RootId) -> bool {
 #[derive(Debug)]
 pub struct Registration {
     id: RootId,
-    scope: Scope,
 }
 
 impl Registration {
-    /// The root whose own scope is `scope`: its opening and closing are
-    /// published on the bus of that scope's tree.
+    /// The root whose own scope is `scope`.
     pub(crate) fn open(scope: Scope) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
@@ -164,9 +150,8 @@ impl Registration {
         });
 
         tracing::debug!(%id, roots = count(), "root opened");
-        scope.publish(RootOpened(id));
 
-        Self { id, scope }
+        Self { id }
     }
 
     pub fn id(&self) -> RootId {
@@ -179,7 +164,6 @@ impl Drop for Registration {
         open_roots(|open| open.retain(|root| root.id != self.id));
 
         tracing::debug!(id = %self.id, roots = count(), "root closed");
-        self.scope.publish(RootClosed(self.id));
     }
 }
 

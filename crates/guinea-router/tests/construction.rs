@@ -10,8 +10,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 use guinea_app::feature::{Feature, FeatureHost, FeatureInitContext};
-use guinea_core::SharedState;
 use guinea_core::feature::Bound;
+use guinea_core::scope::ScopeTree;
 use guinea_macros::{feature, installs, reducer, routes};
 use guinea_router::construction::{check, unprovided};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page, layout_entry, segment_entry};
@@ -229,17 +229,18 @@ fn a_feature_listed_twice_by_one_segment_is_refused() {
 
 #[test]
 fn what_a_feature_on_the_tree_takes_and_nothing_provided_is_named_where_it_is_installed() {
-    let missing = unprovided(&[&CLOCKED, &READ], &SharedState::new());
+    let tree = ScopeTree::new();
+    let missing = unprovided(&[&CLOCKED, &READ], tree.child());
 
     assert_eq!(missing, ["`Clocked` installs `Ticking`, which takes `Clock` - nothing provided it"]);
 }
 
 #[test]
 fn a_tree_whose_features_were_given_what_they_take_is_whole() {
-    let services = SharedState::new();
-    services.provide(Clock, "test").unwrap();
+    let tree = ScopeTree::new();
+    tree.provide(Clock, "test").unwrap();
 
-    assert_eq!(unprovided(&[&CLOCKED], &services), Vec::<String>::new());
+    assert_eq!(unprovided(&[&CLOCKED], tree.child()), Vec::<String>::new());
 }
 
 #[test]

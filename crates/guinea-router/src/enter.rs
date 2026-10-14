@@ -44,8 +44,8 @@
 
 use std::marker::PhantomData;
 
-use guinea_core::SharedState;
 use guinea_core::guard::Verdict;
+use guinea_core::scope::Scope;
 
 /// Asked before a route is entered.
 ///
@@ -63,15 +63,17 @@ pub trait Enter: 'static {
 /// this runs where it does - and no route parameters either: a guard answers
 /// whether this area may be entered at all, and a guard that needed the
 /// parameters would be asking a question the page itself is better placed to
-/// ask once it exists.
+/// ask once it exists. What it takes is what the application provided.
 pub struct EnterCx<'a> {
-    services: &'a SharedState,
+    /// The window the navigation is in, which the application's services are
+    /// reached through.
+    window: Scope,
     route: &'a str,
 }
 
 impl<'a> EnterCx<'a> {
-    pub fn new(services: &'a SharedState, route: &'a str) -> Self {
-        Self { services, route }
+    pub fn new(window: Scope, route: &'a str) -> Self {
+        Self { window, route }
     }
 
     /// Where the navigation was heading, for a log line that says what was
@@ -82,8 +84,8 @@ impl<'a> EnterCx<'a> {
 }
 
 impl guinea_app::feature::given::Context for EnterCx<'_> {
-    fn provided(&self) -> &SharedState {
-        self.services
+    fn scope(&self) -> Scope {
+        self.window
     }
 }
 

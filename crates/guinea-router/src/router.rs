@@ -520,11 +520,11 @@ fn installed_for<U: Ui>(route: &impl RouteChain<U>, app: Option<Scope>) {
 /// Panics on a tree built wrong, or with a feature on it nothing gave what it
 /// takes, before anything in it is installed - and says what deserves a word
 /// without refusing it.
-fn built_right<U: Ui>(tree: &[&'static [SegmentEntry<U>]], services: &guinea_core::SharedState) {
+fn built_right<U: Ui>(tree: &[&'static [SegmentEntry<U>]], window: Scope) {
     let mut construction = crate::construction::check(tree);
     construction
         .errors
-        .extend(crate::construction::unprovided(tree, services));
+        .extend(crate::construction::unprovided(tree, window));
 
     for warning in &construction.warnings {
         tracing::warn!("{warning}");
@@ -1112,8 +1112,8 @@ pub struct Router<U: Ui> {
 impl<U: Ui> Router<U> {
     /// What was provided as `T`, for code that holds the router and is no
     /// install - a terminal's key handler.
-    pub fn service<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
-        self.host.services().get::<T>()
+    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
+        self.host.scope().service::<T>()
     }
 
     /// Which root this router belongs to.
@@ -1265,7 +1265,7 @@ impl<U: Ui> Router<U> {
     {
         if !self.listed.replace(true) {
             crate::observability::register(self);
-            built_right(R::tree(), self.host.services());
+            built_right(R::tree(), self.host.scope());
         }
         installed_for(&route, self.host.application().map(|app| app.scope));
 
@@ -1395,7 +1395,7 @@ impl<U: Ui> Router<U> {
     /// it was. Re-asking costs nothing: `Allow` allocates nothing.
     fn may_enter(&self, guards: &'static [&'static dyn EnterGuard], route: &str) -> Verdict {
         for guard in guards {
-            let cx = EnterCx::new(self.host.services(), route);
+            let cx = EnterCx::new(self.host.scope(), route);
             match guard.decide(&cx) {
                 Verdict::Allow => {}
                 refused => {

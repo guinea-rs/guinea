@@ -8,6 +8,7 @@ mod feeds;
 mod held;
 mod kept;
 mod lifetime;
+mod services;
 mod state;
 mod tree;
 

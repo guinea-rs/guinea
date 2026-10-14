@@ -4,9 +4,9 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 use guinea_core::actor::{Addr, ManagedActor};
-use guinea_core::{SharedState, short_type_name};
+use guinea_core::scope::Scope;
+use guinea_core::short_type_name;
 use crate::feature::ScopeContext;
-use crate::feature::given::Context as _;
 
 use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
@@ -32,7 +32,7 @@ pub struct FeatureBuilder {
 impl PluginBuilder {
     pub(crate) fn new(host: AppHost) -> Self {
         Self {
-            cx: ScopeContext::new(host.scope(), SharedState::new()),
+            cx: ScopeContext::new(host.scope()),
             host,
             registry: Rc::new(RefCell::new(Registry::default())),
         }
@@ -66,10 +66,10 @@ impl PluginBuilder {
     ///
     /// Providing a second `T` is a setup mistake, and panics naming who
     /// provided the first.
-    pub fn provide<T: Clone + Send + Sync + 'static>(&self, value: T) -> &Self {
+    pub fn provide<T: Clone + 'static>(&self, value: T) -> &Self {
         let by = self.registry.borrow().current();
 
-        if let Err(first) = self.cx.provided().provide(value, by) {
+        if let Err(first) = self.cx.scope.provide(value, by) {
             panic!(
                 "`{}` is provided by `{first}`, and again by `{by}` - an application has one \
                  of each service",
@@ -207,13 +207,13 @@ impl Deref for PluginBuilder {
 }
 
 impl crate::feature::given::Context for PluginBuilder {
-    fn provided(&self) -> &SharedState {
-        self.cx.provided()
+    fn scope(&self) -> Scope {
+        self.cx.scope
     }
 }
 
 impl crate::feature::given::Context for FeatureBuilder {
-    fn provided(&self) -> &SharedState {
-        self.inner.provided()
+    fn scope(&self) -> Scope {
+        self.inner.cx.scope
     }
 }

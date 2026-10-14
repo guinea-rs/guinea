@@ -5,8 +5,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use guinea_app::app::GuineaApp;
 use guinea_app::feature::FeatureHost;
-use guinea_core::SharedState;
 use guinea_core::guard::Verdict;
+use guinea_core::scope::ScopeTree;
 use guinea_macros::given;
 use guinea_router::enter::{Enter, EnterCx};
 use guinea_router::headless::Headless;
@@ -56,21 +56,22 @@ fn a_router_hands_out_what_the_application_provided() {
 
 #[test]
 fn a_guard_decides_on_what_it_takes_and_on_its_absence() {
-    let services = SharedState::new();
-    let blocked = matches!(RequiresAdmin::decide(&EnterCx::new(&services, "/admin")), Verdict::Block);
+    let tree = ScopeTree::new();
+    let window = tree.child();
+    let blocked = matches!(RequiresAdmin::decide(&EnterCx::new(window, "/admin")), Verdict::Block);
 
-    services.provide(Session { admin: true }, "test").unwrap();
-    let allowed = matches!(RequiresAdmin::decide(&EnterCx::new(&services, "/admin")), Verdict::Allow);
+    tree.provide(Session { admin: true }, "test").unwrap();
+    let allowed = matches!(RequiresAdmin::decide(&EnterCx::new(window, "/admin")), Verdict::Allow);
 
     assert_eq!((blocked, allowed), (true, true));
 }
 
 #[test]
 fn a_guard_without_what_it_cannot_do_without_panics_naming_it() {
-    let services = SharedState::new();
+    let tree = ScopeTree::new();
 
     let decided = catch_unwind(AssertUnwindSafe(|| {
-        RequiresSession::decide(&EnterCx::new(&services, "/audit"));
+        RequiresSession::decide(&EnterCx::new(tree.child(), "/audit"));
     }));
     let said = decided
         .err()

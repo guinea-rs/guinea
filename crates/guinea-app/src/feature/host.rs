@@ -1,11 +1,10 @@
-use guinea_core::SharedState;
 use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
 use crate::app::roots::{Registration, RootId};
 
-/// What a feature needs to be installed into a scope: the window's own scope
-/// and whatever plugins provided.
+/// What a feature needs to be installed into a scope: the window's own scope,
+/// under the application's and what its plugins provided.
 ///
 /// The router used to own all of these and hand them out. It shouldn't: they are
 /// no more about routing than they are about anything else, and an
@@ -22,7 +21,6 @@ pub struct FeatureHost {
     _tree: Option<ScopeTree>,
     /// The application's own context, when there is one.
     app: Option<ScopeContext>,
-    services: SharedState,
     /// This host *is* the root, so its registration is held here: the entry
     /// goes when the host goes, together with the scopes under it.
     root: Registration,
@@ -35,7 +33,7 @@ impl FeatureHost {
     /// `app` is the application's own context - what
     /// [`AppRuntime::context`](crate::app::AppRuntime::context) hands back.
     pub fn under(app: &ScopeContext) -> Self {
-        Self::open(app.scope, None, app.services.clone(), Some(app.clone()))
+        Self::open(app.scope, None, Some(app.clone()))
     }
 
     /// A window with no application around it - a test, say. Nothing is
@@ -43,15 +41,10 @@ impl FeatureHost {
     pub fn detached() -> Self {
         let tree = ScopeTree::new();
         let parent = tree.scope();
-        Self::open(parent, Some(tree), SharedState::default(), None)
+        Self::open(parent, Some(tree), None)
     }
 
-    fn open(
-        parent: Scope,
-        tree: Option<ScopeTree>,
-        services: SharedState,
-        app: Option<ScopeContext>,
-    ) -> Self {
+    fn open(parent: Scope, tree: Option<ScopeTree>, app: Option<ScopeContext>) -> Self {
         let scope = parent.child();
         let root = Registration::open(scope);
 
@@ -59,7 +52,6 @@ impl FeatureHost {
             scope: scope.guard(),
             _tree: tree,
             app,
-            services,
             root,
         }
     }
@@ -80,19 +72,11 @@ impl FeatureHost {
         self.root.id()
     }
 
-    /// What plugins provided at startup.
-    ///
-    /// The one thing an enter guard can read: it answers before anything is
-    /// installed, so there is no scope yet - only what the application holds.
-    pub fn services(&self) -> &SharedState {
-        &self.services
-    }
-
     /// The context a feature installs through, for the segment at `cursor`
     /// of its chain.
     pub fn context(&self, scope: Scope, cursor: usize) -> FeatureInitContext {
         FeatureInitContext {
-            scope_cx: ScopeContext::new(scope, self.services.clone()),
+            scope_cx: ScopeContext::new(scope),
             cursor,
             root: self.root.id(),
         }

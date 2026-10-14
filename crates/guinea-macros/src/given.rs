@@ -64,10 +64,10 @@ pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type],
         let (#(#patterns,)*): (#(#types,)*) = {
             #uses
 
-            let __guinea_reach = #feature::given::reach(#cx);
-            #feature::given::check::<Self>(&__guinea_reach, &[#(#probed.need()),*]) #refused;
+            let __guinea_scope = #feature::given::scope(#cx);
+            #feature::given::check::<Self>(__guinea_scope, &[#(#probed.need()),*]) #refused;
 
-            (#(#probed.take(&__guinea_reach),)*)
+            (#(#probed.take(__guinea_scope),)*)
         };
     }
 }

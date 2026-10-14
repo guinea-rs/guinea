@@ -66,7 +66,7 @@ impl GuineaApp {
     /// its roots live in, say. Installed before any plugin, like
     /// [`meta`](Self::meta) and for the same reason: a plugin requiring it
     /// must not depend on where this call sat in the chain.
-    pub fn provide<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
+    pub fn provide<T: Clone + Send + 'static>(mut self, value: T) -> Self {
         self.services.push(Box::new(move |app| {
             app.provide(value);
         }));

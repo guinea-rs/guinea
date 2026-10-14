@@ -9,6 +9,7 @@ use super::feeds::Feeds;
 use super::held::Held;
 use super::kept::Kept;
 use super::lifetime::Lifetime;
+use super::services::Services;
 use super::state::States;
 use crate::actor::event_bus::EventBus;
 
@@ -40,6 +41,8 @@ pub(super) struct ScopeData {
     pub(super) lifetime: Lifetime,
     pub(super) kept: Kept,
     pub(super) feeds: Feeds,
+    /// What was provided to the tree, when this is its root.
+    pub(super) services: Services,
     /// What it took on - its actors among them - until it goes.
     pub(super) held: Held,
 }
@@ -48,6 +51,9 @@ pub(super) struct ScopeData {
 /// share.
 pub(super) struct Tree {
     pub(super) nodes: SlotMap<NodeKey, Node>,
+    /// The scope every other one sits under: the application's, where there
+    /// is one.
+    pub(super) root: NodeKey,
     pub(super) bus: Rc<EventBus>,
 }
 
@@ -76,6 +82,17 @@ impl Scope {
         self.data()
             .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }
+
+    /// What the root of this scope's tree holds, for `doing` something
+    /// through this scope, which has to be there.
+    pub(super) fn root_alive(&self, doing: &str) -> Rc<ScopeData> {
+        self.read(|tree| {
+            self.node_in(tree)?;
+            tree.nodes.get(tree.root).map(|root| root.data.clone())
+        })
+        .flatten()
+        .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
+    }
 }
 
 impl Tree {
@@ -86,6 +103,7 @@ impl Tree {
 
         let tree = Self {
             nodes,
+            root,
             bus: Rc::new(EventBus::new()),
         };
         (tree, root)

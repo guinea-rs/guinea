@@ -53,8 +53,8 @@ impl TestApp {
     }
 
     /// What was provided as `T`, for the test holding the application.
-    pub fn service<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
-        self.builder.services.get::<T>()
+    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
+        self.builder.scope.service::<T>()
     }
 
     /// Tears the application down: everything it set up, the last first.
@@ -116,7 +116,7 @@ impl Harness {
         let root = Registration::open(scope.scope());
 
         let segment = FeatureInitContext {
-            scope_cx: ScopeContext::new(scope.scope(), app.services.clone()),
+            scope_cx: ScopeContext::new(scope.scope()),
             cursor: 0,
             root: root.id(),
         };
@@ -172,7 +172,7 @@ impl Harness {
 
     /// Provides one service, as a plugin would - for a test that needs a
     /// value and no plugin around it.
-    pub fn provide<T: Clone + Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
+    pub fn provide<T: Clone + 'static>(&mut self, value: T) -> &mut Self {
         self.app.provide(value);
         self
     }
@@ -234,7 +234,7 @@ impl Harness {
         Segment {
             harness: self,
             cx: FeatureInitContext {
-                scope_cx: ScopeContext::new(scope, self.segment.services.clone()),
+                scope_cx: ScopeContext::new(scope),
                 ..self.segment.clone()
             },
             _owned: None,
@@ -379,7 +379,7 @@ impl<'h> Segment<'h> {
         Segment {
             harness: self.harness,
             cx: FeatureInitContext {
-                scope_cx: ScopeContext::new(scope.scope(), self.cx.services.clone()),
+                scope_cx: ScopeContext::new(scope.scope()),
                 cursor: self.cx.cursor + 1,
                 ..self.cx.clone()
             },

@@ -17,7 +17,7 @@ use std::ops::Deref;
 
 use guinea_core::feed::{self, Feed};
 use guinea_core::scope::Scope;
-use guinea_core::{SharedState, short_type_name};
+use guinea_core::short_type_name;
 
 use super::FeatureInitContext;
 
@@ -57,33 +57,13 @@ impl<P: ?Sized> Deref for Install<'_, P> {
 }
 
 /// A context the application's services, and the feeds above it, are
-/// reached through.
+/// reached through: the scope it installs into.
 pub trait Context {
-    fn provided(&self) -> &SharedState;
-
-    /// The scope being installed into, whose ancestors' feeds it may take.
-    fn scope(&self) -> Option<Scope> {
-        None
-    }
+    fn scope(&self) -> Scope;
 }
 
-/// What a context reaches, for the arguments to be taken from.
-pub struct Reach<'a> {
-    services: &'a SharedState,
-    scope: Option<Scope>,
-}
-
-pub fn reach<C: Context + ?Sized>(cx: &C) -> Reach<'_> {
-    Reach {
-        services: cx.provided(),
-        scope: cx.scope(),
-    }
-}
-
-impl Reach<'_> {
-    fn feed<T: Send + Sync + 'static>(&self) -> Option<Feed<T>> {
-        Feed::above(self.scope?)
-    }
+pub fn scope<C: Context + ?Sized>(cx: &C) -> Scope {
+    cx.scope()
 }
 
 /// Something a function takes and cannot do without: a service, or a feed.
@@ -121,23 +101,22 @@ impl Need {
         }
     }
 
-    fn is_there(&self, reach: &Reach) -> bool {
-        match (self.fed, reach.scope) {
-            (false, _) => reach.services.has(self.id),
-            (true, Some(scope)) => feed::opened_above(scope, self.id),
-            (true, None) => false,
+    fn is_there(&self, scope: Scope) -> bool {
+        match self.fed {
+            false => scope.provides(self.id),
+            true => feed::opened_above(scope, self.id),
         }
     }
 }
 
 /// Refuses `W` when anything it cannot do without is not there, naming all
 /// of it at once.
-pub fn check<W: ?Sized>(reach: &Reach, needs: &[Option<Need>]) -> anyhow::Result<()> {
+pub fn check<W: ?Sized>(scope: Scope, needs: &[Option<Need>]) -> anyhow::Result<()> {
     let missing = |fed: bool| -> Vec<String> {
         needs
             .iter()
             .flatten()
-            .filter(|need| need.fed == fed && !need.is_there(reach))
+            .filter(|need| need.fed == fed && !need.is_there(scope))
             .map(|need| format!("`{}`", need.taken()))
             .collect()
     };
@@ -171,11 +150,11 @@ pub fn check<W: ?Sized>(reach: &Reach, needs: &[Option<Need>]) -> anyhow::Result
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is handed out of the application's services by clone",
     label = "taken here",
-    note = "derive `Clone` for it, or provide an `Arc` of it and take that"
+    note = "derive `Clone` for it, or provide an `Rc` or an `Arc` of it and take that"
 )]
-pub trait Service: Clone + Send + Sync + 'static {}
+pub trait Service: Clone + 'static {}
 
-impl<T: Clone + Send + Sync + 'static> Service for T {}
+impl<T: Clone + 'static> Service for T {}
 
 pub struct Given<T>(PhantomData<fn() -> T>);
 
@@ -190,7 +169,7 @@ pub trait Twice {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, reach: &Reach) -> Self::Taken;
+    fn take(&self, scope: Scope) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
@@ -200,8 +179,8 @@ impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
         None
     }
 
-    fn take(&self, reach: &Reach) -> Option<Feed<T>> {
-        reach.feed::<T>()
+    fn take(&self, scope: Scope) -> Option<Feed<T>> {
+        Feed::above(scope)
     }
 }
 
@@ -210,7 +189,7 @@ pub trait Once {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, reach: &Reach) -> Self::Taken;
+    fn take(&self, scope: Scope) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
@@ -220,8 +199,8 @@ impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
         Some(Need::feed::<T>())
     }
 
-    fn take(&self, reach: &Reach) -> Feed<T> {
-        reach.feed::<T>().expect("checked before it was taken")
+    fn take(&self, scope: Scope) -> Feed<T> {
+        Feed::above(scope).expect("checked before it was taken")
     }
 }
 
@@ -232,8 +211,8 @@ impl<T: Service> Once for &&Given<Option<T>> {
         None
     }
 
-    fn take(&self, reach: &Reach) -> Option<T> {
-        reach.services.get::<T>()
+    fn take(&self, scope: Scope) -> Option<T> {
+        scope.service::<T>()
     }
 }
 
@@ -242,7 +221,7 @@ pub trait Bare {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, reach: &Reach) -> Self::Taken;
+    fn take(&self, scope: Scope) -> Self::Taken;
 }
 
 impl<T: Service> Bare for Given<T> {
@@ -252,7 +231,7 @@ impl<T: Service> Bare for Given<T> {
         Some(Need::of::<T>())
     }
 
-    fn take(&self, reach: &Reach) -> T {
-        reach.services.get::<T>().expect("checked before it was taken")
+    fn take(&self, scope: Scope) -> T {
+        scope.service::<T>().expect("checked before it was taken")
     }
 }

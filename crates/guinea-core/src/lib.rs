@@ -12,7 +12,6 @@ pub use guinea_mark as mark;
 pub mod remote;
 pub mod notify;
 pub mod observability;
-pub mod shared_state;
 pub mod scope;
 pub mod semantics;
 pub mod timers;
@@ -22,7 +21,6 @@ pub mod ui_thread;
 
 pub use load::Load;
 pub use type_name::short_type_name;
-pub use shared_state::SharedState;
 pub use scope::{Reducer, Scope, StateHandle, Subscription};
 pub use actor::{Addr, Cx, Handler, ManagedActor};
 pub use ui_thread::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher};

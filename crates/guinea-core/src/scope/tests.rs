@@ -676,3 +676,88 @@ fn push_notifies_subscribers_and_unsubscribe_stops_it() {
         "no further notifications after the Subscription is dropped"
     );
 }
+
+mod services {
+    use std::any::TypeId;
+    use std::cell::Cell;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use super::*;
+
+    /// A service that says when it goes - once, whatever clones were made.
+    #[derive(Clone)]
+    struct Store {
+        _dropped: Rc<Dropped>,
+    }
+
+    struct Dropped(Said);
+
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.borrow_mut().push("store");
+        }
+    }
+
+    #[test]
+    fn a_service_is_read_through_any_scope_of_its_tree() {
+        let tree = ScopeTree::new();
+        let page = tree.child().child();
+
+        page.provide(7u32, "test").unwrap();
+
+        assert_eq!(tree.service::<u32>(), Some(7));
+        assert_eq!(page.service::<u32>(), Some(7));
+        assert!(page.provides(TypeId::of::<u32>()));
+        assert!(!page.provides(TypeId::of::<u64>()));
+    }
+
+    #[test]
+    fn a_service_stays_on_the_ui_thread_when_it_has_to() {
+        let tree = ScopeTree::new();
+        let counter = Rc::new(Cell::new(0));
+
+        tree.provide(counter.clone(), "test").unwrap();
+
+        let taken = tree.service::<Rc<Cell<u32>>>().expect("provided");
+        assert!(Rc::ptr_eq(&taken, &counter));
+    }
+
+    #[test]
+    fn a_second_service_of_a_type_is_refused_with_who_provided_the_first() {
+        let tree = ScopeTree::new();
+        tree.provide(7u32, "first").unwrap();
+
+        assert_eq!(tree.child().provide(9u32, "second"), Err("first"));
+        assert_eq!(tree.service::<u32>(), Some(7));
+    }
+
+    #[test]
+    fn a_service_goes_with_its_tree_after_everything_the_tree_held() {
+        let said: Said = Rc::new(RefCell::new(Vec::new()));
+        let tree = ScopeTree::new();
+        let store = Store {
+            _dropped: Rc::new(Dropped(said.clone())),
+        };
+        tree.provide(store, "test").unwrap();
+        tree.on_teardown(says(&said, "cleanup"));
+
+        let taken = tree.child().service::<Store>();
+        drop(taken);
+        assert_eq!(*said.borrow(), [] as [&str; 0]);
+
+        drop(tree);
+        assert_eq!(*said.borrow(), ["cleanup", "store"]);
+    }
+
+    #[test]
+    fn a_service_read_through_a_removed_scope_panics() {
+        let tree = ScopeTree::new();
+        tree.provide(7u32, "test").unwrap();
+        let page = tree.child();
+        page.remove();
+
+        let read = catch_unwind(AssertUnwindSafe(|| page.service::<u32>()));
+
+        assert!(read.is_err(), "read {read:?}");
+    }
+}

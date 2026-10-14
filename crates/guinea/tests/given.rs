@@ -205,6 +205,33 @@ fn a_service_provided_twice_is_a_mistake_that_names_the_first_provider(h: &mut H
     assert!(refused.contains("Greeting") && refused.contains("test.greets"), "{refused}");
 }
 
+mod counted {
+    use super::*;
+
+    /// A service that stays on the UI thread.
+    #[derive(Clone, Default)]
+    pub struct Visits(pub std::rc::Rc<std::cell::Cell<u32>>);
+
+    feature! {
+        pub Counted {}
+    }
+
+    #[installs]
+    fn counted(_cx: &FeatureInitContext, visits: Visits) -> anyhow::Result<Counted> {
+        visits.0.set(visits.0.get() + 1);
+        Ok(Counted)
+    }
+}
+
+#[guinea::test(iterations = 1)]
+fn a_service_that_stays_on_the_ui_thread_is_taken_like_any_other(h: &mut Harness) {
+    let visits = counted::Visits::default();
+    h.provide(visits.clone());
+
+    assert_eq!(installed(h.child().install::<counted::Counted>(&())), Ok(()));
+    assert_eq!(visits.0.get(), 1);
+}
+
 #[test]
 fn whoever_holds_the_application_reads_what_was_provided() {
     let mut app = TestApp::new();

@@ -6,8 +6,8 @@
 //! navigation installs anything.
 
 use guinea_app::feature::Listed;
-use guinea_core::SharedState;
 use guinea_core::feature::Named;
+use guinea_core::scope::Scope;
 
 use crate::observability::short;
 use crate::router::{SegmentEntry, Ui};
@@ -55,9 +55,9 @@ pub fn check<U: Ui>(tree: &[&'static [SegmentEntry<U>]]) -> Construction {
     construction
 }
 
-/// What a feature on the tree takes and `services` does not hold, each named
-/// once by the segment that installs the feature.
-pub fn unprovided<U: Ui>(tree: &[&'static [SegmentEntry<U>]], services: &SharedState) -> Vec<String> {
+/// What a feature on the tree takes and nothing provided to `window`'s tree,
+/// each named once by the segment that installs the feature.
+pub fn unprovided<U: Ui>(tree: &[&'static [SegmentEntry<U>]], window: Scope) -> Vec<String> {
     let mut missing: Vec<String> = Vec::new();
 
     for entry in tree.iter().flat_map(|chain| chain.iter()) {
@@ -65,7 +65,7 @@ pub fn unprovided<U: Ui>(tree: &[&'static [SegmentEntry<U>]], services: &SharedS
         (entry.lists)(&mut listed);
 
         for item in &listed {
-            for need in item.needs.iter().filter(|need| !need.fed && !services.has(need.id)) {
+            for need in item.needs.iter().filter(|need| !need.fed && !window.provides(need.id)) {
                 let said = format!(
                     "`{}` installs `{}`, which takes `{}` - nothing provided it",
                     short((entry.type_name)()),

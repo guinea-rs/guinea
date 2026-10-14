@@ -3,7 +3,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use guinea_core::timers::{Period, Timer};
-use guinea_core::SharedState;
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
 use guinea_core::actor::event_bus::subscribe::Event;
@@ -26,16 +25,14 @@ pub struct ScopeContext {
     /// Whose what is registered through this context is: the feature or
     /// plugin installing, or the scope's own. A section of `scope`.
     section: Section,
-    pub(crate) services: SharedState,
 }
 
 impl ScopeContext {
     /// A context for `scope`'s own section.
-    pub fn new(scope: Scope, services: SharedState) -> Self {
+    pub fn new(scope: Scope) -> Self {
         Self {
             scope,
             section: scope.section(),
-            services,
         }
     }
 
@@ -44,7 +41,6 @@ impl ScopeContext {
         Self {
             scope: section.scope(),
             section,
-            services: self.services.clone(),
         }
     }
 
@@ -77,32 +73,20 @@ impl std::ops::Deref for FeatureInitContext {
 }
 
 impl super::given::Context for ScopeContext {
-    fn provided(&self) -> &SharedState {
-        &self.services
-    }
-
-    fn scope(&self) -> Option<Scope> {
-        Some(self.scope)
+    fn scope(&self) -> Scope {
+        self.scope
     }
 }
 
 impl super::given::Context for FeatureInitContext {
-    fn provided(&self) -> &SharedState {
-        &self.services
-    }
-
-    fn scope(&self) -> Option<Scope> {
-        Some(self.scope)
+    fn scope(&self) -> Scope {
+        self.scope
     }
 }
 
 impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
-    fn provided(&self) -> &SharedState {
-        &self.services
-    }
-
-    fn scope(&self) -> Option<Scope> {
-        Some(self.scope)
+    fn scope(&self) -> Scope {
+        self.scope
     }
 }
 

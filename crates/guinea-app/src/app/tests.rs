@@ -4,7 +4,6 @@ use std::rc::Rc;
 use guinea_macros::given;
 
 use super::{AppFeature, AppHost, FeatureBuilder, Plugin, PluginBuilder};
-use crate::feature::given::Context as _;
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -178,7 +177,7 @@ fn a_feature_may_pull_plugins_and_read_what_they_provide() {
     let mut app = builder();
     app.feature(Startup).unwrap();
 
-    assert_eq!(app.provided().get::<Store>().map(|store| store.0), Some("db"));
+    assert_eq!(app.scope.service::<Store>().map(|store| store.0), Some("db"));
 }
 
 #[test]
@@ -233,7 +232,7 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
     let host = crate::feature::FeatureHost::under(&runtime.context());
     let scope = host
         .install(|ctx| {
-            assert_eq!(ctx.provided().get::<Greeting>().map(|greeting| greeting.0), Some("hello"));
+            assert_eq!(ctx.scope.service::<Greeting>().map(|greeting| greeting.0), Some("hello"));
             ctx.subscribe(|_: Ping| trace("pinged"));
             Ok(())
         })

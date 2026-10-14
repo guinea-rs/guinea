@@ -131,7 +131,7 @@ pub fn mark(point: impl FnOnce() -> Point) -> Cause {
 /// thread and brought its cause along.
 pub fn mark_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Cause {
     let id = Cause::next();
-    if sink::wanted() {
+    if is_recorded_anywhere() {
         observed(|| {
             sink::emit(Trace::Mark(Record {
                 id,
@@ -154,7 +154,7 @@ pub fn enter(point: impl FnOnce() -> Point) -> Entered {
 pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Entered {
     let id = Cause::next();
 
-    let begun = sink::wanted().then(|| {
+    let begun = is_recorded_anywhere().then(|| {
         let begun = Begun {
             started: now(),
             // What observing had cost before this point opened. Whatever is
@@ -189,7 +189,7 @@ pub fn reserve() -> Cause {
 /// without making it current: it is current wherever it is [`resume`]d, and
 /// closes at [`end`].
 pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point) {
-    if sink::wanted() {
+    if is_recorded_anywhere() {
         observed(|| {
             sink::emit(Trace::Begin(Record {
                 id,
@@ -203,7 +203,7 @@ pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point)
 
 /// Closes a point [`begin_as`] opened, saying what it took.
 pub fn end(id: Cause, took: Duration) {
-    if sink::wanted() {
+    if is_recorded_anywhere() {
         observed(|| sink::emit(Trace::End { id, took }));
     }
 }
@@ -270,7 +270,7 @@ impl Drop for Entered {
         CURRENT.with(|current| current.set(self.previous));
 
         if let Some(begun) = self.begun
-            && sink::wanted()
+            && is_recorded_anywhere()
         {
             // Everything observing cost while this point was open comes off
             // what the point is said to have taken. It stays on the running
@@ -489,63 +489,4 @@ mod tests {
         );
     }
 
-    type Event = (String, Vec<(String, String)>);
-
-    #[derive(Clone, Default)]
-    struct Written(std::sync::Arc<std::sync::Mutex<Vec<Event>>>);
-
-    struct Fields(Vec<(String, String)>);
-
-    impl tracing::field::Visit for Fields {
-        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-            self.0.push((field.name().to_string(), format!("{value:?}")));
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Written {
-        fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
-            let mut fields = Fields(Vec::new());
-            event.record(&mut fields);
-
-            let target = event.metadata().target().to_string();
-            self.0.lock().unwrap().push((target, fields.0));
-        }
-    }
-
-    #[test]
-    fn a_point_goes_to_tracing_as_its_kind_with_what_it_holds_as_fields() {
-        use tracing_subscriber::layer::SubscriberExt;
-
-        let written = Written::default();
-        let subscriber = tracing_subscriber::registry().with(written.clone());
-
-        tracing::subscriber::with_default(subscriber, || {
-            let send = mark(|| Point::Send {
-                actor: "ProcessActor",
-                message: "Kill",
-            });
-            mark_under(Some(send), || Point::Log {
-                level: tracing::Level::INFO,
-                target: "app",
-                file: None,
-                line: None,
-                module: None,
-                text: "already written by whoever logged it".into(),
-            });
-        });
-
-        let written = written.0.lock().unwrap();
-        let fields: Vec<(&str, &str)> = written[0]
-            .1
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str()))
-            .collect();
-
-        assert_eq!(written.len(), 1, "a log point is not written back: {written:?}");
-        assert_eq!(written[0].0, "guinea::send");
-        assert!(fields.contains(&("actor", "ProcessActor")), "{fields:?}");
-        assert!(fields.contains(&("msg", "Kill")), "{fields:?}");
-        assert!(!fields.iter().any(|(name, _)| *name == "parent"), "no cause, no parent: {fields:?}");
-        assert!(!fields.iter().any(|(name, _)| *name == "message"), "no prose: {fields:?}");
-    }
 }

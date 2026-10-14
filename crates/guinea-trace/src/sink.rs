@@ -176,10 +176,6 @@ fn observer() -> Option<Observer> {
     OBSERVER.try_with(|slot| slot.0.borrow().clone()).ok().flatten()
 }
 
-pub(crate) fn wanted() -> bool {
-    is_recorded_anywhere()
-}
-
 /// Whether `target` is one [`emit`] writes points under, so a layer that
 /// turns `tracing` events into points can leave them alone.
 pub fn is_point_target(target: &str) -> bool {

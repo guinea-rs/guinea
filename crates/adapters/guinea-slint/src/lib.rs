@@ -35,7 +35,7 @@ mod windows;
 
 pub use convert::{FromSlint, ToSlint};
 pub use guinea_core::guard::Ask;
-pub use run::{MAIN, Window, run};
+pub use run::{MAIN, Opened, Window, run};
 
 /// What `install` is handed. Re-exported because `#[page]` writes signatures
 /// that name it, and a page should not have to import it just for that.

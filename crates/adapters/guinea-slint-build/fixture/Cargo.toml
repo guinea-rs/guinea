@@ -1,0 +1,23 @@
+[package]
+name = "guinea-slint-fixture"
+description = "One window built the way guinea-slint-build builds an application's, to test what it writes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+guinea = { path = "../../../guinea", default-features = false, features = ["slint"] }
+anyhow.workspace = true
+slint = { workspace = true, features = ["std", "compat-1-2"] }
+
+[build-dependencies]
+guinea-slint-build.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+i-slint-backend-testing.workspace = true
+
+[lints]
+workspace = true

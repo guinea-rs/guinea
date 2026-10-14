@@ -1,0 +1,9 @@
+import { Navigator, RouteId } from "navigator.slint";
+
+export { Navigator, RouteId }
+
+export component App inherits Window {
+    Text {
+        text: Navigator.route == RouteId.processes-one ? "process " + Navigator.processes-one-params.pid : "elsewhere";
+    }
+}

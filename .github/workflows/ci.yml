@@ -70,7 +70,7 @@ jobs:
       # yet: packaged against crates/vendor, as publish.yml does.
       - name: Package what publish would
         run: >
-          cargo package --workspace --exclude xtask --no-verify
+          cargo package --workspace --exclude xtask --exclude guinea-slint-fixture --no-verify
           --config "patch.crates-io.windows-window-pre.path='crates/vendor/windows-window-pre'"
           --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
           --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"

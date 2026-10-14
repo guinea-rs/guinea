@@ -1,18 +1,19 @@
-//! The build half of the Slint backend: the route tree, written out as
-//! `.slint`.
+//! The build half of the Slint backend: the window's `Navigator` global,
+//! written from the application's `Route` enum.
 //!
-//! Slint cannot embed a Rust-compiled component into another one, so the tree
-//! a route shows has to exist up front - every page in it, with the route
-//! choosing which branch is alive. Written by hand that is the same tree twice,
-//! once in `routes!` and once in markup, kept in step by hand.
+//! The markup picks its branch by the route - `if Navigator.route ==
+//! RouteId.processes: Processes { }` - and moves the window through
+//! callbacks: `Navigator.go-processes()`. Written by hand that is the route
+//! twice, once in Rust and once in markup, kept in step by hand. So
+//! [`compile`] reads `<root>/routes.rs` and writes, into `OUT_DIR`:
 //!
-//! So it is generated. [`compile`] reads the `routes!` declaration, finds the
-//! `.slint` each page and layout is written in, and emits:
-//!
-//! - `route-tree.slint`: one component holding the whole tree, with an
-//!   `in property <RouteId> route` selecting the branch, and the `RouteId`
-//!   enum naming the branches;
-//! - `route_id.rs`: the matching `route_id(&Route) -> RouteId`.
+//! - `navigator.slint`: the `RouteId` enum, a `<Place>Params` struct for each
+//!   place with parameters, and the `Navigator` global - `route`, each
+//!   place's `<place>-params`, `can-go-back`/`can-go-forward`, a guard's
+//!   `asking`/`question`/`confirm`/`cancel`, `failure`, and the callbacks
+//!   `go-<place>`, `back`, `forward` and `answer`;
+//! - `navigator.rs`: `guinea_slint::Shows` for `Route`, which keeps the
+//!   global in step with the window's navigator.
 //!
 //! ```no_run
 //! // build.rs
@@ -21,31 +22,36 @@
 //! }
 //! ```
 //!
-//! The application keeps its own window, which imports the generated tree:
+//! The window imports the global, and exports it so Rust can reach it:
 //!
 //! ```ignore
 //! // src/app.slint
-//! import { RouteTree } from "route-tree.slint";
-//!
-//! import { RouteTree, RouteId } from "route-tree.slint";
+//! import { Navigator, RouteId } from "navigator.slint";
+//! export { Navigator }
 //!
 //! export component AppWindow inherits Window {
-//!     in property <RouteId> route;
-//!     title: "my application";
-//!     RouteTree { width: root.width; height: root.height; route: root.route; }
+//!     if Navigator.route == RouteId.processes: Processes { }
 //! }
+//! ```
+//!
+//! And the Rust side is included where the route enums and the Slint modules
+//! are both in scope:
+//!
+//! ```ignore
+//! slint::include_modules!();
+//! use routes::*;
+//! include!(concat!(env!("OUT_DIR"), "/navigator.rs"));
 //! ```
 //!
 //! # What it expects
 //!
-//! - `<root>/routes.rs` declares the tree, and `<root>/app.slint` is the
-//!   window;
-//! - every page and layout in the declaration has a component of the same name
-//!   exported from some `.slint` under `<root>` - `page(Processes, ...)` is
-//!   drawn by `export component Processes`, wherever that file sits.
+//! - `<root>/routes.rs` declares `#[derive(Route)] enum Route`, and the route
+//!   enums it nests, in the same file;
+//! - `<root>/app.slint` is the window;
+//! - every parameter is a `String`, a `bool`, an integer or a float - what a
+//!   Slint property can carry. Anything else fails the build, naming it.
 
-mod scan;
-mod tree;
+mod navigator;
 
 use std::fs;
 use std::path::Path;
@@ -55,16 +61,12 @@ use guinea_codegen::Build;
 
 /// The window, by convention, next to the routes it shows.
 const APP: &str = "app.slint";
-/// Where the route tree is declared.
+/// Where the route is declared.
 const ROUTES: &str = "routes.rs";
-/// What the generated tree is called, in both languages.
-const GENERATED_SLINT: &str = "route-tree.slint";
-const GENERATED_RUST: &str = "route_id.rs";
-/// The enum, in a file of its own so that a layout can import it without
-/// importing the tree that holds the layout.
-pub(crate) const IDS: &str = "route-id.slint";
+const GENERATED_SLINT: &str = "navigator.slint";
+const GENERATED_RUST: &str = "navigator.rs";
 
-/// Generates the route tree from `<root>/routes.rs` and compiles
+/// Writes the `Navigator` global from `<root>/routes.rs` and compiles
 /// `<root>/app.slint` against it.
 pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
     let mut build = Build::from_env();
@@ -72,25 +74,19 @@ pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
     // The directory rather than the files in it: adding a page is adding files,
     // and cargo has to notice that too.
     let root = build.track(root);
+    let manifest = build.read("Cargo.toml")?;
 
-    let declaration = fs::read_to_string(root.join(ROUTES))
-        .with_context(|| format!("{}: no route declaration", root.join(ROUTES).display()))?;
-    let routes = guinea_route_dsl::find_in_source(&declaration).with_context(|| {
-        format!(
-            "{}: no `routes! {{ ... }}` in it",
-            root.join(ROUTES).display()
-        )
-    })?;
+    let routes = root.join(ROUTES);
+    let declaration = fs::read_to_string(&routes)
+        .with_context(|| format!("{}: no route declaration", routes.display()))?;
+    let generated = navigator::emit(&declaration, adapter(&manifest))
+        .with_context(|| format!("{}", routes.display()))?;
 
-    let components = scan::components_under(&root)?;
-    let generated = tree::emit(&routes, &components)?;
-
-    build.write(IDS, generated.ids)?;
     build.write(GENERATED_SLINT, generated.slint)?;
     build.write(GENERATED_RUST, generated.rust)?;
 
-    // The generated tree is reached by name, not by path: it lives in OUT_DIR,
-    // which the application cannot spell.
+    // The global is reached by name, not by path: it lives in OUT_DIR, which
+    // the application cannot spell.
     let config = slint_build::CompilerConfiguration::new()
         .with_include_paths(vec![build.out_dir().to_path_buf()]);
     let app = root.join(APP);
@@ -98,4 +94,49 @@ pub fn compile(root: impl AsRef<Path>) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("{}: {e}", app.display()))?;
 
     Ok(())
+}
+
+/// The path the generated Rust reaches `guinea-slint` by, from the
+/// application's manifest: the facade's when it depends on the facade, the
+/// crate's own otherwise.
+fn adapter(manifest: &str) -> &'static str {
+    let Ok(manifest) = manifest.parse::<toml::Table>() else {
+        return "::guinea::slint";
+    };
+
+    let names = |table: Option<&toml::Value>| {
+        table
+            .and_then(toml::Value::as_table)
+            .is_some_and(|dependencies| dependencies.contains_key("guinea"))
+    };
+    let targets = manifest
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(|targets| targets.values())
+        .any(|target| names(target.get("dependencies")));
+
+    match names(manifest.get("dependencies")) || targets {
+        true => "::guinea::slint",
+        false => "::guinea_slint",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adapter;
+
+    #[test]
+    fn an_application_on_the_facade_reaches_the_backend_through_it() {
+        let manifest = "[dependencies]\nguinea = { version = \"0.30\", features = [\"slint\"] }\n";
+
+        assert_eq!(adapter(manifest), "::guinea::slint");
+    }
+
+    #[test]
+    fn an_application_on_the_backend_alone_reaches_it_by_its_own_name() {
+        let manifest = "[dependencies]\nguinea-slint = \"0.30\"\nguinea-app = \"0.30\"\n";
+
+        assert_eq!(adapter(manifest), "::guinea_slint");
+    }
 }

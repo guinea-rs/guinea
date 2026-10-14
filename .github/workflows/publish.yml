@@ -68,7 +68,7 @@ jobs:
 
       - name: Package and build what is about to be published
         run: >
-          cargo package --workspace --exclude xtask
+          cargo package --workspace --exclude xtask --exclude guinea-slint-fixture
           --config "patch.crates-io.windows-window-pre.path='crates/vendor/windows-window-pre'"
           --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
           --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"

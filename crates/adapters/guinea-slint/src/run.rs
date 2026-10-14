@@ -47,8 +47,10 @@ struct Started {
     watching: Watching,
 }
 
-/// What an open window holds on to, until it closes.
-pub(crate) struct Opened {
+/// What an open window holds on to: dropped, the window stops following its
+/// navigator.
+#[must_use = "the window follows its navigator only while this is held"]
+pub struct Opened {
     _watching: Option<Watching>,
 }
 
@@ -112,7 +114,11 @@ impl<W: ComponentHandle + 'static> Window<W> {
 
     /// Opens the window in `window`: mounts its root and what is under it,
     /// and has the navigator mount again every time it moves.
-    pub(crate) fn open(self, window: Scope) -> anyhow::Result<Opened> {
+    ///
+    /// What [`run`] does once the application is installed, without the
+    /// loop: for tests, and for an application that runs Slint's loop
+    /// itself.
+    pub fn open(self, window: Scope) -> anyhow::Result<Opened> {
         window.keep(Component(Rc::new(self.component.clone_strong())));
 
         let remount = remounter(window, self.root);

@@ -20,6 +20,7 @@ members = [
     "crates/adapters/guinea-ratatui",
     "crates/adapters/guinea-slint",
     "crates/adapters/guinea-slint-build",
+    "crates/adapters/guinea-slint-build/fixture",
     "crates/guinea-router",
     "crates/adapters/guinea-winui",
     "crates/guinea-macros",

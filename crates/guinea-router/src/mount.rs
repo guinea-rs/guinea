@@ -5,6 +5,8 @@ use std::any::{Any, TypeId};
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::scope::Scope;
 
+use crate::navigator::{Navigator, Route};
+
 /// One drawing of a parent: every child it mounts during the pass is looked
 /// up by its type and its params, made the first time, and kept from one
 /// pass to the next for as long as the parent mounts it again.
@@ -23,6 +25,19 @@ pub struct Pass {
 struct Mounts {
     children: Vec<Child>,
     passes: u64,
+}
+
+/// What an outlet draws after [`Pass::outlet`].
+#[derive(Debug)]
+pub enum Outlet {
+    /// What the navigator is at, mounted.
+    Here(Scope),
+    /// What stood before, kept while what the navigator moved to failed.
+    Held(Scope),
+    /// Why what the navigator is at did not mount, with nothing before it.
+    Failed(anyhow::Error),
+    /// The navigator is somewhere this level is not part of.
+    Nowhere,
 }
 
 /// The type a scope was mounted as, kept in the scope.
@@ -99,7 +114,8 @@ impl Pass {
         };
         if let Err(error) = install(&cx) {
             scope.remove();
-            return Err(error);
+            let name = crate::observability::short(std::any::type_name::<S>());
+            return Err(error.context(format!("{name} did not mount")));
         }
 
         self.parent.kept::<Mounts, _>(|mounts| {
@@ -133,6 +149,43 @@ impl Pass {
                 held.drawn = number;
             }
         });
+    }
+
+    /// What `nav` says is here at the parent's level, mounted by `draw`.
+    ///
+    /// What it mounted is recorded on the navigator, for the guards to ask
+    /// before it moves on. One that fails to mount puts the navigator back
+    /// where it was, with why as its [`failure`](Navigator::failure), and
+    /// what stood here before stands through this pass.
+    pub fn outlet<R: Route>(
+        &self,
+        nav: &Navigator<R>,
+        draw: impl FnOnce(&R) -> anyhow::Result<Scope>,
+    ) -> Outlet {
+        let Some(here) = nav.current() else {
+            return Outlet::Nowhere;
+        };
+
+        match draw(&here) {
+            Ok(child) => {
+                nav.rendered(self.parent, child, &here);
+                Outlet::Here(child)
+            }
+            Err(error) => {
+                let standing = nav.drawn(self.parent);
+                match standing {
+                    Some(standing) => {
+                        nav.failed(error);
+                        self.hold(standing);
+                        Outlet::Held(standing)
+                    }
+                    None => {
+                        nav.failed(anyhow::anyhow!("{error:#}"));
+                        Outlet::Failed(error)
+                    }
+                }
+            }
+        }
     }
 
     /// Ends the drawing: what it did not mount goes, or sleeps when it was

@@ -2,7 +2,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use guinea_core::scope::{Scope, ScopeTree};
-use guinea_router::mount::Pass;
+use guinea_router::mount::{Outlet, Pass};
+use guinea_router::navigator::Navigator;
 
 struct Listing;
 struct Details;
@@ -104,7 +105,10 @@ fn a_child_that_fails_to_install_leaves_nothing_and_the_others_stand() {
     let failed = pass.mount::<Details, _>(&(), |_| anyhow::bail!("no connection"));
     pass.end();
 
-    assert_eq!(failed.map_err(|error| error.to_string()), Err("no connection".to_string()));
+    assert_eq!(
+        failed.map_err(|error| format!("{error:#}")),
+        Err("Details did not mount: no connection".to_string())
+    );
     assert_eq!(listing, standing[0]);
     assert_eq!(parent.subtree().len(), 2, "the parent and its one child: the failed one's scope is gone");
 }
@@ -159,4 +163,67 @@ fn a_root_mounted_on_its_own_is_named_and_names_the_chain_below_it() {
         .filter_map(guinea_router::mount::name)
         .collect();
     assert_eq!(chain, [std::any::type_name::<Details>(), std::any::type_name::<Listing>()]);
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Place {
+    Listing,
+    Details,
+}
+
+fn outlet(parent: Scope, nav: &Navigator<Place>, broken: bool) -> Outlet {
+    let pass = Pass::begin(parent);
+    let shown = pass.outlet(nav, |place| match place {
+        Place::Listing => pass.mount::<Listing, _>(&(), |_| Ok(())),
+        Place::Details if broken => pass.mount::<Details, _>(&(), |_| anyhow::bail!("no connection")),
+        Place::Details => pass.mount::<Details, _>(&(), |_| Ok(())),
+    });
+    pass.end();
+    shown
+}
+
+#[test]
+fn an_outlet_mounts_where_the_navigator_is_and_tells_the_navigator() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let nav = Navigator::open(parent, Place::Listing);
+
+    let Outlet::Here(listing) = outlet(parent, &nav, false) else {
+        panic!("the listing mounted");
+    };
+
+    assert_eq!(nav.drawn(parent), Some(listing));
+    assert_eq!(guinea_router::mount::name(listing), Some(std::any::type_name::<Listing>()));
+}
+
+#[test]
+fn a_place_that_fails_to_mount_keeps_what_stood_and_puts_the_navigator_back() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let nav = Navigator::open(parent, Place::Listing);
+    let Outlet::Here(listing) = outlet(parent, &nav, true) else {
+        panic!("the listing mounted");
+    };
+
+    nav.to(Place::Details);
+    let shown = outlet(parent, &nav, true);
+
+    assert!(matches!(shown, Outlet::Held(held) if held == listing), "{shown:?}");
+    assert!(listing.is_alive(), "held through the pass");
+    assert_eq!(nav.current(), Some(Place::Listing));
+    assert_eq!(nav.failure().as_deref(), Some("Details did not mount: no connection"));
+}
+
+#[test]
+fn a_first_place_that_fails_to_mount_says_why() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let nav = Navigator::open(parent, Place::Details);
+
+    let shown = outlet(parent, &nav, true);
+
+    let Outlet::Failed(error) = shown else {
+        panic!("nothing stood, so the failure shows: {shown:?}");
+    };
+    assert_eq!(format!("{error:#}"), "Details did not mount: no connection");
 }

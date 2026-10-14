@@ -24,7 +24,7 @@ use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
-use guinea_router::mount::Pass;
+use guinea_router::mount::{Outlet, Pass};
 use guinea_router::navigator::{Navigator, Route};
 use guinea_router::slot::Slot;
 use windows_reactor::{
@@ -1042,7 +1042,6 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
 #[must_use = "a mounted child shows only where its view is placed"]
 pub struct Child {
     pass: Pass,
-    name: &'static str,
     mounted: Result<Scope, anyhow::Error>,
 }
 
@@ -1066,7 +1065,7 @@ impl From<Child> for View {
     fn from(child: Child) -> Self {
         match child.mounted {
             Ok(scope) => drawn(scope),
-            Err(error) => failed(child.name, &error),
+            Err(error) => failed(&error),
         }
     }
 }
@@ -1082,13 +1081,8 @@ pub(crate) fn drawn(scope: Scope) -> View {
     }
 }
 
-fn failed(name: &'static str, error: &anyhow::Error) -> View {
-    TextBlock::new()
-        .text(format!(
-            "{} did not mount: {error:#}",
-            guinea_router::observability::short(name)
-        ))
-        .into()
+fn failed(error: &anyhow::Error) -> View {
+    TextBlock::new().text(format!("{error:#}")).into()
 }
 
 /// The scope that owns `R`, as seen from `scope`, and a binding to its state.
@@ -1783,7 +1777,6 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
 
         Child {
             pass: self.pass.clone(),
-            name: std::any::type_name::<S>(),
             mounted,
         }
     }
@@ -1804,29 +1797,11 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     ) -> View {
         watching(nav, self.scope, self.cx, self.subscribed);
 
-        let Some(here) = nav.current() else {
-            return Grid::new().into();
-        };
-
-        let child = draw(&here, self);
-        match child.mounted {
-            Ok(scope) => {
-                nav.rendered(self.scope, scope, &here);
-                drawn(scope)
-            }
-            Err(error) => {
-                let shown = failed(child.name, &error);
-                let standing = nav.drawn(self.scope);
-                nav.failed(error);
-
-                match standing {
-                    Some(standing) => {
-                        self.pass.hold(standing);
-                        drawn(standing)
-                    }
-                    None => shown,
-                }
-            }
+        let pass = self.pass.clone();
+        match pass.outlet(nav, |here| draw(here, self).mounted) {
+            Outlet::Here(scope) | Outlet::Held(scope) => drawn(scope),
+            Outlet::Failed(error) => failed(&error),
+            Outlet::Nowhere => Grid::new().into(),
         }
     }
 

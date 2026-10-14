@@ -202,7 +202,7 @@ fn a_first_place_that_fails_to_mount_is_shown_not_a_panic(h: &mut Harness) {
         "the window says why it is empty: {:#?}",
         app.tree()
     );
-    assert_eq!(app.failure().as_deref(), Some("the agent is not reachable"));
+    assert_eq!(app.failure().as_deref(), Some("Unreachable did not mount: the agent is not reachable"));
 }
 
 #[guinea::test]
@@ -212,7 +212,7 @@ fn a_page_that_fails_to_mount_leaves_the_window_where_it_was(h: &mut Harness) {
     app.navigate(Place::Unreachable);
 
     assert_eq!(app.route(), Place::Process { pid: 3 });
-    assert_eq!(app.failure().as_deref(), Some("the agent is not reachable"));
+    assert_eq!(app.failure().as_deref(), Some("Unreachable did not mount: the agent is not reachable"));
     assert!(app.tree().find_text("process 3 at 0%").is_some(), "{:#?}", app.tree());
     assert!(app.is_mounted::<Process>());
 }

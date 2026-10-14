@@ -1,21 +1,18 @@
 //! A window's component tree, for devtools.
 //!
 //! The reactor keeps its mounted tree to itself, so this is built from what
-//! guinea does see: every segment's last `View`, read back from `Debug`, with
-//! each segment's own output nested where its parent left the outlet.
+//! guinea does see: every page's and layout's last `View`, read back from
+//! `Debug`, with what each layout mounted nested where its view placed it.
 
 mod debug_text;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use guinea_core::observability::panels::{Panel, PanelNode};
 use guinea_core::scope::Scope;
-use guinea_router::router::{Router, SegmentProps};
 use windows_reactor::View;
 
-use crate::winui::WinUi;
 use debug_text::Value;
 
 struct Record {
@@ -27,16 +24,13 @@ thread_local! {
     static RECORDS: RefCell<HashMap<Scope, Record>> = RefCell::new(HashMap::new());
 }
 
-/// Notes that the segment `props` points at produced `view`, while devtools
+/// Notes that what is mounted in `scope` produced `view`, while devtools
 /// watch; otherwise does nothing, not even count.
-pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
+pub(crate) fn record(scope: Scope, view: &View) {
     if !guinea_core::observability::is_observed() {
         return;
     }
 
-    let Some(scope) = props.scopes.get(props.cursor).map(|placed| placed.scope) else {
-        return;
-    };
     let text = format!("{view:?}");
 
     RECORDS.with(|records| {
@@ -51,60 +45,58 @@ pub(crate) fn record(props: &SegmentProps<WinUi>, view: &View) {
     });
 }
 
-/// Offers the components panel for `router`'s root while the guard lives.
-pub(crate) fn offer(router: &Rc<Router<WinUi>>) -> guinea_core::observability::panels::PanelGuard {
-    let weak = Rc::downgrade(router);
-    guinea_core::observability::panels::contribute(router.root().get(), move || {
-        weak.upgrade().map(|router| panel(&router))
+/// Offers the components panel for the window whose scope is `window`, under
+/// `root`, while the guard lives.
+pub(crate) fn offer(
+    root: u64,
+    window: Scope,
+) -> guinea_core::observability::panels::PanelGuard {
+    guinea_core::observability::panels::contribute(root, move || {
+        window.is_alive().then(|| panel(window))
     })
 }
 
-fn panel(router: &Router<WinUi>) -> Panel {
-    let segments: Vec<(&'static str, u64, Option<Value>)> =
-        match (router.active_chain(), router.active_scopes()) {
-            (Some(chain), Some(scopes)) => RECORDS.with(|records| {
-                let records = records.borrow();
-                chain
-                    .iter()
-                    .zip(scopes.iter())
-                    .map(|(entry, placed)| {
-                        let record = records.get(&placed.scope);
-                        (
-                            short((entry.type_name)()),
-                            record.map_or(0, |record| record.renders),
-                            record
-                                .and_then(|record| record.view.as_deref())
-                                .and_then(debug_text::parse),
-                        )
-                    })
-                    .collect()
-            }),
-            _ => Vec::new(),
-        };
-
+fn panel(window: Scope) -> Panel {
     Panel {
         id: "winui.components",
         title: "Components",
-        nodes: segment(&segments, 0).into_iter().collect(),
+        nodes: guinea_router::mount::mounted(window)
+            .into_iter()
+            .filter_map(|(scope, name)| mounted(scope, name))
+            .collect(),
     }
 }
 
-fn segment(segments: &[(&'static str, u64, Option<Value>)], at: usize) -> Option<PanelNode> {
-    let (name, renders, view) = segments.get(at)?;
-    let mut outlet = Some(at + 1);
-    let children = match view {
-        Some(view) => views(view, &mut |_| {
-            outlet
-                .take()
-                .and_then(|next| segment(segments, next))
+/// A page or a layout, with what it drew, and what it mounted nested where
+/// its view placed it - in the order it mounted them, which is the order a
+/// view places them unless it says otherwise.
+fn mounted(scope: Scope, name: &'static str) -> Option<PanelNode> {
+    let (renders, view) = RECORDS.with(|records| {
+        let records = records.borrow();
+        let record = records.get(&scope);
+        (
+            record.map_or(0, |record| record.renders),
+            record.and_then(|record| record.view.as_deref()).and_then(debug_text::parse),
+        )
+    });
+
+    let mut below = guinea_router::mount::mounted(scope).into_iter();
+    let children = match &view {
+        Some(view) => views(view, &mut |component| {
+            let wanted = short(node_of(component));
+            below
+                .by_ref()
+                .find(|(_, name)| short(name) == wanted)
+                .and_then(|(scope, name)| mounted(scope, name))
                 .into_iter()
                 .collect()
         }),
         None => Vec::new(),
     };
+
     Some(PanelNode {
-        label: name.to_string(),
-        kind: "segment".into(),
+        label: short(name).to_string(),
+        kind: "mounted".into(),
         properties: vec![("renders".into(), renders.to_string())],
         children,
     })
@@ -215,6 +207,14 @@ fn named_key(value: Option<&Value>) -> Option<String> {
     match inner.name() {
         Some("Position") => None,
         _ => Some(inner.single().map_or_else(|| inner.compact(), Value::compact)),
+    }
+}
+
+/// `app::Metrics` from `guinea_winui::winui::PageNode<app::Metrics>`.
+fn node_of(component: &str) -> &str {
+    match component.split_once('<') {
+        Some((_, inner)) => inner.strip_suffix('>').unwrap_or(inner),
+        None => component,
     }
 }
 

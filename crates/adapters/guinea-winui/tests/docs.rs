@@ -124,27 +124,6 @@ mod whole {
     //@show-end
 }
 
-mod cached {
-    //@show a page whose state outlives it
-    use guinea_winui::{Page, PageCx, page};
-    use windows_reactor::{TextBlock, View};
-
-    #[derive(Default)]
-    struct Processes;
-
-    #[page]
-    impl Page for Processes {
-        // Back from another tab, the list is there at once rather than
-        // empty until the next refresh arrives.
-        const CACHE_STATE_IN_MEMORY: bool = true;
-
-        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
-            TextBlock::new().text("processes").into()
-        }
-    }
-    //@show-end
-}
-
 mod installing {
     //@show a page that installs
     //@hide
@@ -185,7 +164,7 @@ mod installing {
         Ok(Processes(listing))
     }
 
-    #[derive(PartialEq)]
+    #[derive(Clone, PartialEq)]
     pub struct ProcessesParams {
         pub context: String,
     }
@@ -241,7 +220,7 @@ mod keeping_the_capture {
     use guinea_winui::{FeatureInitContext, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
 
-    #[derive(PartialEq)]
+    #[derive(Clone, PartialEq)]
     pub struct ProcessParams {
         pub pid: u32,
     }
@@ -541,9 +520,16 @@ mod shell {
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
-        FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
+        FeatureInitContext, Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page,
     };
     use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
+
+    /// Where the shell can be.
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum Place {
+        Home,
+        About,
+    }
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Sidebar {
@@ -589,11 +575,21 @@ mod shell {
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             // Installed by the shell above, and readable here because `Chrome`
             // exports it. A page outside the shell asking for it panics on
-            // its first render, naming the chain it walked.
+            // its first render, naming what it was mounted under.
             let (sidebar, _) = cx.read::<Sidebar>();
             let width = if sidebar.open { "narrow" } else { "wide" };
 
             TextBlock::new().text(format!("home, {width}")).into()
+        }
+    }
+
+    #[derive(Default)]
+    pub struct About;
+
+    #[page]
+    impl Page for About {
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text("guinea").into()
         }
     }
 
@@ -606,9 +602,9 @@ mod shell {
 
     #[layout]
     impl Layout for Shell {
-        type Params = ();
         /// A flat list: a feature, and a reducer claimed directly. Pages below
-        /// may read `Sidebar`, which `Chrome` exports, and `Title`.
+        /// may read `Sidebar`, which `Chrome` exports; `Title` is the shell's
+        /// own.
         type Installs = (Chrome, Bound<Title>);
         type Message = ShellMsg;
 
@@ -629,11 +625,11 @@ mod shell {
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let (sidebar, _) = cx.read::<Sidebar>();
             let (title, _) = cx.read::<Title>();
+            let nav = cx.navigate::<Place>();
 
-            let tab = if cx.child_is::<Home>() {
-                "> Home"
-            } else {
-                "Home"
+            let tab = match nav.current() {
+                Some(Place::Home) => "> Home",
+                _ => "Home",
             };
             let side = match sidebar.open {
                 true => Border::new().content(TextBlock::new().text(tab)),
@@ -647,7 +643,10 @@ mod shell {
                         .on_click(cx.on(|()| ShellMsg::Toggle))
                         .content(TextBlock::new().text("Menu")),
                     side,
-                    cx.outlet(),
+                    cx.outlet(&nav, |place, cx| match place {
+                        Place::Home => cx.mount::<Home>(&()),
+                        Place::About => cx.mount::<About>(&()),
+                    }),
                 ))
                 .into()
         }
@@ -656,49 +655,46 @@ mod shell {
 
     #[cfg(feature = "harness")]
     #[test]
-    fn the_shell_mounts_on_its_own_with_an_outlet() {
-        use guinea_winui::harness::{Mounted, Outlet};
+    fn the_shell_marks_the_tab_and_closes_its_sidebar() {
+        use guinea_winui::harness::Mounted;
 
         guinea_app::app::check(4, |h| {
-            let mut shell = Mounted::<Shell>::mount(h.segment(), ()).unwrap();
+            let mut shell = Mounted::<Shell>::mount_at(h.segment(), (), Place::Home).unwrap();
 
             assert!(shell.find_text("guinea").is_some(), "{:#?}", shell.tree());
-            assert!(shell.find_text("Home").is_some(), "{:#?}", shell.tree());
-            assert!(shell.find(Outlet).is_some(), "{:#?}", shell.tree());
+            assert!(shell.find_text("> Home").is_some(), "{:#?}", shell.tree());
 
             shell.click_text("Menu").settle();
             shell.settle();
 
-            assert!(shell.find_text("Home").is_none(), "{:#?}", shell.tree());
+            assert!(shell.find_text("> Home").is_none(), "{:#?}", shell.tree());
             assert!(!h.state::<Sidebar>().open);
         });
     }
 
     #[cfg(feature = "harness")]
     #[test]
-    fn a_page_mounts_below_the_shell_and_reads_what_it_exports() {
+    fn the_page_it_mounts_reads_what_it_exports() {
         use guinea_winui::harness::Mounted;
 
         guinea_app::app::check(4, |h| {
-            let mut shell = Mounted::<Shell>::mount(h.segment(), ()).unwrap();
-
-            let below = h.child();
-            let mut home = Mounted::<Home>::mount(below, ()).unwrap();
-            assert!(home.find_text("home, narrow").is_some(), "{:#?}", home.tree());
+            let mut shell = Mounted::<Shell>::mount_at(h.segment(), (), Place::Home).unwrap();
+            assert!(shell.find_text("home, narrow").is_some(), "{:#?}", shell.tree());
 
             shell.click_text("Menu").settle();
-            home.settle();
+            shell.settle();
 
-            assert!(home.find_text("home, wide").is_some(), "{:#?}", home.tree());
+            assert!(shell.find_text("home, wide").is_some(), "{:#?}", shell.tree());
         });
     }
 }
 
-mod per_context {
-    //@show a layout per context
+mod per_machine {
+    //@show a layout per machine
     //@hide
     use guinea_macros::{feature, installs, reducer};
-    use guinea_winui::Install;
+    use guinea_winui::{Install, Page, PageCx, page};
+    use windows_reactor::TextBlock;
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     use windows_reactor::View;
@@ -724,33 +720,54 @@ mod per_context {
         machine.push(cx.params().to_string());
         Ok(Connection(machine))
     }
-    //@unhide
 
-    /// What `routes!` writes when every page below captures `context`.
-    #[derive(PartialEq)]
-    pub struct MachineParams {
-        pub context: String,
+    #[derive(Default)]
+    pub struct Overview;
+
+    #[page]
+    impl Page for Overview {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            let (machine, _) = cx.read::<Machine>();
+            TextBlock::new().text(format!("on {}", machine.0)).into()
+        }
     }
+    //@unhide
 
     #[derive(Default)]
     pub struct MachineLayout;
 
     #[layout]
     impl Layout for MachineLayout {
-        type Params = MachineParams;
+        /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
+        type Params = String;
         type Installs = Connection;
 
         fn install(
             ctx: &FeatureInitContext,
-            params: &MachineParams,
+            machine: &String,
         ) -> anyhow::Result<(Self, Connection)> {
-            Ok((Self, ctx.install::<Connection>(&params.context)?))
+            Ok((Self, ctx.install::<Connection>(machine)?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            cx.outlet()
+            cx.mount::<Overview>(&()).into()
         }
     }
+    //@hide
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn what_it_mounts_reads_the_machine_it_was_mounted_for() {
+        guinea_app::app::check(2, |h| {
+            let layout = guinea_winui::harness::Mounted::<MachineLayout>::mount(
+                h.segment(),
+                "ubuntu".to_string(),
+            )
+            .unwrap();
+            assert!(layout.find_text("on ubuntu").is_some(), "{:#?}", layout.tree());
+        });
+    }
+    //@unhide
     //@show-end
 }
 
@@ -759,6 +776,8 @@ mod layout_installing {
     //@hide
     use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
+    use guinea_winui::{Page, PageCx, page};
+    use windows_reactor::TextBlock;
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     use windows_reactor::View;
@@ -800,6 +819,17 @@ mod layout_installing {
     fn metrics(cx: &FeatureInitContext) -> anyhow::Result<MetricsFeature> {
         Ok(MetricsFeature(cx.state::<Metrics>().plain()))
     }
+
+    #[derive(Default)]
+    pub struct MetricsPage;
+
+    #[page]
+    impl Page for MetricsPage {
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            let (metrics, _) = cx.read::<Metrics>();
+            TextBlock::new().text(format!("metrics {}", metrics.0)).into()
+        }
+    }
     //@unhide
 
     /// How often metrics refresh, when the application does not say.
@@ -813,7 +843,6 @@ mod layout_installing {
 
     #[layout]
     impl Layout for Shell {
-        type Params = ();
         type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
 
         fn install(
@@ -832,16 +861,53 @@ mod layout_installing {
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            cx.outlet()
+            cx.mount::<MetricsPage>(&()).into()
         }
     }
+    //@hide
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn starts_from_the_setting_the_application_provided() {
+        guinea_app::app::check(2, |h| {
+            h.provide(Refresh { every_ms: 500 });
+            let shell = guinea_winui::harness::Mounted::<Shell>::mount(h.segment(), ()).unwrap();
+            assert!(shell.find_text("metrics 0").is_some(), "{:#?}", shell.tree());
+            assert_eq!(h.state::<Title>().0, "every 500 ms");
+        });
+    }
+    //@unhide
     //@show-end
 }
 
 mod minding_the_layout {
     //@show a layout that minds being left
+    //@hide
+    use guinea_winui::{Page, PageCx, Route, page};
+    use windows_reactor::TextBlock;
+    //@unhide
     use guinea_winui::{Ask, Layout, LayoutCx, Verdict, layout};
     use windows_reactor::View;
+    //@hide
+
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum Step {
+        Name,
+        Disk,
+    }
+
+    #[derive(Default)]
+    pub struct StepPage;
+
+    #[page]
+    impl Page for StepPage {
+        type Params = Step;
+
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text("step").into()
+        }
+    }
+    //@unhide
 
     #[derive(Default)]
     pub struct Wizard {
@@ -851,8 +917,6 @@ mod minding_the_layout {
 
     #[layout]
     impl Layout for Wizard {
-        type Params = ();
-
         fn leaving(&self) -> Verdict {
             if self.step == 0 || self.finished {
                 Verdict::Allow
@@ -862,7 +926,8 @@ mod minding_the_layout {
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            cx.outlet()
+            let nav = cx.navigate::<Step>();
+            cx.outlet(&nav, |step, cx| cx.mount::<StepPage>(step))
         }
     }
 
@@ -879,8 +944,17 @@ mod minding_the_layout {
 
 mod tab_strip {
     //@show a tab strip
-    use guinea_winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+    //@hide
+    use guinea_winui::{Page, PageCx, page};
+    //@unhide
+    use guinea_winui::{Layout, LayoutCx, Route, layout};
     use windows_reactor::{StackPanel, TextBlock, View};
+
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum Tab {
+        Processes,
+        Services,
+    }
     //@hide
 
     #[derive(Default)]
@@ -909,11 +983,11 @@ mod tab_strip {
 
     #[layout]
     impl Layout for Tabs {
-        type Params = ();
-
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let tab = |name: &str, current: bool| {
-                TextBlock::new().text(if current {
+            let nav = cx.navigate::<Tab>();
+            let here = nav.current();
+            let tab = |name: &str, tab: Tab| {
+                TextBlock::new().text(if here == Some(tab) {
                     format!("[{name}]")
                 } else {
                     name.to_string()
@@ -922,12 +996,32 @@ mod tab_strip {
 
             StackPanel::new()
                 .children((
-                    tab("Processes", cx.child_is::<Processes>()),
-                    tab("Services", cx.child_is::<Services>()),
-                    cx.outlet(),
+                    tab("Processes", Tab::Processes),
+                    tab("Services", Tab::Services),
+                    cx.outlet(&nav, |tab, cx| match tab {
+                        Tab::Processes => cx.mount::<Processes>(&()),
+                        Tab::Services => cx.mount::<Services>(&()),
+                    }),
                 ))
                 .into()
         }
     }
+    //@hide
+
+    #[cfg(feature = "harness")]
+    #[test]
+    fn marks_the_tab_the_navigator_is_at() {
+        guinea_app::app::check(2, |h| {
+            let mut tabs =
+                guinea_winui::harness::Mounted::<Tabs>::mount_at(h.segment(), (), Tab::Services).unwrap();
+            assert!(tabs.find_text("[Services]").is_some(), "{:#?}", tabs.tree());
+            assert!(tabs.find_text("services").is_some(), "{:#?}", tabs.tree());
+
+            tabs.navigator::<Tab>().to(Tab::Processes);
+            tabs.settle();
+            assert!(tabs.find_text("[Processes]").is_some(), "{:#?}", tabs.tree());
+        });
+    }
+    //@unhide
     //@show-end
 }

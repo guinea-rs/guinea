@@ -146,3 +146,17 @@ fn what_a_parent_mounted_is_listed_in_order_by_type() {
     assert_eq!(names(both[1]), Some(std::any::type_name::<Details>()));
     assert_eq!(names(parent), None, "nothing mounted the root");
 }
+
+#[test]
+fn a_root_mounted_on_its_own_is_named_and_names_the_chain_below_it() {
+    let tree = ScopeTree::new();
+    let root = tree.scope();
+    guinea_router::mount::root::<Listing>(root);
+
+    let below = drawn(root, |pass| vec![pass.mount::<Details, _>(&(), |_| Ok(())).unwrap()]);
+
+    let chain: Vec<_> = std::iter::successors(Some(below[0]), Scope::parent)
+        .filter_map(guinea_router::mount::name)
+        .collect();
+    assert_eq!(chain, [std::any::type_name::<Details>(), std::any::type_name::<Listing>()]);
+}

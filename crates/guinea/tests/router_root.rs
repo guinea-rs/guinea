@@ -1,29 +1,24 @@
 #![cfg(all(windows, feature = "winui"))]
 
-//! A route tree mounted the way a window mounts it: `RouterRoot` on the
-//! reactor's recording runtime, navigated from inside, and a guard's question
-//! answered through the dialog it puts up, the way a user answers it.
+//! A window the way the application opens one: a navigator over the route,
+//! the layout it roots at, the outlet that layout draws, and a guard's
+//! question answered through the dialog the window puts up, the way a user
+//! answers it.
 
 use std::cell::{Cell, RefCell};
 
-use guinea::app::{AppRuntime, GuineaApp};
+use guinea::app::Harness;
 use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
-use guinea::router::NavigateHandle;
+use guinea::winui::harness::Mounted;
 use guinea::winui::*;
 use guinea_core::feature::Bound;
 use guinea_core::scope::Scope;
-use guinea_macros::{reducer, routes};
-use windows_reactor::{
-    ComponentHost, ContentDialogResult, ObjectId, RecordingAdapter, RelationId, TextBlock, View,
-    component,
-};
-
-type Host = ComponentHost<RecordingAdapter>;
+use guinea_macros::reducer;
+use windows_reactor::{TextBlock, View};
 
 thread_local! {
     static SHOWN: RefCell<Vec<String>> = RefCell::default();
-    static NAV: RefCell<Option<NavigateHandle<WinUi, Route>>> = RefCell::default();
     static INSTALLED: Cell<Option<Scope>> = Cell::default();
     static ENTERED: Cell<usize> = Cell::default();
 }
@@ -38,20 +33,6 @@ fn load(this: &mut Load, percent: u32) {
     this.percent = percent;
 }
 
-#[derive(Default)]
-struct Process {
-    pid: u32,
-}
-
-#[derive(Default)]
-struct Editor;
-
-#[derive(Default)]
-struct Guarded;
-
-#[derive(Default)]
-struct Unreachable;
-
 struct Counted;
 
 impl Enter for Counted {
@@ -61,69 +42,92 @@ impl Enter for Counted {
     }
 }
 
-routes! {
-    Route {
-        page(Process) link("/process/:pid") { pid: u32 }
-        page(Editor) link("/editor")
-        page(Guarded) guard(Counted) link("/guarded")
-        page(Unreachable) link("/unreachable")
+#[derive(Clone, PartialEq, Debug, Route)]
+enum Place {
+    Process { pid: u32 },
+    Editor,
+    #[guard(Counted)]
+    Guarded,
+    Unreachable,
+}
+
+#[derive(Default)]
+struct Shell;
+
+#[layout]
+impl Layout for Shell {
+    fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+        let nav = cx.navigate::<Place>();
+        cx.outlet(&nav, |place, cx| match place {
+            Place::Process { pid } => cx.mount::<Process>(pid),
+            Place::Editor => cx.mount::<Editor>(&()),
+            Place::Guarded => cx.mount::<Guarded>(&()),
+            Place::Unreachable => cx.mount::<Unreachable>(&()),
+        })
     }
 }
 
-#[page]
-impl Page for Unreachable {
-    type Params = UnreachableParams;
-
-    fn install(_ctx: &FeatureInitContext, _params: &UnreachableParams) -> anyhow::Result<(Self, ())> {
-        anyhow::bail!("the agent is not reachable")
-    }
-
-    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        shown(cx, "unreachable".to_string())
-    }
+#[derive(Default)]
+struct Process {
+    pid: u32,
 }
 
 #[page]
 impl Page for Process {
-    type Params = ProcessParams;
+    type Params = u32;
     type Installs = Bound<Load>;
 
-    fn install(ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<(Self, Bound<Load>)> {
+    fn install(ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<(Self, Bound<Load>)> {
         INSTALLED.set(Some(ctx.scope));
         let load = ctx.state::<Load>().seed(Load::default()).plain();
-        Ok((Self { pid: params.pid }, load))
+        Ok((Self { pid: *pid }, load))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (load, _) = cx.read::<Load>();
-        shown(cx, format!("process {} at {}%", self.pid, load.percent))
+        shown(format!("process {} at {}%", self.pid, load.percent))
     }
 }
 
+#[derive(Default)]
+struct Editor;
+
 #[page]
 impl Page for Editor {
-    type Params = EditorParams;
-
     fn leaving(&self) -> Verdict {
         Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
     }
 
-    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        shown(cx, "editor".to_string())
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        shown("editor".to_string())
     }
 }
+
+#[derive(Default)]
+struct Guarded;
 
 #[page]
 impl Page for Guarded {
-    type Params = GuardedParams;
-
-    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        shown(cx, "guarded".to_string())
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        shown("guarded".to_string())
     }
 }
 
-fn shown<P: Page>(cx: &mut PageCx<'_, '_, P>, text: String) -> View {
-    NAV.with(|nav| *nav.borrow_mut() = Some(cx.use_navigate::<Route>()));
+#[derive(Default)]
+struct Unreachable;
+
+#[page]
+impl Page for Unreachable {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+        anyhow::bail!("the agent is not reachable")
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        shown("unreachable".to_string())
+    }
+}
+
+fn shown(text: String) -> View {
     SHOWN.with(|shown| shown.borrow_mut().push(text.clone()));
     TextBlock::new().text(text).into()
 }
@@ -132,66 +136,17 @@ fn last_shown() -> String {
     SHOWN.with(|shown| shown.borrow().last().cloned().unwrap_or_default())
 }
 
-fn go(route: Route) {
-    let nav = NAV.with(|nav| nav.borrow().clone()).expect("a page has drawn");
-    nav.to(route);
-}
-
-fn mount(initial: Route) -> (AppRuntime, Host) {
-    let runtime = GuineaApp::new().install().expect("install");
-    let app = runtime.context();
-
-    let mut adapter = RecordingAdapter::new();
-    adapter.record_batches(true);
-
-    let rooted = Rooted { app, initial };
-    let mut host = Host::mount(adapter, [component::<RouterRoot<Route>>("root", rooted)])
-        .expect("the route tree mounts");
-    settle(&mut host);
-    (runtime, host)
-}
-
-fn settle(host: &mut Host) {
-    while host.drain(64).expect("running components").dispatched > 0 {}
-}
-
-fn dialog(host: &Host) -> ObjectId {
-    let graph = host.runtime().graph();
-    let root = graph
-        .children(graph.root().expect("mounted"), RelationId::Children)
-        .and_then(|children| children.first().copied())
-        .expect("the root draws");
-
-    host.adapter()
-        .content_dialog(root)
-        .map(|(dialog, _)| dialog)
-        .expect("the root keeps a dialog for a guard's question")
-}
-
-fn answer(host: &mut Host, result: ContentDialogResult) {
-    let dialog = dialog(host);
-    assert!(host.test_adapter_mut().complete_content_dialog(dialog, result));
-    settle(host);
-}
-
-fn asking(host: &Host) -> bool {
-    host.adapter()
-        .content_dialog_state(dialog(host))
-        .is_some_and(|dialog| dialog.desired_open)
-}
-
-#[test]
-fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope() {
-    let (_app, mut pump) = mount(Route::Process { pid: 1 });
+#[guinea::test]
+fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope(h: &mut Harness) {
+    let mut app = Mounted::routed::<Shell>(h, Place::Process { pid: 1 }).unwrap();
     assert_eq!(last_shown(), "process 1 at 0%");
 
-    go(Route::Process { pid: 2 });
-    settle(&mut pump);
+    app.navigate(Place::Process { pid: 2 });
     assert_eq!(last_shown(), "process 2 at 0%");
 
     let installed = INSTALLED.get().unwrap();
     installed.push::<Load>(40);
-    settle(&mut pump);
+    app.settle();
     assert_eq!(
         last_shown(),
         "process 2 at 40%",
@@ -199,66 +154,65 @@ fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope() {
     );
 }
 
-#[test]
-fn a_page_that_minds_being_left_asks_and_the_answer_decides() {
-    let (_app, mut pump) = mount(Route::Editor {});
-    assert!(!asking(&pump));
+#[guinea::test]
+fn a_page_that_minds_being_left_asks_and_the_answer_decides(h: &mut Harness) {
+    let mut app = Mounted::routed::<Shell>(h, Place::Editor).unwrap();
+    assert_eq!(app.question(), None);
 
-    go(Route::Guarded {});
-    settle(&mut pump);
-    assert!(asking(&pump), "the question is on screen");
+    app.navigate(Place::Guarded);
+    assert_eq!(app.question().as_deref(), Some("Discard the draft?"), "the question is on screen");
     assert_eq!(last_shown(), "editor");
 
-    answer(&mut pump, ContentDialogResult::None);
-    assert!(!asking(&pump));
-    assert_eq!(last_shown(), "editor", "kept");
+    app.answer(false);
+    assert_eq!(app.question(), None);
+    assert_eq!(app.route(), Place::Editor, "kept");
 
-    go(Route::Guarded {});
-    settle(&mut pump);
-    assert!(asking(&pump), "asked again, with a question of its own");
+    app.navigate(Place::Guarded);
+    assert!(app.question().is_some(), "asked again, with a question of its own");
 
-    answer(&mut pump, ContentDialogResult::Primary);
-    assert!(!asking(&pump));
+    app.answer(true);
+    assert_eq!(app.question(), None);
     assert_eq!(last_shown(), "guarded", "discarded, and gone");
 }
 
-#[test]
-fn a_navigation_asks_its_guards_once() {
-    let (_app, mut pump) = mount(Route::Editor {});
+#[guinea::test]
+fn a_navigation_asks_its_guards_once(h: &mut Harness) {
+    let mut app = Mounted::routed::<Shell>(h, Place::Editor).unwrap();
 
     ENTERED.with(|entered| entered.set(0));
-    go(Route::Guarded {});
-    settle(&mut pump);
-    answer(&mut pump, ContentDialogResult::Primary);
+    app.navigate(Place::Guarded);
+    app.answer(true);
 
     assert_eq!(last_shown(), "guarded");
     assert_eq!(
         ENTERED.with(Cell::get),
         1,
-        "the root takes the route it arrived at; it does not navigate there again"
+        "the answer lets the navigation that asked go on; it does not navigate there again"
     );
 }
 
-#[test]
-fn a_first_route_that_fails_to_install_is_shown_not_a_panic() {
-    let (_app, host) = mount(Route::Unreachable {});
+#[guinea::test]
+fn a_first_place_that_fails_to_mount_is_shown_not_a_panic(h: &mut Harness) {
+    SHOWN.with(|shown| shown.borrow_mut().clear());
+    let app = Mounted::routed::<Shell>(h, Place::Unreachable).unwrap();
 
     assert!(SHOWN.with(|shown| shown.borrow().is_empty()));
-    let said = host
-        .adapter()
-        .batches()
-        .iter()
-        .flatten()
-        .any(|mutation| format!("{mutation:?}").contains("the agent is not reachable"));
-    assert!(said, "the window says why it is empty");
+    assert!(
+        app.tree().find_text("Unreachable did not mount: the agent is not reachable").is_some(),
+        "the window says why it is empty: {:#?}",
+        app.tree()
+    );
+    assert_eq!(app.failure().as_deref(), Some("the agent is not reachable"));
 }
 
-#[test]
-fn a_page_that_fails_to_install_leaves_the_window_where_it_was() {
-    let (_app, mut pump) = mount(Route::Process { pid: 3 });
+#[guinea::test]
+fn a_page_that_fails_to_mount_leaves_the_window_where_it_was(h: &mut Harness) {
+    let mut app = Mounted::routed::<Shell>(h, Place::Process { pid: 3 }).unwrap();
 
-    go(Route::Unreachable {});
-    settle(&mut pump);
+    app.navigate(Place::Unreachable);
 
-    assert_eq!(last_shown(), "process 3 at 0%");
+    assert_eq!(app.route(), Place::Process { pid: 3 });
+    assert_eq!(app.failure().as_deref(), Some("the agent is not reachable"));
+    assert!(app.tree().find_text("process 3 at 0%").is_some(), "{:#?}", app.tree());
+    assert!(app.is_mounted::<Process>());
 }

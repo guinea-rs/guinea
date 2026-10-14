@@ -247,3 +247,17 @@ fn a_watcher_hears_every_move_until_it_lets_go() {
 
     assert_eq!(heard.get(), 2);
 }
+
+#[test]
+fn a_handler_goes_where_it_was_made_for_each_time_it_is_called() {
+    let (_tree, navigator) = opened();
+    let go = navigator.to_handler(Top::Services);
+
+    go();
+    assert_eq!(navigator.current(), Some(Top::Services));
+
+    navigator.back();
+    go();
+    assert_eq!(navigator.current(), Some(Top::Services));
+    assert!(navigator.can_go_back());
+}

@@ -763,8 +763,7 @@ fn a_page_keeps_the_segment_it_was_mounted_into(h: &mut Harness) {
 
 mod routed {
     use super::*;
-    use guinea::winui::harness::Outlet;
-    use guinea::winui::{Layout, LayoutCx, UseRoute, layout};
+    use guinea::winui::{Layout, LayoutCx, Route, layout};
     use std::rc::Rc;
 
     use windows_reactor::{NavigationView, NavigationViewItem, keyed};
@@ -789,53 +788,53 @@ mod routed {
         }
     }
 
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum TabRoute {
+        One,
+        Two,
+    }
+
     /// Shows where the application is, and asks to go elsewhere.
     #[derive(Default)]
     pub struct Tabs;
 
     #[layout]
     impl Layout for Tabs {
-        type Params = ();
-
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let here = match cx.use_route::<TabRoute>() {
-                TabRoute::One {} => "at one",
-                TabRoute::Two {} => "at two",
-            };
             let nav = cx.navigate::<TabRoute>();
+            let here = match nav.current() {
+                Some(TabRoute::One) => "at one",
+                Some(TabRoute::Two) => "at two",
+                None => "nowhere",
+            };
 
             StackPanel::new()
                 .children((
                     TextBlock::new().text(here),
                     Button::new()
-                        .on_click(nav.to_handler(TabRoute::Two {}))
+                        .on_click(nav.to_handler(TabRoute::Two))
                         .content(TextBlock::new().text("Two")),
-                    cx.outlet(),
+                    cx.outlet(&nav, |tab, cx| match tab {
+                        TabRoute::One => cx.mount::<One>(&()),
+                        TabRoute::Two => cx.mount::<Two>(&()),
+                    }),
                 ))
                 .into()
         }
     }
 
-    routes! {
-        TabRoute {
-            layout(Tabs) {
-                page(One) { }
-                page(Two) { }
-            }
-        }
-    }
-
     #[guinea::test(iterations = 4)]
-    fn a_layout_mounted_at_a_route_reads_it_and_records_where_it_asks_to_go(h: &mut Harness) {
-        let mut tabs = Mounted::<Tabs>::mount_at(h.segment(),(), TabRoute::One {}).unwrap();
+    fn a_layout_mounted_at_a_route_draws_it_and_goes_where_it_is_asked(h: &mut Harness) {
+        let mut tabs = Mounted::<Tabs>::mount_at(h.segment(), (), TabRoute::One).unwrap();
         assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
-        assert!(tabs.find(Outlet).is_some(), "{:#?}", tabs.tree());
+        assert!(tabs.find_text("one").is_some(), "{:#?}", tabs.tree());
 
         tabs.click_text("Two").settle();
         tabs.settle();
 
-        assert_eq!(tabs.navigated::<TabRoute>(), [TabRoute::Two {}]);
-        assert!(tabs.find_text("at one").is_some(), "{:#?}", tabs.tree());
+        assert_eq!(tabs.navigator::<TabRoute>().current(), Some(TabRoute::Two));
+        assert!(tabs.find_text("at two").is_some(), "{:#?}", tabs.tree());
+        assert!(tabs.find_text("two").is_some(), "{:#?}", tabs.tree());
     }
 
     #[derive(Default)]
@@ -860,15 +859,23 @@ mod routed {
 
     /// A navigation pane: a menu item, a footer item, and the outlet as its
     /// content.
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum PaneRoute {
+        Home,
+        Settings,
+    }
+
     #[derive(Default)]
     pub struct Pane;
 
     #[layout]
     impl Layout for Pane {
-        type Params = ();
-
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<PaneRoute>();
+            let page = cx.outlet(&nav, |place, cx| match place {
+                PaneRoute::Home => cx.mount::<Home>(&()),
+                PaneRoute::Settings => cx.mount::<Settings>(&()),
+            });
 
             NavigationView::new()
                 .keyed_menu_items([keyed(
@@ -880,35 +887,31 @@ mod routed {
                     NavigationViewItem::new().tag("settings").content("Settings"),
                 )])
                 .on_selected_tag_changed(move |tag: Option<Rc<str>>| match tag.as_deref() {
-                    Some("home") => nav.to(PaneRoute::Home {}),
-                    Some("settings") => nav.to(PaneRoute::Settings {}),
+                    Some("home") => {
+                        nav.to(PaneRoute::Home);
+                    }
+                    Some("settings") => {
+                        nav.to(PaneRoute::Settings);
+                    }
                     _ => {}
                 })
-                .content(cx.outlet())
+                .content(page)
                 .into()
-        }
-    }
-
-    routes! {
-        PaneRoute {
-            layout(Pane) {
-                page(Home) { }
-                page(Settings) { }
-            }
         }
     }
 
     #[guinea::test(iterations = 4)]
     fn a_navigation_view_is_walked_and_its_items_select_themselves(h: &mut Harness) {
-        let mut pane = Mounted::<Pane>::mount_at(h.segment(),(), PaneRoute::Home {}).unwrap();
+        let mut pane = Mounted::<Pane>::mount_at(h.segment(), (), PaneRoute::Home).unwrap();
 
-        assert!(pane.find(Outlet).is_some(), "{:#?}", pane.tree());
+        assert!(pane.find_text("home").is_some(), "{:#?}", pane.tree());
         assert!(pane.find_text("Home").is_some(), "{:#?}", pane.tree());
 
         pane.click_text("Settings").settle();
         pane.settle();
 
-        assert_eq!(pane.navigated::<PaneRoute>(), [PaneRoute::Settings {}]);
+        assert_eq!(pane.navigator::<PaneRoute>().current(), Some(PaneRoute::Settings));
+        assert!(pane.find_text("settings").is_some(), "{:#?}", pane.tree());
     }
 }
 
@@ -917,7 +920,7 @@ mod navigating {
     use std::time::Duration;
 
     use super::*;
-    use guinea::winui::{Ask, Layout, LayoutCx, UseRoute, Verdict, layout};
+    use guinea::winui::{Ask, Layout, LayoutCx, Route, Verdict, layout};
 
     thread_local! {
         static AREAS_GONE: Cell<usize> = const { Cell::new(0) };
@@ -1046,36 +1049,49 @@ mod navigating {
     #[derive(Default)]
     pub struct Frame;
 
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum AppRoute {
+        List,
+        KeptList,
+        Other,
+        Draft,
+    }
+
     #[layout]
     impl Layout for Frame {
-        type Params = FrameParams;
         type Installs = frame_clock::FrameClock;
 
         fn install(
             ctx: &FeatureInitContext,
-            _params: &FrameParams,
+            _params: &(),
         ) -> anyhow::Result<(Self, frame_clock::FrameClock)> {
             Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let here = match cx.use_route::<AppRoute>() {
-                AppRoute::List {} => "at list",
-                AppRoute::Other {} => "at other",
-                AppRoute::Draft {} => "at draft",
-                AppRoute::KeptList {} => "at kept list",
+            let nav = cx.navigate::<AppRoute>();
+            let here = match nav.current() {
+                Some(AppRoute::List) => "at list",
+                Some(AppRoute::Other) => "at other",
+                Some(AppRoute::Draft) => "at draft",
+                Some(AppRoute::KeptList) => "at kept list",
+                None => "nowhere",
             };
             let (ticks, _) = cx.read::<frame_clock::FrameTicks>();
-            let nav = cx.navigate::<AppRoute>();
 
             StackPanel::new()
                 .children((
                     TextBlock::new().text(here),
                     TextBlock::new().text(format!("frame ticks: {}", ticks.0)),
                     Button::new()
-                        .on_click(nav.to_handler(AppRoute::List {}))
+                        .on_click(nav.to_handler(AppRoute::List))
                         .content(TextBlock::new().text("List")),
-                    cx.outlet(),
+                    cx.outlet(&nav, |place, cx| match place {
+                        AppRoute::List => cx.mount::<Area>(&()),
+                        AppRoute::KeptList => cx.mount::<KeptArea>(&()).keep(),
+                        AppRoute::Other => cx.mount::<Other>(&()),
+                        AppRoute::Draft => cx.mount::<Draft>(&()),
+                    }),
                 ))
                 .into()
         }
@@ -1088,12 +1104,11 @@ mod navigating {
 
     #[layout]
     impl Layout for Area {
-        type Params = AreaParams;
         type Installs = list_clock::ListClock;
 
         fn install(
             ctx: &FeatureInitContext,
-            _params: &AreaParams,
+            _params: &(),
         ) -> anyhow::Result<(Self, list_clock::ListClock)> {
             ctx.scope
                 .on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
@@ -1101,7 +1116,7 @@ mod navigating {
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            cx.outlet()
+            cx.mount::<List>(&()).into()
         }
     }
 
@@ -1110,27 +1125,24 @@ mod navigating {
 
     #[page]
     impl Page for List {
-        type Params = ListParams;
-
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (ticks, _) = cx.read::<list_clock::ListTicks>();
             TextBlock::new().text(format!("list ticks: {}", ticks.0)).into()
         }
     }
 
-    /// Reads what the harness provided, in a segment installed only after a
+    /// Reads what the harness provided, in a page installed only after a
     /// navigation.
     #[derive(Default)]
     pub struct Other;
 
     #[page]
     impl Page for Other {
-        type Params = OtherParams;
         type Installs = greeted::Greeted;
 
         fn install(
             ctx: &FeatureInitContext,
-            _params: &OtherParams,
+            _params: &(),
         ) -> anyhow::Result<(Self, greeted::Greeted)> {
             Ok((Self, ctx.install(&())?))
         }
@@ -1146,8 +1158,6 @@ mod navigating {
 
     #[page]
     impl Page for Draft {
-        type Params = DraftParams;
-
         fn leaving(&self) -> Verdict {
             Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
         }
@@ -1157,25 +1167,24 @@ mod navigating {
         }
     }
 
-    /// The same clock as [`Area`], in a layout the routes keep.
+    /// The same clock as [`Area`], in a layout the frame keeps.
     #[derive(Default)]
     pub struct KeptArea;
 
     #[layout]
     impl Layout for KeptArea {
-        type Params = KeptAreaParams;
         type Installs = list_clock::ListClock;
 
         fn install(
             ctx: &FeatureInitContext,
-            _params: &KeptAreaParams,
+            _params: &(),
         ) -> anyhow::Result<(Self, list_clock::ListClock)> {
             ctx.on_wake(|| KEPT_WAKES.with(|wakes| wakes.set(wakes.get() + 1)));
             Ok((Self::default(), ctx.install(&())?))
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            cx.outlet()
+            cx.mount::<KeptList>(&()).into()
         }
     }
 
@@ -1184,26 +1193,9 @@ mod navigating {
 
     #[page]
     impl Page for KeptList {
-        type Params = KeptListParams;
-
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             let (ticks, _) = cx.read::<list_clock::ListTicks>();
             TextBlock::new().text(format!("kept ticks: {}", ticks.0)).into()
-        }
-    }
-
-    routes! {
-        AppRoute {
-            layout(Frame) {
-                layout(Area) {
-                    page(List) { }
-                }
-                layout(KeptArea) keep {
-                    page(KeptList) { }
-                }
-                page(Other) { }
-                page(Draft) { }
-            }
         }
     }
 
@@ -1212,40 +1204,40 @@ mod navigating {
         h.provide(Greeting("hello"));
         AREAS_GONE.with(|gone| gone.set(0));
 
-        let mut app = Mounted::routed(h, AppRoute::List {}).unwrap();
-        assert_eq!(app.route(), AppRoute::List {});
+        let mut app = Mounted::routed::<Frame>(h, AppRoute::List).unwrap();
+        assert_eq!(app.route(), AppRoute::List);
         assert!(app.is_mounted::<Frame>() && app.is_mounted::<Area>() && app.is_mounted::<List>());
         assert!(app.find_text("at list").is_some(), "{:#?}", app.tree());
 
-        app.navigate(AppRoute::Other {});
-        assert_eq!(app.route(), AppRoute::Other {});
+        app.navigate(AppRoute::Other);
+        assert_eq!(app.route(), AppRoute::Other);
         assert!(!app.is_mounted::<Area>() && !app.is_mounted::<List>(), "{:?}", app.segments());
         assert_eq!(AREAS_GONE.with(Cell::get), 1, "the area's scope went with it");
         assert!(app.find_text("at other").is_some(), "{:#?}", app.tree());
         assert!(
             app.find_text("other says hello").is_some(),
-            "what the harness provides reaches a segment installed later:\n{:#?}",
+            "what the harness provides reaches a page installed later:\n{:#?}",
             app.tree()
         );
 
         app.click_text("List").settle();
         app.settle();
-        assert_eq!(app.route(), AppRoute::List {}, "a click through use_navigate moves too");
+        assert_eq!(app.route(), AppRoute::List, "a click through the navigator moves too");
         assert!(app.is_mounted::<Area>(), "{:?}", app.segments());
         assert!(app.find_text("list ticks: 0").is_some(), "{:#?}", app.tree());
     }
 
     #[guinea::test(iterations = 4)]
     fn state_below_the_page_left_starts_again_and_state_above_it_stays(h: &mut Harness) {
-        let mut app = Mounted::routed(h, AppRoute::List {}).unwrap();
+        let mut app = Mounted::routed::<Frame>(h, AppRoute::List).unwrap();
 
         h.advance(Duration::from_secs(1));
         app.settle();
         assert!(app.find_text("frame ticks: 1").is_some(), "{:#?}", app.tree());
         assert!(app.find_text("list ticks: 1").is_some(), "{:#?}", app.tree());
 
-        app.navigate(AppRoute::Other {});
-        app.navigate(AppRoute::List {});
+        app.navigate(AppRoute::Other);
+        app.navigate(AppRoute::List);
 
         assert!(app.find_text("frame ticks: 1").is_some(), "{:#?}", app.tree());
         assert!(
@@ -1257,39 +1249,39 @@ mod navigating {
 
     #[guinea::test(iterations = 4)]
     fn a_guard_s_question_is_answered_through_the_root_s_dialog(h: &mut Harness) {
-        let mut app = Mounted::routed(h, AppRoute::Draft {}).unwrap();
+        let mut app = Mounted::routed::<Frame>(h, AppRoute::Draft).unwrap();
         assert_eq!(app.question(), None);
 
-        app.navigate(AppRoute::Other {});
+        app.navigate(AppRoute::Other);
         assert_eq!(app.question().as_deref(), Some("Discard the draft?"));
-        assert_eq!(app.route(), AppRoute::Draft {});
+        assert_eq!(app.route(), AppRoute::Draft);
 
         app.answer(false);
         assert_eq!(app.question(), None);
-        assert_eq!(app.route(), AppRoute::Draft {}, "kept");
+        assert_eq!(app.route(), AppRoute::Draft, "kept");
 
-        app.navigate(AppRoute::Other {});
+        app.navigate(AppRoute::Other);
         app.answer(true);
-        assert_eq!(app.route(), AppRoute::Other {}, "discarded");
+        assert_eq!(app.route(), AppRoute::Other, "discarded");
         assert!(app.find_text("at other").is_some(), "{:#?}", app.tree());
     }
 
     #[guinea::test(iterations = 4)]
     fn a_kept_layout_comes_back_with_its_state_and_its_clock_slept_meanwhile(h: &mut Harness) {
         KEPT_WAKES.with(|wakes| wakes.set(0));
-        let mut app = Mounted::routed(h, AppRoute::KeptList {}).unwrap();
+        let mut app = Mounted::routed::<Frame>(h, AppRoute::KeptList).unwrap();
 
         h.advance(Duration::from_secs(1));
         app.settle();
         assert!(app.find_text("kept ticks: 1").is_some(), "{:#?}", app.tree());
 
-        app.navigate(AppRoute::Other {});
+        app.navigate(AppRoute::Other);
         assert!(!app.is_mounted::<KeptArea>(), "{:?}", app.segments());
         h.advance(Duration::from_secs(3));
         app.settle();
         assert_eq!(KEPT_WAKES.with(Cell::get), 0);
 
-        app.navigate(AppRoute::KeptList {});
+        app.navigate(AppRoute::KeptList);
         assert!(
             app.find_text("kept ticks: 1").is_some(),
             "the area kept its state, and its clock did not tick while it slept:\n{:#?}",
@@ -1484,13 +1476,31 @@ mod two_of_a_kind {
         assert_eq!((shown(&first), shown(&second)), (Some("tally 1"), Some("tally 0")));
     }
 
+    #[derive(Clone, PartialEq, Debug, guinea::winui::Route)]
+    pub enum Where {
+        Here,
+        There,
+    }
+
+    #[derive(Default)]
+    pub struct Window;
+
+    #[guinea::winui::layout]
+    impl guinea::winui::Layout for Window {
+        fn view(&self, cx: &mut guinea::winui::LayoutCx<'_, '_, Self>) -> View {
+            let nav = cx.navigate::<Where>();
+            cx.outlet(&nav, |place, cx| match place {
+                Where::Here => cx.mount::<Here>(&()),
+                Where::There => cx.mount::<There>(&()),
+            })
+        }
+    }
+
     #[derive(Default)]
     pub struct Here;
 
     #[page]
     impl Page for Here {
-        type Params = HereParams;
-
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("here").into()
         }
@@ -1501,27 +1511,18 @@ mod two_of_a_kind {
 
     #[page]
     impl Page for There {
-        type Params = ThereParams;
-
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("there").into()
         }
     }
 
-    routes! {
-        Where {
-            page(Here) { }
-            page(There) { }
-        }
-    }
-
     #[guinea::test(iterations = 1)]
-    fn navigate_moves_the_tree_it_is_called_on(h: &mut Harness) {
-        let mut first = Mounted::routed(h, Where::Here {}).unwrap();
-        let second = Mounted::routed(h, Where::Here {}).unwrap();
+    fn navigate_moves_the_window_it_is_called_on(h: &mut Harness) {
+        let mut first = Mounted::routed::<Window>(h, Where::Here).unwrap();
+        let second = Mounted::routed::<Window>(h, Where::Here).unwrap();
 
-        first.navigate(Where::There {});
+        first.navigate(Where::There);
 
-        assert_eq!((first.route(), second.route()), (Where::There {}, Where::Here {}));
+        assert_eq!((first.route(), second.route()), (Where::There, Where::Here));
     }
 }

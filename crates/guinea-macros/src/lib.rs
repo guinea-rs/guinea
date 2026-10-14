@@ -219,13 +219,13 @@ pub fn slot(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// clothes of one.
 #[proc_macro_attribute]
 pub fn iced_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Page, "guinea-iced", "iced")
+    elm::node_impl(item, elm::Kind::Page, "guinea-iced", "iced", elm::Mounts::FromRoutes)
 }
 
 /// [`iced_page`] for a layout, which has no route parameters of its own.
 #[proc_macro_attribute]
 pub fn iced_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Layout, "guinea-iced", "iced")
+    elm::node_impl(item, elm::Kind::Layout, "guinea-iced", "iced", elm::Mounts::FromRoutes)
 }
 
 /// [`iced_page`] for the windows-reactor backend.
@@ -236,13 +236,13 @@ pub fn iced_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// empty ones is the same job.
 #[proc_macro_attribute]
 pub fn winui_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Page, "guinea-winui", "winui")
+    elm::node_impl(item, elm::Kind::Page, "guinea-winui", "winui", elm::Mounts::FromViews)
 }
 
 /// [`winui_page`] for a layout.
 #[proc_macro_attribute]
 pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Layout, "guinea-winui", "winui")
+    elm::node_impl(item, elm::Kind::Layout, "guinea-winui", "winui", elm::Mounts::FromViews)
 }
 
 /// Declares an actor's manifest:
@@ -446,7 +446,9 @@ pub fn request(item: TokenStream) -> TokenStream {
 /// that has places of its own below it.
 ///
 /// `#[at("/process/:pid")]` gives a variant an address: a `:name` is the
-/// named field of that name, written with `Display` and read with `FromStr`.
+/// named field of that name, one escaped path segment of a
+/// [`LinkValue`](../guinea_router/link/trait.LinkValue.html) type. Every
+/// linked place, nested levels included, is in `Route::deep_links()`.
 /// A branch's link is the prefix of the enum it holds, and `"/"` is the place
 /// a level is at when nothing is added. At any one position a literal is
 /// tried before a capture, whatever the order of declaration.

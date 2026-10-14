@@ -10,7 +10,7 @@
 //! Generated **after** compilation rather than in a build script. A build
 //! script runs before `rustc` and can only re-parse the source, which means a
 //! second reading to disagree with the first; here the tree is the real one,
-//! already type-checked, reached through `Route::deep_links()`.
+//! already type-checked, reached through [`Route::deep_links`](crate::navigator::Route::deep_links).
 //!
 //! The shape of the check is a golden file: [`check`] renders the manifest and
 //! compares it with what is committed, failing when they differ.
@@ -18,7 +18,7 @@
 //! ```ignore
 //! #[test]
 //! fn deep_links_are_what_was_shipped() {
-//!     guinea::manifest::check("deeplinks.toml", "guinea-processes", &[Route::deep_links()]);
+//!     guinea::manifest::check("deeplinks.toml", "guinea-processes", &[&Route::deep_links()]);
 //! }
 //! ```
 //!
@@ -42,7 +42,7 @@ pub fn render(scheme: &str, trees: &[&[DeepLink]]) -> String {
     // By address, not by declaration order: moving a page inside `routes!`
     // changes nothing about what the application answers to, and should not
     // read as though it did.
-    links.sort_by_key(|link| (link.path, link.tree, link.route));
+    links.sort_by(|one, other| (&one.path, one.tree, &one.route).cmp(&(&other.path, other.tree, &other.route)));
 
     let mut out = String::new();
     out.push_str(
@@ -57,8 +57,8 @@ pub fn render(scheme: &str, trees: &[&[DeepLink]]) -> String {
     for link in links {
         out.push_str("[[link]]\n");
         let _ = writeln!(out, "tree = {}", quoted(link.tree));
-        let _ = writeln!(out, "route = {}", quoted(link.route));
-        let _ = writeln!(out, "path = {}", quoted(link.path));
+        let _ = writeln!(out, "route = {}", quoted(&link.route));
+        let _ = writeln!(out, "path = {}", quoted(&link.path));
 
         out.push_str("captures = [");
         for (at, capture) in link.captures.iter().enumerate() {
@@ -81,9 +81,7 @@ pub fn render(scheme: &str, trees: &[&[DeepLink]]) -> String {
             }
             out.push_str(&quoted(guard));
         }
-        out.push_str("]\n");
-
-        let _ = writeln!(out, "restorable = {}\n", link.restorable);
+        out.push_str("]\n\n");
     }
 
     out
@@ -196,59 +194,61 @@ mod tests {
     use super::*;
     use crate::link::Capture;
 
-    const PROCESSES: DeepLink = DeepLink {
-        tree: "Route",
-        route: "Processes",
-        path: "/:context/processes",
-        captures: &[Capture {
-            name: "context",
-            ty: "String",
-        }],
-        guards: &[],
-        restorable: true,
-    };
+    fn processes() -> DeepLink {
+        DeepLink {
+            tree: "Route",
+            route: "Processes".into(),
+            path: "/:context/processes".into(),
+            captures: vec![Capture {
+                name: "context",
+                ty: "String",
+            }],
+            guards: vec![],
+        }
+    }
 
-    const SECRETS: DeepLink = DeepLink {
-        tree: "Route",
-        route: "Secrets",
-        path: "/:context/secrets",
-        captures: &[Capture {
-            name: "context",
-            ty: "String",
-        }],
-        guards: &["Session"],
-        restorable: false,
-    };
+    fn secrets() -> DeepLink {
+        DeepLink {
+            tree: "Route",
+            route: "Secrets".into(),
+            path: "/:context/secrets".into(),
+            captures: vec![Capture {
+                name: "context",
+                ty: "String",
+            }],
+            guards: vec!["Session"],
+        }
+    }
 
     #[test]
     fn a_link_renders_with_everything_that_can_break_it() {
-        let rendered = render("guinea-processes", &[&[PROCESSES]]);
+        let rendered = render("guinea-processes", &[&[processes(), secrets()]]);
 
         assert!(rendered.contains("scheme = \"guinea-processes\""));
         assert!(rendered.contains("path = \"/:context/processes\""));
         assert!(rendered.contains("{ name = \"context\", type = \"String\" }"));
-        assert!(rendered.contains("restorable = true"));
+        assert!(rendered.contains("guards = [\"Session\"]"));
     }
 
     #[test]
     fn declaration_order_is_not_a_change() {
-        let one = render("app", &[&[PROCESSES, SECRETS]]);
-        let other = render("app", &[&[SECRETS, PROCESSES]]);
+        let one = render("app", &[&[processes(), secrets()]]);
+        let other = render("app", &[&[secrets(), processes()]]);
         assert_eq!(one, other, "the tree was reordered, the surface was not");
     }
 
     #[test]
     fn a_captures_type_changing_is_a_change() {
         let widened = DeepLink {
-            captures: &[Capture {
+            captures: vec![Capture {
                 name: "context",
                 ty: "u32",
             }],
-            ..PROCESSES
+            ..processes()
         };
 
         let difference = difference(
-            &render("app", &[&[PROCESSES]]),
+            &render("app", &[&[processes()]]),
             &render("app", &[&[widened]]),
         );
 
@@ -259,19 +259,19 @@ mod tests {
     #[test]
     fn a_guard_appearing_is_a_change() {
         let guarded = DeepLink {
-            guards: &["Session"],
-            ..PROCESSES
+            guards: vec!["Session"],
+            ..processes()
         };
 
-        let difference = difference(&render("app", &[&[PROCESSES]]), &render("app", &[&[guarded]]));
+        let difference = difference(&render("app", &[&[processes()]]), &render("app", &[&[guarded]]));
         assert!(difference.contains("+ guards = [\"Session\"]"), "{difference}");
     }
 
     #[test]
     fn a_link_that_went_away_reads_as_removed() {
         let difference = difference(
-            &render("app", &[&[PROCESSES, SECRETS]]),
-            &render("app", &[&[PROCESSES]]),
+            &render("app", &[&[processes(), secrets()]]),
+            &render("app", &[&[processes()]]),
         );
 
         assert!(difference.contains("- path = \"/:context/secrets\""));
@@ -283,10 +283,10 @@ mod tests {
         let rendered = render(
             "app",
             &[
-                &[PROCESSES],
+                &[processes()],
                 &[DeepLink {
                     tree: "SettingsRoute",
-                    ..SECRETS
+                    ..secrets()
                 }],
             ],
         );

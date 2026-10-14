@@ -7,7 +7,10 @@
 //! test's clock.
 //!
 //! A page that reads what a layout above it exports is mounted below that
-//! layout: the layout into `h.segment()`, the page into `h.child()`.
+//! layout: the layout into `h.segment()`, the page into `h.child()`. A layout
+//! mounts what it mounts, as it would in a window - a layout with an outlet
+//! needs a navigator to draw it from, opened with
+//! [`mount_at`](Mounted::mount_at).
 //!
 //! An element that draws for itself has nothing native under it; what it
 //! [publishes](crate::semantics::publish) stands in its place. Its nodes are
@@ -24,15 +27,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use guinea_app::app::{Act, Harness, Segment};
-use guinea_app::feature::FeatureInitContext;
 use guinea_core::feature::Dispatch;
 use guinea_core::mark::Mark;
 use guinea_core::scope::{Reducer, Scope};
-use guinea_router::router::{
-    Mount, NavigateHandle, Placed, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps,
-};
+use guinea_router::navigator::{Navigator, Route};
 use windows_reactor::{
-    Border, Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
+    Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
     EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
     Observation, PointerEventInfo, Property, RealizationRequest,
     RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange, View,
@@ -41,12 +41,9 @@ use windows_reactor::{
 
 pub use windows_reactor::{ObjectId as NodeId, PropertyId, PropertyValue};
 
-use crate::mark::MarkExt;
+use crate::run::{Chrome, Rooted, Window};
 use crate::semantics::{self, Bounds, Children, Items, Semantic};
-use crate::winui::{
-    Layout, LayoutNode, Page, PageNode, Rooted, RouterRoot, Shown, Signal, WinUi, install_layout,
-    install_page, layout_entry, nav_context, route_context, segment_entry,
-};
+use crate::winui::{Mountable, Shown, Signal};
 
 /// How many messages one pass may run before it looks again.
 const TURNS: usize = 64;
@@ -98,22 +95,13 @@ struct Remembered {
 
 thread_local! {
     static SENDERS: RefCell<Vec<Remembered>> = const { RefCell::new(Vec::new()) };
-    static CHAINS: RefCell<HashMap<(TypeId, usize), &'static [SegmentEntry<WinUi>]>> =
-        RefCell::new(HashMap::new());
-    static ROUTER: RefCell<Option<Rc<Router<WinUi>>>> = const { RefCell::new(None) };
-    static NAV: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+    static WINDOW: RefCell<Option<(Scope, Box<dyn Any>)>> = const { RefCell::new(None) };
 }
 
-/// The router a [`RouterRoot`] built, kept for [`Mounted::routed`].
-pub(crate) fn remember_router(router: &Rc<Router<WinUi>>) {
-    ROUTER.with(|kept| *kept.borrow_mut() = Some(router.clone()));
-}
-
-/// The handle a [`RouterRoot`] last handed its tree, kept by
-/// [`Mounted::routed`] for [`Mounted::navigate`] to go the same way a page
-/// does.
-pub(crate) fn remember_nav<R: 'static>(nav: &NavigateHandle<WinUi, R>) {
-    NAV.with(|kept| *kept.borrow_mut() = Some(Box::new(nav.clone())));
+/// The scope and the navigator a window's root opened, kept for
+/// [`Mounted::routed`].
+pub(crate) fn remember_window<R: Route>(window: Scope, navigator: &Navigator<R>) {
+    WINDOW.with(|kept| *kept.borrow_mut() = Some((window, Box::new(navigator.clone()))));
 }
 
 /// What a mounted page's or layout's component answers to, kept as it is
@@ -165,48 +153,6 @@ fn sender<S: 'static, M: 'static>(owner: u64) -> Sender<M> {
             .unwrap_or_else(|| panic!("{} is not mounted", std::any::type_name::<S>()))
     })
 }
-
-/// A chain `depth` long whose every entry is this segment's own: a segment
-/// below `depth - 1` others names itself by its place in the chain, and the
-/// segments above it have no entries of their own here. A layout's chain goes
-/// on one further, to the [`Outlet`] it draws its outlet with. Made once per
-/// segment and depth.
-fn chain<S: Mountable<K>, K>(depth: usize) -> &'static [SegmentEntry<WinUi>] {
-    CHAINS.with(|chains| {
-        *chains
-            .borrow_mut()
-            .entry((TypeId::of::<S>(), depth))
-            .or_insert_with(|| {
-                let entries: Vec<SegmentEntry<WinUi>> = (0..depth)
-                    .map(|_| S::entry())
-                    .chain(S::HAS_OUTLET.then_some(OUTLET))
-                    .collect();
-                Box::leak(entries.into_boxed_slice())
-            })
-    })
-}
-
-/// What a mounted layout draws in its outlet: an empty border marked
-/// `Outlet`, to find where the page below would go.
-#[derive(Clone, Copy, Debug)]
-pub struct Outlet;
-
-impl Mark for Outlet {
-    fn name(&self) -> &'static str {
-        "Outlet"
-    }
-}
-
-struct MountOutlet;
-
-impl Mount<WinUi> for MountOutlet {
-    fn view<'a>(&self, _props: SegmentProps<WinUi>, _nodes: &'a ()) -> View {
-        Border::new().mark(Outlet).into()
-    }
-}
-
-const OUTLET: SegmentEntry<WinUi> =
-    SegmentEntry::new::<Outlet>(|_, _| Ok(()), |_, _| true, |_| {}, &MountOutlet as &dyn Mount<WinUi>, false);
 
 /// A host with no window for `root`, recording every batch it applies - a
 /// list says how long it is only in the batch that sets its source. What it
@@ -336,69 +282,6 @@ impl Drag {
     }
 }
 
-/// A page or a layout - what [`Mounted`] mounts. `K` only tells the two apart,
-/// and is always inferred.
-pub trait Mountable<K>: 'static {
-    type Params: 'static;
-    type Message: 'static;
-
-    #[doc(hidden)]
-    const HAS_OUTLET: bool;
-
-    #[doc(hidden)]
-    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
-
-    #[doc(hidden)]
-    fn entry() -> SegmentEntry<WinUi>;
-
-    #[doc(hidden)]
-    fn component(props: SegmentProps<WinUi>) -> View;
-}
-
-/// [`Mountable`]'s `K` for a page.
-pub enum AsPage {}
-
-/// [`Mountable`]'s `K` for a layout.
-pub enum AsLayout {}
-
-impl<P: Page> Mountable<AsPage> for P {
-    type Params = P::Params;
-    type Message = P::Message;
-
-    const HAS_OUTLET: bool = false;
-
-    fn install(cx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-        install_page::<P>(cx, params)
-    }
-
-    fn entry() -> SegmentEntry<WinUi> {
-        segment_entry::<P>()
-    }
-
-    fn component(props: SegmentProps<WinUi>) -> View {
-        View::component::<PageNode<P>>(props)
-    }
-}
-
-impl<L: Layout> Mountable<AsLayout> for L {
-    type Params = L::Params;
-    type Message = L::Message;
-
-    const HAS_OUTLET: bool = true;
-
-    fn install(cx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-        install_layout::<L>(cx, params)
-    }
-
-    fn entry() -> SegmentEntry<WinUi> {
-        layout_entry::<L>()
-    }
-
-    fn component(props: SegmentProps<WinUi>) -> View {
-        View::component::<LayoutNode<L>>(props)
-    }
-}
-
 /// Where something the page drew is: a native element, or a node of a tree
 /// an element [published](crate::semantics::publish).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -468,8 +351,6 @@ impl Node {
 }
 
 /// A page or a layout mounted with no window, in a segment of a [`Harness`].
-///
-/// A layout draws an [`Outlet`] where the page below it would go.
 pub struct Mounted<'h, S> {
     harness: &'h Harness,
     host: ComponentHost<RecordingAdapter>,
@@ -479,14 +360,13 @@ pub struct Mounted<'h, S> {
     realized: HashMap<(NodeId, usize), NodeId>,
     /// How many items each list holds, as it last said.
     counts: HashMap<NodeId, usize>,
-    /// Where it asked to go, when mounted [at a route](Self::mount_at): an
-    /// `Rc<RefCell<Vec<R>>>` for that route type.
-    navigated: Option<Box<dyn Any>>,
-    /// The router, when the whole route tree is [mounted](Self::routed).
-    router: Option<Rc<Router<WinUi>>>,
-    /// The handle its root hands its tree, when the whole route tree is
-    /// mounted: a `NavigateHandle<WinUi, R>` for its route type.
-    nav: Option<Box<dyn Any>>,
+    /// The window's scope, when a whole window is [mounted](Self::routed).
+    window: Option<Scope>,
+    /// The navigator it was mounted with, when it was - at a route, or as a
+    /// window: a `Navigator<R>` for its route type.
+    navigator: Option<Box<dyn Any>>,
+    /// What the window's guard is asking, when a whole window is mounted.
+    asking: Option<Box<dyn Fn() -> Option<guinea_core::guard::Ask>>>,
     /// The sizes the test laid marked elements out at, in the order given.
     sizes: Vec<(&'static str, f64, f64)>,
     /// The size each composition host was last told, by its observation.
@@ -505,54 +385,32 @@ pub struct Mounted<'h, S> {
 
 impl<S> Drop for Mounted<'_, S> {
     fn drop(&mut self) {
-        if self.router.is_some() {
-            NAV.with(|kept| kept.borrow_mut().take());
-        }
         release(self.owner);
     }
 }
 
-impl<'h, S: 'static> Mounted<'h, S> {
+impl<'h, S: Mountable> Mounted<'h, S> {
     /// Installs `S` into `segment` - what it `Installs`, and the node it
-    /// starts as - and mounts it, the way a navigation to it would.
-    pub fn mount<K>(
-        segment: Segment<'h>,
-        params: <S as Mountable<K>>::Params,
-    ) -> anyhow::Result<Self>
-    where
-        S: Mountable<K>,
-    {
+    /// starts as - and mounts it, the way a layout above it would.
+    pub fn mount(segment: Segment<'h>, params: S::Params) -> anyhow::Result<Self> {
         Self::mount_with(segment, params, |view| view)
     }
 
     /// [`mount`](Self::mount), with the view handed to `wrap` first - for
     /// what a layout above it would give it, such as a context:
     /// `|page| provide(&SCHEME, scheme, page)`.
-    pub fn mount_with<K>(
+    pub fn mount_with(
         segment: Segment<'h>,
-        params: <S as Mountable<K>>::Params,
+        params: S::Params,
         wrap: impl FnOnce(View) -> View,
-    ) -> anyhow::Result<Self>
-    where
-        S: Mountable<K>,
-    {
+    ) -> anyhow::Result<Self> {
         let cx = segment.context();
+        guinea_router::mount::root::<S>(cx.scope);
         S::install(cx, &params)?;
-
-        let mut scopes: Vec<Scope> = cx.scope.ancestors();
-        scopes.truncate(cx.cursor);
-        scopes.reverse();
-        scopes.push(cx.scope);
-        let depth = scopes.len();
-
-        let props = SegmentProps {
-            chain: chain::<S, K>(depth),
-            scopes: Rc::new(scopes.into_iter().map(Placed::from).collect()),
-            cursor: depth - 1,
-        };
+        let view = S::view(cx.scope);
 
         let owner = next_owner();
-        let host = host(owner, component::<Shown>(ROOT, wrap(S::component(props))))
+        let host = host(owner, component::<Shown>(ROOT, wrap(view)))
             .map_err(|refused| anyhow::anyhow!("mounting {}: {refused}", std::any::type_name::<S>()))?;
 
         let mut mounted = Self {
@@ -561,9 +419,9 @@ impl<'h, S: 'static> Mounted<'h, S> {
             read: 0,
             realized: HashMap::new(),
             counts: HashMap::new(),
-            navigated: None,
-            router: None,
-            nav: None,
+            window: None,
+            navigator: None,
+            asking: None,
             sizes: Vec::new(),
             told: HashMap::new(),
             owner,
@@ -577,45 +435,64 @@ impl<'h, S: 'static> Mounted<'h, S> {
         Ok(mounted)
     }
 
-    /// [`mount`](Self::mount), with `route` as where the application is: what
-    /// `use_route::<R>()` returns. `use_navigate::<R>()` moves nothing - where
-    /// it was asked to go is kept for [`navigated`](Self::navigated), and the
-    /// route `use_route` returns stays `route`.
-    pub fn mount_at<K, R>(
-        segment: Segment<'h>,
-        params: <S as Mountable<K>>::Params,
-        route: R,
-    ) -> anyhow::Result<Self>
-    where
-        S: Mountable<K>,
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-    {
-        let navigated: Rc<RefCell<Vec<R>>> = Rc::default();
+    /// [`mount`](Self::mount), with a navigator over `R` opened at `route`
+    /// in `segment` first: what `cx.navigate::<R>()` finds, and what a
+    /// layout's outlet draws from. It moves as the application's would, and
+    /// [`navigator`](Self::navigator) says where it went.
+    pub fn mount_at<R: Route>(segment: Segment<'h>, params: S::Params, route: R) -> anyhow::Result<Self> {
+        let navigator = Navigator::open(segment.context().scope, route);
 
-        let asked = navigated.clone();
-        let nav = NavigateHandle::recording(RouteSink::new(move |to: R| {
-            asked.borrow_mut().push(to);
-        }));
-
-        let mut mounted = Self::mount_with(segment, params, |view| {
-            let view = windows_reactor::provide(route_context::<R>(), Some(route), view);
-            windows_reactor::provide(nav_context::<R>(), Some(nav), view)
-        })?;
-        mounted.navigated = Some(Box::new(navigated));
+        let mut mounted = Self::mount(segment, params)?;
+        mounted.navigator = Some(Box::new(navigator));
 
         Ok(mounted)
     }
 
+    /// Hands the page or layout one of its own messages, as a widget's
+    /// callback would.
+    pub fn send(&mut self, message: S::Message) {
+        let send = sender::<S, S::Message>(self.owner);
+        let delivered = send(Signal::Node(message));
+        assert!(delivered, "{} no longer takes messages", std::any::type_name::<S>());
+
+        self.turn();
+    }
+}
+
+impl<'h, S: 'static> Mounted<'h, S> {
     /// The segment it is mounted into: to install more there, or to read
     /// what a page there reads.
     pub fn segment(&self) -> &Segment<'h> {
         &self.segment
     }
 
+    /// The navigator over `R` it was mounted with. Panics when it was not
+    /// mounted [at a route](Self::mount_at) of type `R`, or as a window
+    /// [over one](Mounted::routed).
+    pub fn navigator<R: Route>(&self) -> Navigator<R> {
+        self.navigator
+            .as_ref()
+            .and_then(|navigator| navigator.downcast_ref::<Navigator<R>>())
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} was not mounted with a navigator over {} - use `Mounted::mount_at`",
+                    std::any::type_name::<S>(),
+                    std::any::type_name::<R>()
+                )
+            })
+    }
+
     /// The question a guard is asking, if one is: what the dialog the root
     /// puts up says.
     pub fn question(&self) -> Option<String> {
-        self.routed_router().pending().map(|ask| ask.text.to_string())
+        let asking = self.asking.as_ref().unwrap_or_else(|| {
+            panic!(
+                "{} is not a window mounted with `Mounted::routed`",
+                std::any::type_name::<S>()
+            )
+        });
+        asking().map(|ask| ask.text.to_string())
     }
 
     /// Answers the guard's question the way the dialog's buttons do: `true`
@@ -651,43 +528,13 @@ impl<'h, S: 'static> Mounted<'h, S> {
         act
     }
 
-    fn routed_router(&self) -> &Rc<Router<WinUi>> {
-        self.router.as_ref().unwrap_or_else(|| {
+    fn window(&self) -> Scope {
+        self.window.unwrap_or_else(|| {
             panic!(
-                "{} is not a route tree mounted with `Mounted::routed`",
+                "{} is not a window mounted with `Mounted::routed`",
                 std::any::type_name::<S>()
             )
         })
-    }
-
-    /// Every route `use_navigate::<R>()` was asked to go to, oldest first.
-    /// Panics unless it was mounted [at a route](Self::mount_at) of type `R`.
-    pub fn navigated<R: Clone + 'static>(&self) -> Vec<R> {
-        self.navigated
-            .as_ref()
-            .and_then(|navigated| navigated.downcast_ref::<Rc<RefCell<Vec<R>>>>())
-            .unwrap_or_else(|| {
-                panic!(
-                    "{} was not mounted at a {} - use `Mounted::mount_at`",
-                    std::any::type_name::<S>(),
-                    std::any::type_name::<R>()
-                )
-            })
-            .borrow()
-            .clone()
-    }
-
-    /// Hands the page or layout one of its own messages, as a widget's
-    /// callback would.
-    pub fn send<K>(&mut self, message: <S as Mountable<K>>::Message)
-    where
-        S: Mountable<K>,
-    {
-        let send = sender::<S, <S as Mountable<K>>::Message>(self.owner);
-        let delivered = send(Signal::Node(message));
-        assert!(delivered, "{} no longer takes messages", std::any::type_name::<S>());
-
-        self.turn();
     }
 
     /// Clicks what carries `mark` the way a pointer would - see
@@ -1597,7 +1444,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
 }
 
 impl Mounted<'_, ()> {
-    /// Every route of `R`'s tree, each mounted on its own, drawn and settled.
+    /// Every place `R` names, each in a window of `L` of its own, drawn and
+    /// settled.
     ///
     /// What a read that reaches nothing, or a fill nobody placed, would first
     /// show a user, all of it at once: the error names every route that
@@ -1606,9 +1454,10 @@ impl Mounted<'_, ()> {
     /// [`routed`](Mounted::routed) and the value it needs.
     ///
     /// A read in a branch the first draw does not take is not covered.
-    pub fn each_route<R>(harness: &Harness) -> anyhow::Result<()>
+    pub fn each_route<L, R>(harness: &Harness) -> anyhow::Result<()>
     where
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
+        L: Mountable<Params = ()>,
+        R: Route,
     {
         let mut failed = Vec::new();
 
@@ -1625,10 +1474,14 @@ impl Mounted<'_, ()> {
 
             let name = route.name();
             let drawn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                Mounted::routed(harness, route).map(|mut mounted| mounted.settle())
+                Mounted::routed::<L>(harness, route).map(|mut mounted| {
+                    mounted.settle();
+                    mounted.failure()
+                })
             }));
             match drawn {
-                Ok(Ok(())) => {}
+                Ok(Ok(None)) => {}
+                Ok(Ok(Some(failure))) => failed.push(format!("`{name}`: {failure}")),
                 Ok(Err(error)) => failed.push(format!("`{name}`: {error:#}")),
                 Err(panic) => failed.push(format!("`{name}`: {}", said(&*panic))),
             }
@@ -1655,49 +1508,44 @@ fn said(panic: &(dyn Any + Send)) -> String {
         .unwrap_or_else(|| "a panic that said nothing in text".to_string())
 }
 
-impl<'h, R> Mounted<'h, R>
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
-    /// The whole route tree at `initial`, mounted the way a window mounts it:
-    /// a [`RouterRoot`] with a router of its own.
+impl<'h, R: Route> Mounted<'h, R> {
+    /// A window of `L` at `initial`, mounted the way the application opens
+    /// one: a navigator over `R` of its own, and `L` mounted under it.
     ///
     /// Navigation happens here - through [`navigate`](Self::navigate), or a
-    /// click that ends in `use_navigate` - and moves `use_route`. Segments are
-    /// installed and torn down as in the application: the layouts and pages
-    /// left behind lose their scopes, actors and timers, and the new ones
-    /// install, start and draw under the outlet above them. What the harness
-    /// provides reaches every segment, whenever it is installed. A guard's
-    /// question goes up as the root's dialog - see [`answer`](Self::answer).
+    /// click that ends in a navigator - and what the layouts mount follows
+    /// it as in the application: the pages and layouts left behind lose their
+    /// scopes, actors and timers, and the new ones install, start and draw
+    /// where the outlet above them is. What the harness provides reaches
+    /// everything mounted, whenever it is. A guard's question goes up as the
+    /// window's dialog - see [`answer`](Self::answer).
     ///
     /// ```ignore
-    /// let mut app = Mounted::routed(&h, Route::Processes {})?;
-    /// app.navigate(Route::Services {});
-    /// app.navigate(Route::Processes {});
+    /// let mut app = Mounted::routed::<Shell>(&h, Route::Processes)?;
+    /// app.navigate(Route::Services);
+    /// app.navigate(Route::Processes);
     /// assert!(app.find(ProcessesMark::Loading).is_none());
     /// ```
-    pub fn routed(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
+    pub fn routed<L: Mountable<Params = ()>>(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
         let rooted = Rooted {
             app: harness.application(),
-            initial,
+            window: Window::of::<L>().at(initial),
         };
 
         let owner = next_owner();
-        let built = host(
-            owner,
-            component::<Shown>(ROOT, View::component::<RouterRoot<R>>(rooted)),
-        );
+        let built = host(owner, component::<Shown>(ROOT, View::component::<Chrome>(rooted)));
 
         let host = built.map_err(|refused| {
-            anyhow::anyhow!("mounting the {} tree: {refused}", std::any::type_name::<R>())
+            anyhow::anyhow!("mounting a window of {}: {refused}", std::any::type_name::<L>())
         })?;
 
-        let router = ROUTER
+        let (window, navigator) = WINDOW
             .with(|kept| kept.borrow_mut().take())
-            .expect("the root builds its router as it is created");
-        let nav = NAV
-            .with(|kept| kept.borrow_mut().take())
-            .expect("the root hands its tree a way to navigate as it draws");
+            .expect("a window opens its navigator as it is created");
+        let navigator = *navigator
+            .downcast::<Navigator<R>>()
+            .expect("the window's navigator is over the route it was opened at");
+        let asking = navigator.clone();
 
         let mut mounted = Self {
             harness,
@@ -1705,9 +1553,9 @@ where
             read: 0,
             realized: HashMap::new(),
             counts: HashMap::new(),
-            navigated: None,
-            router: Some(router),
-            nav: Some(nav),
+            window: Some(window),
+            navigator: Some(Box::new(navigator)),
+            asking: Some(Box::new(move || asking.pending())),
             sizes: Vec::new(),
             told: HashMap::new(),
             owner,
@@ -1721,53 +1569,61 @@ where
         Ok(mounted)
     }
 
-    /// Goes to `to` the way `use_navigate` does - guards, teardown and all -
-    /// and hands back what the navigation set off.
+    /// Goes to `to` the way a click on a navigating button does - guards,
+    /// teardown and all - and hands back what the navigation set off.
     pub fn navigate(&mut self, to: R) -> Act<'h> {
-        let nav = self
-            .nav
-            .as_ref()
-            .and_then(|nav| nav.downcast_ref::<NavigateHandle<WinUi, R>>())
-            .cloned()
-            .expect("a route tree mounted with `routed` keeps the handle its root drew with");
+        let navigator = self.navigator::<R>();
 
         let harness = self.harness;
         let act = harness.record("navigate", || {
-            nav.to(to);
+            navigator.to(to);
             self.turn();
         });
         self.settle();
         act
     }
 
-    /// Where the application is.
+    /// Where the window is.
     pub fn route(&self) -> R {
-        self.routed_router()
-            .current_route::<R>()
-            .expect("the first route installed")
+        self.navigator::<R>()
+            .current()
+            .expect("a window's navigator is always somewhere")
     }
 
-    /// The layouts and pages mounted now, outermost first, by type name.
+    /// Why the last place the window moved to did not mount, until it next
+    /// moves.
+    pub fn failure(&self) -> Option<String> {
+        self.navigator::<R>().failure()
+    }
+
+    /// The layouts and pages mounted and awake now, outermost first, by type
+    /// name.
     pub fn segments(&self) -> Vec<&'static str> {
-        self.routed_router()
-            .active_chain()
-            .unwrap_or_default()
-            .iter()
-            .map(|entry| (entry.type_name)())
-            .collect()
+        fn walk(scope: Scope, into: &mut Vec<&'static str>) {
+            for (child, name) in guinea_router::mount::mounted(scope) {
+                if child.is_awake() {
+                    into.push(name);
+                    walk(child, into);
+                }
+            }
+        }
+
+        let mut mounted = Vec::new();
+        walk(self.window(), &mut mounted);
+        mounted
     }
 
-    /// Whether the layout or page `T` is mounted now.
+    /// Whether the layout or page `T` is mounted, and awake, now.
     pub fn is_mounted<T: 'static>(&self) -> bool {
         self.segments().contains(&std::any::type_name::<T>())
     }
 
-    /// `S` as the mounted segment that claimed it holds it: a layout, a page
-    /// or a part, wherever it sits. What no mounted segment claims is read
-    /// the way [`Harness::state`] reads it.
+    /// `S` as the mounted page or layout that claimed it holds it, wherever
+    /// it sits. What nothing mounted claims is read the way
+    /// [`Harness::state`] reads it.
     ///
-    /// Panics when two mounted segments claim `S`: which one is meant is the
-    /// test's to say, through [`Harness::over`].
+    /// Panics when two mounted pages or layouts claim `S`: which one is meant
+    /// is the test's to say, through [`Harness::over`].
     pub fn state<St: Reducer>(&self) -> Rc<St> {
         self.owning::<St>().state::<St>()
     }
@@ -1784,20 +1640,19 @@ where
         self.owning::<St>().act::<St>(action)
     }
 
-    /// The segment of the mounted tree that claimed `S`, or the harness's own.
+    /// The scope in the window that claimed `S`, or the harness's own.
     fn owning<St: Reducer>(&self) -> Segment<'h> {
-        let mut mounted: Vec<Scope> = Vec::new();
-        for placed in self.routed_router().active_scopes().iter().flat_map(|scopes| scopes.iter()) {
-            mounted.push(placed.scope);
-            mounted.extend(placed.parts.iter().flat_map(Scope::subtree));
-        }
-
-        let claiming: Vec<Scope> = mounted.into_iter().filter(Scope::claims::<St>).collect();
+        let claiming: Vec<Scope> = self
+            .window()
+            .subtree()
+            .into_iter()
+            .filter(|scope| scope.is_awake() && scope.claims::<St>())
+            .collect();
         match claiming.as_slice() {
             [] => self.harness.segment(),
             [one] => self.harness.over(*one),
             many => panic!(
-                "{} is claimed by {} mounted segments - say which one with `Harness::over`",
+                "{} is claimed by {} mounted pages and layouts - say which one with `Harness::over`",
                 std::any::type_name::<St>(),
                 many.len()
             ),

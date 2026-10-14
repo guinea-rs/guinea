@@ -13,37 +13,26 @@
 //! only what a view returns and how an event reaches the node - owned `View`
 //! and a `Callback` here, a borrowed `Element` and a mapped message there.
 
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
-use guinea_core::scope::Reducer;
+use guinea_core::binding::ReducerBinding;
+use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
-use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, RouteSink, Router, SegmentEntry, SegmentProps, Ui,
-    single_entry_chain,
-};
+use guinea_router::mount::Pass;
+use guinea_router::navigator::{Navigator, Route};
 use guinea_router::slot::Slot;
 use windows_reactor::{
-    Border, Callback, Component, ComponentContext, ContentDialog, ContentDialogExt,
-    ContentDialogResult, Grid, TextBlock, View, ViewContext, provide,
+    Border, Callback, Component, ComponentContext, Grid, TextBlock, View, ViewContext,
 };
 
-/// windows-reactor as a [`Ui`].
+/// windows-reactor, as the backend a build renders with.
 pub struct WinUi;
-
-impl Ui for WinUi {
-    /// Reactor's own name, and owned rather than borrowed: the reconciler owns
-    /// the tree, and a view it is handed owns everything it shows.
-    type View<'a> = View;
-    type Nodes = ();
-    type Mount = dyn Mount<Self>;
-}
 
 /// A leaf of the route tree, and an Elm node.
 ///
@@ -188,50 +177,21 @@ impl Ui for WinUi {
 /// ```
 /// <!-- /shown -->
 pub trait Page: Sized + 'static {
-    /// When `true`, the router keeps this page's reducer states in memory
-    /// while the page is not mounted. The page's scope (and therefore its
-    /// actors) is still torn down, but when the user returns the UI will see
-    /// the last cached state immediately instead of starting from defaults.
-    ///
-    /// Only when it comes back with the same [`Params`](Self::Params): a
-    /// different capture is a different page's state.
-    ///
-    /// <!-- shown: a page whose state outlives it -->
-    /// ```rust,ignore
-    /// use guinea_winui::{Page, PageCx, page};
-    /// use windows_reactor::{TextBlock, View};
-    ///
-    /// #[derive(Default)]
-    /// struct Processes;
-    ///
-    /// #[page]
-    /// impl Page for Processes {
-    ///     // Back from another tab, the list is there at once rather than
-    ///     // empty until the next refresh arrives.
-    ///     const CACHE_STATE_IN_MEMORY: bool = true;
-    ///
-    ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
-    ///         TextBlock::new().text("processes").into()
-    ///     }
-    /// }
-    /// ```
-    /// <!-- /shown -->
-    const CACHE_STATE_IN_MEMORY: bool = false;
-
     /// Where `impl Page` was written, for devtools to link to. `#[page]`
     /// fills it in; an impl without it loses only the source link.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What this page captured from the route, named by `routes!`. `()` for a
-    /// page that captures nothing, which `#[page]` writes when it is left out.
+    /// What the page is mounted with: `cx.mount::<ProcessPage>(&pid)`. `()`
+    /// for a page that needs nothing, which `#[page]` writes when it is left
+    /// out.
     ///
-    /// `PartialEq` because the router's one question about a capture is
-    /// whether it is still the same one - which decides what reinstalls and
-    /// which cached state may come back.
+    /// `PartialEq` because a mount's one question about it is whether it is
+    /// still the same: equal params are the same page in the same scope,
+    /// other params another page in a scope of its own.
     ///
     /// A page sees it in [`install`](Self::install), for what the features
     /// need and for what the node keeps.
-    type Params: PartialEq + 'static;
+    type Params: PartialEq + Clone + 'static;
 
     /// What this segment installs, and `()` when it installs nothing.
     ///
@@ -301,7 +261,7 @@ pub trait Page: Sized + 'static {
     ///     Ok(Processes(listing))
     /// }
     ///
-    /// #[derive(PartialEq)]
+    /// #[derive(Clone, PartialEq)]
     /// pub struct ProcessesParams {
     ///     pub context: String,
     /// }
@@ -339,7 +299,7 @@ pub trait Page: Sized + 'static {
     /// use guinea_winui::{FeatureInitContext, Page, PageCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
-    /// #[derive(PartialEq)]
+    /// #[derive(Clone, PartialEq)]
     /// pub struct ProcessParams {
     ///     pub pid: u32,
     /// }
@@ -609,19 +569,19 @@ pub trait Page: Sized + 'static {
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View;
 }
 
-/// A branch: an Elm node that also decides where its child goes.
+/// A branch: an Elm node that also mounts what goes under it.
 ///
 /// Everything a [`Page`] is, plus two things only a branch has:
 ///
-/// - [`outlet`](LayoutCx::outlet) is the segment below, for the view to place
-///   wherever it wants - beside a sidebar, under a tab strip.
-/// - What it installs outlives the pages under it. A feature a layout
-///   installs is there for every page below and stays while they come and go,
-///   and whatever it lists in `Exports` those pages may read.
+/// - It mounts: [`mount`](LayoutCx::mount) puts a page or a layout under it,
+///   in a scope of its own, and [`outlet`](LayoutCx::outlet) mounts whatever
+///   a navigator says is there. Either is a view, placed wherever the layout
+///   wants - beside a sidebar, under a tab strip.
+/// - What it installs outlives what it mounts. A feature a layout installs is
+///   there for every page below and stays while they come and go, and
+///   whatever it lists in `Exports` those pages may read.
 ///
-/// `Params` is not the layout's to choose: `routes!` hands it what every page
-/// below was reached with. `#[layout]` writes the rest a layout leaves out,
-/// the same as `#[page]`.
+/// `#[layout]` writes what a layout leaves out, the same as `#[page]`.
 ///
 /// A shell with a sidebar it can close, and a tab it marks while its page is
 /// the one showing:
@@ -629,9 +589,16 @@ pub trait Page: Sized + 'static {
 /// <!-- shown: a shell -->
 /// ```rust,ignore
 /// use guinea_winui::{
-///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page,
+///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page,
 /// };
 /// use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
+///
+/// /// Where the shell can be.
+/// #[derive(Clone, PartialEq, Debug, Route)]
+/// pub enum Place {
+///     Home,
+///     About,
+/// }
 ///
 /// #[derive(Default, Clone, PartialEq, Debug)]
 /// pub struct Sidebar {
@@ -677,11 +644,21 @@ pub trait Page: Sized + 'static {
 ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
 ///         // Installed by the shell above, and readable here because `Chrome`
 ///         // exports it. A page outside the shell asking for it panics on
-///         // its first render, naming the chain it walked.
+///         // its first render, naming what it was mounted under.
 ///         let (sidebar, _) = cx.read::<Sidebar>();
 ///         let width = if sidebar.open { "narrow" } else { "wide" };
 ///
 ///         TextBlock::new().text(format!("home, {width}")).into()
+///     }
+/// }
+///
+/// #[derive(Default)]
+/// pub struct About;
+///
+/// #[page]
+/// impl Page for About {
+///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+///         TextBlock::new().text("guinea").into()
 ///     }
 /// }
 ///
@@ -694,9 +671,9 @@ pub trait Page: Sized + 'static {
 ///
 /// #[layout]
 /// impl Layout for Shell {
-///     type Params = ();
 ///     /// A flat list: a feature, and a reducer claimed directly. Pages below
-///     /// may read `Sidebar`, which `Chrome` exports, and `Title`.
+///     /// may read `Sidebar`, which `Chrome` exports; `Title` is the shell's
+///     /// own.
 ///     type Installs = (Chrome, Bound<Title>);
 ///     type Message = ShellMsg;
 ///
@@ -717,11 +694,11 @@ pub trait Page: Sized + 'static {
 ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
 ///         let (sidebar, _) = cx.read::<Sidebar>();
 ///         let (title, _) = cx.read::<Title>();
+///         let nav = cx.navigate::<Place>();
 ///
-///         let tab = if cx.child_is::<Home>() {
-///             "> Home"
-///         } else {
-///             "Home"
+///         let tab = match nav.current() {
+///             Some(Place::Home) => "> Home",
+///             _ => "Home",
 ///         };
 ///         let side = match sidebar.open {
 ///             true => Border::new().content(TextBlock::new().text(tab)),
@@ -735,7 +712,10 @@ pub trait Page: Sized + 'static {
 ///                     .on_click(cx.on(|()| ShellMsg::Toggle))
 ///                     .content(TextBlock::new().text("Menu")),
 ///                 side,
-///                 cx.outlet(),
+///                 cx.outlet(&nav, |place, cx| match place {
+///                     Place::Home => cx.mount::<Home>(&()),
+///                     Place::About => cx.mount::<About>(&()),
+///                 }),
 ///             ))
 ///             .into()
 ///     }
@@ -744,67 +724,54 @@ pub trait Page: Sized + 'static {
 /// <!-- /shown -->
 ///
 /// Nothing reaches up past what is above it. A page that no layout above
-/// installed `Sidebar` for panics on its first render, naming the chain it
-/// walked and who claimed `Sidebar` without exporting it.
+/// installed `Sidebar` for panics on its first render, naming what it was
+/// mounted under and who claimed `Sidebar` without exporting it.
 pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What every page under this layout carries, derived by `routes!` as the
-    /// intersection of their parameters. A layout declares nothing; it is
-    /// handed what all of its children were reached with.
+    /// What the layout is mounted with, as a page is: see [`Page::Params`].
+    /// `()` when it is left out.
     ///
-    /// So it is named, not written: `type Params = crate::routes::ShellParams;`
-    /// for whatever `routes!` called it, and `()` when the pages below share
-    /// nothing. Unlike a page's, `#[layout]` does not default it - a layout
-    /// that forgot to name it would silently stop receiving what its pages
-    /// share.
+    /// The layout above mounting it with the same value keeps it, and
+    /// everything it installed, where it is; another value mounts another
+    /// one. That is what makes a feature per machine right to install here:
     ///
-    /// Moving between two pages that carry the same value keeps the layout,
-    /// and everything it installed, where it is; a different value installs
-    /// it again. That is what makes a feature per `context` right to install
-    /// here:
-    ///
-    /// <!-- shown: a layout per context -->
+    /// <!-- shown: a layout per machine -->
     /// ```rust,ignore
     /// use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
     /// use windows_reactor::View;
-    ///
-    /// /// What `routes!` writes when every page below captures `context`.
-    /// #[derive(PartialEq)]
-    /// pub struct MachineParams {
-    ///     pub context: String,
-    /// }
     ///
     /// #[derive(Default)]
     /// pub struct MachineLayout;
     ///
     /// #[layout]
     /// impl Layout for MachineLayout {
-    ///     type Params = MachineParams;
+    ///     /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
+    ///     type Params = String;
     ///     type Installs = Connection;
     ///
     ///     fn install(
     ///         ctx: &FeatureInitContext,
-    ///         params: &MachineParams,
+    ///         machine: &String,
     ///     ) -> anyhow::Result<(Self, Connection)> {
-    ///         Ok((Self, ctx.install::<Connection>(&params.context)?))
+    ///         Ok((Self, ctx.install::<Connection>(machine)?))
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    ///         cx.outlet()
+    ///         cx.mount::<Overview>(&()).into()
     ///     }
     /// }
     /// ```
     /// <!-- /shown -->
-    type Params: PartialEq + 'static;
+    type Params: PartialEq + Clone + 'static;
 
     /// What this segment installs. See [`Page::Installs`].
     ///
     /// For a layout it is also what the pages below share: they come and go,
     /// and what is installed here stays. Whatever its features list in
-    /// `Exports`, and every reducer claimed directly as `Bound<R>`, those
-    /// pages may read.
+    /// `Exports` those pages may read; a reducer claimed directly as
+    /// `Bound<R>` is the layout's own.
     type Installs: guinea_app::feature::Lists;
 
     /// This layout's own events. See [`Page::Message`].
@@ -830,7 +797,6 @@ pub trait Layout: Sized + 'static {
     ///
     /// #[layout]
     /// impl Layout for Shell {
-    ///     type Params = ();
     ///     type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
     ///
     ///     fn install(
@@ -849,13 +815,13 @@ pub trait Layout: Sized + 'static {
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    ///         cx.outlet()
+    ///         cx.mount::<MetricsPage>(&()).into()
     ///     }
     /// }
     /// ```
     /// <!-- /shown -->
     ///
-    /// Runs when the layout is installed, which is not every navigation: a
+    /// Runs when the layout is mounted, which is not every navigation: a
     /// move between two of its pages keeps the node, and what the layout
     /// holds survives it.
     fn install(
@@ -865,9 +831,9 @@ pub trait Layout: Sized + 'static {
 
     /// Asked before this layout is left. See [`Page::leaving`].
     ///
-    /// Only when the layout itself goes - left, or installed again because
-    /// what its pages share changed. Moving between two of its pages that
-    /// share the same value asks the page, not the layout; when both would go,
+    /// Only when the layout itself goes: a navigation that changes the
+    /// variant it was mounted for. One that moves only below it - between two
+    /// of its own pages - asks the page, not the layout; when both would go,
     /// the page speaks first. A wizard that minds being abandoned halfway,
     /// whichever step it is on:
     ///
@@ -884,8 +850,6 @@ pub trait Layout: Sized + 'static {
     ///
     /// #[layout]
     /// impl Layout for Wizard {
-    ///     type Params = ();
-    ///
     ///     fn leaving(&self) -> Verdict {
     ///         if self.step == 0 || self.finished {
     ///             Verdict::Allow
@@ -895,7 +859,8 @@ pub trait Layout: Sized + 'static {
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    ///         cx.outlet()
+    ///         let nav = cx.navigate::<Step>();
+    ///         cx.outlet(&nav, |step, cx| cx.mount::<StepPage>(step))
     ///     }
     /// }
     ///
@@ -919,30 +884,35 @@ pub trait Layout: Sized + 'static {
     /// exports - not what the page below it installed.
     fn update(&mut self, message: Self::Message, cx: &mut UpdateCx<'_, Self>);
 
-    /// Draws the layout around [`outlet`](LayoutCx::outlet), the segment
-    /// below. See [`Page::view`].
+    /// Draws the layout around what it mounts. See [`Page::view`].
     ///
-    /// The outlet is a value like any other view: placed once, beside or
-    /// under whatever the layout draws itself, and left out for a layout that
-    /// hides its content. [`child_is`](LayoutCx::child_is) says which page it
-    /// is, for a tab strip that marks the current tab without keeping a copy
-    /// of the route:
+    /// What [`mount`](LayoutCx::mount) and [`outlet`](LayoutCx::outlet) give
+    /// back is a value like any other view: placed once, beside or under
+    /// whatever the layout draws itself, and left out for a layout that hides
+    /// its content. The navigator says where the window is, for a tab strip
+    /// that marks the current tab without keeping a copy of the route:
     ///
     /// <!-- shown: a tab strip -->
     /// ```rust,ignore
-    /// use guinea_winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+    /// use guinea_winui::{Layout, LayoutCx, Route, layout};
     /// use windows_reactor::{StackPanel, TextBlock, View};
+    ///
+    /// #[derive(Clone, PartialEq, Debug, Route)]
+    /// pub enum Tab {
+    ///     Processes,
+    ///     Services,
+    /// }
     ///
     /// #[derive(Default)]
     /// pub struct Tabs;
     ///
     /// #[layout]
     /// impl Layout for Tabs {
-    ///     type Params = ();
-    ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    ///         let tab = |name: &str, current: bool| {
-    ///             TextBlock::new().text(if current {
+    ///         let nav = cx.navigate::<Tab>();
+    ///         let here = nav.current();
+    ///         let tab = |name: &str, tab: Tab| {
+    ///             TextBlock::new().text(if here == Some(tab) {
     ///                 format!("[{name}]")
     ///             } else {
     ///                 name.to_string()
@@ -951,9 +921,12 @@ pub trait Layout: Sized + 'static {
     ///
     ///         StackPanel::new()
     ///             .children((
-    ///                 tab("Processes", cx.child_is::<Processes>()),
-    ///                 tab("Services", cx.child_is::<Services>()),
-    ///                 cx.outlet(),
+    ///                 tab("Processes", Tab::Processes),
+    ///                 tab("Services", Tab::Services),
+    ///                 cx.outlet(&nav, |tab, cx| match tab {
+    ///                     Tab::Processes => cx.mount::<Processes>(&()),
+    ///                     Tab::Services => cx.mount::<Services>(&()),
+    ///                 }),
     ///             ))
     ///             .into()
     ///     }
@@ -963,55 +936,61 @@ pub trait Layout: Sized + 'static {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View;
 }
 
-pub const fn segment_entry<P: Page>() -> SegmentEntry<WinUi> {
-    SegmentEntry::new::<P>(
-        install_page::<P>,
-        guinea_router::router::same_params::<P::Params>,
-        <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(PhantomData) } as &dyn Mount<WinUi>,
-        P::CACHE_STATE_IN_MEMORY,
-    )
-    .written(P::DECLARED)
+/// A page or a layout: what [`LayoutCx::mount`] mounts. `#[page]` and
+/// `#[layout]` write it.
+#[doc(hidden)]
+pub trait Mountable: 'static {
+    type Params: PartialEq + Clone + 'static;
+    type Message: 'static;
+
+    /// Installs it into the scope `cx` is for, and keeps its node there.
+    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
+
+    /// Its component, over the scope it was installed into.
+    fn view(scope: Scope) -> View;
 }
 
-pub const fn layout_entry<L: Layout>() -> SegmentEntry<WinUi> {
-    SegmentEntry::new::<L>(
-        install_layout::<L>,
-        guinea_router::router::same_params::<L::Params>,
-        <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(PhantomData) } as &dyn Mount<WinUi>,
-        false,
-    )
-    .written(L::DECLARED)
-}
+/// The view of whatever was mounted into a scope, kept there as it mounts:
+/// what an outlet draws for a child it holds without mounting it again.
+struct Draws(fn(Scope) -> View);
 
 /// Keeps the node `install` built in its scope, for the component to find.
 ///
-/// `install` needs the feature context, which exists while the router is
-/// installing; a component is created later, when the reconciler reaches it,
+/// `install` needs the feature context, which exists while the layout above
+/// is mounting; a component is created later, when the reconciler reaches it,
 /// and is handed no such thing. So the node is built where the context is and
 /// found where it is needed.
 ///
 /// Kept for as long as the scope is, not taken once: a component the
-/// reconciler drops and makes again in the same scope - a part a fill covered
-/// and uncovered - is the same segment, and gets the same node.
+/// reconciler drops and makes again in the same scope is the same node.
 fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
     ctx.scope.keep(node);
 }
 
-/// The node installed into the scope at `props`, and `None` once the scope is
-/// gone - the component made for a segment torn down while it was on its way
-/// draws nothing, as [`left`] says.
-fn staged<N: 'static>(props: &SegmentProps<WinUi>) -> Option<Shared<N>> {
-    props.scope().kept::<Shared<N>, _>(|node| node.clone())
+/// The node installed into `scope`, and `None` once the scope is gone - the
+/// component made for a scope removed while it was on its way draws nothing,
+/// as [`left`] says.
+fn staged<N: 'static>(scope: Scope) -> Option<Shared<N>> {
+    scope.kept::<Shared<N>, _>(|node| node.clone())
 }
 
-pub(crate) fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<P::Params, P>(params)?;
+#[doc(hidden)]
+pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(page_view::<P>));
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, P::leaving);
     Ok(())
+}
+
+#[doc(hidden)]
+pub fn page_view<P: Page>(scope: Scope) -> View {
+    View::component::<PageNode<P>>(scope)
+}
+
+#[doc(hidden)]
+pub fn layout_view<L: Layout>(scope: Scope) -> View {
+    View::component::<LayoutNode<L>>(scope)
 }
 
 /// A node as its component and its leave guard share it.
@@ -1046,34 +1025,123 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
     stage(ctx, node);
 }
 
-pub(crate) fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<L::Params, L>(params)?;
+#[doc(hidden)]
+pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(layout_view::<L>));
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, L::leaving);
     Ok(())
 }
 
-/// A zero-sized marker per segment type: what a `const` entry points at to get
-/// its `&'static dyn Mount`.
-pub struct MountPage<P>(pub PhantomData<P>);
-pub struct MountLayout<L>(pub PhantomData<L>);
+/// What a layout mounted: the child's view, or why it did not mount.
+///
+/// Drawn as it is - `cx.mount::<Services>(&()).into()` - or handed to an
+/// [`outlet`](LayoutCx::outlet). One that failed draws what went wrong in
+/// its place, and the others beside it stand.
+#[must_use = "a mounted child shows only where its view is placed"]
+pub struct Child {
+    pass: Pass,
+    name: &'static str,
+    mounted: Result<Scope, anyhow::Error>,
+}
 
-impl<P: Page> Mount<WinUi> for MountPage<P> {
-    fn view<'a>(&self, props: SegmentProps<WinUi>, _nodes: &'a ()) -> View {
-        View::component::<PageNode<P>>(props)
+impl Child {
+    /// Keeps the child asleep when a later draw leaves it out, instead of
+    /// letting it go: it comes back as it was left.
+    pub fn keep(self) -> Self {
+        if let Ok(scope) = &self.mounted {
+            self.pass.keep(*scope);
+        }
+        self
+    }
+
+    /// Why it did not mount, when it did not.
+    pub fn failure(&self) -> Option<&anyhow::Error> {
+        self.mounted.as_ref().err()
     }
 }
 
-impl<L: Layout> Mount<WinUi> for MountLayout<L> {
-    fn view<'a>(&self, props: SegmentProps<WinUi>, _nodes: &'a ()) -> View {
-        View::component::<LayoutNode<L>>(props)
+impl From<Child> for View {
+    fn from(child: Child) -> Self {
+        match child.mounted {
+            Ok(scope) => drawn(scope),
+            Err(error) => failed(child.name, &error),
+        }
     }
 }
 
-/// A one-segment chain for a page mounted without a route tree.
-pub fn page_chain<P: Page>() -> &'static [SegmentEntry<WinUi>] {
-    single_entry_chain(segment_entry::<P>())
+/// The view of what was mounted into `scope`.
+pub(crate) fn drawn(scope: Scope) -> View {
+    if !scope.keeps::<Draws>() {
+        return Grid::new().into();
+    }
+    match scope.kept::<Draws, _>(|draws| draws.0) {
+        Some(view) => view(scope),
+        None => Grid::new().into(),
+    }
+}
+
+fn failed(name: &'static str, error: &anyhow::Error) -> View {
+    TextBlock::new()
+        .text(format!(
+            "{} did not mount: {error:#}",
+            guinea_router::observability::short(name)
+        ))
+        .into()
+}
+
+/// The scope that owns `R`, as seen from `scope`, and a binding to its state.
+///
+/// The scope itself counts whatever it claimed; one above counts only what it
+/// *exported*. A miss is a setup bug rather than a race: what a scope claims
+/// is recorded while it installs, before its first render. So it panics,
+/// naming what `scope` was mounted under.
+fn binding<R: Reducer>(scope: Scope) -> ReducerBinding<R> {
+    let owner = scope.owner_of::<R>().unwrap_or_else(|| {
+        if !scope.is_alive() {
+            panic!(
+                "reading {} in {scope:?}, which was removed: whatever mounted it let go of it \
+                 while it still renders",
+                std::any::type_name::<R>()
+            );
+        }
+
+        panic!("{}", unreached::<R>(scope))
+    });
+    owner.binding::<R>()
+}
+
+fn unreached<R: 'static>(scope: Scope) -> String {
+    let short = guinea_router::observability::short;
+    let reducer = short(std::any::type_name::<R>());
+    let walked: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
+    let name = |scope: Scope| guinea_router::mount::name(scope).map(short);
+    let names: Vec<&str> = walked.iter().filter_map(|scope| name(*scope)).collect();
+
+    let mut said = format!(
+        "`{}` reads `{reducer}`, but nothing reaches it:\n  {}",
+        names.first().copied().unwrap_or("this view"),
+        names.join(" <- ")
+    );
+
+    let kept: Vec<&str> = walked[1..]
+        .iter()
+        .filter(|scope| scope.claims::<R>())
+        .map(|scope| name(*scope).unwrap_or("the window"))
+        .collect();
+    if kept.is_empty() {
+        said.push_str(&format!(
+            "\n  nothing above it installs the feature that owns `{reducer}` - it installs \
+             elsewhere, or not at all"
+        ));
+    } else {
+        said.push_str(&format!(
+            "\n  `{reducer}` is claimed by {}, which does not list it in `Exports`",
+            kept.join(", ")
+        ));
+    }
+    said
 }
 
 /// What reaches a segment's component.
@@ -1120,25 +1188,25 @@ impl<L: Layout> Refreshable for LayoutNode<L> {
 
 /// A page as the reconciler sees it: the page's own state, and nothing else.
 ///
-/// The component's `Input` is the segment's props, which the reconciler already
-/// compares for us - `SegmentProps` has the `PartialEq` that decides whether
-/// this subtree is still the same one.
+/// The component's `Input` is the scope the page was installed into: the
+/// same scope is the same page, and another one - the same page type
+/// mounted with other params - is a new node, which `install` staged there.
 pub struct PageNode<P> {
-    /// `None` when the segment was torn down before the reconciler made this.
+    /// `None` when the scope was removed before the reconciler made this.
     page: Option<Shared<P>>,
-    /// The segment's props, kept because `update` is not handed the input and
-    /// a node that changes itself often needs to read what it is sitting in.
-    props: SegmentProps<WinUi>,
+    /// The scope, kept because `update` is not handed the input and a node
+    /// that changes itself often needs to read what it is sitting in.
+    scope: Scope,
     /// The reducers the render under way listens to, kept between renders
     /// so a render does not allocate a list of its own.
     subscribed: RefCell<Vec<TypeId>>,
 }
 
 impl<P: Page> Component for PageNode<P> {
-    type Input = SegmentProps<WinUi>;
+    type Input = Scope;
     type Message = Signal<P::Message>;
 
-    fn create(input: &Self::Input, _cx: &ComponentContext<Self>) -> Self {
+    fn create(scope: &Scope, _cx: &ComponentContext<Self>) -> Self {
         #[cfg(feature = "harness")]
         {
             let sender = _cx.sender();
@@ -1146,64 +1214,62 @@ impl<P: Page> Component for PageNode<P> {
         }
 
         Self {
-            page: staged::<P>(input),
-            props: input.clone(),
+            page: staged::<P>(*scope),
+            scope: *scope,
             subscribed: RefCell::default(),
         }
     }
 
-    /// The same page type in the same place, and either the same segment or
-    /// one installed again - with other params, into a scope of its own. The
-    /// second is a new node, and `install` staged it.
-    fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
-        if input.identity() != self.props.identity() {
-            self.page = staged::<P>(input);
+    fn input_changed(&mut self, scope: &Scope, _cx: &ComponentContext<Self>) {
+        if *scope != self.scope {
+            self.page = staged::<P>(*scope);
+            self.scope = *scope;
         }
-        self.props = input.clone();
     }
 
     fn update(&mut self, message: Signal<P::Message>, cx: &ComponentContext<Self>) {
         match message {
             // Nothing to change. Delivering a message is itself what marks the
-            // segment for redrawing - the pump pushes the token onto its dirty
+            // node for redrawing - the pump pushes the token onto its dirty
             // list when it dispatches, not when something is mutated - so a
             // refresh that touches no state still brings the view round.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
             Signal::Node(message) => {
-                let Some(page) = self.page.as_ref().filter(|_| !left(&self.props)) else {
+                let Some(page) = self.page.as_ref().filter(|_| !left(self.scope)) else {
                     return;
                 };
                 page.borrow_mut().update(
                     message,
                     &mut UpdateCx {
-                        props: &self.props,
-                        segment: PhantomData,
+                        scope: self.scope,
+                        node: PhantomData,
                     },
                 )
             }
         }
     }
 
-    fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        let Some(page) = self.page.as_ref().filter(|_| !left(input)) else {
+    fn view(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> View {
+        let scope = *scope;
+        let Some(page) = self.page.as_ref().filter(|_| !left(scope)) else {
             return marked::<P>(Grid::new().into());
         };
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-        leaves_its_fills(input, cx);
-        crate::slots::drawing(input);
+        leaves_its_fills(scope, cx);
+        crate::slots::drawing(scope);
 
         let mut subscribed = self.subscribed.borrow_mut();
         subscribed.clear();
         let view = page.borrow().view(&mut PageCx {
-            props: input.clone(),
+            scope,
             cx,
             subscribed: &mut subscribed,
             page: PhantomData,
         });
-        crate::slots::drawn(input);
-        crate::devtools::record(input, &view);
+        crate::slots::drawn(scope);
+        crate::devtools::record(scope, &view);
         marked::<P>(view)
     }
 }
@@ -1211,16 +1277,16 @@ impl<P: Page> Component for PageNode<P> {
 pub struct LayoutNode<L> {
     /// See `PageNode::page`.
     layout: Option<Shared<L>>,
-    props: SegmentProps<WinUi>,
+    scope: Scope,
     /// See `PageNode::subscribed`.
     subscribed: RefCell<Vec<TypeId>>,
 }
 
 impl<L: Layout> Component for LayoutNode<L> {
-    type Input = SegmentProps<WinUi>;
+    type Input = Scope;
     type Message = Signal<L::Message>;
 
-    fn create(input: &Self::Input, _cx: &ComponentContext<Self>) -> Self {
+    fn create(scope: &Scope, _cx: &ComponentContext<Self>) -> Self {
         #[cfg(feature = "harness")]
         {
             let sender = _cx.sender();
@@ -1228,59 +1294,64 @@ impl<L: Layout> Component for LayoutNode<L> {
         }
 
         Self {
-            layout: staged::<L>(input),
-            props: input.clone(),
+            layout: staged::<L>(*scope),
+            scope: *scope,
             subscribed: RefCell::default(),
         }
     }
 
-    /// See `PageNode::input_changed`.
-    fn input_changed(&mut self, input: &Self::Input, _cx: &ComponentContext<Self>) {
-        if input.identity() != self.props.identity() {
-            self.layout = staged::<L>(input);
+    fn input_changed(&mut self, scope: &Scope, _cx: &ComponentContext<Self>) {
+        if *scope != self.scope {
+            self.layout = staged::<L>(*scope);
+            self.scope = *scope;
         }
-        self.props = input.clone();
     }
 
     fn update(&mut self, message: Signal<L::Message>, cx: &ComponentContext<Self>) {
         match message {
-            // See `PageNode::update`.
             Signal::Refresh(cause) => handling(cause),
             Signal::OpenWindow(window) => open(cx, window),
             Signal::Node(message) => {
-                let Some(layout) = self.layout.as_ref().filter(|_| !left(&self.props)) else {
+                let Some(layout) = self.layout.as_ref().filter(|_| !left(self.scope)) else {
                     return;
                 };
                 layout.borrow_mut().update(
                     message,
                     &mut UpdateCx {
-                        props: &self.props,
-                        segment: PhantomData,
+                        scope: self.scope,
+                        node: PhantomData,
                     },
                 )
             }
         }
     }
 
-    fn view(&self, input: &Self::Input, cx: &mut ViewContext<Self>) -> View {
-        let Some(layout) = self.layout.as_ref().filter(|_| !left(input)) else {
+    /// Draws the layout in a pass of its own: what it mounts this time is
+    /// what stands under it, and what it left out goes when the pass ends.
+    fn view(&self, scope: &Scope, cx: &mut ViewContext<Self>) -> View {
+        let scope = *scope;
+        let Some(layout) = self.layout.as_ref().filter(|_| !left(scope)) else {
             return marked::<L>(Grid::new().into());
         };
         let _caused = caused(cx);
         let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-        leaves_its_fills(input, cx);
-        crate::slots::drawing(input);
+        leaves_its_fills(scope, cx);
+        crate::slots::drawing(scope);
 
+        let pass = Pass::begin(scope);
         let mut subscribed = self.subscribed.borrow_mut();
         subscribed.clear();
         let view = layout.borrow().view(&mut LayoutCx {
-            props: input.clone(),
+            scope,
+            pass: &pass,
             cx,
             subscribed: &mut subscribed,
             layout: PhantomData,
         });
-        crate::slots::drawn(input);
-        crate::devtools::record(input, &view);
+        pass.end();
+
+        crate::slots::drawn(scope);
+        crate::devtools::record(scope, &view);
         marked::<L>(view)
     }
 }
@@ -1315,28 +1386,26 @@ pub(crate) fn caused<C: Component>(cx: &mut ViewContext<C>) -> guinea_core::trac
     guinea_core::trace::resume(cause)
 }
 
-/// Whether the segment at `props` was torn down while a redraw of it, or a
-/// message for it, was on its way.
+/// Whether `scope` was removed while a redraw of what it holds, or a message
+/// for it, was on its way.
 ///
-/// A push queues the redraw a drain ahead of the drawing; leaving the page
-/// tears its scope down at once and queues the new chain behind it. The
-/// redraw comes first and finds nothing to read - so it draws nothing, and the
-/// chain that follows takes its place. A message for the page is dropped the
-/// same way: `update` would read a scope that is gone.
-fn left(props: &SegmentProps<WinUi>) -> bool {
-    !props.scope().is_alive()
+/// A push queues the redraw a drain ahead of the drawing; the layout above
+/// removes a page it no longer mounts as its own pass ends. The redraw that
+/// comes after finds nothing to read - so it draws nothing. A message for
+/// the page is dropped the same way: `update` would read a scope that is gone.
+fn left(scope: Scope) -> bool {
+    !scope.is_alive()
 }
 
-/// Withdraws what a segment filled, and the slots it placed, when it leaves
-/// the screen or is installed again elsewhere.
-fn leaves_its_fills<C: Component>(props: &SegmentProps<WinUi>, cx: &mut ViewContext<C>) {
-    let filler = props.scope();
-    cx.use_effect("guinea.fills", props.identity(), move || {
+/// Withdraws what a node filled, and the slots it placed, when it leaves the
+/// screen or is mounted again elsewhere.
+fn leaves_its_fills<C: Component>(filler: Scope, cx: &mut ViewContext<C>) {
+    cx.use_effect("guinea.fills", filler, move || {
         Some(Box::new(move || crate::slots::left(filler)) as Box<dyn FnOnce()>)
     });
 }
 
-/// A segment's view inside a border whose `AutomationId` is the segment's
+/// A page's or a layout's view inside a border whose `AutomationId` is its
 /// name, so the XAML tree shows where each page and layout begins.
 fn marked<S>(view: View) -> View {
     Border::new()
@@ -1360,20 +1429,15 @@ impl NewWindow {
         Self(Opens::Under(Box::new(build)))
     }
 
-    fn open_from<C: Component>(self, cx: &mut ViewContext<C>) -> View {
-        let router = cx.use_context(router_context());
-
+    fn open_from(self, scope: Scope) -> View {
         match self.0 {
             Opens::View(view) => view,
             Opens::Under(build) => {
-                let router = router.unwrap_or_else(|| {
+                let app = crate::run::application(scope).unwrap_or_else(|| {
                     panic!(
-                        "a window of the application is opened from inside the tree a \
-                         RouterRoot renders - there is no router above this view"
+                        "a window of the application is opened from a view in a window of \
+                         one - this view is in none"
                     )
-                });
-                let app = router.0.host().application().cloned().unwrap_or_else(|| {
-                    panic!("the router above this view belongs to no application to open a window of")
                 });
                 build(&app)
             }
@@ -1440,25 +1504,25 @@ impl Refresher {
 /// into the callback where the event is declared - which reads better than
 /// fetching one again in the place the event arrives.
 pub struct UpdateCx<'a, S> {
-    props: &'a SegmentProps<WinUi>,
-    segment: PhantomData<fn() -> S>,
+    scope: Scope,
+    node: PhantomData<fn() -> &'a S>,
 }
 
 impl<S> UpdateCx<'_, S> {
     /// The feature that owns `R` - its state, and what can be asked of it.
     ///
-    /// No subscription: `update` is a moment, not a view, and the segment is
+    /// No subscription: `update` is a moment, not a view, and the node is
     /// already publishing again because of the message that got here.
     pub fn read<R>(&self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer,
     {
-        let binding = self.props.binding::<R>();
+        let binding = binding::<R>(self.scope);
         (binding.get(), binding.dispatch())
     }
 }
 
-/// Reads a reducer's state, and asks this segment to publish again whenever it
+/// Reads a reducer's state, and asks this node to publish again whenever it
 /// changes.
 ///
 /// The state is read fresh rather than mirrored into the node. A reducer lives
@@ -1466,13 +1530,13 @@ impl<S> UpdateCx<'_, S> {
 /// one more thing to keep in step; the subscription says *when* to look, and
 /// looking is `binding.get()`.
 ///
-/// Taken again when the segment is installed again in the same place: the
-/// one before listens to a scope that is gone.
+/// Taken again when the component is handed another scope: the one before
+/// listens to a scope that is gone.
 ///
 /// Taken once per reducer per render: `subscribed` lists what this render
 /// already listens to, and a second read of the same reducer shares it.
 fn use_reducer<R, C>(
-    props: &SegmentProps<WinUi>,
+    scope: Scope,
     cx: &mut ViewContext<C>,
     subscribed: &mut Vec<TypeId>,
 ) -> (Rc<R>, guinea_core::feature::Dispatch)
@@ -1480,7 +1544,7 @@ where
     R: Reducer + PartialEq,
     C: Refreshable,
 {
-    let binding = props.binding::<R>();
+    let binding = binding::<R>(scope);
 
     if !subscribed.contains(&TypeId::of::<R>()) {
         subscribed.push(TypeId::of::<R>());
@@ -1489,7 +1553,7 @@ where
         // Keyed by the reducer, so a view reading two of them gets two
         // subscriptions rather than one that replaces the other.
         let watching = binding.clone();
-        cx.use_effect(std::any::type_name::<R>(), props.identity(), move || {
+        cx.use_effect(std::any::type_name::<R>(), scope, move || {
             let subscription = watching.on_change(move |_| refresher.refresh());
             // Ends with this component instance rather than with the scope: one
             // that had been unmounted and kept listening would be asking a
@@ -1501,288 +1565,54 @@ where
     (binding.get(), binding.dispatch())
 }
 
-/// A context slot that is the same slot every time it is asked for.
+/// Watches `nav` for as long as this component stands under `scope`, and
+/// redraws it whenever the navigator moves or a guard's question comes or
+/// goes.
 ///
-/// `Context<T>` is a value now rather than an id, and `provide`/`use_context`
-/// pair by identity, so the value has to outlive every render that uses it.
-/// One per `T`, leaked on first use, keyed by type - which is what the old
-/// `ContextId` cache did before the ids became private.
-fn context_for<T>(default: fn() -> T) -> &'static windows_reactor::Context<T>
-where
-    T: 'static,
-{
-    thread_local! {
-        static SLOTS: RefCell<HashMap<TypeId, &'static (dyn Any + 'static)>> =
-            RefCell::new(HashMap::new());
+/// Once per navigator per render: `subscribed` lists what this render already
+/// watches, beside the reducers it reads.
+fn watching<R: Route, C: Refreshable>(
+    nav: &Navigator<R>,
+    scope: Scope,
+    cx: &mut ViewContext<C>,
+    subscribed: &mut Vec<TypeId>,
+) {
+    if subscribed.contains(&TypeId::of::<Navigator<R>>()) {
+        return;
     }
+    subscribed.push(TypeId::of::<Navigator<R>>());
 
-    SLOTS.with(|slots| {
-        let slot = *slots
-            .borrow_mut()
-            .entry(TypeId::of::<T>())
-            .or_insert_with(|| {
-                let context: &'static windows_reactor::Context<T> =
-                    Box::leak(Box::new(windows_reactor::Context::new(default())));
-                context as &'static (dyn Any + 'static)
-            });
+    let refresher = Refresher::of(cx);
+    let nav = nav.clone();
+    cx.use_effect(std::any::type_name::<Navigator<R>>(), scope, move || {
+        let watch = nav.watch(move || refresher.refresh());
+        Some(Box::new(move || drop(watch)) as Box<dyn FnOnce()>)
+    });
+}
 
-        slot.downcast_ref::<windows_reactor::Context<T>>()
-            .expect("the slot is keyed by the type it holds")
+/// The navigator over `R` nearest above `scope`, or a panic naming what was
+/// looked for: a view that navigates where none was opened is a wiring
+/// mistake.
+fn navigator<R: Route>(scope: Scope) -> Navigator<R> {
+    Navigator::find(scope).unwrap_or_else(|| {
+        panic!(
+            "no navigator over `{}` above `{}`: open one where the window starts, \
+             or in a layout above",
+            guinea_router::observability::short(std::any::type_name::<R>()),
+            guinea_router::mount::name(scope)
+                .map(guinea_router::observability::short)
+                .unwrap_or("this view"),
+        )
     })
-}
-
-pub(crate) fn nav_context<R: 'static>()
--> &'static windows_reactor::Context<Option<NavigateHandle<WinUi, R>>> {
-    context_for::<Option<NavigateHandle<WinUi, R>>>(|| None)
-}
-
-pub(crate) fn route_context<R: 'static>() -> &'static windows_reactor::Context<Option<R>> {
-    context_for::<Option<R>>(|| None)
-}
-
-/// A router in a context slot. Compared by identity - a `Router` has no
-/// meaningful equality, and two handles mean the same router or a different
-/// one.
-#[derive(Clone)]
-pub struct RouterHandle(Rc<Router<WinUi>>);
-
-impl PartialEq for RouterHandle {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-fn router_context() -> &'static windows_reactor::Context<Option<RouterHandle>> {
-    context_for::<Option<RouterHandle>>(|| None)
-}
-
-/// The route tree as a component, and the root of a window that has one.
-///
-/// It owns the router, which is what makes a window a root: `Router::new` opens
-/// a `FeatureHost`, whose registration opens the root when the window's
-/// component is created and closes it when the component is dropped.
-pub struct RouterRoot<R: RouteChain<WinUi> + Clone + PartialEq + 'static> {
-    router: Rc<Router<WinUi>>,
-    route: R,
-    /// Why the first route is not standing, when it failed to install.
-    failure: Option<String>,
-    _question: guinea_router::router::RouteHookHandle,
-    _panel: guinea_core::observability::panels::PanelGuard,
-}
-
-/// What a [`RouterRoot`] is opened with: the application whose window it is,
-/// and where it starts.
-#[derive(Clone)]
-pub struct Rooted<R> {
-    pub app: ScopeContext,
-    pub initial: R,
-}
-
-/// The same application, at the same route.
-impl<R: PartialEq> PartialEq for Rooted<R> {
-    fn eq(&self, other: &Self) -> bool {
-        self.app.scope == other.app.scope && self.initial == other.initial
-    }
-}
-
-/// What reaches a [`RouterRoot`].
-pub enum Routed<R> {
-    /// The router is here now. `NavigateHandle` publishes through the sink
-    /// the root hands out, once the navigation has happened - with what set
-    /// it off, which the segments it draws are the doing of.
-    Arrived(R, Option<Cause>),
-    /// A guard's question came or went. See [`Router::pending`].
-    Asked,
-}
-
-impl<R> Component for RouterRoot<R>
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
-    /// The application, and where the window starts. A second window opened
-    /// with a different route is a different input, and gets its own router.
-    type Input = Rooted<R>;
-    type Message = Routed<R>;
-
-    /// Installs the first route before the first view. One that fails leaves
-    /// the window saying why; the main window's failure also ends the
-    /// application, and `run` returns it.
-    fn create(input: &Rooted<R>, cx: &ComponentContext<Self>) -> Self {
-        let initial = &input.initial;
-        let router = Rc::new(Router::new(guinea_app::feature::FeatureHost::under(&input.app)));
-
-        #[cfg(feature = "harness")]
-        crate::harness::remember_router(&router);
-
-        let main = crate::run::standing(&router);
-        if main {
-            guinea_app::app::roots::set_label(router.host().scope(), crate::run::MAIN);
-        }
-
-        let sender = cx.sender();
-        let question = router.on_question(move || {
-            let _gone = !sender.send(Routed::Asked);
-        });
-
-        let failure = router.navigate(initial.clone()).err().map(|error| {
-            let shown = format!("{error:#}");
-            tracing::error!(error = %shown, route = initial.name(), "the first route did not install");
-            if main {
-                crate::run::failed(error);
-            }
-            shown
-        });
-
-        Self {
-            _panel: crate::devtools::offer(&router),
-            _question: question,
-            failure,
-            router,
-            route: initial.clone(),
-        }
-    }
-
-    /// Takes the route the router arrived at, and moves nothing: the
-    /// navigation has already happened, guards and all.
-    fn update(&mut self, message: Routed<R>, _cx: &ComponentContext<Self>) {
-        match message {
-            Routed::Arrived(route, cause) => {
-                handling(cause);
-                self.route = route;
-            }
-            Routed::Asked => {}
-        }
-    }
-
-    fn view(&self, _input: &Rooted<R>, cx: &mut ViewContext<Self>) -> View {
-        let _caused = caused(cx);
-
-        let sender = cx.sender();
-        let nav = NavigateHandle::new(
-            self.router.clone(),
-            RouteSink::new(move |route: R| {
-                let _gone = !sender.send(Routed::Arrived(route, guinea_core::trace::current()));
-            }),
-        );
-
-        #[cfg(feature = "harness")]
-        crate::harness::remember_nav(&nav);
-
-        let tree: View = match (self.router.active_chain(), &self.failure) {
-            (Some(_), _) => self.router.render(&()),
-            (None, Some(failure)) => TextBlock::new().text(failure.clone()).into(),
-            (None, None) => Grid::new().into(),
-        };
-        let tree = provide(
-            router_context(),
-            Some(RouterHandle(self.router.clone())),
-            tree,
-        );
-        let tree = provide(route_context::<R>(), Some(self.route.clone()), tree);
-        let tree = provide(nav_context::<R>(), Some(nav), tree);
-
-        Grid::new()
-            .children((tree,))
-            .content_dialog(question(&self.router))
-    }
-}
-
-/// The question a guard is waiting on, as a dialog whose buttons answer it.
-///
-/// Always attached to the root and shown only while there is a question, so
-/// the route's own tree keeps its place whether one is asked or not.
-fn question(router: &Rc<Router<WinUi>>) -> ContentDialog {
-    let pending = router.pending();
-    let open = pending.is_some();
-    let ask = pending.unwrap_or_else(|| guinea_core::guard::Ask::new("", "", ""));
-
-    let answering = Rc::downgrade(router);
-    ContentDialog::new()
-        .is_open(open)
-        .primary_button_text(ask.confirm)
-        .close_button_text(ask.cancel)
-        .on_closed(move |result: ContentDialogResult| {
-            if let Some(router) = answering.upgrade() {
-                router.answer(result == ContentDialogResult::Primary);
-            }
-        })
-        .content(TextBlock::new().text(ask.text))
-}
-
-/// Subscribing to route changes from a view, the way any other effect is
-/// written: registered once, undone when the view unmounts.
-pub trait UseRouteChange {
-    /// Runs `hook` after each navigation, for as long as this view is mounted.
-    /// Panics if there is no router above - a wiring mistake, not a state a
-    /// running application can reach.
-    fn use_route_change(&mut self, hook: impl Fn(Option<&str>, &str) + 'static);
-}
-
-impl<C: Component> UseRouteChange for ViewContext<'_, C> {
-    fn use_route_change(&mut self, hook: impl Fn(Option<&str>, &str) + 'static) {
-        let router = self.use_context(router_context()).unwrap_or_else(|| {
-            panic!(
-                "use_route_change() found no router above this view - it has to be \
-                 called from inside the tree a RouterRoot renders"
-            )
-        });
-
-        self.use_effect("guinea::route_change", (), move || {
-            let handle = router.0.on_route_change(hook);
-            Some(Box::new(move || drop(handle)) as Box<dyn FnOnce()>)
-        });
-    }
-}
-
-pub trait UseNavigate {
-    fn use_navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
-    where
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static;
-}
-
-impl<C: Component> UseNavigate for ViewContext<'_, C> {
-    fn use_navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
-    where
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-    {
-        self.use_context(nav_context::<R>()).unwrap_or_else(|| {
-            panic!(
-                "use_navigate::<{}>() called with no NavigateHandle provided - \
-                 render the tree through RouterRoot::<{0}>",
-                std::any::type_name::<R>()
-            )
-        })
-    }
-}
-
-pub trait UseRoute {
-    fn use_route<R>(&mut self) -> R
-    where
-        R: Clone + PartialEq + 'static;
-}
-
-impl<C: Component> UseRoute for ViewContext<'_, C> {
-    fn use_route<R>(&mut self) -> R
-    where
-        R: Clone + PartialEq + 'static,
-    {
-        self.use_context(route_context::<R>()).unwrap_or_else(|| {
-            panic!(
-                "use_route::<{}>() called with no route provided - \
-                 render the tree through RouterRoot::<{0}>",
-                std::any::type_name::<R>()
-            )
-        })
-    }
 }
 
 /// What a page's view is handed.
 ///
 /// Carries the page type, not because rendering needs it, but because reading
-/// does: what a segment may read is a fact about where it sits, and this is
+/// does: what a page may read is a fact about where it sits, and this is
 /// where that fact enters the signature.
 pub struct PageCx<'a, 'v, P: Page> {
-    props: SegmentProps<WinUi>,
+    scope: Scope,
     cx: &'a mut ViewContext<'v, PageNode<P>>,
     subscribed: &'a mut Vec<TypeId>,
     page: PhantomData<fn() -> P>,
@@ -1821,57 +1651,60 @@ impl<P: Page> PageCx<'_, '_, P> {
     /// rather than ours: a window may be opened during `create`, `changed` or
     /// `update`, never during `view`.
     pub fn open_window(&mut self, window: impl Into<NewWindow>) -> Callback<()> {
-        let window = window.into().open_from(self.cx);
+        let window = window.into().open_from(self.scope);
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {
             if let Some(window) = window.borrow_mut().take()
                 && !sender.send(Signal::OpenWindow(window))
             {
-                tracing::warn!("the segment asking for a window is gone; not opened");
+                tracing::warn!("the page asking for a window is gone; not opened");
             }
         })
     }
 
-    /// A navigator over the route type the application runs.
-    pub fn navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
-    where
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-    {
-        self.cx.use_navigate::<R>()
+    /// The navigator over `R` nearest above this page, and a redraw of the
+    /// page whenever it moves.
+    ///
+    /// Panics when none was opened above: a page that navigates where nothing
+    /// navigates is a wiring mistake.
+    pub fn navigate<R: Route>(&mut self) -> Navigator<R> {
+        let nav = navigator::<R>(self.scope);
+        watching(&nav, self.scope, self.cx, self.subscribed);
+        nav
     }
 
     /// Shows `view` in the slot `S` the nearest layout above placed. See
     /// [`LayoutCx::slot`].
     ///
-    /// The innermost fill on the active chain wins. A fill is made again on
-    /// every draw, and one not made again is withdrawn, as is everything a
-    /// segment filled when it leaves. Callbacks in `view` belong to this
-    /// segment, so a toolbar button in the layout acts on the page.
+    /// The innermost fill wins. A fill is made again on every draw, and one
+    /// not made again is withdrawn, as is everything a page filled when it
+    /// leaves. Callbacks in `view` belong to this page, so a toolbar button in
+    /// the layout acts on the page.
     ///
     /// Filling a slot no layout above placed panics in a debug build.
     pub fn fill<S: Slot>(&mut self, view: View) {
-        crate::slots::fill::<S>(&self.props, view);
+        crate::slots::fill::<S>(self.scope, view);
     }
 
     /// The bus of the application this page is in.
     pub fn bus(&self) -> Rc<guinea_core::actor::event_bus::EventBus> {
-        self.props.scope().bus()
+        self.scope.bus()
     }
 }
 
 impl<P: Page> PageCx<'_, '_, P> {
-    /// Reads a reducer's state, and asks this segment to publish again when it
+    /// Reads a reducer's state, and asks this page to publish again when it
     /// changes.
     ///
     /// The feature that answers is the one this page installed, or the nearest
     /// above that listed `R` in `Exports`. A read that reaches nothing panics
-    /// here, naming the chain it walked.
+    /// here, naming what the page was mounted under.
     pub fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
+        use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
     }
 }
 
@@ -1880,14 +1713,14 @@ impl<P: Page> Reads for PageCx<'_, '_, P> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
+        use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
     }
 
     fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
     {
-        self.props.binding::<R>().dispatch()
+        binding::<R>(self.scope).dispatch()
     }
 }
 
@@ -1904,8 +1737,10 @@ impl<P: Page> std::ops::DerefMut for PageCx<'_, '_, P> {
     }
 }
 
+/// What a layout's view is handed: everything a [`PageCx`] is, and mounting.
 pub struct LayoutCx<'a, 'v, L: Layout> {
-    props: SegmentProps<WinUi>,
+    scope: Scope,
+    pass: &'a Pass,
     cx: &'a mut ViewContext<'v, LayoutNode<L>>,
     subscribed: &'a mut Vec<TypeId>,
     layout: PhantomData<fn() -> L>,
@@ -1933,71 +1768,112 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
         })
     }
 
-    /// The next segment down the chain, for the layout to place where it wants.
-    pub fn outlet(&mut self) -> View {
-        self.props.outlet(&())
+    /// Mounts `S` - a page or a layout - under this layout, with `params`.
+    ///
+    /// Installed the first time this layout's view asks for it, in a scope of
+    /// its own under the layout's, and the same one every draw after that
+    /// while the params are equal. Other params are another child. A child
+    /// the view stops asking for goes when the view returns - unless it was
+    /// [`keep`](Child::keep)s, which puts it to sleep instead.
+    ///
+    /// One that fails to install leaves nothing behind, and draws why in its
+    /// place.
+    pub fn mount<S: Mountable>(&mut self, params: &S::Params) -> Child {
+        let mounted = self.pass.mount::<S, _>(params, |cx| S::install(cx, params));
+
+        Child {
+            pass: self.pass.clone(),
+            name: std::any::type_name::<S>(),
+            mounted,
+        }
     }
 
-    /// Whether the segment directly below is `P` - what a tab strip needs to
-    /// highlight the current tab without keeping a copy of the route.
-    pub fn child_is<P: 'static>(&self) -> bool {
-        self.props
-            .chain
-            .get(self.props.cursor + 1)
-            .is_some_and(|entry| (entry.type_id)() == TypeId::of::<P>())
+    /// What `nav` says is here, mounted by `draw`: the layout's `match` on
+    /// its own level of the route.
+    ///
+    /// The layout redraws whenever `nav` moves, and `draw` is asked again.
+    /// What it mounted is what the navigator asks before it moves on - its
+    /// leave guards, and everything under it. A child that fails to mount
+    /// puts the navigator back where it was, keeps what stood here before,
+    /// and leaves why on the navigator's
+    /// [`failure`](guinea_router::navigator::Navigator::failure).
+    pub fn outlet<R: Route>(
+        &mut self,
+        nav: &Navigator<R>,
+        draw: impl FnOnce(&R, &mut Self) -> Child,
+    ) -> View {
+        watching(nav, self.scope, self.cx, self.subscribed);
+
+        let Some(here) = nav.current() else {
+            return Grid::new().into();
+        };
+
+        let child = draw(&here, self);
+        match child.mounted {
+            Ok(scope) => {
+                nav.rendered(self.scope, scope, &here);
+                drawn(scope)
+            }
+            Err(error) => {
+                let shown = failed(child.name, &error);
+                let standing = nav.drawn(self.scope);
+                nav.failed(error);
+
+                match standing {
+                    Some(standing) => {
+                        self.pass.hold(standing);
+                        drawn(standing)
+                    }
+                    None => shown,
+                }
+            }
+        }
     }
 
     /// See [`PageCx::open_window`].
     pub fn open_window(&mut self, window: impl Into<NewWindow>) -> Callback<()> {
-        let window = window.into().open_from(self.cx);
+        let window = window.into().open_from(self.scope);
         let sender = self.cx.sender();
         let window = RefCell::new(Some(window));
         Callback::new(move |_| {
             if let Some(window) = window.borrow_mut().take()
                 && !sender.send(Signal::OpenWindow(window))
             {
-                tracing::warn!("the segment asking for a window is gone; not opened");
+                tracing::warn!("the layout asking for a window is gone; not opened");
             }
         })
     }
 
-    /// A navigator over the route type the application runs.
-    pub fn navigate<R>(&mut self) -> NavigateHandle<WinUi, R>
-    where
-        R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-    {
-        self.cx.use_navigate::<R>()
+    /// See [`PageCx::navigate`].
+    pub fn navigate<R: Route>(&mut self) -> Navigator<R> {
+        let nav = navigator::<R>(self.scope);
+        watching(&nav, self.scope, self.cx, self.subscribed);
+        nav
     }
 
-    /// Places the slot `S`: what the innermost segment below filled it with,
-    /// or nothing.
+    /// Places the slot `S`: what the innermost page or layout below filled it
+    /// with, or nothing.
     ///
     /// Placing it is what declares it. The fill arrives a drain after the
-    /// segment that made it drew, and redraws the slot alone - not this
-    /// layout, and not the outlet.
+    /// node that made it drew, and redraws the slot alone - not this layout,
+    /// and not what it mounted.
     pub fn slot<S: Slot>(&mut self) -> View {
-        crate::slots::place::<S>(&self.props)
+        crate::slots::place::<S>(self.scope, None)
+    }
+
+    /// [`slot`](Self::slot), showing `standing` while nothing fills it.
+    pub fn slot_or<S: Slot>(&mut self, standing: impl Into<View>) -> View {
+        crate::slots::place::<S>(self.scope, Some(standing.into()))
     }
 
     /// See [`PageCx::fill`]. A layout fills a slot a layout above placed.
     pub fn fill<S: Slot>(&mut self, view: View) {
-        crate::slots::fill::<S>(&self.props, view);
+        crate::slots::fill::<S>(self.scope, view);
     }
 
-    /// This layout's children in `routes!`, each as the route that reaches it
-    /// from here, and which one is showing - what a menu is built from.
-    ///
-    /// Labels belong in an exhaustive `match` on `R` in the view, so a page
-    /// added to the tree and left out of the menu does not compile. A child
-    /// that needs more than this layout carries is not offered.
-    pub fn child_routes<R>(&mut self) -> Vec<guinea_router::router::ChildRoute<R>>
-    where
-        R: RouteChain<WinUi> + 'static,
-    {
-        match self.cx.use_context(router_context()) {
-            Some(router) => router.0.child_routes::<R>(self.props.cursor),
-            None => Vec::new(),
-        }
+    /// The bus of the application this layout is in.
+    pub fn bus(&self) -> Rc<guinea_core::actor::event_bus::EventBus> {
+        self.scope.bus()
     }
 }
 
@@ -2007,7 +1883,7 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
+        use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
     }
 }
 
@@ -2016,14 +1892,14 @@ impl<L: Layout> Reads for LayoutCx<'_, '_, L> {
     where
         R: Reducer + PartialEq,
     {
-        use_reducer::<R, _>(&self.props, self.cx, self.subscribed)
+        use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
     }
 
     fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
     where
         R: Reducer,
     {
-        self.props.binding::<R>().dispatch()
+        binding::<R>(self.scope).dispatch()
     }
 }
 

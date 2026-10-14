@@ -12,6 +12,7 @@ use guinea_core::scope::Scope;
 /// A child is the same child only for the same type and equal params. Other
 /// params are another child in a scope of its own, and the one left out goes
 /// when the pass ends - asleep instead, when it was [`keep`](Self::keep)s.
+#[derive(Clone)]
 pub struct Pass {
     parent: Scope,
     number: u64,
@@ -24,9 +25,11 @@ struct Mounts {
     passes: u64,
 }
 
+/// The type a scope was mounted as, kept in the scope.
+struct Named(&'static str);
+
 struct Child {
     kind: TypeId,
-    name: &'static str,
     params: Box<dyn Any>,
     scope: Scope,
     drawn: u64,
@@ -89,6 +92,7 @@ impl Pass {
         }
 
         let scope = self.parent.child();
+        root::<S>(scope);
         let cx = FeatureInitContext {
             scope_cx: guinea_app::feature::ScopeContext::new(scope),
             cursor: 0,
@@ -101,7 +105,6 @@ impl Pass {
         self.parent.kept::<Mounts, _>(|mounts| {
             mounts.children.push(Child {
                 kind,
-                name: std::any::type_name::<S>(),
                 params: Box::new(params.clone()),
                 scope,
                 drawn: number,
@@ -166,16 +169,22 @@ pub fn mounted(parent: Scope) -> Vec<(Scope, &'static str)> {
     if !parent.keeps::<Mounts>() {
         return Vec::new();
     }
-    parent
-        .kept::<Mounts, _>(|mounts| mounts.children.iter().map(|child| (child.scope, child.name)).collect())
-        .unwrap_or_default()
+    let children: Vec<Scope> = parent
+        .kept::<Mounts, _>(|mounts| mounts.children.iter().map(|child| child.scope).collect())
+        .unwrap_or_default();
+    children
+        .into_iter()
+        .filter_map(|child| Some((child, name(child)?)))
+        .collect()
 }
 
-/// The name of the type `child` was mounted as, when a parent mounted it.
-pub fn name(child: Scope) -> Option<&'static str> {
-    let parent = child.parent()?;
-    mounted(parent)
-        .into_iter()
-        .find(|(mounted, _)| *mounted == child)
-        .map(|(_, name)| name)
+/// Names `scope` as an `S` that no parent's pass mounted: what a test
+/// installs on its own.
+pub fn root<S: 'static>(scope: Scope) {
+    scope.keep(Named(std::any::type_name::<S>()));
+}
+
+/// The name of the type `scope` was mounted as.
+pub fn name(scope: Scope) -> Option<&'static str> {
+    scope.keeps::<Named>().then(|| scope.kept::<Named, _>(|named| named.0)).flatten()
 }

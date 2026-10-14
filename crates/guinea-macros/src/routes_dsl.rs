@@ -419,7 +419,6 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         let link = leaf.link.as_ref()?;
         let route = type_ident(&leaf.ty).to_string();
         let guard_names = leaf.guards.iter().map(spelled);
-        let leaf_restorable = leaf.restorable;
 
         // In the order the path names them, which is how the address reads.
         let captures = parse_pattern(link).into_iter().filter_map(|seg| {
@@ -445,11 +444,10 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         Some(quote! {
             #link_mod::DeepLink {
                 tree: #tree_name,
-                route: #route,
-                path: #link,
-                captures: &[#(#captures),*],
-                guards: &[#(#guard_names),*],
-                restorable: #leaf_restorable,
+                route: ::std::string::String::from(#route),
+                path: ::std::string::String::from(#link),
+                captures: ::std::vec![#(#captures),*],
+                guards: ::std::vec![#(#guard_names),*],
             }
         })
     });
@@ -669,8 +667,8 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
 
             /// Every address the application answers to. What an installer
             /// registers, and what a committed manifest is diffed against.
-            pub fn deep_links() -> &'static [#link_mod::DeepLink] {
-                &[#(#declared_links),*]
+            pub fn deep_links() -> ::std::vec::Vec<#link_mod::DeepLink> {
+                ::std::vec![#(#declared_links),*]
             }
 
             /// What to call this route in a log or a navigation hook. Present

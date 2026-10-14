@@ -1,6 +1,6 @@
 #![cfg(all(windows, feature = "winui"))]
 
-//! A route tree that hangs from its application, mounted under the harness:
+//! A page that reads from its application, mounted under the harness:
 //! with the application as it is, or with a test's stand-ins for what it
 //! lists and nothing of what it installs besides.
 
@@ -80,26 +80,16 @@ pub struct Home;
 
 #[page]
 impl Page for Home {
-    type Params = HomeParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (link, _) = cx.read::<Link>();
         TextBlock::new().text(format!("link {}", link.0)).into()
     }
 }
 
-guinea::routes! {
-    Route {
-        app(App) {
-            page(Home) { }
-        }
-    }
-}
-
-/// Whether the tree mounted and drew `text`, or what stopped it.
+/// Whether the page mounted and drew `text`, or what stopped it.
 fn shows(h: &Harness, text: &str) -> Result<bool, String> {
     catch_unwind(AssertUnwindSafe(|| {
-        let mut app = Mounted::routed(h, Route::Home {}).map_err(|error| format!("{error:#}"))?;
+        let mut app = Mounted::<Home>::mount(h.segment(), ()).map_err(|error| format!("{error:#}"))?;
         app.settle();
         Ok(app.find_text(text).is_some())
     }))
@@ -113,7 +103,7 @@ fn shows(h: &Harness, text: &str) -> Result<bool, String> {
 }
 
 #[guinea::test(iterations = 2)]
-fn a_tree_mounts_under_the_application_as_it_is(h: &mut Harness) {
+fn a_page_mounts_under_the_application_as_it_is(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
     let installed = h.install_application::<App>().map(|_| ());
@@ -124,7 +114,7 @@ fn a_tree_mounts_under_the_application_as_it_is(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 2)]
-fn a_tree_mounts_under_a_test_standing_in_for_the_application(h: &mut Harness) {
+fn a_page_mounts_under_a_test_standing_in_for_the_application(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
     let installed = h

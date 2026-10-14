@@ -67,6 +67,18 @@ impl Pattern {
     fn order(&self) -> Vec<bool> {
         self.segments.iter().map(|segment| matches!(segment, Segment::Capture(_))).collect()
     }
+
+    fn text(&self) -> String {
+        let written: Vec<String> = self
+            .segments
+            .iter()
+            .map(|segment| match segment {
+                Segment::Literal(text) => text.clone(),
+                Segment::Capture(field) => format!(":{field}"),
+            })
+            .collect();
+        format!("/{}", written.join("/"))
+    }
 }
 
 pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
@@ -128,14 +140,95 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
         }
     });
 
-    let writes = variants.iter().map(write);
+    let sample = crate::paths::router("sample");
+    let samples = variants.iter().map(|variant| {
+        let ident = &variant.ident;
+        let text = ident.to_string();
+        match &variant.shape {
+            Shape::Unit => quote!(samples.push(::core::result::Result::Ok(Self::#ident));),
+            Shape::Branch(nested) => quote! {
+                samples.extend(
+                    <#nested as #navigator::Route>::samples()
+                        .into_iter()
+                        .map(|nested| nested.map(Self::#ident)),
+                );
+            },
+            Shape::Leaf(fields) => {
+                let made = fields.iter().map(|(name, ty)| {
+                    quote!(#name: (&#sample::Probe::<#ty>::new()).make()?)
+                });
+                quote! {
+                    samples.push(
+                        (|| -> ::core::option::Option<Self> {
+                            use #sample::{ByDefault as _, Without as _};
+                            ::core::option::Option::Some(Self::#ident { #(#made),* })
+                        })()
+                        .ok_or(#text),
+                    );
+                }
+            }
+        }
+    });
+
+    let link = crate::paths::router("link");
+    let writes = variants.iter().map(|variant| write(&link, variant));
+
+    let tree = name.to_string();
+    let named = |guard: &Path| quote!(#enter::EnterGuard::name(&#enter::Stands::<#guard>(::core::marker::PhantomData)));
+    let outer_names: Vec<TokenStream> = outer.iter().map(named).collect();
+    let deep_links = variants.iter().filter_map(|variant| {
+        let pattern = variant.at.as_ref()?;
+        let ident = &variant.ident;
+        let route = ident.to_string();
+        let path = pattern.text();
+        let guards = outer_names.iter().cloned().chain(variant.guards.iter().map(named));
+
+        Some(match &variant.shape {
+            Shape::Branch(nested) => quote! {
+                for nested in <#nested as #navigator::Route>::deep_links() {
+                    let mut guards: ::std::vec::Vec<&'static str> = ::std::vec![#(#guards),*];
+                    guards.extend(nested.guards);
+                    let path = match (#path, nested.path.as_str()) {
+                        ("/", path) => ::std::string::String::from(path),
+                        (prefix, "/") => ::std::string::String::from(prefix),
+                        (prefix, path) => ::std::format!("{prefix}{path}"),
+                    };
+                    links.push(#link::DeepLink {
+                        tree: #tree,
+                        route: ::std::format!("{}::{}", #route, nested.route),
+                        path,
+                        captures: nested.captures,
+                        guards,
+                    });
+                }
+            },
+            Shape::Unit | Shape::Leaf(_) => {
+                let fields: &[(Ident, Type)] = match &variant.shape {
+                    Shape::Leaf(fields) => fields,
+                    _ => &[],
+                };
+                let captures = pattern.segments.iter().filter_map(|segment| {
+                    let Segment::Capture(field) = segment else { return None };
+                    let ty = &fields.iter().find(|(name, _)| name == field)?.1;
+                    let text = field.to_string();
+                    Some(quote!(#link::Capture { name: #text, ty: <#ty as #link::LinkValue>::NAME }))
+                });
+                quote! {
+                    links.push(#link::DeepLink {
+                        tree: #tree,
+                        route: ::std::string::String::from(#route),
+                        path: ::std::string::String::from(#path),
+                        captures: ::std::vec![#(#captures),*],
+                        guards: ::std::vec![#(#guards),*],
+                    });
+                }
+            }
+        })
+    });
 
     let mut ordered: Vec<&Variant> = variants.iter().filter(|variant| variant.at.is_some()).collect();
-    ordered.sort_by(|a, b| {
-        let key = |variant: &Variant| (variant.at.as_ref().map(Pattern::order), matches!(variant.shape, Shape::Branch(_)));
-        key(a).cmp(&key(b))
-    });
-    let reads = ordered.into_iter().map(|variant| read(&navigator, variant));
+    ordered.sort_by_key(|variant| matches!(variant.shape, Shape::Branch(_)));
+    let reads = ordered.into_iter().map(|variant| read(&navigator, &link, variant));
 
     Ok(quote! {
         impl #impl_generics #navigator::Route for #name #ty_generics #where_clause {
@@ -170,6 +263,19 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                 levels
             }
 
+            fn samples() -> ::std::vec::Vec<::core::result::Result<Self, &'static str>> {
+                let mut samples = ::std::vec::Vec::new();
+                #(#samples)*
+                samples
+            }
+
+            fn deep_links() -> ::std::vec::Vec<#link::DeepLink> {
+                #[allow(unused_mut)]
+                let mut links = ::std::vec::Vec::new();
+                #(#deep_links)*
+                links
+            }
+
             fn write(&self, into: &mut ::std::vec::Vec<::std::string::String>) -> bool {
                 #[allow(unused_variables)]
                 match self {
@@ -177,9 +283,11 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                 }
             }
 
-            fn read(segments: &[&str]) -> ::core::option::Option<Self> {
+            fn read(segments: &[&str]) -> ::core::option::Option<(Self, ::std::vec::Vec<bool>)> {
+                #[allow(unused_mut)]
+                let mut best: ::core::option::Option<(Self, ::std::vec::Vec<bool>)> = ::core::option::Option::None;
                 #(#reads)*
-                ::core::option::Option::None
+                best
             }
         }
     })
@@ -274,7 +382,7 @@ fn refuse_same_links(variants: &[Variant]) -> syn::Result<()> {
     Ok(())
 }
 
-fn write(variant: &Variant) -> TokenStream {
+fn write(link: &TokenStream, variant: &Variant) -> TokenStream {
     let ident = &variant.ident;
 
     let binding = match &variant.shape {
@@ -292,7 +400,13 @@ fn write(variant: &Variant) -> TokenStream {
 
     let pushes = pattern.segments.iter().map(|segment| match segment {
         Segment::Literal(text) => quote!(into.push(::std::string::String::from(#text));),
-        Segment::Capture(field) => quote!(into.push(::std::string::ToString::to_string(#field));),
+        Segment::Capture(field) => {
+            let ty = match &variant.shape {
+                Shape::Leaf(fields) => fields.iter().find(|(name, _)| name == field).map(|(_, ty)| ty),
+                _ => None,
+            };
+            quote!(into.push(<#ty as #link::LinkValue>::encode(#field));)
+        }
     });
 
     let rest = match &variant.shape {
@@ -303,7 +417,7 @@ fn write(variant: &Variant) -> TokenStream {
     quote!(#binding => { #(#pushes)* #rest })
 }
 
-fn read(navigator: &TokenStream, variant: &Variant) -> TokenStream {
+fn read(navigator: &TokenStream, link: &TokenStream, variant: &Variant) -> TokenStream {
     let ident = &variant.ident;
     let pattern = variant.at.as_ref().expect("only linked variants are read");
     let count = pattern.segments.len();
@@ -316,29 +430,44 @@ fn read(navigator: &TokenStream, variant: &Variant) -> TokenStream {
         }
     });
 
+    let order = pattern.order();
+
     let (length, built) = match &variant.shape {
-        Shape::Unit => (quote!(segments.len() == #count), quote!(Self::#ident)),
+        Shape::Unit => (
+            quote!(segments.len() == #count),
+            quote!((Self::#ident, ::std::vec![#(#order),*])),
+        ),
         Shape::Branch(nested) => (
             quote!(segments.len() >= #count),
-            quote!(Self::#ident(<#nested as #navigator::Route>::read(&segments[#count..])?)),
+            quote! {{
+                let (nested, below) = <#nested as #navigator::Route>::read(&segments[#count..])?;
+                let mut order = ::std::vec![#(#order),*];
+                order.extend(below);
+                (Self::#ident(nested), order)
+            }},
         ),
         Shape::Leaf(fields) => {
             let parsed = fields.iter().map(|(name, ty)| {
                 let local = format_ident!("__{}", name);
-                quote!(#name: #local.parse::<#ty>().ok()?)
+                quote!(#name: <#ty as #link::LinkValue>::decode(#local)?)
             });
-            (quote!(segments.len() == #count), quote!(Self::#ident { #(#parsed),* }))
+            (
+                quote!(segments.len() == #count),
+                quote!((Self::#ident { #(#parsed),* }, ::std::vec![#(#order),*])),
+            )
         }
     };
 
     quote! {
         if #length {
-            let attempt = (|| -> ::core::option::Option<Self> {
+            let attempt = (|| -> ::core::option::Option<(Self, ::std::vec::Vec<bool>)> {
                 #(#matches)*
                 ::core::option::Option::Some(#built)
             })();
-            if attempt.is_some() {
-                return attempt;
+            if let ::core::option::Option::Some(found) = attempt
+                && best.as_ref().is_none_or(|(_, order)| found.1 < *order)
+            {
+                best = ::core::option::Option::Some(found);
             }
         }
     }

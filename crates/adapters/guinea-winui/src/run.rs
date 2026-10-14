@@ -1,17 +1,20 @@
 //! Opening windows, and taking the application apart once the last one closes.
 
+use std::any::TypeId;
 use std::cell::{Cell, RefCell};
-use std::marker::PhantomData;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
-use guinea_app::feature::ScopeContext;
-use guinea_router::router::{RouteChain, Router};
+use guinea_app::feature::{FeatureHost, ScopeContext};
+use guinea_core::scope::Scope;
+use guinea_router::mount::Pass;
+use guinea_router::navigator::{Navigator, Route, Watching};
 use windows_reactor::{
-    AppProxy, Border, Component, ComponentContext, View, ViewContext, WindowVisuals,
+    AppProxy, Component, ComponentContext, ContentDialog, ContentDialogExt,
+    ContentDialogResult, Grid, TextBlock, View, ViewContext, WindowVisuals,
 };
 
-use crate::winui::{NewWindow, Rooted, RouterRoot, Shown, WinUi};
+use crate::winui::{Mountable, NewWindow, Shown};
 
 /// The label this backend gives its first window, matching the other four.
 pub const MAIN: &str = "main";
@@ -22,24 +25,24 @@ thread_local! {
     static PROXY: RefCell<Option<AppProxy>> = const { RefCell::new(None) };
     static STANDING: Cell<usize> = const { Cell::new(0) };
     static FAILED: RefCell<Option<anyhow::Error>> = const { RefCell::new(None) };
-    static ROUTERS: RefCell<Vec<Weak<Router<WinUi>>>> = const { RefCell::new(Vec::new()) };
+    static WINDOWS: RefCell<Vec<Scope>> = const { RefCell::new(Vec::new()) };
 }
 
-/// A window's router, to be taken down before the application is: its
-/// segments read from what the application holds. Whether it is the only
-/// window standing - the main one.
-pub(crate) fn standing(router: &Rc<Router<WinUi>>) -> bool {
-    ROUTERS.with(|routers| {
-        let mut routers = routers.borrow_mut();
-        routers.retain(|router| router.strong_count() > 0);
-        routers.push(Rc::downgrade(router));
-        routers.len() == 1
+/// A window's scope, to be removed before the application is: what it mounted
+/// reads from what the application holds. Whether it is the only window
+/// standing - the main one.
+fn standing(window: Scope) -> bool {
+    WINDOWS.with(|windows| {
+        let mut windows = windows.borrow_mut();
+        windows.retain(|window| window.is_alive());
+        windows.push(window);
+        windows.len() == 1
     })
 }
 
-/// The main window's first route did not install: the application ends, and
-/// [`run`] returns `error`.
-pub(crate) fn failed(error: anyhow::Error) {
+/// The main window's root did not mount: the application ends, and [`run`]
+/// returns `error`.
+fn failed(error: anyhow::Error) {
     FAILED.with(|failed| *failed.borrow_mut() = Some(error));
 
     if let Some(proxy) = PROXY.with(|slot| slot.borrow().clone())
@@ -49,40 +52,42 @@ pub(crate) fn failed(error: anyhow::Error) {
     }
 }
 
-/// A second window, showing the same route tree from `initial`.
-///
-/// It gets its own router; the application is the one it is opened from.
-pub fn window<R>(window: Window, initial: R) -> NewWindow
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
-    NewWindow::under(move |app| opening(app, window, initial))
+/// The application a window belongs to, kept in the window's scope.
+struct Application(ScopeContext);
+
+/// The application the window `from` is in belongs to.
+pub(crate) fn application(from: Scope) -> Option<ScopeContext> {
+    std::iter::successors(Some(from), Scope::parent)
+        .find(|scope| scope.keeps::<Application>())
+        .and_then(|window| window.kept::<Application, _>(|app| app.0.clone()))
 }
 
-fn opening<R>(app: &ScopeContext, window: Window, initial: R) -> View
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
+/// Another window of the application.
+///
+/// It gets a navigator of its own, when it starts somewhere; the application
+/// is the one it is opened from.
+pub fn window(window: Window) -> NewWindow {
+    NewWindow::under(move |app| opening(app, window))
+}
+
+fn opening(app: &ScopeContext, window: Window) -> View {
     let rooted = Rooted {
         app: app.clone(),
-        initial,
+        window,
     };
-    View::component::<Root<R>>(Opening { window, rooted })
+    View::component::<Chrome>(rooted)
 }
 
-/// Installs `app`, opens a window at `initial`, and runs until the last
+/// Installs `app`, opens the window `main` makes, and runs until the last
 /// window closes.
 ///
-/// `initial` runs after the plugins are installed, and is handed the
-/// installed application to read what they provided from.
-pub fn run<R>(
-    app: GuineaApp,
-    window: Window,
-    initial: impl FnOnce(&AppRuntime) -> R + 'static,
-) -> anyhow::Result<()>
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
+/// `main` runs after the plugins are installed, and is handed the installed
+/// application to read what they provided from - where to start, say.
+///
+/// ```ignore
+/// run(app, |_| Window::of::<Shell>().title("guinea").at(Route::Processes))
+/// ```
+pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window + 'static) -> anyhow::Result<()> {
     let failure = Rc::new(RefCell::new(None));
     let startup_failure = failure.clone();
 
@@ -99,10 +104,10 @@ where
             }
         };
         let context = runtime.context();
-        let initial = initial(&runtime);
+        let window = main(&runtime);
         let installed = Installed { _runtime: runtime };
 
-        cx.open_component_window::<Shown>(opening(&context, window, initial))?;
+        cx.open_component_window::<Shown>(opening(&context, window))?;
         Ok(installed)
     });
 
@@ -115,39 +120,97 @@ where
         return Err(error.context("guinea: installing the application"));
     }
     if let Some(error) = FAILED.with(|failed| failed.borrow_mut().take()) {
-        return Err(error.context("guinea: installing the first route"));
+        return Err(error.context("guinea: mounting the main window"));
     }
     result.map_err(|error| anyhow::anyhow!("windows-reactor: {error}"))
 }
 
-/// The application, torn down when the reactor lets go of it - the windows'
-/// route trees first, which the reactor would otherwise take down after it.
+/// The application, torn down when the reactor lets go of it - what the
+/// windows mounted first, which the reactor would otherwise take down after
+/// it.
 struct Installed {
     _runtime: AppRuntime,
 }
 
 impl Drop for Installed {
     fn drop(&mut self) {
-        let routers = ROUTERS.with(|routers| std::mem::take(&mut *routers.borrow_mut()));
-        for router in routers.iter().filter_map(Weak::upgrade) {
-            router.deactivate();
+        let windows = WINDOWS.with(|windows| std::mem::take(&mut *windows.borrow_mut()));
+        for window in windows.into_iter().filter(|window| window.is_alive()) {
+            window.remove();
         }
     }
 }
 
-/// How the window looks, declared by the application and applied by the root.
-#[derive(Clone, PartialEq)]
+/// A window: the layout it roots at, where it starts, and how it looks.
+///
+/// ```ignore
+/// Window::of::<Shell>().title("guinea").at(Route::Processes)
+/// ```
+#[derive(Clone)]
 pub struct Window {
     title: String,
     size: Option<(f64, f64)>,
+    root: Root,
+    start: Option<Rc<dyn Fn(Scope) -> Rc<dyn Asking>>>,
+}
+
+/// What the window's dialog asks a navigator, whatever it navigates.
+pub(crate) trait Asking {
+    fn pending(&self) -> Option<guinea_core::guard::Ask>;
+    fn answer(&self, allowed: bool);
+    fn watch(&self, heard: Box<dyn Fn()>) -> Watching;
+}
+
+impl<R: Route> Asking for Navigator<R> {
+    fn pending(&self) -> Option<guinea_core::guard::Ask> {
+        Navigator::pending(self)
+    }
+
+    fn answer(&self, allowed: bool) {
+        Navigator::answer(self, allowed);
+    }
+
+    fn watch(&self, heard: Box<dyn Fn()>) -> Watching {
+        Navigator::watch(self, heard)
+    }
+}
+
+/// The layout a window roots at, by type.
+#[derive(Clone, Copy)]
+struct Root {
+    kind: TypeId,
+    mount: fn(&Pass) -> anyhow::Result<Scope>,
+    name: &'static str,
 }
 
 impl Window {
-    pub fn new() -> Self {
+    /// A window whose content is the layout or page `L`.
+    pub fn of<L: Mountable<Params = ()>>() -> Self {
         Self {
             title: String::new(),
             size: None,
+            root: Root {
+                kind: TypeId::of::<L>(),
+                mount: |pass| pass.mount::<L, ()>(&(), |cx| L::install(cx, &())),
+                name: std::any::type_name::<L>(),
+            },
+            start: None,
         }
+    }
+
+    /// Starts the window at `route`, with a navigator of its own over `R`:
+    /// what the layouts in it find with `cx.navigate::<R>()`, and whose
+    /// guards' questions the window puts up as a dialog.
+    pub fn at<R: Route>(mut self, route: R) -> Self {
+        self.start = Some(Rc::new(move |window| {
+            let navigator = Navigator::open(window, route.clone());
+
+            #[cfg(feature = "harness")]
+            crate::harness::remember_window(window, &navigator);
+
+            Rc::new(navigator) as Rc<dyn Asking>
+        }));
+        self
     }
 
     pub fn title(mut self, title: impl Into<String>) -> Self {
@@ -161,48 +224,114 @@ impl Window {
     }
 }
 
-impl Default for Window {
-    fn default() -> Self {
-        Self::new()
+/// The same title, size and root, starting the same way.
+impl PartialEq for Window {
+    fn eq(&self, other: &Self) -> bool {
+        let start = match (&self.start, &other.start) {
+            (Some(mine), Some(theirs)) => Rc::ptr_eq(mine, theirs),
+            (None, None) => true,
+            _ => false,
+        };
+        self.title == other.title && self.size == other.size && self.root.kind == other.root.kind && start
     }
 }
 
-#[derive(Clone, PartialEq)]
-struct Opening<R> {
-    window: Window,
-    rooted: Rooted<R>,
+/// What a window is opened with: the application whose window it is, and
+/// the window.
+#[derive(Clone)]
+pub(crate) struct Rooted {
+    pub(crate) app: ScopeContext,
+    pub(crate) window: Window,
 }
 
-/// The window's root: the chrome, and the route tree.
-struct Root<R>(PhantomData<R>);
+/// The same application, the same window.
+impl PartialEq for Rooted {
+    fn eq(&self, other: &Self) -> bool {
+        self.app.scope == other.app.scope && self.window == other.window
+    }
+}
 
-impl<R> Component for Root<R>
-where
-    R: RouteChain<WinUi> + Clone + PartialEq + 'static,
-{
-    type Input = Opening<R>;
-    type Message = ();
+/// A window's root: its chrome, its navigator, and the layout it roots at.
+///
+/// It owns the window's scope, under the application's, which is what makes
+/// a window a root: the host opens it when the component is created and
+/// closes it when the component is dropped.
+pub(crate) struct Chrome {
+    host: FeatureHost,
+    asking: Option<(Rc<dyn Asking>, Watching)>,
+    _panel: guinea_core::observability::panels::PanelGuard,
+}
 
-    fn create(_input: &Opening<R>, _cx: &ComponentContext<Self>) -> Self {
+/// A guard's question came or went, or the navigator moved.
+pub(crate) struct Heard;
+
+impl Component for Chrome {
+    type Input = Rooted;
+    type Message = Heard;
+
+    fn create(input: &Rooted, cx: &ComponentContext<Self>) -> Self {
         STANDING.with(|standing| standing.set(standing.get() + 1));
-        Self(PhantomData)
+
+        let host = FeatureHost::under(&input.app);
+        let window = host.scope();
+        window.keep(Application(input.app.clone()));
+        if standing(window) {
+            guinea_app::app::roots::set_label(window, MAIN);
+        }
+
+        let asking = input.window.start.as_ref().map(|start| {
+            let navigator = start(window);
+            let sender = cx.sender();
+            let watching = navigator.watch(Box::new(move || {
+                let _gone = !sender.send(Heard);
+            }));
+            (navigator, watching)
+        });
+
+        Self {
+            _panel: crate::devtools::offer(host.root().get(), window),
+            host,
+            asking,
+        }
     }
 
-    fn view(&self, input: &Opening<R>, cx: &mut ViewContext<Self>) -> View {
-        cx.window_title(input.window.title.clone());
-        if let Some((width, height)) = input.window.size {
+    fn update(&mut self, _heard: Heard, _cx: &ComponentContext<Self>) {}
+
+    fn view(&self, input: &Rooted, cx: &mut ViewContext<Self>) -> View {
+        let _caused = crate::winui::caused(cx);
+        let window = &input.window;
+
+        cx.window_title(window.title.clone());
+        if let Some((width, height)) = window.size {
             cx.window_visuals(WindowVisuals::new().client_size(width, height));
         }
 
-        Border::new()
-            .content(View::component::<RouterRoot<R>>(input.rooted.clone()))
-            .into()
-    }
+        let scope = self.host.scope();
+        let pass = Pass::begin(scope);
+        let mounted = (window.root.mount)(&pass);
+        pass.end();
 
-    fn update(&mut self, _message: (), _cx: &ComponentContext<Self>) {}
+        let content: View = match mounted {
+            Ok(root) => crate::winui::drawn(root),
+            Err(error) => {
+                let shown = format!("{error:#}");
+                tracing::error!(error = %shown, root = window.root.name, "the window's root did not mount");
+                if guinea_app::app::roots::label(scope).as_deref() == Some(MAIN) {
+                    failed(error);
+                }
+                TextBlock::new().text(shown).into()
+            }
+        };
+
+        let grid = Grid::new().children((content,));
+        match &self.asking {
+            Some((navigator, _)) => grid.content_dialog(question(navigator)),
+            None => grid.into(),
+        }
+    }
 }
 
-impl<R> Drop for Root<R> {
+impl Drop for Chrome {
     fn drop(&mut self) {
         let last = STANDING.with(|standing| {
             let left = standing.get().saturating_sub(1);
@@ -216,4 +345,24 @@ impl<R> Drop for Root<R> {
             }
         }
     }
+}
+
+/// The question a guard is waiting on, as a dialog whose buttons answer it.
+///
+/// Always attached to the root and shown only while there is a question, so
+/// what the window mounted keeps its place whether one is asked or not.
+fn question(navigator: &Rc<dyn Asking>) -> ContentDialog {
+    let pending = navigator.pending();
+    let open = pending.is_some();
+    let ask = pending.unwrap_or_else(|| guinea_core::guard::Ask::new("", "", ""));
+
+    let answering = navigator.clone();
+    ContentDialog::new()
+        .is_open(open)
+        .primary_button_text(ask.confirm)
+        .close_button_text(ask.cancel)
+        .on_closed(move |result: ContentDialogResult| {
+            answering.answer(result == ContentDialogResult::Primary);
+        })
+        .content(TextBlock::new().text(ask.text))
 }

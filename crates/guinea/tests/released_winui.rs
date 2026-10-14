@@ -9,7 +9,7 @@ use guinea::app::Harness;
 use guinea::core::actor::event_bus::Event;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page};
 use windows_reactor::{TextBlock, View};
 
 thread_local! {
@@ -69,15 +69,29 @@ fn ping(this: &mut Listener, _: Ping) {
     this.push.send(Pinged);
 }
 
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum Place {
+    Listening,
+    Menu,
+    Elsewhere,
+    Reading,
+    Quiet,
+}
+
 #[derive(Default)]
 pub struct Frame;
 
 #[layout]
 impl Layout for Frame {
-    type Params = FrameParams;
-
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        cx.outlet()
+        let nav = cx.navigate::<Place>();
+        cx.outlet(&nav, |place, cx| match place {
+            Place::Listening => cx.mount::<Listening>(&()),
+            Place::Menu => cx.mount::<Menu>(&()),
+            Place::Elsewhere => cx.mount::<Elsewhere>(&()),
+            Place::Reading => cx.mount::<PingArea>(&()),
+            Place::Quiet => cx.mount::<QuietArea>(&()),
+        })
     }
 }
 
@@ -86,9 +100,7 @@ pub struct Listening;
 
 #[page]
 impl Page for Listening {
-    type Params = ListeningParams;
-
-    fn install(ctx: &FeatureInitContext, _params: &ListeningParams) -> anyhow::Result<(Self, ())> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
         ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
         Ok((Self::default(), ()))
     }
@@ -112,11 +124,10 @@ pub struct Menu;
 
 #[page]
 impl Page for Menu {
-    type Params = MenuParams;
     type Installs = Pinging;
     type Message = Dismiss;
 
-    fn install(ctx: &FeatureInitContext, _params: &MenuParams) -> anyhow::Result<(Self, Pinging)> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Pinging)> {
         Ok((Self::default(), ctx.install::<Pinging>(&())?))
     }
 
@@ -139,8 +150,6 @@ pub struct Elsewhere;
 
 #[page]
 impl Page for Elsewhere {
-    type Params = ElsewhereParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("elsewhere").into()
     }
@@ -163,15 +172,14 @@ pub struct PingArea;
 
 #[layout]
 impl Layout for PingArea {
-    type Params = PingAreaParams;
     type Installs = Pinging;
 
-    fn install(ctx: &FeatureInitContext, _params: &PingAreaParams) -> anyhow::Result<(Self, Pinging)> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Pinging)> {
         Ok((Self::default(), ctx.install::<Pinging>(&())?))
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        cx.outlet()
+        cx.mount::<Reading>(&()).into()
     }
 }
 
@@ -180,10 +188,8 @@ pub struct QuietArea;
 
 #[layout]
 impl Layout for QuietArea {
-    type Params = QuietAreaParams;
-
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        cx.outlet()
+        cx.mount::<Quiet>(&()).into()
     }
 }
 
@@ -192,27 +198,9 @@ pub struct Reading;
 
 #[page]
 impl Page for Reading {
-    type Params = ReadingParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (pings, _) = cx.read::<Pings>();
         TextBlock::new().text(format!("pings {}", pings.0)).into()
-    }
-}
-
-guinea::routes! {
-    Route {
-        layout(Frame) {
-            page(Listening) { }
-            page(Menu) { }
-            page(Elsewhere) { }
-            layout(PingArea) {
-                page(Reading) { }
-            }
-            layout(QuietArea) {
-                page(Quiet) { }
-            }
-        }
     }
 }
 
@@ -221,8 +209,6 @@ pub struct Quiet;
 
 #[page]
 impl Page for Quiet {
-    type Params = QuietParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("quiet").into()
     }
@@ -230,20 +216,20 @@ impl Page for Quiet {
 
 #[guinea::test(iterations = 4)]
 fn a_message_for_a_page_that_was_left_meanwhile_is_dropped(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Menu {}).unwrap();
+    let mut app = Mounted::routed::<Frame>(h, Place::Menu).unwrap();
 
     let navigated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _pressed = h.publish(PressedAway);
-        app.navigate(Route::Elsewhere {});
+        app.navigate(Place::Elsewhere);
     }));
 
-    assert!(navigated.is_ok(), "the left page's update ran on a torn-down segment");
+    assert!(navigated.is_ok(), "the left page's update ran on a removed scope");
     assert!(app.find_text("elsewhere").is_some());
 }
 
 #[guinea::test(iterations = 1)]
 fn a_layout_s_feature_goes_with_the_area_every_time(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Reading {}).unwrap();
+    let mut app = Mounted::routed::<Frame>(h, Place::Reading).unwrap();
 
     for visit in 1..=3 {
         h.publish(Ping).settle();
@@ -252,17 +238,17 @@ fn a_layout_s_feature_goes_with_the_area_every_time(h: &mut Harness) {
         assert_eq!(alive(), 1, "visit {visit}: one actor while the area is open");
         assert_eq!(h.bus().count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
 
-        app.navigate(Route::Quiet {});
+        app.navigate(Place::Quiet);
         assert_eq!(alive(), 0, "visit {visit}: the actor outlived its area");
         assert_eq!(h.bus().count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its area");
 
-        app.navigate(Route::Reading {});
+        app.navigate(Place::Reading);
     }
 }
 
 #[guinea::test(iterations = 1)]
 fn a_page_s_actor_and_its_subscription_go_with_the_page_every_time(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Listening {}).unwrap();
+    let mut app = Mounted::routed::<Frame>(h, Place::Listening).unwrap();
 
     for visit in 1..=3 {
         h.publish(Ping).settle();
@@ -271,10 +257,10 @@ fn a_page_s_actor_and_its_subscription_go_with_the_page_every_time(h: &mut Harne
         assert_eq!(alive(), 1, "visit {visit}: one actor while the page is open");
         assert_eq!(h.bus().count_subscribers::<Ping>(), 1, "visit {visit}: one subscription");
 
-        app.navigate(Route::Elsewhere {});
+        app.navigate(Place::Elsewhere);
         assert_eq!(alive(), 0, "visit {visit}: the actor outlived its page");
         assert_eq!(h.bus().count_subscribers::<Ping>(), 0, "visit {visit}: the subscription outlived its page");
 
-        app.navigate(Route::Listening {});
+        app.navigate(Place::Listening);
     }
 }

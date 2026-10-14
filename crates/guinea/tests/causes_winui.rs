@@ -8,7 +8,7 @@ use guinea::app::Harness;
 use guinea::prelude::*;
 use guinea::observability::trace::Point;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Navigator, Page, PageCx, Route, layout, page};
 use windows_reactor::{Button, StackPanel, TextBlock, View};
 
 #[guinea::slot]
@@ -105,28 +105,41 @@ fn linking(cx: &FeatureInitContext) -> anyhow::Result<Linking> {
     Ok(Linking(link))
 }
 
-/// Reads what it owns, and shows a part in its footer.
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum Place {
+    Processes,
+    Services,
+    Quiet,
+    Watched,
+}
+
+/// Reads what it owns, and shows a part with state of its own in its footer.
 #[derive(Default)]
 pub struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    type Params = ShellParams;
     type Installs = Metering;
 
-    fn install(ctx: &FeatureInitContext, _params: &ShellParams) -> anyhow::Result<(Self, Metering)> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Metering)> {
         Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let (load, _) = cx.read::<Load>();
+        let nav = cx.navigate::<Place>();
+
+        let page = cx.outlet(&nav, |place, cx| match place {
+            Place::Processes => cx.mount::<Processes>(&()),
+            Place::Services => cx.mount::<Services>(&()),
+            Place::Quiet => cx.mount::<Quiet>(&()),
+            Place::Watched => cx.mount::<Watched>(&()),
+        });
+        let status = cx.mount::<Status>(&());
+        let footer = cx.slot_or::<Footer>(status);
 
         StackPanel::new()
-            .children((
-                TextBlock::new().text(format!("load {}", load.level)),
-                cx.outlet(),
-                cx.slot::<Footer>(),
-            ))
+            .children((TextBlock::new().text(format!("load {}", load.level)), page, footer))
             .into()
     }
 }
@@ -154,8 +167,6 @@ pub struct Processes;
 
 #[page]
 impl Page for Processes {
-    type Params = ProcessesParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("processes").into()
     }
@@ -163,23 +174,21 @@ impl Page for Processes {
 
 thread_local! {
     static ASKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static NAVIGATOR: std::cell::RefCell<Option<guinea::router::NavigateHandle<guinea::winui::WinUi, Route>>> =
+    static NAVIGATOR: std::cell::RefCell<Option<Navigator<Place>>> =
         const { std::cell::RefCell::new(None) };
 }
 
 /// Hands the test the way it navigates, for a navigation that does not come
-/// from a draw - only when the test asked, since the handle holds the router
-/// for as long as it is kept.
+/// from a draw - only when the test asked, since the navigator holds the
+/// window's place for as long as it is kept.
 #[derive(Default)]
 pub struct Services;
 
 #[page]
 impl Page for Services {
-    type Params = ServicesParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         if ASKED.get() {
-            let nav = cx.navigate::<Route>();
+            let nav = cx.navigate::<Place>();
             NAVIGATOR.with(|kept| *kept.borrow_mut() = Some(nav));
         }
         TextBlock::new().text("services").into()
@@ -192,7 +201,6 @@ pub struct Quiet;
 
 #[page]
 impl Page for Quiet {
-    type Params = QuietParams;
     type Message = ();
 
     fn update(&mut self, _message: (), _cx: &mut guinea::winui::UpdateCx<'_, Self>) {}
@@ -252,28 +260,15 @@ pub struct Watched;
 
 #[page]
 impl Page for Watched {
-    type Params = WatchedParams;
     type Installs = Ticking;
 
-    fn install(ctx: &FeatureInitContext, _params: &WatchedParams) -> anyhow::Result<(Self, Ticking)> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Ticking)> {
         Ok((Self::default(), ctx.install(&())?))
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (rate, _) = cx.read::<Rate>();
         TextBlock::new().text(format!("ticks {}", rate.ticks)).into()
-    }
-}
-
-guinea::routes! {
-    Route {
-        layout(Shell) {
-            part(Status) => Footer
-            page(Processes) { }
-            page(Services) { }
-            page(Quiet) { }
-            page(Watched) { }
-        }
     }
 }
 
@@ -285,7 +280,7 @@ fn rendered(segment: &str) -> impl Fn(&Point) -> bool + '_ {
 
 #[guinea::test(iterations = 4)]
 fn a_published_event_has_the_layout_it_redrew_in_its_chain(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
 
     let act = h.publish(Sampled(3));
@@ -302,7 +297,7 @@ fn a_published_event_has_the_layout_it_redrew_in_its_chain(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_layout_redrawn_does_not_redraw_the_page_under_it(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
 
     let act = h.publish(Sampled(3));
@@ -319,10 +314,10 @@ fn a_layout_redrawn_does_not_redraw_the_page_under_it(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_navigation_has_the_page_it_drew_in_its_chain(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
 
-    let act = app.navigate(Route::Processes {});
+    let act = app.navigate(Place::Processes);
     app.settle();
 
     assert!(app.find_text("processes").is_some(), "{:#?}", app.tree());
@@ -336,12 +331,14 @@ fn a_navigation_has_the_page_it_drew_in_its_chain(h: &mut Harness) {
 #[guinea::test(iterations = 4)]
 fn a_navigation_drawn_a_drain_later_has_what_it_drew_in_its_chain(h: &mut Harness) {
     ASKED.set(true);
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
     ASKED.set(false);
     let nav = NAVIGATOR.with(|kept| kept.borrow_mut().take()).expect("services drew");
 
-    let act = h.record("go", || nav.to(Route::Processes {}));
+    let act = h.record("go", || {
+        nav.to(Place::Processes);
+    });
     app.settle();
 
     assert!(app.find_text("processes").is_some(), "{:#?}", app.tree());
@@ -354,7 +351,7 @@ fn a_navigation_drawn_a_drain_later_has_what_it_drew_in_its_chain(h: &mut Harnes
 
 #[guinea::test(iterations = 4)]
 fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Quiet {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Quiet).unwrap();
     app.settle();
 
     let act = app.click_text("same again");
@@ -369,12 +366,12 @@ fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_page_left_with_a_redraw_pending_is_not_drawn_again(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Watched {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Watched).unwrap();
     app.settle();
     h.publish(Ticked(1)).settle();
 
     let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        app.navigate(Route::Processes {});
+        app.navigate(Place::Processes);
         app.settle();
         app.find_text("processes").is_some()
     }));
@@ -391,7 +388,7 @@ fn a_page_left_with_a_redraw_pending_is_not_drawn_again(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn state_a_layout_owns_is_read_and_driven_from_the_mounted_tree(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
     h.publish(Sampled(5)).settle();
     app.settle();
@@ -408,7 +405,7 @@ fn state_a_layout_owns_is_read_and_driven_from_the_mounted_tree(h: &mut Harness)
 
 #[guinea::test(iterations = 4)]
 fn state_a_part_owns_is_read_and_driven_from_the_mounted_tree(h: &mut Harness) {
-    let mut app = Mounted::routed(h, Route::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
 
     assert!(!app.state::<Link>().up);

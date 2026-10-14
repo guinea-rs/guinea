@@ -39,5 +39,5 @@ impl Route {
 /// `GUINEA_BLESS=1` rewrites the file once the change is meant.
 #[test]
 fn deep_links_are_what_was_shipped() {
-    guinea::manifest::check("deeplinks.toml", "guinea-processes", &[Route::deep_links()]);
+    guinea::manifest::check("deeplinks.toml", "guinea-processes", &[&Route::deep_links()]);
 }

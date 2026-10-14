@@ -177,17 +177,3 @@ fn saving_is_stable() {
 
     assert_eq!(route.save(), route.clone().save());
 }
-
-#[test]
-fn the_manifest_says_which_addresses_outlive_the_process() {
-    let surface = Route::deep_links();
-    let processes = surface
-        .iter()
-        .find(|link| link.path == "/:context/processes")
-        .expect("the address");
-
-    assert!(
-        processes.restorable,
-        "a route written to disk between runs is a fact about the outside"
-    );
-}

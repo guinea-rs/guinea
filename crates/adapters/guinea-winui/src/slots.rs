@@ -1,5 +1,5 @@
 //! Slots on WinUI: a placeholder where a layout placed one, and a board of
-//! what the segments below filled it with.
+//! what the pages and layouts below filled it with.
 //!
 //! The layout draws before its child, so it cannot wait for the fill. It
 //! places a small component of its own instead, and a fill reaches that
@@ -12,13 +12,10 @@ use std::collections::{HashMap, HashSet};
 
 use guinea_core::scope::Scope;
 use guinea_core::trace::Cause;
-use guinea_router::router::SegmentProps;
 use guinea_router::slot::Slot;
 use windows_reactor::{Border, Component, ComponentContext, LocalSender, View, ViewContext};
 
-use crate::WinUi;
-
-/// A slot as one layout placed it: the placing segment's scope, and which
+/// A slot as one layout placed it: the placing layout's scope, and which
 /// slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Place {
@@ -26,7 +23,7 @@ struct Place {
     slot: TypeId,
 }
 
-/// One segment's fill of one place.
+/// One node's fill of one place.
 struct Fill {
     filler: Scope,
     depth: usize,
@@ -64,11 +61,9 @@ thread_local! {
     static BOARD: RefCell<Board> = RefCell::new(Board::default());
 }
 
-/// Before a segment draws: what it placed and filled last time is forgotten
+/// Before a node draws: what it placed and filled last time is forgotten
 /// unless it says so again.
-pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
-    let key = props.scope();
-
+pub(crate) fn drawing(key: Scope) {
     BOARD.with(|board| {
         let mut board = board.borrow_mut();
         board.placed.remove(&key);
@@ -80,13 +75,12 @@ pub(crate) fn drawing(props: &SegmentProps<WinUi>) {
     });
 }
 
-/// After a segment draws: a fill it did not make again is withdrawn.
-pub(crate) fn drawn(props: &SegmentProps<WinUi>) {
-    let key = props.scope();
+/// After a node draws: a fill it did not make again is withdrawn.
+pub(crate) fn drawn(key: Scope) {
     withdraw(key, |fill| !fill.made);
 }
 
-/// When a segment leaves the screen: everything it filled goes with it.
+/// When a node leaves the screen: everything it filled goes with it.
 pub(crate) fn left(filler: Scope) {
     withdraw(filler, |_| true);
 
@@ -113,9 +107,9 @@ fn withdraw(filler: Scope, going: impl Fn(&Fill) -> bool) {
     });
 }
 
-/// The placeholder for `S`, where the layout at `props` draws it.
-pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
-    let placer = props.scope();
+/// The placeholder for `S`, where the layout in `placer` draws it, showing
+/// `standing` while nothing fills it.
+pub(crate) fn place<S: Slot>(placer: Scope, standing: Option<View>) -> View {
     let slot = TypeId::of::<S>();
 
     BOARD.with(|board| {
@@ -127,38 +121,33 @@ pub(crate) fn place<S: Slot>(props: &SegmentProps<WinUi>) -> View {
             .insert(slot);
     });
 
-    let part = props
-        .part::<S>()
-        .map(|part| part.chain[part.cursor].mount.view(part, &()));
-
     View::component::<Placeholder>(Shown {
         place: Place { placer, slot },
         name: guinea_router::observability::short(std::any::type_name::<S>()),
-        part,
+        standing,
     })
 }
 
-/// Hands `view` to the nearest layout above `props` that placed `S`.
-pub(crate) fn fill<S: Slot>(props: &SegmentProps<WinUi>, view: View) {
+/// Hands `view` to the nearest layout above `filler` that placed `S`.
+pub(crate) fn fill<S: Slot>(filler: Scope, view: View) {
     let slot = TypeId::of::<S>();
-    let filler = props.scope();
+    let above: Vec<Scope> = std::iter::successors(filler.parent(), Scope::parent).collect();
 
     let placer = BOARD.with(|board| {
         let board = board.borrow();
-        (0..props.cursor).rev().find_map(|at| {
-            let placer = props.scopes[at].scope;
+        above.iter().copied().find(|placer| {
             board
                 .placed
-                .get(&placer)
+                .get(placer)
                 .is_some_and(|placed| placed.contains(&slot))
-                .then_some(placer)
         })
     });
 
     let Some(placer) = placer else {
-        unplaced::<S>(props);
+        unplaced::<S>(filler);
         return;
     };
+    let depth = above.len();
 
     BOARD.with(|board| {
         let mut board = board.borrow_mut();
@@ -175,7 +164,7 @@ pub(crate) fn fill<S: Slot>(props: &SegmentProps<WinUi>, view: View) {
             None => {
                 entry.fills.push(Fill {
                     filler,
-                    depth: props.cursor,
+                    depth,
                     view,
                     made: true,
                 });
@@ -185,17 +174,17 @@ pub(crate) fn fill<S: Slot>(props: &SegmentProps<WinUi>, view: View) {
     });
 }
 
-fn unplaced<S: Slot>(props: &SegmentProps<WinUi>) {
-    let name = |at: usize| guinea_router::observability::short((props.chain[at].type_name)());
-    let walked = (0..=props.cursor)
-        .rev()
-        .map(name)
-        .collect::<Vec<_>>()
-        .join(" <- ");
+fn unplaced<S: Slot>(filler: Scope) {
+    let short = guinea_router::observability::short;
+    let names: Vec<&str> = std::iter::successors(Some(filler), Scope::parent)
+        .filter_map(guinea_router::mount::name)
+        .map(short)
+        .collect();
     let said = format!(
-        "`{}` fills `{}`, but no layout above it places that slot:\n  {walked}",
-        name(props.cursor),
-        guinea_router::observability::short(std::any::type_name::<S>()),
+        "`{}` fills `{}`, but no layout above it places that slot:\n  {}",
+        names.first().copied().unwrap_or("this view"),
+        short(std::any::type_name::<S>()),
+        names.join(" <- "),
     );
 
     if cfg!(debug_assertions) {
@@ -208,11 +197,12 @@ fn unplaced<S: Slot>(props: &SegmentProps<WinUi>) {
 pub(crate) struct Shown {
     place: Place,
     name: &'static str,
-    /// What `routes!` mounted in this slot, shown when nothing fills it.
-    part: Option<View>,
+    /// What the layout shows here while nothing fills it.
+    standing: Option<View>,
 }
 
-/// Where a slot is drawn: the winning fill, the part, or nothing.
+/// Where a slot is drawn: the winning fill, what stands in for one, or
+/// nothing.
 pub(crate) struct Placeholder {
     id: u64,
 }
@@ -265,7 +255,7 @@ impl Component for Placeholder {
         });
 
         let border = Border::new().automation_id(input.name);
-        match shown.or_else(|| input.part.clone()) {
+        match shown.or_else(|| input.standing.clone()) {
             Some(view) => border.content(view).into(),
             None => border.into(),
         }

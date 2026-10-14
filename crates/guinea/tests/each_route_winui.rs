@@ -1,13 +1,14 @@
 #![cfg(all(windows, feature = "winui"))]
 
-//! Every route of a tree, mounted and drawn once: what a read that reaches
-//! nothing, or a fill nobody placed, would otherwise first show a user.
+//! Every place a route names, mounted and drawn once: what a read that
+//! reaches nothing, or a fill nobody placed, would otherwise first show a
+//! user.
 
 use std::rc::Rc;
 
 use guinea::app::Harness;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, layout, page};
 use windows_reactor::{StackPanel, TextBlock, View};
 
 #[guinea::slot]
@@ -21,17 +22,53 @@ fn missing(this: &mut Missing, to: u32) {
     this.0 = to;
 }
 
+#[derive(PartialEq, Debug)]
+pub struct Handle;
+
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum Checked {
+    Shell(InShell),
+    Lost,
+}
+
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum InShell {
+    Good,
+    Bad,
+    Numbered { pid: u32 },
+    Wired { handle: Rc<Handle> },
+}
+
+#[derive(Default)]
+pub struct App;
+
+#[layout]
+impl Layout for App {
+    fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+        let nav = cx.navigate::<Checked>();
+        cx.outlet(&nav, |place, cx| match place {
+            Checked::Shell(_) => cx.mount::<Shell>(&()),
+            Checked::Lost => cx.mount::<Lost>(&()),
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    type Params = ShellParams;
-
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        StackPanel::new()
-            .children((cx.slot::<Toolbar>(), cx.outlet()))
-            .into()
+        let nav = cx.navigate::<InShell>();
+        let toolbar = cx.slot::<Toolbar>();
+        let page = cx.outlet(&nav, |place, cx| match place {
+            InShell::Good => cx.mount::<Good>(&()),
+            InShell::Bad => cx.mount::<Bad>(&()),
+            InShell::Numbered { pid } => cx.mount::<Numbered>(pid),
+            InShell::Wired { .. } => cx.mount::<Wired>(&()),
+        });
+
+        StackPanel::new().children((toolbar, page)).into()
     }
 }
 
@@ -40,8 +77,6 @@ pub struct Good;
 
 #[page]
 impl Page for Good {
-    type Params = GoodParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("good tools").into());
         TextBlock::new().text("good").into()
@@ -53,8 +88,6 @@ pub struct Bad;
 
 #[page]
 impl Page for Bad {
-    type Params = BadParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let (missing, _) = cx.read::<Missing>();
         TextBlock::new().text(format!("bad {}", missing.0)).into()
@@ -66,8 +99,6 @@ pub struct Lost;
 
 #[page]
 impl Page for Lost {
-    type Params = LostParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("lost tools").into());
         TextBlock::new().text("lost").into()
@@ -79,44 +110,28 @@ pub struct Numbered;
 
 #[page]
 impl Page for Numbered {
-    type Params = NumberedParams;
+    type Params = u32;
 
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("numbered").into()
     }
 }
 
-pub struct Handle;
-
 #[derive(Default)]
 pub struct Wired;
 
 #[page]
 impl Page for Wired {
-    type Params = WiredParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("wired").into()
     }
 }
 
-guinea::routes! {
-    Checked {
-        layout(Shell) {
-            page(Good) { }
-            page(Bad) { }
-            page(Numbered) { pid: u32 }
-            page(Wired) { handle: ~Rc<Handle> }
-        }
-        page(Lost) { }
-    }
-}
-
 #[guinea::test(iterations = 1)]
-fn every_route_is_mounted_and_every_failure_is_told_at_once(h: &mut Harness) {
-    let outcome = Mounted::each_route::<Checked>(h);
+fn every_place_is_mounted_and_every_failure_is_told_at_once(h: &mut Harness) {
+    let outcome = Mounted::each_route::<App, Checked>(h);
 
-    let said = format!("{:#}", outcome.expect_err("two routes fail and one cannot be made"));
+    let said = format!("{:#}", outcome.expect_err("two places fail and one cannot be made"));
     assert!(said.contains("`Bad` reads `Missing`, but nothing reaches it"), "{said}");
     assert!(said.contains("`Lost` fills `Toolbar`, but no layout above it places that slot"), "{said}");
     assert!(said.contains("`Wired` was not mounted"), "{said}");
@@ -126,17 +141,26 @@ fn every_route_is_mounted_and_every_failure_is_told_at_once(h: &mut Harness) {
 mod clean {
     use super::*;
 
+    #[derive(Clone, PartialEq, Debug, Route)]
+    pub enum Clean {
+        Fine,
+        Counted { pid: u32 },
+    }
+
     #[derive(Default)]
     pub struct Frame;
 
     #[layout]
     impl Layout for Frame {
-        type Params = FrameParams;
-
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            StackPanel::new()
-                .children((cx.slot::<Toolbar>(), cx.outlet()))
-                .into()
+            let nav = cx.navigate::<Clean>();
+            let toolbar = cx.slot::<Toolbar>();
+            let page = cx.outlet(&nav, |place, cx| match place {
+                Clean::Fine => cx.mount::<Fine>(&()),
+                Clean::Counted { pid } => cx.mount::<Counted>(pid),
+            });
+
+            StackPanel::new().children((toolbar, page)).into()
         }
     }
 
@@ -145,8 +169,6 @@ mod clean {
 
     #[page]
     impl Page for Fine {
-        type Params = FineParams;
-
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
             cx.fill::<Toolbar>(TextBlock::new().text("fine tools").into());
             TextBlock::new().text("fine").into()
@@ -158,24 +180,15 @@ mod clean {
 
     #[page]
     impl Page for Counted {
-        type Params = CountedParams;
+        type Params = u32;
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
             TextBlock::new().text("counted").into()
         }
     }
 
-    guinea::routes! {
-        Clean {
-            layout(Frame) {
-                page(Fine) { }
-                page(Counted) { pid: u32 }
-            }
-        }
-    }
-
     #[guinea::test(iterations = 1)]
-    fn a_tree_whose_routes_all_draw_passes(h: &mut Harness) {
-        Mounted::each_route::<Clean>(h).unwrap();
+    fn a_tree_whose_places_all_draw_passes(h: &mut Harness) {
+        Mounted::each_route::<Frame, Clean>(h).unwrap();
     }
 }

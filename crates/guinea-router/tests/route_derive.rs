@@ -101,3 +101,117 @@ fn what_no_link_reaches_is_not_read() {
     assert_eq!(Top::parse("/nowhere"), None);
     assert_eq!(Top::parse("/processes/settings/more"), None);
 }
+
+#[derive(Clone, Debug, PartialEq)]
+struct Unmade;
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Odd {
+    Made { count: u32 },
+    Unmade { what: Unmade },
+}
+
+#[test]
+fn every_place_is_sampled_with_default_fields_and_one_without_is_named() {
+    let top: Vec<Result<Top, &str>> = Top::samples();
+    assert_eq!(
+        top,
+        [
+            Ok(Top::Processes(Processes::List)),
+            Ok(Top::Processes(Processes::Settings)),
+            Ok(Top::Process { pid: 0 }),
+            Ok(Top::NewProcess),
+            Ok(Top::Admin(Settings::General)),
+            Ok(Top::Unlinked),
+        ]
+    );
+
+    assert_eq!(Odd::samples(), [Ok(Odd::Made { count: 0 }), Err("Unmade")]);
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Named {
+    #[at("/:who/processes")]
+    Processes { who: String },
+}
+
+#[test]
+fn a_capture_that_looks_like_a_path_stays_one_segment() {
+    let route = Named::Processes { who: "a/b c".to_string() };
+
+    let link = route.link().expect("a linked place");
+    assert_eq!(link, "/a%2Fb%20c/processes");
+    assert_eq!(Named::parse(&link), Some(route));
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Either {
+    #[at("/:id")]
+    ById { id: u32 },
+    #[at("/")]
+    Named(Names),
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Names {
+    #[at("/:who")]
+    Who { who: String },
+}
+
+#[test]
+fn a_capture_that_does_not_read_falls_through_to_the_next_place() {
+    assert_eq!(Either::parse("/42"), Some(Either::ById { id: 42 }));
+    assert_eq!(
+        Either::parse("/ada"),
+        Some(Either::Named(Names::Who { who: "ada".into() }))
+    );
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Shadow {
+    #[at("/:name")]
+    Host { name: String },
+    #[at("/")]
+    Fixed(Fixed),
+}
+
+#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+enum Fixed {
+    #[at("/settings")]
+    Settings,
+}
+
+#[test]
+fn a_literal_a_level_down_wins_over_a_capture_above() {
+    assert_eq!(Shadow::parse("/settings"), Some(Shadow::Fixed(Fixed::Settings)));
+    assert_eq!(Shadow::parse("/kube-01"), Some(Shadow::Host { name: "kube-01".into() }));
+}
+
+#[test]
+fn the_deep_links_are_every_linked_place_with_what_it_captures_and_what_guards_it() {
+    let links = Top::deep_links();
+    let shown: Vec<(&str, String, String, Vec<&str>, Vec<&str>)> = links
+        .iter()
+        .map(|link| {
+            (
+                link.tree,
+                link.route.clone(),
+                link.path.clone(),
+                link.captures.iter().map(|capture| capture.ty).collect(),
+                link.guards.clone(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        shown,
+        [
+            ("Top", "Processes::List".into(), "/processes".into(), vec![], vec!["Signed"]),
+            ("Top", "Processes::Settings".into(), "/processes/settings".into(), vec![], vec!["Signed"]),
+            ("Top", "Process".into(), "/process/:pid".into(), vec!["u32"], vec!["Signed"]),
+            ("Top", "NewProcess".into(), "/process/new".into(), vec![], vec!["Signed"]),
+            ("Top", "Admin::General".into(), "/admin".into(), vec![], vec!["Signed", "Admin"]),
+        ]
+    );
+    assert_eq!(links[2].captures[0].name, "pid");
+}

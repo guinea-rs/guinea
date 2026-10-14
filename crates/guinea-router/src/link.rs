@@ -79,29 +79,27 @@ pub trait LinkValue: sealed::Sealed + Sized {
     fn encode(&self) -> String;
 }
 
-/// One address the application answers to, as `routes!` knows it.
+/// One address the application answers to.
 ///
 /// The whole external surface of a route tree, in a shape that can be written
 /// down and diffed - see [`manifest`](crate::manifest). What bites about a
 /// deep link is not that it is malformed but that it *changed*, and a change
 /// is only visible against something committed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeepLink {
     /// The route enum this link belongs to. A second window is a second tree,
     /// and its addresses ship just the same.
     pub tree: &'static str,
-    /// The page, by the name the declaration gave it.
-    pub route: &'static str,
+    /// The place, by its variants down the levels: `Processes::List`.
+    pub route: String,
     /// The pattern, captures and all: `/:context/processes`.
-    pub path: &'static str,
+    pub path: String,
     /// What the captures carry, in the order the path names them.
-    pub captures: &'static [Capture],
+    pub captures: Vec<Capture>,
     /// What stands in front of this address, outermost first. External
     /// activation carries no caller identity, so this is the half of the
     /// review that matters most.
-    pub guards: &'static [&'static str],
-    /// Whether this route is written to disk between runs.
-    pub restorable: bool,
+    pub guards: Vec<&'static str>,
 }
 
 /// One capture of a [`DeepLink`], and what it carries.

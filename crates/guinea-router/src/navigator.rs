@@ -45,6 +45,17 @@ pub trait Route: Clone + PartialEq + 'static {
         Vec::new()
     }
 
+    /// Every place, each with what its fields default to - `Err` with the
+    /// variant's name for one whose fields have no default.
+    fn samples() -> Vec<Result<Self, &'static str>> {
+        Vec::new()
+    }
+
+    /// Every address this route type answers to, nested levels included.
+    fn deep_links() -> Vec<crate::link::DeepLink> {
+        Vec::new()
+    }
+
     /// The address this route answers to, when every level of it has one.
     fn link(&self) -> Option<String> {
         let mut segments = Vec::new();
@@ -55,7 +66,7 @@ pub trait Route: Clone + PartialEq + 'static {
     /// The route at `link`, when one answers to it.
     fn parse(link: &str) -> Option<Self> {
         let segments: Vec<&str> = link.split('/').filter(|segment| !segment.is_empty()).collect();
-        Self::read(&segments)
+        Self::read(&segments).map(|(route, _)| route)
     }
 
     /// Writes this route's path segments after the ones already in `into`;
@@ -65,9 +76,10 @@ pub trait Route: Clone + PartialEq + 'static {
         false
     }
 
-    /// The route the whole of `segments` reaches.
+    /// The route the whole of `segments` reaches, and which of them it read
+    /// as captures: of two that reach it, the one with a literal first wins.
     #[doc(hidden)]
-    fn read(_segments: &[&str]) -> Option<Self> {
+    fn read(_segments: &[&str]) -> Option<(Self, Vec<bool>)> {
         None
     }
 }
@@ -229,6 +241,14 @@ impl<T: Route> Navigator<T> {
     /// Goes to `route`, remembering where it was.
     pub fn to(&self, route: T) -> Moved {
         self.root.clone().go(TypeId::of::<T>(), Box::new(route))
+    }
+
+    /// A click handler that goes to `route` each time it is called.
+    pub fn to_handler(&self, route: T) -> impl Fn() + Clone + 'static {
+        let navigator = self.clone();
+        move || {
+            navigator.to(route.clone());
+        }
     }
 
     /// One step back, if there is one; whether it moved now.

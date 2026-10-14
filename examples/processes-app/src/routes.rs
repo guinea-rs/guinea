@@ -25,6 +25,6 @@ fn deep_links_are_what_was_shipped() {
     guinea::manifest::check(
         "deeplinks.toml",
         guinea::app_meta!().identifier,
-        &[Route::deep_links()],
+        &[&Route::deep_links()],
     );
 }

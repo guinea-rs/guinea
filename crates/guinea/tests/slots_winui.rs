@@ -10,8 +10,23 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use guinea::app::Harness;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, UpdateCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page};
 use windows_reactor::{Button, StackPanel, TextBlock, View};
+
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum Place {
+    Processes,
+    Services,
+    Toggling,
+    Footing,
+    Area(InArea),
+}
+
+#[derive(Clone, PartialEq, Debug, Route)]
+pub enum InArea {
+    Deep,
+    Plain,
+}
 
 #[guinea::slot]
 pub struct Toolbar;
@@ -57,8 +72,6 @@ pub struct Footing;
 
 #[page]
 impl Page for Footing {
-    type Params = FootingParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Footer>(TextBlock::new().text("page footer").into());
         TextBlock::new().text("footing").into()
@@ -74,13 +87,22 @@ pub struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    type Params = ShellParams;
-
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         SHELL_DRAWN.set(SHELL_DRAWN.get() + 1);
-        StackPanel::new()
-            .children((cx.slot::<Toolbar>(), cx.outlet(), cx.slot::<Footer>()))
-            .into()
+
+        let nav = cx.navigate::<Place>();
+        let toolbar = cx.slot::<Toolbar>();
+        let page = cx.outlet(&nav, |place, cx| match place {
+            Place::Processes => cx.mount::<Processes>(&()),
+            Place::Services => cx.mount::<Services>(&()),
+            Place::Toggling => cx.mount::<Toggling>(&()),
+            Place::Footing => cx.mount::<Footing>(&()),
+            Place::Area(_) => cx.mount::<Area>(&()),
+        });
+        let charts = cx.mount::<Charts>(&());
+        let footer = cx.slot_or::<Footer>(charts);
+
+        StackPanel::new().children((toolbar, page, footer)).into()
     }
 }
 
@@ -89,8 +111,6 @@ pub struct Processes;
 
 #[page]
 impl Page for Processes {
-    type Params = ProcessesParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("processes tools").into());
         TextBlock::new().text("processes").into()
@@ -102,8 +122,6 @@ pub struct Services;
 
 #[page]
 impl Page for Services {
-    type Params = ServicesParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("services").into()
     }
@@ -114,11 +132,14 @@ pub struct Area;
 
 #[layout]
 impl Layout for Area {
-    type Params = AreaParams;
-
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("area tools").into());
-        cx.outlet()
+
+        let nav = cx.navigate::<InArea>();
+        cx.outlet(&nav, |place, cx| match place {
+            InArea::Deep => cx.mount::<Deep>(&()),
+            InArea::Plain => cx.mount::<Plain>(&()),
+        })
     }
 }
 
@@ -127,8 +148,6 @@ pub struct Deep;
 
 #[page]
 impl Page for Deep {
-    type Params = DeepParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("deep tools").into());
         TextBlock::new().text("deep").into()
@@ -140,8 +159,6 @@ pub struct Plain;
 
 #[page]
 impl Page for Plain {
-    type Params = PlainParams;
-
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
         TextBlock::new().text("plain").into()
     }
@@ -158,7 +175,6 @@ pub enum Toggle {
 
 #[page]
 impl Page for Toggling {
-    type Params = TogglingParams;
     type Message = Toggle;
 
     fn update(&mut self, message: Toggle, _cx: &mut UpdateCx<'_, Self>) {
@@ -185,34 +201,15 @@ pub struct Orphan;
 
 #[page]
 impl Page for Orphan {
-    type Params = OrphanParams;
-
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("nowhere").into());
         TextBlock::new().text("orphan").into()
     }
 }
 
-guinea::routes! {
-    SlotRoute {
-        layout(Shell) {
-            part(Charts) => Footer
-            page(Processes) { }
-            page(Services) { }
-            page(Toggling) { }
-            page(Footing) { }
-            layout(Area) {
-                page(Deep) { }
-                page(Plain) { }
-            }
-        }
-        page(Orphan) { }
-    }
-}
-
 #[guinea::test(iterations = 4)]
 fn a_part_shows_in_its_slot_where_nothing_below_fills_it(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
 
     assert!(app.find_text("charts 0").is_some(), "{:#?}", app.tree());
@@ -220,18 +217,18 @@ fn a_part_shows_in_its_slot_where_nothing_below_fills_it(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_fill_covers_the_part_and_leaving_uncovers_it_as_it_was(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Services {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Services).unwrap();
     app.settle();
     app.click_text("more charts").settle();
     app.settle();
     assert!(app.find_text("charts 1").is_some(), "{:#?}", app.tree());
 
-    app.navigate(SlotRoute::Footing {});
+    app.navigate(Place::Footing);
     app.settle();
     assert!(app.find_text("page footer").is_some(), "{:#?}", app.tree());
     assert!(app.find_text("charts 1").is_none(), "{:#?}", app.tree());
 
-    app.navigate(SlotRoute::Services {});
+    app.navigate(Place::Services);
     app.settle();
     assert!(
         app.find_text("charts 1").is_some(),
@@ -242,7 +239,7 @@ fn a_fill_covers_the_part_and_leaving_uncovers_it_as_it_was(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_fill_redraws_the_slot_and_not_the_layout_that_placed_it(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Toggling {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Toggling).unwrap();
     app.settle();
     let before = SHELL_DRAWN.get();
 
@@ -256,7 +253,7 @@ fn a_fill_redraws_the_slot_and_not_the_layout_that_placed_it(h: &mut Harness) {
 #[guinea::test(iterations = 1)]
 fn filling_a_slot_nobody_placed_panics_naming_the_chain(h: &mut Harness) {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        let mut app = Mounted::routed(h, SlotRoute::Orphan {}).unwrap();
+        let mut app = Mounted::<Orphan>::mount(h.segment(), ()).unwrap();
         app.settle();
     }));
 
@@ -277,7 +274,7 @@ fn filling_a_slot_nobody_placed_panics_naming_the_chain(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_page_fills_the_slot_its_layout_placed(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Processes {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Processes).unwrap();
     app.settle();
 
     assert!(app.find_text("processes tools").is_some(), "{:#?}", app.tree());
@@ -286,11 +283,11 @@ fn a_page_fills_the_slot_its_layout_placed(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn leaving_the_page_takes_its_fill_with_it(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Processes {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Processes).unwrap();
     app.settle();
     assert!(app.find_text("processes tools").is_some(), "{:#?}", app.tree());
 
-    app.navigate(SlotRoute::Services {});
+    app.navigate(Place::Services);
     app.settle();
 
     assert!(app.find_text("services").is_some(), "{:#?}", app.tree());
@@ -299,7 +296,7 @@ fn leaving_the_page_takes_its_fill_with_it(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn the_innermost_fill_wins(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Deep {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Area(InArea::Deep)).unwrap();
     app.settle();
 
     assert!(app.find_text("deep tools").is_some(), "{:#?}", app.tree());
@@ -308,7 +305,7 @@ fn the_innermost_fill_wins(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn an_outer_fill_shows_where_the_inner_page_fills_nothing(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Plain {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Area(InArea::Plain)).unwrap();
     app.settle();
 
     assert!(app.find_text("area tools").is_some(), "{:#?}", app.tree());
@@ -316,7 +313,7 @@ fn an_outer_fill_shows_where_the_inner_page_fills_nothing(h: &mut Harness) {
 
 #[guinea::test(iterations = 4)]
 fn a_fill_not_made_again_is_withdrawn(h: &mut Harness) {
-    let mut app = Mounted::routed(h, SlotRoute::Toggling {}).unwrap();
+    let mut app = Mounted::routed::<Shell>(h, Place::Toggling).unwrap();
     app.settle();
     assert!(app.find_text("toggled tools").is_none(), "{:#?}", app.tree());
 
@@ -347,7 +344,6 @@ mod moved {
 
     #[layout]
     impl Layout for Mover {
-        type Params = MoverParams;
         type Message = Move;
 
         fn update(&mut self, message: Move, _cx: &mut UpdateCx<'_, Self>) {
@@ -362,6 +358,7 @@ mod moved {
                 true => Grid::new().children((slot,)).into(),
                 false => Border::new().content(slot).into(),
             };
+            let filler: View = cx.mount::<Filler>(&()).into();
 
             StackPanel::new()
                 .children((
@@ -369,7 +366,7 @@ mod moved {
                         .on_click(cx.on(|()| Move::Flip))
                         .content(TextBlock::new().text("move")),
                     holder,
-                    cx.outlet(),
+                    filler,
                 ))
                 .into()
         }
@@ -386,7 +383,6 @@ mod moved {
 
     #[page]
     impl Page for Filler {
-        type Params = FillerParams;
         type Message = Inc;
 
         fn update(&mut self, message: Inc, _cx: &mut UpdateCx<'_, Self>) {
@@ -408,17 +404,9 @@ mod moved {
         }
     }
 
-    guinea::routes! {
-        MoveRoute {
-            layout(Mover) {
-                page(Filler) { }
-            }
-        }
-    }
-
     #[guinea::test(iterations = 2)]
     fn a_slot_the_layout_moved_still_shows_what_fills_it(h: &mut Harness) {
-        let mut app = Mounted::routed(h, MoveRoute::Filler {}).unwrap();
+        let mut app = Mounted::<Mover>::mount(h.segment(), ()).unwrap();
         app.settle();
         assert!(app.find_text("fill 0").is_some(), "{:#?}", app.tree());
 

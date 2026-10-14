@@ -105,16 +105,8 @@ impl Page for Home {
     }
 }
 
-routes! {
-    Route {
-        page(Home) { }
-    }
-}
-
 fn main() -> anyhow::Result<()> {
-    run(GuineaApp::new(), Window::new().title("Counter"), |_| {
-        Route::Home {}
-    })
+    run(GuineaApp::new(), |_| Window::of::<Home>().title("Counter"))
 }
 ```
 <!-- /shown -->

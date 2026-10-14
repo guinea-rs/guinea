@@ -49,7 +49,8 @@ fn a_capture_named_like_a_keyword_lands_in_its_raw_field() {
 
 #[test]
 fn the_manifest_names_a_keyword_capture_as_the_pattern_wrote_it() {
-    let kind = Route::deep_links()
+    let surface = Route::deep_links();
+    let kind = surface
         .iter()
         .find(|link| link.route == "Kind")
         .expect("Kind is addressable");

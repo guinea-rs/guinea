@@ -7,8 +7,6 @@
 pub enum Channel {
     Send,
     Task,
-    Emit,
-    Ask,
 }
 
 /// A type's name as devtools show it: its module and itself.

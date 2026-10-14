@@ -21,12 +21,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     let actor_ty = actor_ty.clone();
     let actor_ty = &actor_ty;
 
-    let msg_ty = if is_async {
-        let (ty, _) = extract_msg_info(item.sig.inputs.get(1))?;
-        ty.clone()
-    } else {
-        extract_sync_msg(item.sig.inputs.get(1))?
-    };
+    let msg_ty = extract_msg_info(item.sig.inputs.get(1))?.0.clone();
     let msg_ty = &msg_ty;
 
     let takes_cx = !is_async && item.sig.inputs.len() == 3;
@@ -120,8 +115,6 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
             }
         }
 
-        // Fire-and-forget async handler - unchanged from before the RPC
-        // heuristic existed.
         (true, None) => {
             if inputs.len() != 2 {
                 return Err(Error::new(
@@ -222,25 +215,6 @@ fn spell_out_cx(item: &mut ItemFn, actor: &Type, msg: &Type) {
     if last.ident == "Cx" && last.arguments.is_empty() {
         last.arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#actor, #msg>));
     }
-}
-
-/// The message type is the second argument's: the handler takes the message
-/// itself, destructured or not.
-fn extract_sync_msg(arg: Option<&FnArg>) -> Result<Type> {
-    let (ty, _) = extract_msg_info(arg)?;
-
-    let is_context = matches!(
-        ty,
-        Type::Path(path) if path.path.segments.last().is_some_and(|last| last.ident == "Context")
-    );
-    if is_context {
-        return Err(Error::new(
-            ty.span(),
-            "a handler takes the message itself now, and `Cx` only when it needs one: `fn h(this: &mut Actor, msg: Msg)` or `fn h(this: &mut Actor, msg: Msg, cx: Cx<Actor, Msg>)`",
-        ));
-    }
-
-    Ok(ty.clone())
 }
 
 fn extract_msg_info(arg: Option<&FnArg>) -> Result<(&Type, String)> {

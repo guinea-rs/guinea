@@ -16,7 +16,6 @@ proc-macro2.workspace = true
 proc-macro-crate.workspace = true
 quote.workspace = true
 syn = { workspace = true, features = ["full", "extra-traits"] }
-heck.workspace = true
 winnow.workspace = true
 
 [lints]

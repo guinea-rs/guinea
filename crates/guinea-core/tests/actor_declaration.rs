@@ -30,40 +30,6 @@ fn load(_this: &mut Cache, _: Load) {}
 #[handler]
 fn loaded(_this: &mut Cache, _: Loaded<String, u32>) {}
 
-pub mod global {
-    pub struct Refreshed;
-}
-
-pub mod local {
-    pub struct Refreshed;
-}
-
-pub struct Refresh;
-
-pub struct Announced;
-
-#[derive(Debug)]
-pub struct Poller;
-
-actor! {
-    Poller {
-        handlers { Refresh => { emit global::Refreshed, emit local::Refreshed, emit global Announced } }
-    }
-}
-
-#[handler]
-fn refresh(_this: &mut Poller, _: Refresh) {}
-
-#[test]
-fn an_emit_target_in_a_module_named_global_or_local_keeps_its_path() {
-    let edges = <Poller as ManagedActor>::SHAPE.handles[0].edges.expect("declared");
-    let targets: Vec<&str> = edges.iter().map(|edge| (edge.target)()).collect();
-
-    assert!(targets[0].ends_with("global::Refreshed"), "{targets:?}");
-    assert!(targets[1].ends_with("local::Refreshed"), "{targets:?}");
-    assert!(targets[2].ends_with("::Announced"), "{targets:?}");
-}
-
 #[test]
 fn a_message_with_two_type_arguments_is_one_message() {
     let shape = <Cache as ManagedActor>::SHAPE;

@@ -2345,7 +2345,6 @@ name = "guinea-macros"
 version = "0.29.0"
 dependencies = [
  "guinea-route-dsl",
- "heck",
  "proc-macro-crate",
  "proc-macro2",
  "quote",

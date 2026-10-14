@@ -37,8 +37,6 @@ struct Edge {
 enum Channel {
     Send,
     Task,
-    Emit,
-    Ask,
 }
 
 pub fn actor_impl(input: TokenStream1) -> TokenStream1 {
@@ -221,33 +219,21 @@ fn parse_edges(tokens: &[TokenTree]) -> syn::Result<Vec<Edge>> {
         let Some(TokenTree::Ident(head)) = slice.first().cloned() else {
             return Err(syn::Error::new(
                 span_of(&chunk),
-                "expected `send`, `task`, `emit` or `ask` before the message type",
+                "expected `send` or `task` before the message type",
             ));
         };
 
         let channel = match head.to_string().as_str() {
             "send" => Channel::Send,
             "task" => Channel::Task,
-            "emit" => Channel::Emit,
-            "ask" => Channel::Ask,
             other => {
                 return Err(syn::Error::new(
                     head.span(),
-                    format!("unknown channel `{other}`; expected send, task, emit or ask"),
+                    format!("unknown channel `{other}`; expected send or task"),
                 ));
             }
         };
         slice = &slice[1..];
-
-        if channel == Channel::Emit {
-            if let Some(TokenTree::Ident(scope)) = slice.first() {
-                let scope = scope.to_string();
-                let a_path = matches!(slice.get(1), Some(TokenTree::Punct(p)) if p.as_char() == ':');
-                if (scope == "local" || scope == "global") && !a_path {
-                    slice = &slice[1..];
-                }
-            }
-        }
 
         let mut rest: Vec<TokenTree> = slice.to_vec();
         let mut is_loop = false;
@@ -498,7 +484,6 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
                 .chain(request_payload(msg))
                 .flat_map(move |sender| edges.iter().map(move |edge| (sender, edge)))
         })
-        .filter(|(_, edge)| matches!(edge.channel, Channel::Send | Channel::Task))
         .filter_map(|(msg, edge)| {
             let target = &edge.target;
             let key = quote!(#msg => #target).to_string();
@@ -536,8 +521,6 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     let channel_of = |channel: &Channel| match channel {
         Channel::Send => quote!(#gc::actor::shape::Channel::Send),
         Channel::Task => quote!(#gc::actor::shape::Channel::Task),
-        Channel::Emit => quote!(#gc::actor::shape::Channel::Emit),
-        Channel::Ask => quote!(#gc::actor::shape::Channel::Ask),
     };
     let shape_handles = handlers.iter().map(|decl| {
         let msg = &decl.msg;

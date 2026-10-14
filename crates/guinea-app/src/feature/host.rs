@@ -78,7 +78,6 @@ impl FeatureHost {
         FeatureInitContext {
             scope_cx: ScopeContext::new(scope),
             cursor,
-            root: self.root.id(),
         }
     }
 

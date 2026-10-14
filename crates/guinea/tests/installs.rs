@@ -106,3 +106,77 @@ fn what_a_feature_claimed_before_its_install_failed_is_not_claimed(h: &mut Harne
 
     assert!(!h.segment().context().scope.claims::<counting::Count>());
 }
+
+mod boasting {
+    use super::*;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Own(pub u32);
+
+    #[reducer]
+    fn own(this: &mut Own, to: u32) {
+        this.0 = to;
+    }
+
+    pub struct Boasting;
+
+    impl Feature for Boasting {
+        type Params = ();
+        type Exports = (counting::Count,);
+
+        fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            cx.state::<Own>().plain();
+            Ok(Self)
+        }
+    }
+}
+
+#[guinea::test(iterations = 1)]
+fn exporting_what_was_never_claimed_fails_the_install_and_names_the_reducer(h: &mut Harness) {
+    let installed = catch_unwind(AssertUnwindSafe(|| h.install::<boasting::Boasting>(&())))
+        .map_err(said)
+        .map(|installed| installed.map_err(|error| format!("{error:#}")));
+
+    assert!(
+        matches!(&installed, Ok(Err(refused)) if refused.contains("Count")),
+        "{installed:?}"
+    );
+}
+
+#[guinea::test(iterations = 1)]
+fn a_feature_refused_for_what_it_did_not_claim_keeps_nothing_it_did(h: &mut Harness) {
+    let _ = catch_unwind(AssertUnwindSafe(|| h.install::<boasting::Boasting>(&())));
+
+    assert!(!h.segment().context().scope.claims::<boasting::Own>());
+}
+
+thread_local! {
+    static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+mod once {
+    use super::*;
+
+    feature! {
+        pub Once {}
+    }
+
+    #[installs]
+    fn once(_cx: &FeatureInitContext) -> anyhow::Result<Once> {
+        RUNS.set(RUNS.get() + 1);
+        Ok(Once)
+    }
+}
+
+#[guinea::test(iterations = 1)]
+fn a_feature_installed_twice_in_one_scope_is_refused_before_its_body_runs(h: &mut Harness) {
+    h.install::<once::Once>(&()).unwrap();
+
+    let again = catch_unwind(AssertUnwindSafe(|| h.install::<once::Once>(&()).is_ok())).map_err(said);
+
+    assert_eq!(RUNS.get(), 1, "the body ran again: {again:?}");
+    assert!(
+        matches!(&again, Err(refused) if refused.contains("Once")),
+        "{again:?}"
+    );
+}

@@ -58,10 +58,6 @@ pub struct FeatureInitContext {
     /// Where in its chain the segment being installed sits: 0 for the
     /// outermost. The scopes above it are the tree's - `scope.ancestors()`.
     pub cursor: usize,
-    /// Which root this feature is being installed into - the second window,
-    /// or the only one. What a service shared between roots uses to tell
-    /// callers apart.
-    pub root: crate::app::roots::RootId,
 }
 
 impl std::ops::Deref for FeatureInitContext {
@@ -70,6 +66,24 @@ impl std::ops::Deref for FeatureInitContext {
     fn deref(&self) -> &ScopeContext {
         &self.scope_cx
     }
+}
+
+/// What every install does once its body ran, in a window or in the
+/// application: refuses `U` when it exports a reducer nothing in it claimed,
+/// which a page below would otherwise read as the reducer's `Default` for as
+/// long as the application runs; otherwise marks it installed and publishes
+/// its exports.
+pub(crate) fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -> anyhow::Result<()> {
+    if let Some(reducer) = E::unclaimed(scope) {
+        anyhow::bail!(
+            "`{who}` exports {reducer}, but nothing in it claimed that reducer - \
+             claim it with `state::<{reducer}>()`, or take it out of `Exports`"
+        );
+    }
+
+    scope.mark_feature_installed::<U>();
+    E::mark(scope);
+    Ok(())
 }
 
 impl super::given::Context for ScopeContext {
@@ -154,44 +168,29 @@ impl FeatureInitContext {
     /// Installs `F` here, and publishes what it exports.
     ///
     /// Twice for the same feature in one scope is a setup bug rather than
-    /// something to merge silently, so it panics - the same rule as before,
-    /// now with something real behind the bit.
+    /// something to merge silently, so it panics, before the body runs.
     ///
-    /// An install that fails publishes nothing, is not listed, and claims and
-    /// answers nothing here - so `F` may be installed again once what it
-    /// needed is there.
+    /// An install that fails, or exports a reducer nothing in it claimed,
+    /// publishes nothing, is not listed, and claims and answers nothing here -
+    /// so `F` may be installed again once what it needed is there.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<F> {
-        // Its own corner of the scope, so that two instances of one feature
-        // answering the same action type do not become one.
-        let section = self.scope.open_section(Some(name::<F>()), F::DECLARED);
+        let who = name::<F>();
+        if self.scope.has_feature::<F>() {
+            panic!("`{who}` is already installed in this scope - a scope installs a feature once");
+        }
+
+        let section = self.scope.open_section(Some(who), F::DECLARED);
         let cx = FeatureInitContext {
             scope_cx: self.scope_cx.in_section(section),
             ..self.clone()
         };
 
-        let installed = match F::install(&cx, params) {
-            Ok(installed) => installed,
-            Err(error) => {
-                section.withdraw();
-                return Err(error);
-            }
-        };
-
-        // After the body, because only the body can claim anything. An export
-        // the feature never claimed would otherwise be read below as the
-        // reducer's `Default`, for as long as the application runs, and look
-        // exactly like a feature that has not pushed an update yet.
-        if let Some(name) = F::Exports::unclaimed(self.scope) {
-            panic!(
-                "{} exports {name}, but nothing in it claimed that reducer - \
-                 either claim it with `cx.state::<{name}>()`, or take it out of `Exports`",
-                std::any::type_name::<F>()
-            );
+        let installed = F::install(&cx, params)
+            .and_then(|installed| settle::<F, F::Exports>(self.scope, who).map(|()| installed));
+        if installed.is_err() {
+            section.withdraw();
         }
-
-        self.scope.mark_feature_installed::<F>();
-        F::Exports::mark(self.scope);
-        Ok(installed)
+        installed
     }
 
     /// Runs `hook` every time this segment wakes - for one declared `keep`

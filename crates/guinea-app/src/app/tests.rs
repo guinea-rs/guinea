@@ -547,6 +547,34 @@ mod exports {
             "got {outcome:?}"
         );
     }
+
+    #[derive(Clone, Debug, Default)]
+    struct Draft(u32);
+
+    #[reducer]
+    fn reduce_draft(this: &mut Draft, update: u32) {
+        this.0 = update;
+    }
+
+    struct Halfhearted;
+
+    impl AppFeature for Halfhearted {
+        type Exports = (Language,);
+
+        fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
+            app.state::<Draft>().plain();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_feature_refused_for_what_it_did_not_claim_keeps_nothing_it_did() {
+        let mut app = builder();
+
+        assert!(app.feature(Halfhearted).is_err());
+
+        assert!(!app.scope.claims::<Draft>());
+    }
 }
 
 mod owners {

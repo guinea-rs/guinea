@@ -109,7 +109,8 @@ impl PluginBuilder {
         }
 
         self.registry.borrow_mut().enter(Unit::Plugin(identity.id));
-        let inner = self.cx.in_section(self.scope.open_section(None, None));
+        let section = self.scope.open_section(None, None);
+        let inner = self.cx.in_section(section);
         let outer = std::mem::replace(&mut self.cx, inner);
         let outcome = plugin
             .build_boxed(self)
@@ -119,8 +120,9 @@ impl PluginBuilder {
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();
-        if outcome.is_ok() {
-            registry.mark_plugin(identity.id, identity.concrete);
+        match outcome {
+            Ok(()) => registry.mark_plugin(identity.id, identity.concrete),
+            Err(_) => section.withdraw(),
         }
         outcome
     }
@@ -167,7 +169,8 @@ impl FeatureBuilder {
         }
 
         self.registry.borrow_mut().enter(Unit::Feature(name));
-        let inner = self.inner.cx.in_section(self.scope.open_section(Some(name), None));
+        let section = self.scope.open_section(Some(name), None);
+        let inner = self.inner.cx.in_section(section);
         let outer = std::mem::replace(&mut self.inner.cx, inner);
         let outcome = feature
             .install_boxed(self)
@@ -177,8 +180,9 @@ impl FeatureBuilder {
 
         let mut registry = self.registry.borrow_mut();
         registry.leave();
-        if outcome.is_ok() {
-            registry.mark_feature(identity.concrete);
+        match outcome {
+            Ok(()) => registry.mark_feature(identity.concrete),
+            Err(_) => section.withdraw(),
         }
         outcome
     }

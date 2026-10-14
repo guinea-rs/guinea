@@ -118,7 +118,6 @@ impl Harness {
         let segment = FeatureInitContext {
             scope_cx: ScopeContext::new(scope.scope()),
             cursor: 0,
-            root: root.id(),
         };
 
         Self {

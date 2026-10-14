@@ -5,6 +5,7 @@ use guinea_core::feature::Exported;
 use guinea_core::scope::Scope;
 
 use super::builder::{FeatureBuilder, PluginBuilder};
+use crate::feature::settle;
 
 /// Reusable, application-agnostic: the application knows the plugin, never the
 /// other way round.
@@ -76,19 +77,6 @@ impl std::fmt::Display for Stop {
 impl std::error::Error for Stop {}
 
 pub(crate) type Settle = fn(Scope, &'static str) -> anyhow::Result<()>;
-
-fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -> anyhow::Result<()> {
-    if let Some(reducer) = E::unclaimed(scope) {
-        anyhow::bail!(
-            "`{who}` exports {reducer}, but nothing in the application claimed it - \
-             claim it with `app.state::<{reducer}>()`, or take it out of `Exports`"
-        );
-    }
-
-    scope.mark_feature_installed::<U>();
-    E::mark(scope);
-    Ok(())
-}
 
 /// What a plugin or an application feature is installed as: itself, or what
 /// it stands in for. Whatever asks for that later finds it already there.

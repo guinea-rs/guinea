@@ -4,7 +4,6 @@ use crate::actor::event_bus::EventBus;
 
 mod actors;
 mod features;
-mod feeds;
 mod held;
 mod kept;
 mod lifetime;

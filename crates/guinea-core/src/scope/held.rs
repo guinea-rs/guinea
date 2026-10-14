@@ -1,9 +1,12 @@
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::panic::Location;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::actor::event_bus::subscribe::BusSubscription;
+use crate::feed::Opened;
 use crate::timers::Ticking;
 
 use super::Scope;
@@ -33,6 +36,8 @@ pub(super) enum Taken {
     /// What a feature installed in it handed back.
     Installed(Box<dyn Any>),
     Timer(Ticking),
+    /// A feed it opened. See [`crate::feed`].
+    Feed(Rc<dyn Opened>),
     /// Run when it goes.
     Cleanup(Box<dyn FnOnce()>),
 }
@@ -45,6 +50,7 @@ impl Taken {
             Taken::Watching(watching) => drop(watching),
             Taken::Installed(installed) => drop(installed),
             Taken::Timer(ticking) => drop(ticking),
+            Taken::Feed(fed) => fed.close(),
             Taken::Cleanup(run) => run(),
         }
     }
@@ -123,6 +129,53 @@ impl Scope {
             if let Taken::Timer(ticking) = taken {
                 read(ticking);
             }
+        }
+    }
+
+    /// Holds the feed `fed` under `key`, or names where the one of its type
+    /// this scope already holds was opened.
+    ///
+    /// # Panics
+    ///
+    /// When this scope is gone.
+    pub(crate) fn hold_feed(
+        &self,
+        key: usize,
+        fed: Rc<dyn Opened>,
+    ) -> Result<(), &'static Location<'static>> {
+        self.alive("opening a feed");
+
+        if let Some(first) = self.feed_key(fed.of()).and_then(|first| self.held_opened(first)) {
+            return Err(first.opened());
+        }
+        self.take(key, Taken::Feed(fed));
+        Ok(())
+    }
+
+    /// The key of the feed of the type `of` this scope opened, if it opened
+    /// one.
+    pub(crate) fn feed_key(&self, of: TypeId) -> Option<usize> {
+        let data = self.data()?;
+        let held = data.held.0.borrow();
+
+        held.iter().find_map(|(key, taken)| match taken {
+            Taken::Feed(fed) if fed.of() == of => Some(*key),
+            _ => None,
+        })
+    }
+
+    /// The feed this scope holds under `key`.
+    pub(crate) fn held_feed(&self, key: usize) -> Option<Rc<dyn Any>> {
+        self.held_opened(key).map(Opened::into_any)
+    }
+
+    fn held_opened(&self, key: usize) -> Option<Rc<dyn Opened>> {
+        let data = self.data()?;
+        let held = data.held.0.borrow();
+
+        match held.get(&key)? {
+            Taken::Feed(fed) => Some(fed.clone()),
+            _ => None,
         }
     }
 

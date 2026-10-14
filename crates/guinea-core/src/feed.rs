@@ -18,7 +18,7 @@
 //! follower comes and the last one goes, [`Followed<T>`] is sent into the
 //! section that opened the feed - if anything there answers it.
 
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::panic::Location;
@@ -42,6 +42,8 @@ pub struct FeedWriter<T> {
 /// A feed to read and follow. Names its scope and does not keep it.
 pub struct Feed<T> {
     home: Scope,
+    /// What its scope holds it under.
+    key: usize,
     of: PhantomData<fn() -> T>,
 }
 
@@ -59,6 +61,7 @@ struct Shared<T> {
     /// Its scope was removed.
     gone: AtomicBool,
     home: Scope,
+    key: usize,
     /// The thread the feed was opened on, the UI thread.
     ui: ThreadId,
 }
@@ -123,6 +126,38 @@ impl<T> std::fmt::Debug for Followed<T> {
     }
 }
 
+/// A feed as the scope that opened it holds it, whatever it carries.
+pub(crate) trait Opened {
+    fn of(&self) -> TypeId;
+
+    /// Where it was opened.
+    fn opened(&self) -> &'static Location<'static>;
+
+    /// Its scope let go of it: a value set from another thread is dropped
+    /// from now on.
+    fn close(&self);
+
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any>;
+}
+
+impl<T: Send + Sync + 'static> Opened for Fed<T> {
+    fn of(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    fn opened(&self) -> &'static Location<'static> {
+        self.opened
+    }
+
+    fn close(&self) {
+        self.shared.gone.store(true, Ordering::Release);
+    }
+
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
+        self
+    }
+}
+
 impl Section {
     /// Opens the feed of `T` in this section's scope; [`Followed<T>`] is sent
     /// here.
@@ -135,6 +170,7 @@ impl Section {
     pub fn feed<T: Send + Sync + 'static>(&self) -> FeedWriter<T> {
         let opened = Location::caller();
         let home = self.scope();
+        let key = next_key();
 
         let shared = Arc::new(Shared {
             current: ArcSwapOption::empty(),
@@ -142,6 +178,7 @@ impl Section {
             hopping: AtomicBool::new(false),
             gone: AtomicBool::new(false),
             home,
+            key,
             ui: std::thread::current().id(),
         });
         let fed = Rc::new(Fed {
@@ -152,20 +189,13 @@ impl Section {
             followed: Cell::new(false),
         });
 
-        if let Err(open) = home.open_feed(TypeId::of::<T>(), fed) {
-            let first = open
-                .downcast::<Fed<T>>()
-                .map(|first| first.opened.to_string())
-                .unwrap_or_default();
+        if let Err(first) = home.hold_feed(key, fed) {
             panic!(
                 "a feed of `{}` is opened at {opened}, and {home:?} already opened one at \
                  {first} - a scope has one feed of each type",
                 short_type_name::<T>()
             );
         }
-
-        let gone = shared.clone();
-        home.on_teardown(move || gone.gone.store(true, Ordering::Release));
 
         FeedWriter { shared }
     }
@@ -218,7 +248,7 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
         shared.current.store(Some(Arc::new(Stamped { version, value })));
 
         if on_ui {
-            crate::notify::feed(shared.home, TypeId::of::<T>(), deliver::<T>);
+            crate::notify::feed(shared.home, shared.key, deliver::<T>);
             return;
         }
 
@@ -230,7 +260,7 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
         let hop = move || {
             landed.hopping.swap(false, Ordering::AcqRel);
             if landed.home.is_alive() {
-                crate::notify::feed(landed.home, TypeId::of::<T>(), deliver::<T>);
+                crate::notify::feed(landed.home, landed.key, deliver::<T>);
             }
         };
         if try_invoke_on_ui(hop).is_err() {
@@ -246,6 +276,7 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
     pub fn feed(&self) -> Feed<T> {
         Feed {
             home: self.shared.home,
+            key: self.shared.key,
             of: PhantomData,
         }
     }
@@ -256,12 +287,13 @@ pub fn opened_above(scope: Scope, of: TypeId) -> bool {
     scope
         .ancestors()
         .iter()
-        .any(|above| above.opened_feed(of).is_some())
+        .any(|above| above.feed_key(of).is_some())
 }
 
-fn deliver<T: Send + Sync + 'static>(home: Scope) {
+fn deliver<T: Send + Sync + 'static>(home: Scope, key: usize) {
     Feed::<T> {
         home,
+        key,
         of: PhantomData,
     }
     .deliver();
@@ -270,13 +302,15 @@ fn deliver<T: Send + Sync + 'static>(home: Scope) {
 impl<T: Send + Sync + 'static> Feed<T> {
     /// The feed of `T` the nearest scope above `scope` opened.
     pub fn above(scope: Scope) -> Option<Self> {
-        let home = scope
+        let of = TypeId::of::<T>();
+        let (home, key) = scope
             .ancestors()
             .into_iter()
-            .find(|above| above.opened_feed(TypeId::of::<T>()).is_some())?;
+            .find_map(|above| Some((above, above.feed_key(of)?)))?;
 
         Some(Self {
             home,
+            key,
             of: PhantomData,
         })
     }
@@ -323,10 +357,7 @@ impl<T: Send + Sync + 'static> Feed<T> {
     }
 
     fn fed(&self) -> Option<Rc<Fed<T>>> {
-        self.home
-            .opened_feed(TypeId::of::<T>())?
-            .downcast::<Fed<T>>()
-            .ok()
+        self.home.held_feed(self.key)?.downcast::<Fed<T>>().ok()
     }
 
     /// Hands `follower` the value now, unless it has seen it.

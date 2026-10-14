@@ -37,9 +37,10 @@ struct Change {
 /// A feed that took a value, on its way to its followers.
 struct Fed {
     scope: Scope,
-    of: TypeId,
+    /// What its scope holds it under.
+    key: usize,
     /// Hands the feed's value now to each follower that has not seen it.
-    deliver: fn(Scope),
+    deliver: fn(Scope, usize),
 }
 
 thread_local! {
@@ -101,14 +102,15 @@ pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
     marked(was_pending);
 }
 
-/// Marks the feed of `of` in `scope` as moved: its followers are handed the
-/// value it has when the turn ends, with the state the turn changed.
-pub(crate) fn feed(scope: Scope, of: TypeId, deliver: fn(Scope)) {
+/// Marks the feed `scope` holds under `key` as moved: its followers are
+/// handed the value it has when the turn ends, with the state the turn
+/// changed.
+pub(crate) fn feed(scope: Scope, key: usize, deliver: fn(Scope, usize)) {
     let was_pending = pending();
     FED.with(|fed| {
         let mut fed = fed.borrow_mut();
-        if !fed.iter().any(|fed| fed.scope == scope && fed.of == of) {
-            fed.push(Fed { scope, of, deliver });
+        if !fed.iter().any(|fed| fed.key == key) {
+            fed.push(Fed { scope, key, deliver });
         }
     });
 
@@ -218,7 +220,7 @@ pub fn drain() {
                 }
 
                 feeds += 1;
-                (fed.deliver)(fed.scope);
+                (fed.deliver)(fed.scope, fed.key);
             }
         }
 

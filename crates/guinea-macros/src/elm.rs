@@ -1,6 +1,8 @@
-//! `#[page]` and `#[layout]` for the Elm backends.
+//! `#[page]` and `#[layout]`, for the Elm backends and the immediate ones.
 //!
-//! One job: write down what the author did not.
+//! Two jobs: write down what the author did not, and the hidden `Mountable`
+//! a layout's `cx.mount::<S>` takes - one trait for pages and layouts both,
+//! which blanket impls over the two could not give without overlapping.
 //!
 //! Stable Rust has no defaults for associated types, so a page that captures
 //! nothing and has no messages of its own still has to say `type Params = ();`
@@ -26,7 +28,15 @@ pub enum Kind {
     Layout,
 }
 
-pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) -> TokenStream1 {
+/// Whether a node has messages and an `update` - the Elm backends - or draws
+/// and changes itself in one call, as an immediate-mode one does.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Model {
+    Elm,
+    Immediate,
+}
+
+pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, model: Model) -> TokenStream1 {
     let mut item = syn::parse_macro_input!(item as ItemImpl);
     if let Err(error) = crate::given::segment_install(&mut item) {
         return error.to_compile_error().into();
@@ -87,7 +97,7 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) ->
         }
     }
 
-    if !has_message {
+    if model == Model::Elm && !has_message {
         item.items.push(parse_quote!(
             type Message = ::core::convert::Infallible;
         ));
@@ -115,10 +125,15 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) ->
         Kind::Layout => (quote!(Layout), quote!(install_layout)),
     };
 
+    let message = match model {
+        Model::Elm => quote!(type Message = <Self as #adapter::#trait_name>::Message;),
+        Model::Immediate => quote!(),
+    };
+
     let mountable = quote! {
         impl #impl_generics #adapter::Mountable for #node #where_clause {
             type Params = <Self as #adapter::#trait_name>::Params;
-            type Message = <Self as #adapter::#trait_name>::Message;
+            #message
 
             fn install(
                 cx: &#adapter::FeatureInitContext,

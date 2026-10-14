@@ -220,13 +220,36 @@ pub fn slot(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// clothes of one.
 #[proc_macro_attribute]
 pub fn iced_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Page, "guinea-iced", "iced")
+    elm::node_impl(item, elm::Kind::Page, "guinea-iced", "iced", elm::Model::Elm)
 }
 
 /// [`iced_page`] for a layout.
 #[proc_macro_attribute]
 pub fn iced_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Layout, "guinea-iced", "iced")
+    elm::node_impl(item, elm::Kind::Layout, "guinea-iced", "iced", elm::Model::Elm)
+}
+
+/// Writes down what an `impl Page` for the egui backend left out, and the
+/// hidden `Mountable` that `cx.mount::<Services>(&params)` takes.
+///
+/// ```ignore
+/// #[page]
+/// impl Page for Services {
+///     fn render(&mut self, cx: &mut PageCx<'_, Self>) { .. }
+/// }
+/// ```
+///
+/// An omitted `Params` becomes `()`, and an omitted `Installs` becomes `()`
+/// with the `install` that starts from `Default`.
+#[proc_macro_attribute]
+pub fn eframe_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Page, "guinea-eframe", "eframe", elm::Model::Immediate)
+}
+
+/// [`eframe_page`] for a layout.
+#[proc_macro_attribute]
+pub fn eframe_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Layout, "guinea-eframe", "eframe", elm::Model::Immediate)
 }
 
 /// [`iced_page`] for the windows-reactor backend.
@@ -237,13 +260,13 @@ pub fn iced_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// empty ones is the same job.
 #[proc_macro_attribute]
 pub fn winui_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Page, "guinea-winui", "winui")
+    elm::node_impl(item, elm::Kind::Page, "guinea-winui", "winui", elm::Model::Elm)
 }
 
 /// [`winui_page`] for a layout.
 #[proc_macro_attribute]
 pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    elm::node_impl(item, elm::Kind::Layout, "guinea-winui", "winui")
+    elm::node_impl(item, elm::Kind::Layout, "guinea-winui", "winui", elm::Model::Elm)
 }
 
 /// Declares an actor's manifest:

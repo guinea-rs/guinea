@@ -1,39 +1,44 @@
-//! guinea on egui: the same router and features, drawn immediately.
+//! guinea on egui: the same navigator and features, drawn immediately.
 //!
 //! The closest relative among the backends is ratatui, not WinUI: egui is
 //! immediate, so a view is not a tree that is kept and diffed - it is drawing
-//! that happens inside one frame and leaves nothing behind. As there, a view
-//! is a [`Node`]: drawing deferred until someone supplies the [`egui::Ui`] to
-//! draw into, which is what lets a layout decide where its child goes.
+//! that happens inside one frame and leaves nothing behind. As there, what a
+//! layout mounts comes back as a [`Node`]: drawing deferred until the layout
+//! supplies the [`egui::Ui`] to draw into, which is what lets it decide where
+//! its child goes.
 //!
 //! What differs from the terminal is who owns the loop. eframe owns it, the
 //! way the reactor does under WinUI, so [`run`] hands it over and puts the
-//! frame inside `eframe::App::update`. And unlike a terminal, egui sleeps when
+//! frame inside `eframe::App::ui`. And unlike a terminal, egui sleeps when
 //! nothing happens - so work finished on another thread has to wake it, which
 //! is what the UI loop's wake-up, a `request_repaint`, is for.
 
-mod nav;
+extern crate self as guinea_eframe;
+
 mod run;
 
-pub use run::{MAIN, run};
+pub use run::{MAIN, Window, run};
 
-use guinea_app::feature::{FeatureInitContext, Reads};
+/// What `install` is handed. Re-exported because `#[page]` writes signatures
+/// that name it, and a page should not have to import it just for that.
+pub use guinea_app::feature::{FeatureInitContext, Install};
+/// Writes down what a page or a layout left out. See [`Page`].
+pub use guinea_macros::{Route, eframe_layout as layout, eframe_page as page};
+/// Where a window is, and how to move it.
+pub use guinea_router::navigator::{Moved, Navigator, Route};
+
+use std::marker::PhantomData;
+use std::rc::Rc;
+
+use guinea_app::feature::Reads;
 use guinea_core::binding::ReducerBinding;
-use guinea_core::scope::Reducer;
-use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, SegmentEntry, SegmentProps, Ui, single_entry_chain,
-};
+use guinea_core::feature::Dispatch;
+use guinea_core::scope::{Reducer, Scope};
+use guinea_router::mount::{Outlet, Pass, binding, navigator};
 
-/// egui as a [`Ui`].
+/// What `guinea::Backend` names under the eframe feature, while `routes!` is
+/// still there for the other backends.
 pub struct Egui;
-
-impl Ui for Egui {
-    type View<'a> = Node;
-    /// Nothing: an immediate-mode view draws from a snapshot inside the frame
-    /// and holds no reference to state afterwards.
-    type Nodes = ();
-    type Mount = dyn Mount<Self>;
-}
 
 /// Drawing that has not happened yet.
 ///
@@ -52,7 +57,7 @@ impl Node {
     }
 }
 
-/// A leaf of the route tree, and its own state.
+/// A leaf: what a layout mounts, and its own state.
 ///
 /// The struct that implements this **is** the page's state, as in the WinUI
 /// and iced backends. What differs is that immediate mode has no later: the
@@ -62,32 +67,29 @@ impl Node {
 ///
 /// What belongs here is what only this page has an opinion about: which row
 /// is picked, which tab is open, what is typed in a filter. What crosses the
-/// segment - what a domain owns, what another page reads - is a reducer, and
-/// reaches this page through [`PageCx::state`].
+/// page - what a domain owns, what another page reads - is a reducer, and
+/// reaches this page through [`PageCx::read`].
+///
+/// `#[page]` writes what is left out: `Params` and `Installs` as `()`, and
+/// the `install` that starts from `Default`.
 pub trait Page: Sized + 'static {
-    /// When `true`, the router keeps this page's reducer states in memory
-    /// while the page is not mounted.
-    const CACHE_STATE_IN_MEMORY: bool = false;
-
     /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What this page captured from the route, named by `routes!`. `()` for a
-    /// page that captures nothing.
+    /// What the page is mounted with: `cx.mount::<ProcessPage>(&pid)`.
     ///
-    /// `PartialEq` because the router's one question about a capture is
-    /// whether it is still the same one - which decides what reinstalls and
-    /// which cached state may come back.
-    type Params: PartialEq + 'static;
+    /// `PartialEq` because a mount's one question about it is whether it is
+    /// still the same: equal params are the same page in the same scope,
+    /// other params another page in a scope of its own.
+    type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this page installs, and `()` when it installs nothing.
     ///
     /// The list is not written beside the body - it *is* the body's
     /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. Which is also why `install` has no
-    /// default any more.
+    /// installed stops type-checking.
     ///
-    /// What is returned is owned by the segment's scope, which is what gives a
+    /// What is returned is owned by the page's scope, which is what gives a
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
@@ -105,26 +107,20 @@ pub trait Page: Sized + 'static {
     fn render(&mut self, cx: &mut PageCx<'_, Self>);
 }
 
-/// A branch: draws its own chrome and decides where its child goes. Its own
+/// A branch: draws its own chrome and mounts what goes under it. Its own
 /// state, the same way a [`Page`] is.
 pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What every page under this layout carries, derived by `routes!` as the
-    /// intersection of their parameters. A layout declares nothing; it is
-    /// handed what all of its children were reached with.
-    type Params: PartialEq + 'static;
+    /// What the layout is mounted with, as a page is: see [`Page::Params`].
+    type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this layout installs. See [`Page::Installs`].
     ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. Which is also why `install` has no
-    /// default any more.
-    ///
-    /// What is returned is owned by the segment's scope, which is what gives a
-    /// feature its own lifetime.
+    /// For a layout it is also what the pages below share: they come and go,
+    /// and what is installed here stays. Whatever its features list in
+    /// `Exports` those pages may read.
     type Installs: guinea_app::feature::Lists;
 
     /// See [`Page::install`].
@@ -136,110 +132,135 @@ pub trait Layout: Sized + 'static {
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>);
 }
 
-pub const fn segment_entry<P: Page>() -> SegmentEntry<Egui> {
-    SegmentEntry::new::<P>(
-        install_page::<P>,
-        guinea_router::router::same_params::<P::Params>,
-        <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn Mount<Egui>,
-        P::CACHE_STATE_IN_MEMORY,
-    )
-    .written(P::DECLARED)
+/// A page or a layout: what [`LayoutCx::mount`] mounts. `#[page]` and
+/// `#[layout]` write it.
+#[doc(hidden)]
+pub trait Mountable: 'static {
+    type Params: PartialEq + Clone + 'static;
+
+    /// Installs it into the scope `cx` is for, and keeps its state there and
+    /// how it draws.
+    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
 }
 
-pub const fn layout_entry<L: Layout>() -> SegmentEntry<Egui> {
-    SegmentEntry::new::<L>(
-        install_layout::<L>,
-        guinea_router::router::same_params::<L::Params>,
-        <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn Mount<Egui>,
-        false,
-    )
-    .written(L::DECLARED)
-}
+/// How what was mounted into a scope draws, kept there as it mounts.
+struct Draws(fn(Scope, &mut egui::Ui));
 
-fn install_page<P: Page>(
-    ctx: &FeatureInitContext,
-    params: &dyn std::any::Any,
-) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<P::Params, P>(params)?;
+#[doc(hidden)]
+pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(page_draw::<P>));
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);
     Ok(())
 }
 
-fn install_layout<L: Layout>(
-    ctx: &FeatureInitContext,
-    params: &dyn std::any::Any,
-) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<L::Params, L>(params)?;
+#[doc(hidden)]
+pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(layout_draw::<L>));
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);
     Ok(())
 }
 
-/// A zero-sized marker per segment type: what a `const` entry points at to get
-/// its `&'static dyn Mount`.
-pub struct MountPage<P>(pub std::marker::PhantomData<P>);
-pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
-
-impl<P: Page> Mount<Egui> for MountPage<P> {
-    fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scope();
-
-        Node::new(move |ui| {
-            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            at.kept::<P, _>(|page| {
-                page.render(&mut PageCx {
-                    ui,
-                    props,
-                    page: std::marker::PhantomData,
-                })
-            });
+fn page_draw<P: Page>(scope: Scope, ui: &mut egui::Ui) {
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
+    scope.kept::<P, _>(|page| {
+        page.render(&mut PageCx {
+            ui,
+            scope,
+            page: PhantomData,
         })
+    });
+}
+
+fn layout_draw<L: Layout>(scope: Scope, ui: &mut egui::Ui) {
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
+    let pass = Pass::begin(scope);
+    scope.kept::<L, _>(|layout| {
+        layout.render(&mut LayoutCx {
+            ui,
+            scope,
+            pass: pass.clone(),
+            layout: PhantomData,
+        })
+    });
+    pass.end();
+}
+
+/// The drawing of what was mounted into `scope`.
+pub(crate) fn drawn(scope: Scope) -> Node {
+    let draws = scope.keeps::<Draws>().then(|| scope.kept::<Draws, _>(|draws| draws.0)).flatten();
+    Node::new(move |ui| {
+        if let Some(draw) = draws {
+            draw(scope, ui);
+        }
+    })
+}
+
+pub(crate) fn failed(error: &anyhow::Error) -> Node {
+    let said = format!("{error:#}");
+    Node::new(move |ui| {
+        ui.label(said);
+    })
+}
+
+/// What a layout mounted: the child's drawing, or why it did not mount.
+///
+/// Drawn as it is - `Node::from(cx.mount::<Services>(&())).draw(ui)` - or
+/// handed to an [`outlet`](LayoutCx::outlet). One that failed draws what went
+/// wrong in its place, and the others beside it stand.
+#[must_use = "a mounted child shows only where it is drawn"]
+pub struct Child {
+    pass: Pass,
+    mounted: Result<Scope, anyhow::Error>,
+}
+
+impl Child {
+    /// Keeps the child asleep when a later frame leaves it out, instead of
+    /// letting it go: it comes back as it was left.
+    pub fn keep(self) -> Self {
+        if let Ok(scope) = &self.mounted {
+            self.pass.keep(*scope);
+        }
+        self
+    }
+
+    /// Why it did not mount, when it did not.
+    pub fn failure(&self) -> Option<&anyhow::Error> {
+        self.mounted.as_ref().err()
+    }
+
+    /// Draws it into `ui`.
+    pub fn draw(self, ui: &mut egui::Ui) {
+        Node::from(self).draw(ui);
     }
 }
 
-impl<L: Layout> Mount<Egui> for MountLayout<L> {
-    fn view<'a>(&self, props: SegmentProps<Egui>, _nodes: &'a ()) -> Node {
-        let at = props.scope();
-
-        Node::new(move |ui| {
-            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            at.kept::<L, _>(|layout| {
-                layout.render(&mut LayoutCx {
-                    ui,
-                    props,
-                    layout: std::marker::PhantomData,
-                })
-            });
-        })
+impl From<Child> for Node {
+    fn from(child: Child) -> Self {
+        match child.mounted {
+            Ok(scope) => drawn(scope),
+            Err(error) => failed(&error),
+        }
     }
 }
 
-/// A one-segment chain, for a page drawn without a route tree.
-pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Egui>] {
-    single_entry_chain(segment_entry::<P>())
+fn feature_of<R: Reducer>(scope: Scope) -> (Rc<R>, Dispatch) {
+    let binding = binding::<R>(scope);
+    (binding.get(), binding.dispatch())
 }
 
 /// What a page's drawing is handed.
 ///
 /// Carries the page type, not because drawing needs it, but because reading
-/// does: what a segment may read is a fact about where it sits, and this is
+/// does: what a page may read is a fact about where it sits, and this is
 /// where that fact enters the signature.
 pub struct PageCx<'a, P> {
     ui: &'a mut egui::Ui,
-    props: SegmentProps<Egui>,
-    page: std::marker::PhantomData<fn() -> P>,
-}
-
-fn feature_of<R: Reducer>(
-    props: &SegmentProps<Egui>,
-) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch) {
-    let binding = props.binding::<R>();
-    (binding.get(), binding.dispatch())
+    scope: Scope,
+    page: PhantomData<fn() -> P>,
 }
 
 impl<P> PageCx<'_, P> {
@@ -252,15 +273,15 @@ impl<P> PageCx<'_, P> {
     ///
     /// The feature that answers is the one this page installed, or the nearest
     /// above that listed `R` in `Exports`. A read that reaches nothing panics
-    /// here, naming the chain it walked.
+    /// here, naming what the page was mounted under.
     ///
     /// The state comes shared, not copied: reading it every frame costs a
     /// count, and a change made mid-frame goes to a copy.
-    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (Rc<R>, Dispatch)
     where
         R: Reducer,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
     /// The reducer's binding: its state, and a push straight into it.
@@ -276,54 +297,53 @@ impl<P> PageCx<'_, P> {
     where
         R: Reducer,
     {
-        self.props.binding::<R>()
-    }
-}
-
-impl<P> Reads for PageCx<'_, P> {
-    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(&self.props)
+        binding::<R>(self.scope)
     }
 
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        self.props.binding::<R>().dispatch()
-    }
-}
-
-impl<P> PageCx<'_, P> {
     pub fn ui(&mut self) -> &mut egui::Ui {
         self.ui
     }
 
-    /// A navigator over the route type the application runs.
-    pub fn navigate<R>(&self) -> NavigateHandle<Egui, R>
-    where
-        R: RouteChain<Egui> + Clone + PartialEq + 'static,
-    {
-        nav::current::<R>()
+    /// The navigator over `R` nearest above this page.
+    ///
+    /// A move made while drawing is drawn in the next frame: this one
+    /// finishes with what it drew.
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
     }
 }
 
-/// What a layout's drawing is handed. Same as a page's, plus the child.
+impl<P> Reads for PageCx<'_, P> {
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        feature_of::<R>(self.scope)
+    }
+
+    fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope).dispatch()
+    }
+}
+
+/// What a layout's drawing is handed: the same as a page's, and mounting.
 pub struct LayoutCx<'a, L> {
     ui: &'a mut egui::Ui,
-    props: SegmentProps<Egui>,
-    layout: std::marker::PhantomData<fn() -> L>,
+    scope: Scope,
+    pass: Pass,
+    layout: PhantomData<fn() -> L>,
 }
 
 impl<L> LayoutCx<'_, L> {
     /// See [`PageCx::read`].
-    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (Rc<R>, Dispatch)
     where
         R: Reducer,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
     /// See [`PageCx::binding`].
@@ -331,57 +351,68 @@ impl<L> LayoutCx<'_, L> {
     where
         R: Reducer,
     {
-        self.props.binding::<R>()
-    }
-}
-
-impl<L> Reads for LayoutCx<'_, L> {
-    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(&self.props)
+        binding::<R>(self.scope)
     }
 
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        self.props.binding::<R>().dispatch()
-    }
-}
-
-impl<L> LayoutCx<'_, L> {
     pub fn ui(&mut self) -> &mut egui::Ui {
         self.ui
     }
 
-    /// A navigator over the route type the application runs.
-    pub fn navigate<R>(&self) -> NavigateHandle<Egui, R>
-    where
-        R: RouteChain<Egui> + Clone + PartialEq + 'static,
-    {
-        nav::current::<R>()
+    /// See [`PageCx::navigate`].
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
     }
 
-    /// The next segment down the chain, for the layout to draw where it wants.
+    /// Mounts `S` - a page or a layout - under this layout, with `params`.
     ///
-    /// Handed over rather than drawn here: a layout takes its `ui` from this
+    /// Installed the first frame this layout asks for it, in a scope of its
+    /// own under the layout's, and the same one every frame after that while
+    /// the params are equal. Other params are another child. A child the
+    /// layout stops asking for goes when its drawing returns - unless it was
+    /// [`keep`](Child::keep)s, which puts it to sleep instead.
+    ///
+    /// Handed back rather than drawn here: a layout takes its `ui` from this
     /// same context, so a method that drew the child would need the context
     /// twice at once.
-    pub fn outlet(&self) -> Node {
-        self.props.outlet(&())
+    pub fn mount<S: Mountable>(&mut self, params: &S::Params) -> Child {
+        Child {
+            pass: self.pass.clone(),
+            mounted: self.pass.mount::<S, _>(params, |cx| S::install(cx, params)),
+        }
     }
 
-    /// Whether the segment directly below is `P`.
+    /// What `nav` says is here, mounted by `draw`: the layout's `match` on
+    /// its own level of the route.
     ///
-    /// What a tab strip needs, and cheaper than it looks: the chain already
-    /// says which page is mounted, so highlighting the current tab needs
-    /// neither the route nor a copy of it in state.
-    pub fn child_is<P: 'static>(&self) -> bool {
-        self.props
-            .chain
-            .get(self.props.cursor + 1)
-            .is_some_and(|entry| (entry.type_id)() == std::any::TypeId::of::<P>())
+    /// What it mounted is what the navigator asks before it moves on. A child
+    /// that fails to mount puts the navigator back where it was, keeps what
+    /// stood here before, and leaves why on the navigator's
+    /// [`failure`](Navigator::failure).
+    pub fn outlet<R: Route>(&mut self, nav: &Navigator<R>, draw: impl FnOnce(&R, &mut Self) -> Child) -> Node {
+        let pass = self.pass.clone();
+        match pass.outlet(nav, |here| draw(here, self).mounted) {
+            Outlet::Here(scope) | Outlet::Held(scope) => drawn(scope),
+            Outlet::Failed(error) => failed(&error),
+            Outlet::Nowhere => Node::new(|_| {}),
+        }
     }
 }
+
+impl<L> Reads for LayoutCx<'_, L> {
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        feature_of::<R>(self.scope)
+    }
+
+    fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope).dispatch()
+    }
+}
+
+#[cfg(test)]
+mod tests;

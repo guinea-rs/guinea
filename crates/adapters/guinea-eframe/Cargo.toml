@@ -11,6 +11,9 @@ repository.workspace = true
 guinea-core.workspace = true
 guinea-app.workspace = true
 guinea-router.workspace = true
+# For `#[page]`/`#[layout]` and `#[derive(Route)]`, re-exported from here so
+# an application imports them beside the traits they belong to.
+guinea-macros.workspace = true
 anyhow.workspace = true
 eframe = { workspace = true, features = [
     # A renderer has to be named or eframe builds without one; glow is the
@@ -33,5 +36,4 @@ wayland = ["eframe/wayland"]
 workspace = true
 
 [dev-dependencies]
-guinea-macros.workspace = true
 guinea-core = { workspace = true, features = ["test-utils"] }

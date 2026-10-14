@@ -3,83 +3,152 @@
 //! eframe calls two things per frame: `logic`, before any drawing and even
 //! while the window is hidden, and `ui`, when there is something to draw. That
 //! split lands well here - the queue actors filled is drained in the first,
-//! the route tree is drawn in the second.
+//! the window is drawn in the second.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
+use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
-use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
+use guinea_router::mount::Pass;
+use guinea_router::navigator::{Asking, Navigator, Route, Watching};
 
-use crate::{Egui, nav};
+use crate::{Mountable, drawn, failed};
 
-/// What [`run`] calls the root it opens.
+/// What [`run`] calls the window it opens.
 pub const MAIN: &str = "main";
 
-/// Runs the application in a window eframe opens, starting where `initial`
-/// says.
+/// A window: the layout it roots at, where it starts, and how it looks.
 ///
 /// ```ignore
-/// guinea_eframe::run(app, "Processes", eframe::NativeOptions::default(), initial_route)
+/// Window::of::<Shell>().title("guinea").at(Route::Processes)
+/// ```
+pub struct Window {
+    title: String,
+    options: eframe::NativeOptions,
+    root: Root,
+    start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
+}
+
+/// The layout a window roots at.
+pub(crate) struct Root {
+    mount: fn(&Pass) -> anyhow::Result<Scope>,
+}
+
+impl Root {
+    pub(crate) fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            mount: |pass| pass.mount::<L, ()>(&(), |cx| L::install(cx, &())),
+        }
+    }
+}
+
+impl Window {
+    /// A window whose content is the layout or page `L`.
+    pub fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            title: String::new(),
+            options: eframe::NativeOptions::default(),
+            root: Root::of::<L>(),
+            start: None,
+        }
+    }
+
+    /// Starts the window at `route`, with a navigator of its own over `R`:
+    /// what the layouts in it find with `cx.navigate::<R>()`, and whose
+    /// guards' questions the window puts up as a dialog.
+    pub fn at<R: Route>(mut self, route: R) -> Self {
+        self.start = Some(Box::new(move |window| Rc::new(Navigator::open(window, route)) as Rc<dyn Asking>));
+        self
+    }
+
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// How eframe opens the window: its size, position, renderer.
+    pub fn options(mut self, options: eframe::NativeOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
+/// One frame of the window whose scope is `window`: its root, mounted, and
+/// drawn into `ui`.
+pub(crate) fn frame(window: Scope, root: &Root, ui: &mut egui::Ui) {
+    let pass = Pass::begin(window);
+    let mounted = (root.mount)(&pass);
+    pass.end();
+
+    match mounted {
+        Ok(root) => drawn(root).draw(ui),
+        Err(error) => failed(&error).draw(ui),
+    }
+}
+
+/// Installs `app`, opens the window `main` makes, and runs until it closes.
+///
+/// `main` runs after the plugins are installed, and is handed the installed
+/// application to read what they provided from - where to start, say.
+///
+/// ```ignore
+/// guinea_eframe::run(app, |_| Window::of::<Shell>().title("guinea").at(Route::Processes))
 /// ```
 ///
-/// A closure rather than a value because where an application starts is often
-/// something only the installed plugins know - a route saved by the last run,
-/// read out of the store the store plugin just provided. Called once, after
-/// `install`, before the first frame, with the installed application to read
-/// them from.
-pub fn run<R>(
-    app: GuineaApp,
-    title: &str,
-    options: eframe::NativeOptions,
-    initial: impl FnOnce(&AppRuntime) -> R,
-) -> anyhow::Result<()>
-where
-    R: RouteChain<Egui> + Clone + PartialEq + 'static,
-{
+/// A root that fails to mount ends it with why, before the window opens.
+pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread. egui sleeps between frames,
     // so work handed over asks for one - once there is a context to ask.
     let context: Arc<Mutex<Option<egui::Context>>> = Arc::default();
-    let ui = {
+    let repaint = {
         let context = context.clone();
-        UiLoop::install_waking(move || {
+        move || {
             if let Some(context) = context.lock().ok().as_deref().and_then(Option::as_ref) {
                 context.request_repaint();
             }
-        })
+        }
     };
+    let ui = UiLoop::install_waking(repaint.clone());
 
-    // Genuinely this thread: it is the one that will draw, and nothing else
-    // touches the router or the scopes.
     let runtime = match app.install() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let initial = initial(&runtime);
+    let window = main(&runtime);
 
-    let router = Rc::new(Router::<Egui>::new(FeatureHost::under(&runtime.context())));
-    guinea_app::app::roots::set_label(router.host().scope(), MAIN);
+    let host = FeatureHost::under(&runtime.context());
+    let scope = host.scope();
+    guinea_app::app::roots::set_label(scope, MAIN);
 
-    let route = Rc::new(RefCell::new(initial.clone()));
-    nav::install(NavigateHandle::new(router.clone(), {
-        let route = route.clone();
-        RouteSink::new(move |next: R| *route.borrow_mut() = next)
-    }));
+    let pass = Pass::begin(scope);
+    let mounted = (window.root.mount)(&pass);
+    pass.end();
+    if let Err(error) = mounted {
+        return Err(error.context("guinea: mounting the main window"));
+    }
 
-    router.navigate(initial.clone())?;
+    // A move made while drawing is drawn in the next frame, and egui makes
+    // one only when asked.
+    let asking = window.start.map(|start| {
+        let asking = start(scope);
+        let watching = asking.watch(Box::new(repaint));
+        (asking, watching)
+    });
 
     let front = Frontend {
-        router: router.clone(),
+        window: scope,
+        root: window.root,
+        asking,
         ui,
     };
     let outcome = eframe::run_native(
-        title,
-        options,
+        &window.title,
+        window.options,
         Box::new(|cc| {
             if let Ok(mut slot) = context.lock() {
                 *slot = Some(cc.egui_ctx.clone());
@@ -91,15 +160,16 @@ where
     if let Ok(mut slot) = context.lock() {
         *slot = None;
     }
-    nav::clear();
-    router.deactivate();
+    drop(host);
     drop(runtime);
 
     outcome.map_err(|e| anyhow::anyhow!("eframe: {e}"))
 }
 
 struct Frontend {
-    router: Rc<Router<Egui>>,
+    window: Scope,
+    root: Root,
+    asking: Option<(Rc<dyn Asking>, Watching)>,
     ui: UiLoop,
 }
 
@@ -111,33 +181,21 @@ impl eframe::App for Frontend {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let asking = self.router.pending();
+        let question = self.asking.as_ref().and_then(|(asking, _)| asking.pending());
 
         // `add_enabled_ui(false, ..)` is the obligation the adapter contract
         // puts on every backend that draws over its own frame: while a guard's
         // question is up, the tree underneath must not take input, or the tabs
         // keep switching behind the dialog.
-        {
-            let _drawing = self.router.drawing();
-            ui.add_enabled_ui(asking.is_none(), |ui| self.router.render(&()).draw(ui));
-        }
+        ui.add_enabled_ui(question.is_none(), |ui| frame(self.window, &self.root, ui));
 
-        // The drawing is over and has let go of the chain, so a navigation
-        // from inside it can now tear that chain down - which is the only
-        // moment at which it can, and the reason it waited.
-        match self.router.settle() {
-            Ok(true) => ui.ctx().request_repaint(),
-            Ok(false) => {}
-            Err(error) => tracing::error!(%error, "a navigation asked for while drawing failed"),
-        }
-
-        if let Some(ask) = asking {
-            question(ui, &ask, &self.router);
+        if let (Some(ask), Some((asking, _))) = (question, &self.asking) {
+            ask_in(ui, &ask, asking.as_ref());
         }
     }
 }
 
-fn question(ui: &mut egui::Ui, ask: &guinea_core::guard::Ask, router: &Router<Egui>) {
+fn ask_in(ui: &mut egui::Ui, ask: &guinea_core::guard::Ask, asking: &dyn Asking) {
     egui::Window::new("?")
         .collapsible(false)
         .resizable(false)
@@ -147,10 +205,10 @@ fn question(ui: &mut egui::Ui, ask: &guinea_core::guard::Ask, router: &Router<Eg
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(&ask.cancel).clicked() {
-                    router.answer(false);
+                    asking.answer(false);
                 }
                 if ui.button(&ask.confirm).clicked() {
-                    router.answer(true);
+                    asking.answer(true);
                 }
             });
         });

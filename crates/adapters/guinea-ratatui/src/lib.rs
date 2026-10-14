@@ -15,11 +15,9 @@
 mod dialog;
 mod dispatcher;
 mod keys;
-mod lease;
 mod run;
 
 pub use keys::pressed;
-pub use lease::{Lent, lend_terminal};
 pub use run::{Flow, run};
 
 use std::any::Any;

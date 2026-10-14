@@ -11,6 +11,4 @@ repository.workspace = true
 guinea-codegen.workspace = true
 serde.workspace = true
 toml.workspace = true
-
-[target.'cfg(windows)'.dependencies]
 winresource.workspace = true

@@ -46,7 +46,6 @@ pub fn generate(manifest_relative_path: &str) {
     write_generated_consts(&build, &manifest, &icon_path);
 }
 
-#[cfg(windows)]
 fn embed_windows_resources(manifest: &Manifest, icon_path: &Path) {
     let icon_path_str = icon_path
         .to_str()
@@ -61,9 +60,6 @@ fn embed_windows_resources(manifest: &Manifest, icon_path: &Path) {
     res.set("FileVersion", &manifest.app.version);
     res.compile().expect("failed to embed windows exe resources");
 }
-
-#[cfg(not(windows))]
-fn embed_windows_resources(_manifest: &Manifest, _icon_path: &Path) {}
 
 fn write_generated_consts(build: &Build, manifest: &Manifest, icon_path: &Path) {
     let icon_path_str = icon_path

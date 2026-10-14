@@ -25,7 +25,7 @@ mod sink;
 pub use json::{Json, json};
 pub use point::{Point, StoreOp};
 pub use sink::{
-    ELSEWHERE_LIMIT, Elsewhere, Observer, is_observed, is_observed_anywhere, is_point_target,
+    ELSEWHERE_LIMIT, Elsewhere, is_observed, is_observed_anywhere, is_point_target,
     is_recorded_anywhere, observe, stop_observing, take_elsewhere, thread_id,
 };
 

@@ -11,7 +11,7 @@ use tracing::level_filters::LevelFilter;
 
 use crate::{Cause, Point, Record, Trace};
 
-pub type Observer = Rc<dyn Fn(&Trace)>;
+type Observer = Rc<dyn Fn(&Trace)>;
 
 struct Slot(RefCell<Option<Observer>>);
 

@@ -26,9 +26,8 @@ pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
 pub use runtime::{AppRuntime, install_runtime, shutdown_current};
 
-
-pub type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
-pub type ReadyHook = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
+type Provision = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
+type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
 
 /// The application, described before there is a UI thread to build it on.
 ///
@@ -39,9 +38,8 @@ pub type ReadyHook = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
 #[derive(Default)]
 pub struct GuineaApp {
     meta: Option<AppMeta>,
-    services: Vec<ReadyHook>,
+    services: Vec<Provision>,
     registrations: Vec<Registration>,
-    ready: Vec<ReadyHook>,
 }
 
 impl GuineaApp {
@@ -95,14 +93,8 @@ impl GuineaApp {
         self
     }
 
-    /// Runs once everything is installed, before the first render.
-    pub fn on_ready(mut self, f: impl FnOnce(&mut FeatureBuilder) + Send + 'static) -> Self {
-        self.ready.push(Box::new(f));
-        self
-    }
-
     /// Replays the recipe: installs every plugin and feature in registration
-    /// order, then runs the ready hooks.
+    /// order.
     ///
     /// For backend adapters. The caller must hand the result to
     /// [`install_runtime`] so teardown can find it.
@@ -144,9 +136,6 @@ impl GuineaApp {
                 runtime::teardown(&builder);
                 return Err(error);
             }
-        }
-        for hook in self.ready {
-            hook(&mut builder);
         }
 
         Ok(AppRuntime {

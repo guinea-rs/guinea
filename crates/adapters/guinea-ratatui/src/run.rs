@@ -22,7 +22,6 @@ use ratatui::crossterm::terminal::{
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::lease::{Desk, Hand};
 use crate::{Handled, Tui, dialog, dispatcher};
 
 /// What the application wants after an event.
@@ -81,13 +80,11 @@ where
 
     router.navigate(initial.clone())?;
 
-    let desk = Desk::open();
     let outcome = Screen::enter().and_then(|mut screen| {
-        let outcome = pump(&mut screen, &desk, &router, &nav, &mut on_event);
+        let outcome = pump(&mut screen, &router, &nav, &mut on_event);
         let left = screen.leave();
         outcome.and(left)
     });
-    drop(desk);
 
     router.deactivate();
     shutdown_current();
@@ -96,7 +93,6 @@ where
 
 fn pump<R, F>(
     screen: &mut Screen,
-    desk: &Desk,
     router: &Router<Tui>,
     nav: &NavigateHandle<Tui, R>,
     on_event: &mut F,
@@ -137,8 +133,6 @@ where
         // After the keys, so a navigation made above is already installed and
         // whatever it started can run in the same breath.
         dispatcher::drain();
-
-        desk.hand_over(screen)?;
     }
 }
 
@@ -206,26 +200,6 @@ impl Screen {
         if let Some(previous) = self.previous.take() {
             std::panic::set_hook(Box::new(move |info| previous(info)));
         }
-    }
-}
-
-impl Hand for Screen {
-    fn release(&mut self) -> io::Result<()> {
-        let _ = execute!(self.terminal.backend_mut(), DisableBracketedPaste);
-        execute!(self.terminal.backend_mut(), LeaveAlternateScreen, Show)?;
-        disable_raw_mode()
-    }
-
-    fn take_back(&mut self) -> io::Result<()> {
-        enable_raw_mode()?;
-        execute!(self.terminal.backend_mut(), EnterAlternateScreen)?;
-        let _ = execute!(self.terminal.backend_mut(), EnableBracketedPaste);
-        self.terminal.clear()?;
-
-        while event::poll(Duration::ZERO)? {
-            event::read()?;
-        }
-        Ok(())
     }
 }
 

@@ -2,7 +2,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, spanned::Spanned};
 
-use crate::handler::guinea_core_crate_path;
 
 pub(crate) fn derive_mark(input: DeriveInput) -> TokenStream {
     let Data::Enum(data) = &input.data else {
@@ -22,7 +21,7 @@ pub(crate) fn derive_mark(input: DeriveInput) -> TokenStream {
         arms.push(quote!(Self::#ident => #name));
     }
 
-    let gc = guinea_core_crate_path();
+    let gc = crate::paths::core();
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 

@@ -14,7 +14,7 @@ pub fn derive_inspect(input: DeriveInput) -> TokenStream {
 }
 
 fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
-    let gc = crate::handler::guinea_core_crate_path();
+    let gc = crate::paths::core();
     let name = &input.ident;
 
     let body = match &input.data {

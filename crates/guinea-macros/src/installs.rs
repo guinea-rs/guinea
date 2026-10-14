@@ -39,8 +39,8 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
         .into();
     };
 
-    let gc = crate::handler::guinea_core_crate_path();
-    let feature = crate::segment::context_path();
+    let gc = crate::paths::core();
+    let feature = crate::paths::feature();
     let name = &function.sig.ident;
 
     let taken = match crate::given::taken(function.sig.inputs.iter().skip(1)) {
@@ -54,7 +54,7 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     let types: Vec<&Type> = taken.iter().map(|typed| &*typed.ty).collect();
 
     if builds_the_application(&function) {
-        let app = crate::app_dsl::app_path();
+        let app = crate::paths::app();
         let taking = crate::given::taking(quote!(&*__builder), &named, &types, quote!(?));
         return quote! {
             #function

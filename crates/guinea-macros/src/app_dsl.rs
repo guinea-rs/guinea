@@ -14,32 +14,10 @@
 //! hangs from it with `app(..)`.
 
 use proc_macro::TokenStream as TokenStream1;
-use proc_macro2::{Span, TokenStream};
-use proc_macro_crate::{FoundCrate, crate_name};
+use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Ident, Meta, Token, Type, Visibility, braced};
-
-/// `guinea_app::app`, or the facade's `guinea::app`.
-pub(crate) fn app_path() -> TokenStream {
-    match crate_name("guinea-app") {
-        Ok(FoundCrate::Itself) => return quote!(crate::app),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = Ident::new(&name, Span::call_site());
-            return quote!(::#ident::app);
-        }
-        Err(_) => {}
-    }
-
-    match crate_name("guinea") {
-        Ok(FoundCrate::Itself) => quote!(crate::app),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = Ident::new(&name, Span::call_site());
-            quote!(::#ident::app)
-        }
-        Err(_) => quote!(::guinea::app),
-    }
-}
 
 struct Line {
     cfg: Vec<TokenStream>,
@@ -125,7 +103,7 @@ fn expand(manifest: Manifest) -> TokenStream {
         installs,
     } = manifest;
 
-    let app = app_path();
+    let app = crate::paths::app();
 
     let fields = installs.iter().map(|line| {
         let ty = &line.ty;

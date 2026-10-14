@@ -1,5 +1,4 @@
 use proc_macro::TokenStream;
-use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{quote, quote_spanned};
 use syn::{
     Error, FnArg, GenericArgument, ItemFn, PatType, PathArguments, ReturnType, Result, Type,
@@ -10,30 +9,8 @@ pub fn generate_standalone_handler(item: ItemFn) -> TokenStream {
     expand_handler(item).unwrap_or_else(|err| err.to_compile_error().into())
 }
 
-/// Where `guinea-core` is, from wherever this is being expanded: the crate
-/// itself, a direct dependency, or the facade's `core`.
-pub(crate) fn guinea_core_crate_path() -> proc_macro2::TokenStream {
-    match crate_name("guinea-core") {
-        Ok(FoundCrate::Itself) => return quote!(::guinea_core),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            return quote!(::#ident);
-        }
-        Err(_) => {}
-    }
-
-    match crate_name("guinea") {
-        Ok(FoundCrate::Itself) => quote!(crate::core),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#ident::core)
-        }
-        Err(_) => quote!(::guinea::core),
-    }
-}
-
 fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
-    let gc = guinea_core_crate_path();
+    let gc = crate::paths::core();
     let is_async = item.sig.asyncness.is_some();
 
     let (actor_ty, actor_name) = if is_async {

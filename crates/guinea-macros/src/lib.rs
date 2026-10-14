@@ -11,11 +11,11 @@ mod harness_test;
 mod inspect;
 mod installs;
 mod mark;
+mod paths;
 mod reducer;
 mod remote;
 mod request;
 mod routes_dsl;
-mod segment;
 
 /// A feature's manifest: its name, the reducers it exports and the feeds it
 /// opens.
@@ -188,28 +188,6 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     harness_test::test_impl(attr, item)
 }
 
-/// Writes `type Installs = ();` and the `install` that goes with it, for a
-/// page or layout that installs nothing.
-///
-/// Only that. Declaring what a segment installs is what makes the declaration
-/// an obligation of the body; declaring that it installs *nothing* is
-/// ceremony, and stable Rust has no conditional default body to remove it.
-///
-/// ```ignore
-/// #[segment]
-/// impl Page for Splash {
-///     type Params = ();
-///     fn view(cx: &mut PageCx<'_>) { .. }
-/// }
-/// ```
-///
-/// `#[segment(node)]` where the segment is a node of its own (ratatui,
-/// eframe): its `install` mounts the default node too.
-#[proc_macro_attribute]
-pub fn segment(attr: TokenStream, item: TokenStream) -> TokenStream {
-    segment::segment_impl(attr, item)
-}
-
 /// Declares a slot: a place in a layout's view that a segment below fills.
 ///
 /// ```ignore
@@ -303,7 +281,7 @@ pub fn routes(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Event)]
 pub fn event(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);
-    let gc = handler::guinea_core_crate_path();
+    let gc = paths::core();
 
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();

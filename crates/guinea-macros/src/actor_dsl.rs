@@ -7,7 +7,6 @@ use winnow::error::{ContextError, ErrMode};
 use winnow::prelude::*;
 use winnow::token::any;
 
-use crate::handler::guinea_core_crate_path;
 
 type Tokens<'i> = &'i [TokenTree];
 
@@ -453,7 +452,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     check_cycles(&manifest.handlers)?;
     check_requests(&manifest.handlers)?;
 
-    let gc = guinea_core_crate_path();
+    let gc = crate::paths::core();
     let Manifest {
         ident,
         generics,

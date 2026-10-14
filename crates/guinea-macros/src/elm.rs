@@ -17,8 +17,6 @@
 //! already says so.
 
 use proc_macro::TokenStream as TokenStream1;
-use proc_macro2::TokenStream;
-use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
 use syn::{ImplItem, ItemImpl, parse_quote};
 
@@ -28,48 +26,12 @@ pub enum Kind {
     Layout,
 }
 
-/// Where an Elm adapter's own types live.
-///
-/// An application reaches them through the facade and a test inside the
-/// adapter does not, and the generated `update` has to name `UpdateCx` either
-/// way. `package` is the adapter's own crate, `facade` the module the facade
-/// re-exports it under.
-///
-/// The facade wins over the adapter when both are there: the lookup sees
-/// dev-dependencies too, and an application that names the adapter only to
-/// test with it would otherwise get a path its own build does not have.
-fn adapter_path(package: &str, facade: &str) -> TokenStream {
-    let facade_module = syn::Ident::new(facade, proc_macro2::Span::call_site());
-    let named = |name: &str| syn::Ident::new(name, proc_macro2::Span::call_site());
-
-    let adapter = crate_name(package);
-    if let Ok(FoundCrate::Itself) = adapter {
-        return quote!(crate);
-    }
-
-    let guinea = crate_name("guinea");
-    if let Ok(FoundCrate::Name(name)) = &guinea {
-        let ident = named(name);
-        return quote!(::#ident::#facade_module);
-    }
-
-    if let Ok(FoundCrate::Name(name)) = adapter {
-        let ident = named(&name);
-        return quote!(::#ident);
-    }
-
-    match guinea {
-        Ok(FoundCrate::Itself) => quote!(crate::#facade_module),
-        _ => quote!(::guinea::#facade_module),
-    }
-}
-
 pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) -> TokenStream1 {
     let mut item = syn::parse_macro_input!(item as ItemImpl);
     if let Err(error) = crate::given::segment_install(&mut item) {
         return error.to_compile_error().into();
     }
-    let adapter = adapter_path(package, facade);
+    let adapter = crate::paths::resolve(package, "", facade);
 
     let declared_type = |name: &str| {
         item.items
@@ -88,7 +50,7 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) ->
     let has_update = declared_fn("update");
     let has_install = declared_fn("install");
 
-    let gc = crate::handler::guinea_core_crate_path();
+    let gc = crate::paths::core();
     item.items.push(parse_quote! {
         const DECLARED: ::core::option::Option<#gc::actor::shape::Declared> =
             ::core::option::Option::Some(#gc::actor::shape::Declared {

@@ -100,8 +100,8 @@ fn expand(manifest: Manifest) -> TokenStream {
         .to_compile_error();
     }
 
-    let gc = crate::handler::guinea_core_crate_path();
-    let feature = crate::segment::context_path();
+    let gc = crate::paths::core();
+    let feature = crate::paths::feature();
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
     let declared = if exports.is_empty() && feeds.is_empty() {

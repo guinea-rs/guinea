@@ -26,7 +26,7 @@ use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::{FnArg, ImplItem, ImplItemFn, ItemImpl, Pat, PatType, ReturnType, Type};
 
-use crate::segment::context_path;
+use crate::paths;
 
 /// The services among `arguments`: each by value, since it is handed out by
 /// clone.
@@ -56,7 +56,7 @@ pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type],
         return quote!();
     }
 
-    let feature = context_path();
+    let feature = paths::feature();
     let uses = probes();
     let probed: Vec<TokenStream> = types.iter().map(|ty| probe(ty)).collect();
 
@@ -74,7 +74,7 @@ pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type],
 
 /// The traits [`probe`] picks among, in scope for it.
 pub(crate) fn probes() -> TokenStream {
-    let feature = context_path();
+    let feature = paths::feature();
     quote! {
         #[allow(unused_imports)]
         use #feature::given::{Bare as _, Once as _, Twice as _};
@@ -83,7 +83,7 @@ pub(crate) fn probes() -> TokenStream {
 
 /// What an argument of type `ty` is taken through.
 pub(crate) fn probe(ty: &Type) -> TokenStream {
-    let feature = context_path();
+    let feature = paths::feature();
     quote!((&&#feature::given::Given::<#ty>::new()))
 }
 

@@ -2,7 +2,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
-use crate::handler::guinea_core_crate_path;
 
 pub(crate) fn derive_remote(input: DeriveInput) -> TokenStream {
     if !input.generics.params.is_empty() {
@@ -39,7 +38,7 @@ pub(crate) fn derive_remote(input: DeriveInput) -> TokenStream {
         .to_compile_error();
     }
 
-    let gc = guinea_core_crate_path();
+    let gc = crate::paths::core();
     let name = &input.ident;
     let called = name.to_string();
 

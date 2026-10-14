@@ -4,6 +4,8 @@
 //! whatever the backend put in [`router::SegmentEntry`]. What a view is, and
 //! what it is handed, is the backend's business - see [`router::Ui`].
 
+extern crate self as guinea_router;
+
 pub mod construction;
 pub mod enter;
 pub mod headless;

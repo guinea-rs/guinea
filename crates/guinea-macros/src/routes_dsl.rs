@@ -1,31 +1,14 @@
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::{Ident, TokenStream};
-use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote, quote_spanned};
 use syn::ext::IdentExt;
 
 use guinea_route_dsl::{Segment, parse_pattern, same_type, spelled, type_ident};
 
-fn guinea_crate_path() -> proc_macro2::TokenStream {
-    match crate_name("guinea") {
-        Ok(FoundCrate::Itself) => quote!(crate),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#ident)
-        }
-        Err(_) => quote!(::guinea),
-    }
-}
-
-/// Where the router's own types live.
-///
-/// An application usually reaches them through the facade, but a backend crate
-/// depends on `guinea-router` directly and has no facade at all - and the
-/// generated `RouteChain` impl has to name the same types either way.
 /// Where a segment was listed, as the line `ty` was written on: `file!` and
 /// friends expand wherever their tokens are spanned.
 fn declared_at(ty: &syn::Type) -> TokenStream {
-    let gc = crate::handler::guinea_core_crate_path();
+    let gc = crate::paths::core();
 
     quote_spanned! {syn::spanned::Spanned::span(ty)=>
         #gc::actor::shape::Declared {
@@ -35,33 +18,6 @@ fn declared_at(ty: &syn::Type) -> TokenStream {
             crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
         }
     }
-}
-
-fn router_path(guinea: &TokenStream) -> TokenStream {
-    match crate_name("guinea-router") {
-        Ok(FoundCrate::Itself) => quote!(crate::router),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#ident::router)
-        }
-        Err(_) => quote!(#guinea::router),
-    }
-}
-
-/// Where [`LinkValue`](guinea_router::link::LinkValue) lives. Same reason as
-/// [`router_path`].
-fn link_path(guinea: &TokenStream) -> TokenStream {
-    module_of_router(guinea, "link")
-}
-
-/// Where the enter-guard machinery lives.
-fn enter_path(guinea: &TokenStream) -> TokenStream {
-    module_of_router(guinea, "enter")
-}
-
-/// Where the two halves of `restorable` live.
-fn restore_path(guinea: &TokenStream) -> TokenStream {
-    module_of_router(guinea, "restore")
 }
 
 /// The chain a part reads through: the layouts down to the one it is written
@@ -74,7 +30,7 @@ pub(crate) fn slot_impl(item: TokenStream1) -> TokenStream1 {
     let item = syn::parse_macro_input!(item as syn::ItemStruct);
     let name = &item.ident;
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
-    let slot = module_of_router(&guinea_crate_path(), "slot");
+    let slot = crate::paths::router("slot");
 
     quote! {
         #item
@@ -82,34 +38,6 @@ pub(crate) fn slot_impl(item: TokenStream1) -> TokenStream1 {
         impl #impl_generics #slot::Slot for #name #type_generics #where_clause {}
     }
     .into()
-}
-
-fn module_of_router(guinea: &TokenStream, module: &str) -> TokenStream {
-    let module = syn::Ident::new(module, proc_macro2::Span::call_site());
-    match crate_name("guinea-router") {
-        Ok(FoundCrate::Itself) => quote!(crate::#module),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#ident::#module)
-        }
-        Err(_) => quote!(#guinea::#module),
-    }
-}
-
-/// Where the feature layer's own types live.
-///
-/// Same reason as [`router_path`]: an application reaches them through the
-/// facade, a backend crate depends on `guinea-app` directly and has no facade
-/// at all, and the generated `Segment` impls have to name them either way.
-fn feature_path(guinea: &TokenStream) -> TokenStream {
-    match crate_name("guinea-app") {
-        Ok(FoundCrate::Itself) => quote!(crate::feature),
-        Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            quote!(::#ident::feature)
-        }
-        Err(_) => quote!(#guinea::feature),
-    }
 }
 
 /// The module a backend keeps `segment_entry`/`layout_entry` in: the parent of
@@ -297,11 +225,11 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         Err(conflicts) => panic!("{}", joined(&conflicts)),
     };
 
-    let guinea = guinea_crate_path();
-    let router = router_path(&guinea);
-    let link_mod = link_path(&guinea);
-    let enter = enter_path(&guinea);
-    let restore_mod = restore_path(&guinea);
+    let guinea = crate::paths::facade();
+    let router = crate::paths::router("router");
+    let link_mod = crate::paths::router("link");
+    let enter = crate::paths::router("enter");
+    let restore_mod = crate::paths::router("restore");
 
     let parse_fn = guinea_route_dsl::matcher::emit_parse(&match_tree, &enum_ident, &link_mod);
 
@@ -613,7 +541,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         }
     });
 
-    let feature = feature_path(&guinea);
+    let feature = crate::paths::feature();
 
     let application = match &tree.app {
         Some(app) => {
@@ -697,7 +625,7 @@ pub fn routes_impl(input: TokenStream1) -> TokenStream1 {
         })
     }).collect::<Vec<_>>();
 
-    let sample_mod = module_of_router(&guinea, "sample");
+    let sample_mod = crate::paths::router("sample");
     let samples = leaves.iter().zip(&variant_idents).map(|(leaf, ident)| {
         let name = ident.to_string();
         let made = leaf.fields.iter().map(|field| {

@@ -42,7 +42,7 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
     let state = state(inputs[0])?;
     let update = update(inputs[1])?;
 
-    let gc = crate::handler::guinea_core_crate_path();
+    let gc = crate::paths::core();
     let name = &signature.ident;
     let (impl_generics, _, where_clause) = signature.generics.split_for_impl();
 

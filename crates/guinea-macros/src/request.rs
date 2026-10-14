@@ -2,7 +2,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
-use crate::handler::guinea_core_crate_path;
 
 pub(crate) fn derive_request(input: DeriveInput) -> TokenStream {
     let mut reply: Option<syn::Type> = None;
@@ -32,7 +31,7 @@ pub(crate) fn derive_request(input: DeriveInput) -> TokenStream {
         .to_compile_error();
     };
 
-    let gc = guinea_core_crate_path();
+    let gc = crate::paths::core();
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 

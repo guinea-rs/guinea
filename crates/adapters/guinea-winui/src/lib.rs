@@ -10,6 +10,8 @@
 
 #![cfg(windows)]
 
+extern crate self as guinea_winui;
+
 mod devtools;
 mod dispatching;
 #[cfg(feature = "harness")]

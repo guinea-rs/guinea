@@ -5,6 +5,8 @@
 //! [`app::App`], installs it, and hands the resulting builder a window; see
 //! `guinea`'s `run`.
 
+extern crate self as guinea_app;
+
 pub mod app;
 pub mod feature;
 pub mod observability;

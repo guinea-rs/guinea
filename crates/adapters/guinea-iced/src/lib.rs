@@ -34,6 +34,8 @@
 //! }
 //! ```
 
+extern crate self as guinea_iced;
+
 mod dispatcher;
 mod envelope;
 mod nav;
@@ -108,8 +110,7 @@ pub trait Page: Sized + 'static {
     /// not mounted - the reducers the router owns, and the node itself.
     const CACHE_STATE_IN_MEMORY: bool = false;
 
-    /// Where `impl Page` was written. `#[segment]` fills it in; an impl
-    /// without it loses only the source link.
+    /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
     /// What this page captured from the route, named by `routes!`.

@@ -76,8 +76,7 @@ pub trait Page: Sized + 'static {
     /// while the page is not mounted.
     const CACHE_STATE_IN_MEMORY: bool = false;
 
-    /// Where `impl Page` was written. `#[segment]` fills it in; an impl
-    /// without it loses only the source link.
+    /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
     /// What this page captured from the route, named by `routes!`. `()` for a

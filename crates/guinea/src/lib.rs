@@ -245,7 +245,7 @@ pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
     Event, Inspect, Mark, Remote, Request, actor, app, feature, given, handler, installs, reducer,
-    routes, segment, slot,
+    routes, slot,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -

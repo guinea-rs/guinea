@@ -5,23 +5,34 @@
 //! tree, and the harness reads it in place of what is not there: its nodes
 //! are found, listed as items and clicked like native ones.
 
+#[cfg(feature = "harness")]
 use std::cell::{Cell, RefCell};
+#[cfg(feature = "harness")]
 use std::rc::{Rc, Weak};
 
-use windows_reactor::{ElementRef, ObjectId};
+use windows_reactor::ElementRef;
+#[cfg(feature = "harness")]
+use windows_reactor::ObjectId;
 
 pub use guinea_core::semantics::{Bounds, Children, Items, Role, Semantic};
 
+#[cfg(feature = "harness")]
 thread_local! {
     static PUBLISHED: RefCell<Vec<Weak<Entry>>> = const { RefCell::new(Vec::new()) };
 }
 
-#[cfg_attr(not(feature = "harness"), allow(dead_code))]
+#[cfg(feature = "harness")]
 struct Entry {
     owner: Cell<Option<u64>>,
     element: Box<dyn Fn() -> Option<ObjectId>>,
     tree: Box<dyn Fn() -> Semantic>,
 }
+
+#[cfg(feature = "harness")]
+type Kept = Rc<Entry>;
+
+#[cfg(not(feature = "harness"))]
+type Kept = ();
 
 /// Says that `element` drew what `tree` says, for as long as the returned
 /// [`Published`] is kept. `tree` is asked whenever the tree is read, so it
@@ -29,10 +40,17 @@ struct Entry {
 ///
 /// Bounds are in `element`'s own coordinates: where a pointer event on it,
 /// or on an element around it of the same size, says it landed.
+///
+/// Only the harness reads it: without the `harness` feature nothing is kept.
 pub fn publish<T: 'static>(
     element: &ElementRef<T>,
     tree: impl Fn() -> Semantic + 'static,
 ) -> Published {
+    Published { _kept: keep(element, tree) }
+}
+
+#[cfg(feature = "harness")]
+fn keep<T: 'static>(element: &ElementRef<T>, tree: impl Fn() -> Semantic + 'static) -> Kept {
     let element = element.clone();
     let entry = Rc::new(Entry {
         owner: Cell::new(None),
@@ -46,13 +64,16 @@ pub fn publish<T: 'static>(
         published.push(Rc::downgrade(&entry));
     });
 
-    Published { _entry: entry }
+    entry
 }
+
+#[cfg(not(feature = "harness"))]
+fn keep<T: 'static>(_element: &ElementRef<T>, _tree: impl Fn() -> Semantic + 'static) -> Kept {}
 
 /// A [`publish`]ed tree. Dropping it takes the tree back.
 #[must_use = "the tree is taken back when this is dropped"]
 pub struct Published {
-    _entry: Rc<Entry>,
+    _kept: Kept,
 }
 
 #[cfg(feature = "harness")]

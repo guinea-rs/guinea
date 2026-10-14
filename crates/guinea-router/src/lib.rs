@@ -11,6 +11,8 @@ pub mod enter;
 pub mod headless;
 pub mod link;
 pub mod manifest;
+pub mod mount;
+pub mod navigator;
 pub mod observability;
 pub mod restore;
 pub mod router;

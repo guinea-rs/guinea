@@ -26,6 +26,7 @@ struct Mounts {
 
 struct Child {
     kind: TypeId,
+    name: &'static str,
     params: Box<dyn Any>,
     scope: Scope,
     drawn: u64,
@@ -100,6 +101,7 @@ impl Pass {
         self.parent.kept::<Mounts, _>(|mounts| {
             mounts.children.push(Child {
                 kind,
+                name: std::any::type_name::<S>(),
                 params: Box::new(params.clone()),
                 scope,
                 drawn: number,
@@ -115,6 +117,17 @@ impl Pass {
         self.parent.kept::<Mounts, _>(|mounts| {
             if let Some(mounted) = mounts.children.iter_mut().find(|mounted| mounted.scope == child) {
                 mounted.keep = true;
+            }
+        });
+    }
+
+    /// Lets `child` stand through this pass without mounting it: what was
+    /// drawn before, kept while what was to replace it failed.
+    pub fn hold(&self, child: Scope) {
+        let number = self.number;
+        self.parent.kept::<Mounts, _>(|mounts| {
+            if let Some(held) = mounts.children.iter_mut().find(|held| held.scope == child) {
+                held.drawn = number;
             }
         });
     }
@@ -145,4 +158,24 @@ impl Pass {
             }
         }
     }
+}
+
+/// What `parent` mounted and still holds, in the order it first mounted them,
+/// each with its type's name.
+pub fn mounted(parent: Scope) -> Vec<(Scope, &'static str)> {
+    if !parent.keeps::<Mounts>() {
+        return Vec::new();
+    }
+    parent
+        .kept::<Mounts, _>(|mounts| mounts.children.iter().map(|child| (child.scope, child.name)).collect())
+        .unwrap_or_default()
+}
+
+/// The name of the type `child` was mounted as, when a parent mounted it.
+pub fn name(child: Scope) -> Option<&'static str> {
+    let parent = child.parent()?;
+    mounted(parent)
+        .into_iter()
+        .find(|(mounted, _)| *mounted == child)
+        .map(|(_, name)| name)
 }

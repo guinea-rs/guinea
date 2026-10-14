@@ -199,6 +199,41 @@ fn a_destination_that_fails_to_mount_puts_it_back_and_says_why() {
 }
 
 #[test]
+fn a_watcher_hears_a_question_come_and_go() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let page = shell.child();
+    page.on_leave(|| Verdict::ask(Ask::new("Discard?", "Discard", "Stay")));
+    navigator.rendered(shell, page, &Top::Processes(Processes::List));
+
+    let heard = Rc::new(Cell::new(0));
+    let counting = heard.clone();
+    let _watching = navigator.watch(move || counting.set(counting.get() + 1));
+
+    navigator.to(Top::Services);
+    assert_eq!(heard.get(), 1, "the question came");
+
+    navigator.answer(false);
+    assert_eq!(heard.get(), 2, "the question went, and it stayed");
+    assert_eq!(navigator.current(), Some(Top::Processes(Processes::List)));
+}
+
+#[test]
+fn an_outlet_is_told_what_it_drew_last() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let area = shell.child();
+    let list = area.child();
+
+    navigator.rendered(shell, area, &Top::Processes(Processes::List));
+    Navigator::<Processes>::find(area).unwrap().rendered(area, list, &Processes::List);
+
+    assert_eq!(navigator.drawn(shell), Some(area));
+    assert_eq!(Navigator::<Processes>::find(area).unwrap().drawn(area), Some(list));
+    assert_eq!(navigator.drawn(area), None, "the area's outlet is at another level");
+}
+
+#[test]
 fn a_watcher_hears_every_move_until_it_lets_go() {
     let (_tree, navigator) = opened();
     let heard = Rc::new(Cell::new(0));

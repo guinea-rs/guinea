@@ -108,3 +108,41 @@ fn a_child_that_fails_to_install_leaves_nothing_and_the_others_stand() {
     assert_eq!(listing, standing[0]);
     assert_eq!(parent.subtree().len(), 2, "the parent and its one child: the failed one's scope is gone");
 }
+
+#[test]
+fn a_child_held_through_a_pass_that_did_not_mount_it_stands() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let installs = Rc::new(Cell::new(0));
+
+    let standing = drawn(parent, |pass| vec![pass.mount::<Listing, _>(&(), counting(&installs)).unwrap()]);
+    drawn(parent, |pass| {
+        pass.hold(standing[0]);
+        Vec::new()
+    });
+
+    assert!(standing[0].is_alive());
+    assert!(standing[0].is_awake());
+}
+
+#[test]
+fn what_a_parent_mounted_is_listed_in_order_by_type() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let installs = Rc::new(Cell::new(0));
+
+    let both = drawn(parent, |pass| {
+        vec![
+            pass.mount::<Listing, _>(&(), counting(&installs)).unwrap(),
+            pass.mount::<Details, _>(&(), counting(&installs)).unwrap(),
+        ]
+    });
+
+    let names = |scope| guinea_router::mount::name(scope);
+    assert_eq!(
+        guinea_router::mount::mounted(parent),
+        [(both[0], std::any::type_name::<Listing>()), (both[1], std::any::type_name::<Details>())]
+    );
+    assert_eq!(names(both[1]), Some(std::any::type_name::<Details>()));
+    assert_eq!(names(parent), None, "nothing mounted the root");
+}

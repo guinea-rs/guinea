@@ -266,6 +266,11 @@ impl<T: Route> Navigator<T> {
             .rendered(TypeId::of::<T>(), owner, child, Box::new(at.clone()));
     }
 
+    /// What `owner`'s outlet at this level drew last, while it stands.
+    pub fn drawn(&self, owner: Scope) -> Option<Scope> {
+        self.root.drawn(TypeId::of::<T>(), owner)
+    }
+
     /// Says that what the window moved to could not be mounted: it goes back
     /// to where it was, and keeps why for [`failure`](Self::failure).
     pub fn failed(&self, error: anyhow::Error) {
@@ -278,7 +283,8 @@ impl<T: Route> Navigator<T> {
         self.root.failure()
     }
 
-    /// Runs `heard` after every move, until the returned watch is dropped.
+    /// Runs `heard` after every move, and whenever a guard's question comes
+    /// or goes, until the returned watch is dropped.
     pub fn watch(&self, heard: impl Fn() + 'static) -> Watching {
         let id = self.root.watch(Rc::new(heard));
         Watching {
@@ -313,6 +319,7 @@ trait Navigates {
     fn pending(&self) -> Option<Ask>;
     fn answer(&self, allowed: bool);
     fn rendered(&self, level: TypeId, owner: Scope, child: Scope, at: Box<dyn Any>);
+    fn drawn(&self, level: TypeId, owner: Scope) -> Option<Scope>;
     fn failed(&self, error: anyhow::Error);
     fn failure(&self) -> Option<String>;
     fn watch(&self, heard: Rc<dyn Fn()>) -> u64;
@@ -400,7 +407,7 @@ impl<R: Route> Root<R> {
     fn navigate(self: Rc<Self>, to: R, step: Step) -> Moved {
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
-        self.supersede();
+        let dropped = self.supersede();
 
         let _navigating = guinea_core::trace::enter(|| guinea_core::trace::Point::Navigate {
             root: guinea_app::app::roots::label(self.window).unwrap_or_default(),
@@ -417,7 +424,12 @@ impl<R: Route> Root<R> {
                 self.commit(to, step);
                 Moved::Done
             }
-            Verdict::Block => Moved::Blocked,
+            Verdict::Block => {
+                if dropped {
+                    self.moved();
+                }
+                Moved::Blocked
+            }
             Verdict::Ask(ask, decision) => {
                 self.state.borrow_mut().pending = Some(Parked {
                     ask,
@@ -435,21 +447,27 @@ impl<R: Route> Root<R> {
                         return;
                     }
                     let parked = root.state.borrow_mut().pending.take();
-                    if let (Some(parked), true) = (parked, allowed) {
-                        root.commit(parked.to, parked.step);
+                    match (parked, allowed) {
+                        (Some(parked), true) => root.commit(parked.to, parked.step),
+                        (Some(_), false) => root.moved(),
+                        (None, _) => {}
                     }
                 });
 
-                match self.state.borrow().pending.is_some() {
-                    true => Moved::Deferred,
+                let parked = self.state.borrow().pending.is_some();
+                match parked {
+                    true => {
+                        self.moved();
+                        Moved::Deferred
+                    }
                     false => Moved::Done,
                 }
             }
         }
     }
 
-    fn supersede(&self) {
-        self.state.borrow_mut().pending = None;
+    fn supersede(&self) -> bool {
+        self.state.borrow_mut().pending.take().is_some()
     }
 
     fn may_enter(&self, to: &R) -> Verdict {
@@ -603,6 +621,15 @@ impl<R: Route> Navigates for Root<R> {
             Some(drawn) => *drawn = outlet,
             None => state.outlets.push(outlet),
         }
+    }
+
+    fn drawn(&self, level: TypeId, owner: Scope) -> Option<Scope> {
+        self.state
+            .borrow()
+            .outlets
+            .iter()
+            .find(|drawn| drawn.owner == owner && drawn.level == level && drawn.child.is_alive())
+            .map(|drawn| drawn.child)
     }
 
     fn failed(&self, error: anyhow::Error) {

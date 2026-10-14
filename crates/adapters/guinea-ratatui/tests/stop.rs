@@ -5,30 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use guinea_app::app::{GuineaApp, Plugin, PluginBuilder, Stop};
-use guinea_app::feature::FeatureInitContext;
-use guinea_macros::routes;
-use guinea_ratatui::{Flow, PageCx};
-
-#[derive(Default)]
-struct Home;
-
-impl guinea_ratatui::Page for Home {
-    type Params = HomeParams;
-    type Installs = ();
-
-    fn install(_ctx: &FeatureInitContext, _params: &HomeParams) -> anyhow::Result<(Self, ())> {
-        Ok((Self::default(), ()))
-    }
-
-    fn render(&mut self, _cx: &mut PageCx<'_, '_, Self>) {}
-}
-
-routes! {
-    backend = guinea_ratatui::Tui,
-    Route {
-        page(Home) link("/")
-    }
-}
+use guinea_ratatui::Window;
 
 struct Opened(Arc<AtomicBool>);
 
@@ -64,11 +41,7 @@ fn a_plugin_that_stops_the_application_ends_run_quietly() {
         .plugin(Opened(closed.clone()))
         .plugin(SecondCopy);
 
-    let ran = guinea_ratatui::run(
-        app,
-        |_: &_| -> Route { panic!("nothing is opened after a stop") },
-        |_, _, _| Flow::Exit,
-    );
+    let ran = guinea_ratatui::run(app, |_| -> Window { panic!("nothing is opened after a stop") });
 
     assert!(ran.is_ok(), "{:#}", ran.unwrap_err());
     assert!(closed.load(Ordering::SeqCst), "the plugin before it was torn down");

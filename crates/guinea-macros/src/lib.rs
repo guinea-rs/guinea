@@ -252,6 +252,18 @@ pub fn eframe_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
     elm::node_impl(item, elm::Kind::Layout, "guinea-eframe", "eframe", elm::Model::Immediate)
 }
 
+/// [`eframe_page`] for the terminal backend.
+#[proc_macro_attribute]
+pub fn ratatui_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Page, "guinea-ratatui", "ratatui", elm::Model::Immediate)
+}
+
+/// [`ratatui_page`] for a layout.
+#[proc_macro_attribute]
+pub fn ratatui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Layout, "guinea-ratatui", "ratatui", elm::Model::Immediate)
+}
+
 /// [`iced_page`] for the windows-reactor backend.
 ///
 /// The same macro because the two backends are the same kind of thing: the

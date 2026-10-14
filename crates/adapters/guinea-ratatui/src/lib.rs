@@ -1,49 +1,52 @@
-//! guinea on ratatui: the same router and features, drawn in a terminal.
+//! guinea on ratatui: the same navigator and features, drawn in a terminal.
 //!
 //! The interesting difference from the WinUI backend is what a view *is*.
 //! WinUI is retained: a view builds an element tree and hands it over.
 //! ratatui is immediate: a view draws into a frame that only exists during
-//! one pass, and nothing survives it. So here a view is neither of those - it
-//! is a [`Node`], a piece of drawing deferred until someone supplies a frame
-//! and an area.
+//! one pass, and nothing survives it. So what a layout mounts comes back as a
+//! [`Node`], a piece of drawing deferred until the layout supplies a frame and
+//! the rectangle it wants the child to occupy.
 //!
-//! That indirection is what lets a layout place its child. `mount` receives
-//! only [`SegmentProps`], never a frame, so a node cannot draw when it is
-//! built; by the time the frame exists the layout has decided the geometry and
-//! passes down whatever rectangle it wants the page to occupy.
+//! Input follows the drawing. A key goes to what the last frame drew, the
+//! segment drawn last first and every layout after what it drew, until one
+//! takes it.
+
+extern crate self as guinea_ratatui;
 
 mod dialog;
 mod keys;
 mod run;
 
 pub use keys::pressed;
-pub use run::{Flow, run};
+pub use run::{MAIN, Window, run};
 
-use std::any::Any;
+/// What `install` is handed. Re-exported because `#[page]` writes signatures
+/// that name it, and a page should not have to import it just for that.
+pub use guinea_app::feature::{FeatureInitContext, Install};
+/// Writes down what a page or a layout left out. See [`Page`].
+pub use guinea_macros::{Route, ratatui_layout as layout, ratatui_page as page};
+/// Where a window is, and how to move it.
+pub use guinea_router::navigator::{Moved, Navigator, Route};
 
-use guinea_app::feature::{FeatureInitContext, Reads};
-use guinea_core::scope::Reducer;
-use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, Router, SegmentEntry, SegmentProps, Ui, single_entry_chain,
-};
+use std::marker::PhantomData;
+use std::rc::Rc;
+
+use guinea_app::feature::Reads;
+use guinea_core::binding::ReducerBinding;
+use guinea_core::feature::Dispatch;
+use guinea_core::scope::{Reducer, Scope};
+use guinea_router::mount::{Outlet, Pass, binding, navigator};
 use ratatui::Frame;
 use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::Rect;
+use ratatui::widgets::{Paragraph, Wrap};
 
-/// ratatui as a [`Ui`].
+/// What `guinea::Backend` names under the ratatui feature, while `routes!` is
+/// still there for the other backends.
 pub struct Tui;
-
-impl Ui for Tui {
-    type View<'a> = Node;
-    /// Nothing: a terminal view draws from a snapshot inside the frame and
-    /// holds no reference to state afterwards.
-    type Nodes = ();
-    type Mount = dyn TuiMount;
-}
 
 /// Drawing that has not happened yet.
 ///
-/// Boxed because a segment's drawing captures its own scope and props, and
 /// `FnOnce` because a node is drawn exactly once per frame - the next frame
 /// mounts fresh ones.
 pub struct Node(Box<dyn FnOnce(&mut Frame, Rect)>);
@@ -66,39 +69,35 @@ pub enum Handled {
     No,
 }
 
-/// A leaf of the route tree, and its own state.
+/// A leaf: what a layout mounts, and its own state.
 ///
 /// The struct that implements this **is** the page's state, as in the eframe
 /// backend: what is typed in a filter, which row is picked. It is made by
-/// [`Page::install`] when the page mounts and dropped when it leaves.
+/// [`Page::install`] when the page mounts and dropped when it goes.
 ///
-/// Input comes down the active chain from the leaf: [`Page::on_key`] and
-/// [`Page::on_paste`] see it first, the layouts above see what it did not
-/// take, and [`run`]'s `on_event` sees what nobody took.
+/// Input comes to what was drawn: [`Page::on_key`] and [`Page::on_paste`]
+/// see it first, the layouts above see what it did not take.
+///
+/// `#[page]` writes what is left out: `Params` and `Installs` as `()`, and
+/// the `install` that starts from `Default`.
 pub trait Page: Sized + 'static {
-    /// When `true`, the router keeps this page's reducer states in memory
-    /// while the page is not mounted.
-    const CACHE_STATE_IN_MEMORY: bool = false;
-
     /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What this page captured from the route, named by `routes!`. `()` for a
-    /// page that captures nothing.
+    /// What the page is mounted with: `cx.mount::<ProcessPage>(&pid)`.
     ///
-    /// `PartialEq` because the router's one question about a capture is
-    /// whether it is still the same one - which decides what reinstalls and
-    /// which cached state may come back.
-    type Params: PartialEq + 'static;
+    /// `PartialEq` because a mount's one question about it is whether it is
+    /// still the same: equal params are the same page in the same scope,
+    /// other params another page in a scope of its own.
+    type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this page installs, and `()` when it installs nothing.
     ///
     /// The list is not written beside the body - it *is* the body's
     /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. Which is also why `install` has no
-    /// default any more.
+    /// installed stops type-checking.
     ///
-    /// What is returned is owned by the segment's scope, which is what gives a
+    /// What is returned is owned by the page's scope, which is what gives a
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
@@ -118,39 +117,33 @@ pub trait Page: Sized + 'static {
     /// for every frame.
     fn render(&mut self, cx: &mut PageCx<'_, '_, Self>);
 
-    /// A key pressed while this page is mounted. Releases and repeats are not
+    /// A key pressed while this page is drawn. Releases and repeats are not
     /// offered.
     fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, _key: &KeyEvent) -> Handled {
         Handled::No
     }
 
-    /// Text pasted while this page is mounted, where the terminal reports a
+    /// Text pasted while this page is drawn, where the terminal reports a
     /// paste as one.
     fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, _text: &str) -> Handled {
         Handled::No
     }
 }
 
-/// A branch: draws its own chrome and decides where its child goes. Its own
+/// A branch: draws its own chrome and mounts what goes under it. Its own
 /// state, the same way a [`Page`] is.
 pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What every page under this layout carries, derived by `routes!` as the
-    /// intersection of their parameters. A layout declares nothing; it is
-    /// handed what all of its children were reached with.
-    type Params: PartialEq + 'static;
+    /// What the layout is mounted with, as a page is: see [`Page::Params`].
+    type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this layout installs. See [`Page::Installs`].
     ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. Which is also why `install` has no
-    /// default any more.
-    ///
-    /// What is returned is owned by the segment's scope, which is what gives a
-    /// feature its own lifetime.
+    /// For a layout it is also what the pages below share: they come and go,
+    /// and what is installed here stays. Whatever its features list in
+    /// `Exports` those pages may read.
     type Installs: guinea_app::feature::Lists;
 
     /// See [`Page::install`].
@@ -161,7 +154,11 @@ pub trait Layout: Sized + 'static {
 
     fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>);
 
-    /// See [`Page::on_key`]: offered what the segments below did not take.
+    /// See [`Page::on_key`]: offered what was drawn under it did not take.
+    ///
+    /// The root layout is the last to be asked, which makes it the place for
+    /// what is the application's and not a page's: switching tabs, going
+    /// back, [`closing`](InputCx::close).
     fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, _key: &KeyEvent) -> Handled {
         Handled::No
     }
@@ -172,25 +169,161 @@ pub trait Layout: Sized + 'static {
     }
 }
 
-/// What a segment entry points at here: its drawing, and its input.
-pub trait TuiMount: Mount<Tui> {
-    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled;
+/// A page or a layout: what [`LayoutCx::mount`] mounts. `#[page]` and
+/// `#[layout]` write it.
+#[doc(hidden)]
+pub trait Mountable: 'static {
+    type Params: PartialEq + Clone + 'static;
+
+    /// Installs it into the scope `cx` is for, and keeps its state there and
+    /// how it draws.
+    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
 }
 
-/// Offers `event` to the active chain, leaf first, until a segment takes it.
-pub(crate) fn offer(router: &Router<Tui>, nav: &dyn Any, event: &Event) -> Handled {
-    let (Some(chain), Some(scopes)) = (router.active_chain(), router.active_scopes()) else {
+/// How what was mounted into a scope draws and takes input, kept there as it
+/// mounts.
+#[derive(Clone, Copy)]
+struct Segment {
+    draw: fn(Scope, Scope, &mut Frame, Rect),
+    offer: fn(Scope, Scope, &Input) -> Handled,
+}
+
+/// What a window keeps between its frames: what the last one drew, in the
+/// order it drew it, and whether a segment closed it.
+#[derive(Default)]
+pub(crate) struct Shown {
+    drawn: Vec<Scope>,
+    closed: bool,
+}
+
+#[doc(hidden)]
+pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Segment {
+        draw: page_draw::<P>,
+        offer: page_offer::<P>,
+    });
+    let (node, installs) = P::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
+    Ok(())
+}
+
+#[doc(hidden)]
+pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Segment {
+        draw: layout_draw::<L>,
+        offer: layout_offer::<L>,
+    });
+    let (node, installs) = L::install(ctx, params)?;
+    ctx.scope.hold_installed(installs);
+    ctx.scope.keep(node);
+    Ok(())
+}
+
+fn page_draw<P: Page>(_window: Scope, scope: Scope, frame: &mut Frame, area: Rect) {
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
+    scope.kept::<P, _>(|page| {
+        page.render(&mut PageCx {
+            frame,
+            area,
+            scope,
+            page: PhantomData,
+        })
+    });
+}
+
+fn layout_draw<L: Layout>(window: Scope, scope: Scope, frame: &mut Frame, area: Rect) {
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
+    let pass = Pass::begin(scope);
+    scope.kept::<L, _>(|layout| {
+        layout.render(&mut LayoutCx {
+            frame,
+            area,
+            scope,
+            window,
+            pass: pass.clone(),
+            layout: PhantomData,
+        })
+    });
+    pass.end();
+}
+
+fn page_offer<P: Page>(window: Scope, scope: Scope, input: &Input) -> Handled {
+    let mut cx = InputCx {
+        scope,
+        window,
+        segment: PhantomData,
+    };
+    scope
+        .kept::<P, _>(|page| match input {
+            Input::Key(key) => page.on_key(&mut cx, key),
+            Input::Paste(text) => page.on_paste(&mut cx, text),
+        })
+        .unwrap_or(Handled::No)
+}
+
+fn layout_offer<L: Layout>(window: Scope, scope: Scope, input: &Input) -> Handled {
+    let mut cx = InputCx {
+        scope,
+        window,
+        segment: PhantomData,
+    };
+    scope
+        .kept::<L, _>(|layout| match input {
+            Input::Key(key) => layout.on_key(&mut cx, key),
+            Input::Paste(text) => layout.on_paste(&mut cx, text),
+        })
+        .unwrap_or(Handled::No)
+}
+
+/// The drawing of what was mounted into `scope`, in the window `window`.
+pub(crate) fn drawn(window: Scope, scope: Scope) -> Node {
+    let segment = scope.keeps::<Segment>().then(|| scope.kept::<Segment, _>(|segment| *segment)).flatten();
+    Node::new(move |frame, area| {
+        let Some(segment) = segment else {
+            return;
+        };
+        window.kept::<Shown, _>(|shown| shown.drawn.push(scope));
+        (segment.draw)(window, scope, frame, area);
+    })
+}
+
+pub(crate) fn failed(error: &anyhow::Error) -> Node {
+    let said = format!("{error:#}");
+    Node::new(move |frame, area| {
+        frame.render_widget(Paragraph::new(said).wrap(Wrap { trim: true }), area);
+    })
+}
+
+pub(crate) enum Input {
+    Key(KeyEvent),
+    Paste(String),
+}
+
+fn input(event: &Event) -> Option<Input> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => Some(Input::Key(*key)),
+        Event::Paste(text) => Some(Input::Paste(text.clone())),
+        _ => None,
+    }
+}
+
+/// Offers `event` to what the last frame of `window` drew, the segment drawn
+/// last first, until one takes it.
+pub(crate) fn offer(window: Scope, event: &Event) -> Handled {
+    let Some(input) = input(event) else {
         return Handled::No;
     };
+    let drawn = window.kept::<Shown, _>(|shown| shown.drawn.clone()).unwrap_or_default();
 
-    for cursor in (0..chain.len().min(scopes.len())).rev() {
-        let props = SegmentProps {
-            chain,
-            scopes: scopes.clone(),
-            cursor,
+    for scope in drawn.into_iter().rev() {
+        if !scope.is_alive() || !scope.keeps::<Segment>() {
+            continue;
+        }
+        let Some(segment) = scope.kept::<Segment, _>(|segment| *segment) else {
+            continue;
         };
-
-        if chain[cursor].mount.offer(props, nav, event) == Handled::Yes {
+        if (segment.offer)(window, scope, &input) == Handled::Yes {
             return Handled::Yes;
         }
     }
@@ -198,160 +331,69 @@ pub(crate) fn offer(router: &Router<Tui>, nav: &dyn Any, event: &Event) -> Handl
     Handled::No
 }
 
-enum Input<'a> {
-    Key(&'a KeyEvent),
-    Paste(&'a str),
+/// Whether a segment of `window` closed it.
+pub(crate) fn closed(window: Scope) -> bool {
+    window.keeps::<Shown>() && window.kept::<Shown, _>(|shown| shown.closed).unwrap_or_default()
 }
 
-fn input(event: &Event) -> Option<Input<'_>> {
-    match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press => Some(Input::Key(key)),
-        Event::Paste(text) => Some(Input::Paste(text)),
-        _ => None,
+/// What a layout mounted: the child's drawing, or why it did not mount.
+///
+/// Drawn as it is - `cx.mount::<Services>(&()).draw(cx.frame(), area)` - or
+/// handed to an [`outlet`](LayoutCx::outlet). One that failed draws what went
+/// wrong in its place, and the others beside it stand.
+#[must_use = "a mounted child shows only where it is drawn"]
+pub struct Child {
+    pass: Pass,
+    window: Scope,
+    mounted: Result<Scope, anyhow::Error>,
+}
+
+impl Child {
+    /// Keeps the child asleep when a later frame leaves it out, instead of
+    /// letting it go: it comes back as it was left.
+    pub fn keep(self) -> Self {
+        if let Ok(scope) = &self.mounted {
+            self.pass.keep(*scope);
+        }
+        self
+    }
+
+    /// Why it did not mount, when it did not.
+    pub fn failure(&self) -> Option<&anyhow::Error> {
+        self.mounted.as_ref().err()
+    }
+
+    /// Draws it into `area` of `frame`.
+    pub fn draw(self, frame: &mut Frame, area: Rect) {
+        Node::from(self).draw(frame, area);
     }
 }
 
-pub const fn segment_entry<P: Page>() -> SegmentEntry<Tui> {
-    SegmentEntry::new::<P>(
-        install_page::<P>,
-        guinea_router::router::same_params::<P::Params>,
-        <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(std::marker::PhantomData) } as &dyn TuiMount,
-        P::CACHE_STATE_IN_MEMORY,
-    )
-    .written(P::DECLARED)
-}
-
-pub const fn layout_entry<L: Layout>() -> SegmentEntry<Tui> {
-    SegmentEntry::new::<L>(
-        install_layout::<L>,
-        guinea_router::router::same_params::<L::Params>,
-        <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(std::marker::PhantomData) } as &dyn TuiMount,
-        false,
-    )
-    .written(L::DECLARED)
-}
-
-fn install_page<P: Page>(
-    ctx: &FeatureInitContext,
-    params: &dyn std::any::Any,
-) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<P::Params, P>(params)?;
-    let (node, installs) = P::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
-    ctx.scope.keep(node);
-    Ok(())
-}
-
-fn install_layout<L: Layout>(
-    ctx: &FeatureInitContext,
-    params: &dyn std::any::Any,
-) -> anyhow::Result<()> {
-    let params = guinea_router::router::narrow::<L::Params, L>(params)?;
-    let (node, installs) = L::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
-    ctx.scope.keep(node);
-    Ok(())
-}
-
-/// A zero-sized marker per segment type: what a `const` entry points at to get
-/// its `&'static dyn Mount`.
-pub struct MountPage<P>(pub std::marker::PhantomData<P>);
-pub struct MountLayout<L>(pub std::marker::PhantomData<L>);
-
-impl<P: Page> Mount<Tui> for MountPage<P> {
-    fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
-        let at = props.scope();
-
-        Node::new(move |frame, area| {
-            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-            at.kept::<P, _>(|page| {
-                page.render(&mut PageCx {
-                    frame,
-                    area,
-                    props,
-                    page: std::marker::PhantomData,
-                })
-            });
-        })
+impl From<Child> for Node {
+    fn from(child: Child) -> Self {
+        match child.mounted {
+            Ok(scope) => drawn(child.window, scope),
+            Err(error) => failed(&error),
+        }
     }
 }
 
-impl<P: Page> TuiMount for MountPage<P> {
-    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled {
-        let Some(input) = input(event) else {
-            return Handled::No;
-        };
-        let at = props.scope();
-        let mut cx = InputCx {
-            props,
-            nav,
-            segment: std::marker::PhantomData,
-        };
-
-        at.kept::<P, _>(|page| match input {
-            Input::Key(key) => page.on_key(&mut cx, key),
-            Input::Paste(text) => page.on_paste(&mut cx, text),
-        })
-        .unwrap_or(Handled::No)
-    }
+fn feature_of<R: Reducer>(scope: Scope) -> (Rc<R>, Dispatch) {
+    let binding = binding::<R>(scope);
+    (binding.get(), binding.dispatch())
 }
 
-impl<L: Layout> TuiMount for MountLayout<L> {
-    fn offer(&self, props: SegmentProps<Tui>, nav: &dyn Any, event: &Event) -> Handled {
-        let Some(input) = input(event) else {
-            return Handled::No;
-        };
-        let at = props.scope();
-        let mut cx = InputCx {
-            props,
-            nav,
-            segment: std::marker::PhantomData,
-        };
-
-        at.kept::<L, _>(|layout| match input {
-            Input::Key(key) => layout.on_key(&mut cx, key),
-            Input::Paste(text) => layout.on_paste(&mut cx, text),
-        })
-        .unwrap_or(Handled::No)
-    }
-}
-
-impl<L: Layout> Mount<Tui> for MountLayout<L> {
-    fn view<'a>(&self, props: SegmentProps<Tui>, _nodes: &'a ()) -> Node {
-        let at = props.scope();
-
-        Node::new(move |frame, area| {
-            let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-            at.kept::<L, _>(|layout| {
-                layout.render(&mut LayoutCx {
-                    frame,
-                    area,
-                    props,
-                    layout: std::marker::PhantomData,
-                })
-            });
-        })
-    }
-}
-
-/// A one-segment chain, for a page drawn without a route tree.
-pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Tui>] {
-    single_entry_chain(segment_entry::<P>())
-}
-
-/// What a page's view is handed: the frame it draws into, the rectangle it was
-/// given, and a way to read the state its feature owns.
+/// What a page's drawing is handed: the frame it draws into, the rectangle it
+/// was given, and a way to read the state its feature owns.
 ///
 /// Carries the page type, not because drawing needs it, but because reading
-/// does: what a segment may read is a fact about where it sits, and this is
+/// does: what a page may read is a fact about where it sits, and this is
 /// where that fact enters the signature.
 pub struct PageCx<'a, 'b, P> {
     frame: &'a mut Frame<'b>,
     area: Rect,
-    props: SegmentProps<Tui>,
-    page: std::marker::PhantomData<fn() -> P>,
+    scope: Scope,
+    page: PhantomData<fn() -> P>,
 }
 
 impl<'b, P> PageCx<'_, 'b, P> {
@@ -362,9 +404,7 @@ impl<'b, P> PageCx<'_, 'b, P> {
     pub fn area(&self) -> Rect {
         self.area
     }
-}
 
-impl<P> PageCx<'_, '_, P> {
     /// The reducer's state and actions.
     ///
     /// No subscription, unlike the reactor's: a terminal redraws the whole
@@ -373,132 +413,62 @@ impl<P> PageCx<'_, '_, P> {
     ///
     /// The feature that answers is the one this page installed, or the nearest
     /// above that listed `R` in `Exports`. A read that reaches nothing panics
-    /// here, naming the chain it walked.
+    /// here, naming what the page was mounted under.
     ///
     /// The state comes shared, not copied: reading it every frame costs a
     /// count, and a change made mid-frame goes to a copy.
-    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    pub fn read<R>(&mut self) -> (Rc<R>, Dispatch)
     where
         R: Reducer,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
-}
 
-fn feature_of<R: Reducer>(
-    props: &SegmentProps<Tui>,
-) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch) {
-    let binding = props.binding::<R>();
-    (binding.get(), binding.dispatch())
-}
-
-/// What a layout's view is handed. Same as a page's, plus the child.
-pub struct LayoutCx<'a, 'b, L> {
-    frame: &'a mut Frame<'b>,
-    area: Rect,
-    props: SegmentProps<Tui>,
-    layout: std::marker::PhantomData<fn() -> L>,
-}
-
-impl<L> LayoutCx<'_, '_, L> {
-    /// See [`PageCx::read`].
-    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    /// The reducer's binding: its state, and a push straight into it.
+    ///
+    /// For state the UI owns outright, claimed with `cx.state::<R>().plain()`.
+    /// State a feature drives is not this: pushing into it goes behind the
+    /// back of whatever answers for it. Use [`PageCx::read`] and emit.
+    pub fn binding<R>(&self) -> ReducerBinding<R>
     where
         R: Reducer,
     {
-        feature_of::<R>(&self.props)
-    }
-}
-
-/// What a segment's input handler is handed: the state it may read, the
-/// actions it may ask for, and the navigator.
-pub struct InputCx<'a, S> {
-    props: SegmentProps<Tui>,
-    nav: &'a dyn Any,
-    segment: std::marker::PhantomData<fn() -> S>,
-}
-
-impl<S> InputCx<'_, S> {
-    /// See [`PageCx::read`].
-    pub fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer,
-    {
-        feature_of::<R>(&self.props)
+        binding::<R>(self.scope)
     }
 
-    /// The reducer's actions, without its state.
-    pub fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        self.props.binding::<R>().dispatch()
-    }
-
-    /// The navigator [`run`] was started with. Panics when `R` is not the
-    /// route type it was given.
-    pub fn navigate<R>(&self) -> NavigateHandle<Tui, R>
-    where
-        R: RouteChain<Tui> + Clone + PartialEq + 'static,
-    {
-        self.nav
-            .downcast_ref::<NavigateHandle<Tui, R>>()
-            .unwrap_or_else(|| {
-                panic!(
-                    "navigate::<{}>() but run() was given a different route type",
-                    std::any::type_name::<R>()
-                )
-            })
-            .clone()
-    }
-}
-
-impl<S> Reads for InputCx<'_, S> {
-    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(&self.props)
-    }
-
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        self.props.binding::<R>().dispatch()
+    /// The navigator over `R` nearest above this page.
+    ///
+    /// A move made while drawing is drawn in the next frame: this one
+    /// finishes with what it drew.
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
     }
 }
 
 impl<P> Reads for PageCx<'_, '_, P> {
-    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
     where
         R: Reducer + PartialEq,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
+    fn dispatch<R>(&self) -> Dispatch
     where
         R: Reducer,
     {
-        self.props.binding::<R>().dispatch()
+        binding::<R>(self.scope).dispatch()
     }
 }
 
-impl<L> Reads for LayoutCx<'_, '_, L> {
-    fn read<R>(&mut self) -> (std::rc::Rc<R>, guinea_core::feature::Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(&self.props)
-    }
-
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        self.props.binding::<R>().dispatch()
-    }
+/// What a layout's drawing is handed: the same as a page's, and mounting.
+pub struct LayoutCx<'a, 'b, L> {
+    frame: &'a mut Frame<'b>,
+    area: Rect,
+    scope: Scope,
+    window: Scope,
+    pass: Pass,
+    layout: PhantomData<fn() -> L>,
 }
 
 impl<'b, L> LayoutCx<'_, 'b, L> {
@@ -510,220 +480,138 @@ impl<'b, L> LayoutCx<'_, 'b, L> {
         self.area
     }
 
-    /// Draws the next segment down the chain into `area`.
-    ///
-    /// The whole reason a view is deferred: the child was mounted before any
-    /// frame existed, and only here is it known where it belongs.
-    pub fn outlet(&mut self, area: Rect) {
-        self.props.outlet(&()).draw(self.frame, area);
+    /// See [`PageCx::read`].
+    pub fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer,
+    {
+        feature_of::<R>(self.scope)
     }
 
-    /// Whether the segment directly below is `P`.
+    /// See [`PageCx::binding`].
+    pub fn binding<R>(&self) -> ReducerBinding<R>
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope)
+    }
+
+    /// See [`PageCx::navigate`].
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
+    }
+
+    /// Mounts `S` - a page or a layout - under this layout, with `params`.
     ///
-    /// What a tab strip needs, and cheaper than it looks: the chain already
-    /// says which page is mounted, so highlighting the current tab needs
-    /// neither the route nor a copy of it in state - and a copy is a second
-    /// thing to keep in step.
-    pub fn child_is<P: 'static>(&self) -> bool {
-        self.props
-            .chain
-            .get(self.props.cursor + 1)
-            .is_some_and(|entry| (entry.type_id)() == std::any::TypeId::of::<P>())
+    /// Installed the first frame this layout asks for it, in a scope of its
+    /// own under the layout's, and the same one every frame after that while
+    /// the params are equal. Other params are another child. A child the
+    /// layout stops asking for goes when its drawing returns - unless it was
+    /// [`keep`](Child::keep)s, which puts it to sleep instead.
+    ///
+    /// Handed back rather than drawn here: the layout decides where it goes,
+    /// with the frame it takes from this same context.
+    pub fn mount<S: Mountable>(&mut self, params: &S::Params) -> Child {
+        Child {
+            pass: self.pass.clone(),
+            window: self.window,
+            mounted: self.pass.mount::<S, _>(params, |cx| S::install(cx, params)),
+        }
+    }
+
+    /// What `nav` says is here, mounted by `mount`: the layout's `match` on
+    /// its own level of the route.
+    ///
+    /// What it mounted is what the navigator asks before it moves on. A child
+    /// that fails to mount puts the navigator back where it was, keeps what
+    /// stood here before, and leaves why on the navigator's
+    /// [`failure`](Navigator::failure).
+    pub fn outlet<R: Route>(&mut self, nav: &Navigator<R>, mount: impl FnOnce(&R, &mut Self) -> Child) -> Node {
+        let pass = self.pass.clone();
+        let window = self.window;
+        match pass.outlet(nav, |here| mount(here, self).mounted) {
+            Outlet::Here(scope) | Outlet::Held(scope) => drawn(window, scope),
+            Outlet::Failed(error) => failed(&error),
+            Outlet::Nowhere => Node::new(|_, _| {}),
+        }
+    }
+}
+
+impl<L> Reads for LayoutCx<'_, '_, L> {
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        feature_of::<R>(self.scope)
+    }
+
+    fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope).dispatch()
+    }
+}
+
+/// What a segment's input handler is handed: the state it may read, the
+/// actions it may ask for, the navigator, and the window.
+pub struct InputCx<'a, S> {
+    scope: Scope,
+    window: Scope,
+    segment: PhantomData<fn() -> &'a S>,
+}
+
+impl<S> InputCx<'_, S> {
+    /// See [`PageCx::read`].
+    pub fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer,
+    {
+        feature_of::<R>(self.scope)
+    }
+
+    /// The reducer's actions, without its state.
+    pub fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope).dispatch()
+    }
+
+    /// See [`PageCx::binding`].
+    pub fn binding<R>(&self) -> ReducerBinding<R>
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope)
+    }
+
+    /// See [`PageCx::navigate`]. A move made here is drawn in the next frame.
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
+    }
+
+    /// Closes the window: [`run`] returns after this event.
+    pub fn close(&self) {
+        self.window.kept::<Shown, _>(|shown| shown.closed = true);
+    }
+}
+
+impl<S> Reads for InputCx<'_, S> {
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        feature_of::<R>(self.scope)
+    }
+
+    fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.scope).dispatch()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use guinea_app::feature::FeatureHost;
-    use guinea_router::router::Router;
-    use ratatui::layout::{Constraint, Direction, Layout as RLayout};
-    use ratatui::widgets::Paragraph;
-    use ratatui::crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
-    use ratatui::{Terminal, backend::TestBackend};
-
-    #[derive(Default)]
-    struct Shell {
-        quitting: bool,
-    }
-
-    impl Layout for Shell {
-        type Params = ();
-        type Installs = ();
-
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
-            Ok((Self::default(), ()))
-        }
-
-        fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
-            let chunks = RLayout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(1), Constraint::Min(0)])
-                .split(cx.area());
-
-            let chrome = if self.quitting { "quitting" } else { "tabs" };
-            cx.frame().render_widget(Paragraph::new(chrome), chunks[0]);
-            cx.outlet(chunks[1]);
-        }
-
-        fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Char('x') => {
-                    self.quitting = true;
-                    Handled::Yes
-                }
-                _ => Handled::No,
-            }
-        }
-    }
-
-    #[derive(Default)]
-    struct Processes {
-        frames: u32,
-        filter: String,
-    }
-
-    impl Page for Processes {
-        type Params = ();
-        type Installs = ();
-
-        fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
-            Ok((Self::default(), ()))
-        }
-
-        fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {
-            self.frames += 1;
-
-            let area = cx.area();
-            let shown = format!("processes {} {}", self.frames, self.filter);
-            cx.frame().render_widget(Paragraph::new(shown.trim_end().to_string()), area);
-        }
-
-        fn on_key(&mut self, _cx: &mut InputCx<'_, Self>, key: &KeyEvent) -> Handled {
-            match key.code {
-                KeyCode::Char(typed @ ('x' | 'y')) => {
-                    self.filter.push(typed);
-                    Handled::Yes
-                }
-                _ => Handled::No,
-            }
-        }
-
-        fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, text: &str) -> Handled {
-            self.filter.push_str(text);
-            Handled::Yes
-        }
-    }
-
-    const CHAIN: [SegmentEntry<Tui>; 2] = [layout_entry::<Shell>(), segment_entry::<Processes>()];
-
-    struct Mounted {
-        router: Router<Tui>,
-        terminal: Terminal<TestBackend>,
-    }
-
-    impl Mounted {
-        fn new() -> Self {
-            let router = Router::<Tui>::new(FeatureHost::detached());
-            router
-                .activate(&CHAIN, vec![Box::new(()), Box::new(())])
-                .expect("activate");
-
-            Self {
-                router,
-                terminal: Terminal::new(TestBackend::new(20, 3)).expect("terminal"),
-            }
-        }
-
-        fn draw(&mut self) -> String {
-            let router = &self.router;
-            self.terminal
-                .draw(|frame| router.render(&()).draw(frame, frame.area()))
-                .expect("draw");
-
-            let buffer = self.terminal.backend().buffer();
-            (0..buffer.area.height)
-                .map(|y| {
-                    (0..buffer.area.width)
-                        .map(|x| buffer[(x, y)].symbol().to_string())
-                        .collect::<String>()
-                        .trim_end()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-                .trim_end()
-                .to_string()
-        }
-
-        fn offer(&self, event: Event) -> Handled {
-            offer(&self.router, &(), &event)
-        }
-    }
-
-    fn press(code: KeyCode) -> Event {
-        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    fn release(code: KeyCode) -> Event {
-        Event::Key(KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release))
-    }
-
-    #[test]
-    fn a_layout_places_the_page_it_wraps() {
-        assert_eq!(Mounted::new().draw(), "tabs\nprocesses 1");
-    }
-
-    #[test]
-    fn a_page_keeps_its_own_state_between_frames() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.draw(), "tabs\nprocesses 2");
-    }
-
-    #[test]
-    fn a_key_is_offered_to_the_page_before_the_layout() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.offer(press(KeyCode::Char('x'))), Handled::Yes);
-        assert_eq!(app.draw(), "tabs\nprocesses 2 x");
-    }
-
-    #[test]
-    fn a_key_the_page_leaves_reaches_the_layout() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.offer(press(KeyCode::Char('q'))), Handled::Yes);
-        assert_eq!(app.draw(), "quitting\nprocesses 2");
-    }
-
-    #[test]
-    fn a_key_nobody_takes_is_left_for_the_application() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.offer(press(KeyCode::Char('z'))), Handled::No);
-        assert_eq!(app.draw(), "tabs\nprocesses 2");
-    }
-
-    #[test]
-    fn a_release_is_not_offered() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.offer(release(KeyCode::Char('x'))), Handled::No);
-        assert_eq!(app.draw(), "tabs\nprocesses 2");
-    }
-
-    #[test]
-    fn a_paste_is_offered_as_one_text() {
-        let mut app = Mounted::new();
-        app.draw();
-
-        assert_eq!(app.offer(Event::Paste("db-01".into())), Handled::Yes);
-        assert_eq!(app.draw(), "tabs\nprocesses 2 db-01");
-    }
-}
+mod tests;

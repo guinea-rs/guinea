@@ -1,11 +1,12 @@
 //! A guard's question, in a terminal.
 //!
-//! The router parks a navigation and holds the question as plain data - three
+//! The navigator parks a move and holds the question as plain data - three
 //! strings. Drawing them is all a backend has to do, and a terminal can do it
 //! as well as any window manager: a box in the middle, and the two keys named
 //! on the buttons the others would draw.
 
 use guinea_core::guard::Ask;
+use guinea_router::navigator::Asking;
 use ratatui::Frame;
 use ratatui::crossterm::event::{Event, KeyCode};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -13,20 +14,16 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
-use guinea_router::router::Router;
-
-use crate::Tui;
-
 /// Y confirms, N or Esc cancels. Named on screen rather than assumed, because
 /// a terminal has no button to read them off.
-pub(crate) fn answer(router: &Router<Tui>, event: &Event) {
+pub(crate) fn answer(asking: &dyn Asking, event: &Event) {
     let Some(code) = crate::keys::pressed(event) else {
         return;
     };
 
     match code {
-        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => router.answer(true),
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => router.answer(false),
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => asking.answer(true),
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => asking.answer(false),
         _ => {}
     }
 }

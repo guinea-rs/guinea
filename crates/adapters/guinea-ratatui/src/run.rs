@@ -2,9 +2,9 @@
 //!
 //! Unlike the WinUI backend, which borrows the reactor's loop, here the loop
 //! is ours. That makes this the place where everything meets: the frame, the
-//! router, the tasks actors queued from other threads, and the keys.
+//! window's navigator, the tasks actors queued from other threads, and the
+//! keys.
 
-use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,129 +12,183 @@ use std::time::Duration;
 
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
+use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
-use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
+use guinea_router::mount::Pass;
+use guinea_router::navigator::{Asking, Navigator, Route};
+use ratatui::Terminal;
 use ratatui::crossterm::cursor::Show;
 use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::layout::Rect;
 use ratatui::prelude::CrosstermBackend;
-use ratatui::Terminal;
 
-use crate::{Handled, Tui, dialog};
-
-/// What the application wants after an event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Flow {
-    Continue,
-    Exit,
-}
+use crate::{Mountable, Shown, closed, dialog, drawn, failed, offer};
 
 /// How often the loop wakes with nothing to do. Sets the worst-case delay
 /// before work an actor finished on another thread reaches the screen.
 const TICK: Duration = Duration::from_millis(50);
 
-/// Takes over the terminal and runs until `on_event` says to stop.
+/// The terminal as a window: the layout it roots at, and where it starts.
 ///
-/// Input goes to the mounted segments first, leaf to root - see
-/// [`Page::on_key`](crate::Page::on_key). `on_event` is handed what none of
-/// them took, and every event that is not input: what is global to the
-/// application, like quitting or switching tabs.
+/// ```ignore
+/// Window::of::<Shell>().at(Route::Processes)
+/// ```
+pub struct Window {
+    root: Root,
+    start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
+}
+
+/// The layout a window roots at.
+pub(crate) struct Root {
+    mount: fn(&Pass) -> anyhow::Result<Scope>,
+}
+
+impl Root {
+    pub(crate) fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            mount: |pass| pass.mount::<L, ()>(&(), |cx| L::install(cx, &())),
+        }
+    }
+}
+
+impl Window {
+    /// A window whose content is the layout or page `L`.
+    pub fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            root: Root::of::<L>(),
+            start: None,
+        }
+    }
+
+    /// Starts the window at `route`, with a navigator of its own over `R`:
+    /// what the layouts in it find with `cx.navigate::<R>()`, and whose
+    /// guards' questions the window puts up as a dialog.
+    pub fn at<R: Route>(mut self, route: R) -> Self {
+        self.start = Some(Box::new(move |window| Rc::new(Navigator::open(window, route)) as Rc<dyn Asking>));
+        self
+    }
+}
+
+/// Makes `window` a window: somewhere to keep what its frames drew.
+pub(crate) fn open(window: Scope) {
+    window.keep(Shown::default());
+}
+
+/// One frame of the window whose scope is `window`: its root, mounted, and
+/// drawn into `area`.
+pub(crate) fn frame(window: Scope, root: &Root, frame: &mut ratatui::Frame, area: Rect) {
+    window.kept::<Shown, _>(|shown| shown.drawn.clear());
+
+    let pass = Pass::begin(window);
+    let mounted = (root.mount)(&pass);
+    pass.end();
+
+    match mounted {
+        Ok(root) => drawn(window, root).draw(frame, area),
+        Err(error) => failed(&error).draw(frame, area),
+    }
+}
+
+/// Installs `app`, takes over the terminal with the window `main` makes, and
+/// runs until a segment [`closes`](crate::InputCx::close) it.
 ///
-/// `initial` is a closure rather than a value because where an application
-/// starts is often something only the installed plugins know - a route saved
-/// by the last run, read out of the store the store plugin just provided.
-/// Called once, after `install`, before the first frame, with the installed
-/// application to read them from.
-pub fn run<R, F>(
-    app: GuineaApp,
-    initial: impl FnOnce(&AppRuntime) -> R,
-    mut on_event: F,
-) -> anyhow::Result<()>
-where
-    R: RouteChain<Tui> + Clone + PartialEq + 'static,
-    F: FnMut(&Event, &NavigateHandle<Tui, R>, &Router<Tui>) -> Flow,
-{
+/// `main` runs after the plugins are installed, and is handed the installed
+/// application to read what they provided from - where to start, say.
+///
+/// ```ignore
+/// guinea_ratatui::run(app, |_| Window::of::<Shell>().at(Route::Processes))
+/// ```
+///
+/// A root that fails to mount ends it with why, before the terminal is taken.
+pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread. The loop below drains it
     // between frames, and wakes every tick anyway, so nothing has to wake it.
     let ui = UiLoop::install();
 
-    // Genuinely this thread: it is the one that will draw, and nothing else
-    // touches the router or the scopes.
     let runtime = match app.install() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let context = runtime.context();
-    let initial = initial(&runtime);
+    let window = main(&runtime);
 
-    let router = Rc::new(Router::<Tui>::new(FeatureHost::under(&context)));
-    let route = Rc::new(RefCell::new(initial.clone()));
-    let nav = NavigateHandle::new(router.clone(), {
-        let route = route.clone();
-        RouteSink::new(move |next: R| *route.borrow_mut() = next)
-    });
+    let host = FeatureHost::under(&runtime.context());
+    let scope = host.scope();
+    guinea_app::app::roots::set_label(scope, MAIN);
+    open(scope);
 
-    router.navigate(initial.clone())?;
+    let asking = window.start.map(|start| start(scope));
+
+    let pass = Pass::begin(scope);
+    let mounted = (window.root.mount)(&pass);
+    pass.end();
+    if let Err(error) = mounted {
+        return Err(error.context("guinea: mounting the main window"));
+    }
 
     let outcome = Screen::enter().and_then(|mut screen| {
-        let outcome = pump(&mut screen, &ui, &router, &nav, &mut on_event);
+        let outcome = pump(&mut screen, &ui, scope, &window.root, asking.as_deref());
         let left = screen.leave();
         outcome.and(left)
     });
 
-    router.deactivate();
+    drop(asking);
+    drop(host);
     drop(runtime);
     outcome
 }
 
-fn pump<R, F>(
+/// What [`run`] calls the window it opens.
+pub const MAIN: &str = "main";
+
+fn pump(
     screen: &mut Screen,
     ui: &UiLoop,
-    router: &Router<Tui>,
-    nav: &NavigateHandle<Tui, R>,
-    on_event: &mut F,
-) -> anyhow::Result<()>
-where
-    R: RouteChain<Tui> + Clone + PartialEq + 'static,
-    F: FnMut(&Event, &NavigateHandle<Tui, R>, &Router<Tui>) -> Flow,
-{
+    window: Scope,
+    root: &Root,
+    asking: Option<&dyn Asking>,
+) -> anyhow::Result<()> {
     loop {
-        let asking = router.pending();
+        let question = asking.and_then(Asking::pending);
 
-        screen.terminal.draw(|frame| {
-            router.render(&()).draw(frame, frame.area());
-            if let Some(ask) = &asking {
-                dialog::draw(frame, ask);
+        screen.terminal.draw(|drawing| {
+            let area = drawing.area();
+            frame(window, root, drawing, area);
+            if let Some(ask) = &question {
+                dialog::draw(drawing, ask);
             }
         })?;
 
         if event::poll(TICK)? {
             let event = event::read()?;
 
-            // While a question is up the application does not see the keys.
-            // Without this the tabs keep switching underneath the dialog -
-            // the obligation every backend that draws over its own frame
-            // carries, and the easiest one to forget.
-            match &asking {
-                Some(_) => dialog::answer(router, &event),
-                None => {
-                    if crate::offer(router, nav, &event) == Handled::No
-                        && on_event(&event, nav, router) == Flow::Exit
-                    {
-                        return Ok(());
-                    }
-                }
+            hear(window, asking, &event);
+            if closed(window) {
+                return Ok(());
             }
         }
 
-        // After the keys, so a navigation made above is already installed and
-        // whatever it started can run in the same breath.
+        // After the keys, so what a key started can run in the same breath.
         ui.drain();
+    }
+}
+
+/// Hands `event` to the question that is up, or else to what the window drew.
+///
+/// While a question is up the window does not see the keys. Without this the
+/// tabs keep switching underneath the dialog - the obligation every backend
+/// that draws over its own frame carries, and the easiest one to forget.
+pub(crate) fn hear(window: Scope, asking: Option<&dyn Asking>, event: &Event) {
+    match asking.filter(|asking| asking.pending().is_some()) {
+        Some(asking) => dialog::answer(asking, event),
+        None => {
+            offer(window, event);
+        }
     }
 }
 

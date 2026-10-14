@@ -11,6 +11,7 @@ repository.workspace = true
 guinea-core.workspace = true
 guinea-app.workspace = true
 guinea-router.workspace = true
+guinea-macros.workspace = true
 anyhow.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
@@ -20,5 +21,4 @@ tracing.workspace = true
 workspace = true
 
 [dev-dependencies]
-guinea-macros.workspace = true
 guinea-core = { workspace = true, features = ["test-utils"] }

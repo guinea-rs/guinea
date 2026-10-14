@@ -115,8 +115,9 @@ pub enum Point {
         file: &'static str,
         line: u32,
     },
-    /// A page or layout drew itself, and how long that took. Recorded only
-    /// for the frames worth looking at - see `observability::Rendering`.
+    /// A page or layout drew itself, and how long that took. Recorded while
+    /// devtools watch, for a draw that took `GUINEA_TRACE_RENDER_MS` or
+    /// longer, 2 unless set; for every draw under a test.
     Render {
         segment: &'static str,
         took_us: u64,

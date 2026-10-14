@@ -16,12 +16,11 @@
 //! can hold several webviews and a root belongs to the webview. A window is
 //! what a shell puts a root in, and guinea does not need to know.
 //!
-//! Kept per thread, like the scope trees it names: a root is open on the
-//! thread its tree is on, and nowhere else.
+//! Kept in the root's own scope: a root is open for as long as that scope is
+//! there, and goes with it.
 //!
 //! [`FeatureHost`]: crate::feature::FeatureHost
 
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use guinea_core::scope::Scope;
@@ -46,125 +45,64 @@ impl std::fmt::Display for RootId {
     }
 }
 
-thread_local! {
-    static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
-}
-
-fn open_roots<T: Default>(read: impl FnOnce(&mut Vec<Open>) -> T) -> T {
-    OPEN.try_with(|open| read(&mut open.borrow_mut()))
-        .unwrap_or_default()
-}
-
-#[derive(Clone, Debug)]
-struct Open {
+/// What a root's own scope keeps: which root it is, and what it is called.
+struct Root {
     id: RootId,
     label: Option<String>,
-    scope: Scope,
 }
 
-/// The root `scope` is in: the one whose own scope is `scope` or above it.
-/// `None` for a scope under no root - the application's own.
+impl Drop for Root {
+    fn drop(&mut self) {
+        tracing::debug!(id = %self.id, "root closed");
+    }
+}
+
+/// Opens a root on `window`, its own scope, under a new id. It is open for as
+/// long as `window` is there.
+pub(crate) fn open(window: Scope) -> RootId {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
+
+    window.keep(Root { id, label: None });
+    tracing::debug!(%id, "root opened");
+    id
+}
+
+/// The root's own scope `scope` is in: `scope` or the nearest above it that
+/// opened one. `None` for a scope under no root - the application's own.
+fn own(scope: Scope) -> Option<Scope> {
+    std::iter::successors(Some(scope), Scope::parent).find(Scope::keeps::<Root>)
+}
+
+/// The root `scope` is in. `None` for a scope under no root - the
+/// application's own - and for one that is gone.
 pub fn of(scope: Scope) -> Option<RootId> {
-    let up: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
-
-    open_roots(|open| {
-        up.iter()
-            .find_map(|scope| open.iter().find(|root| root.scope == *scope))
-            .map(|root| root.id)
-    })
+    own(scope)?.kept::<Root, _>(|root| root.id)
 }
 
-/// The roots open on this thread, oldest first.
-pub fn roots() -> Vec<RootId> {
-    open_roots(|open| open.iter().map(|root| root.id).collect())
-}
-
-/// What this root is called, if the shell named it.
+/// What the root `scope` is in is called, if the shell named it.
 ///
 /// An id lasts one run; a name lasts as long as the application does. Anything
 /// that remembers something *about* a window between runs - where it was, how
 /// big it was - has to key on the name, because tomorrow's ids are new.
-pub fn label(id: RootId) -> Option<String> {
-    open_roots(|open| {
-        open.iter()
-            .find(|root| root.id == id)
-            .and_then(|root| root.label.clone())
-    })
+pub fn label(scope: Scope) -> Option<String> {
+    own(scope)?.kept::<Root, _>(|root| root.label.clone()).flatten()
 }
 
-/// The open root called `label`, if there is one.
-pub fn labelled(label: &str) -> Option<RootId> {
-    open_roots(|open| {
-        open.iter()
-            .find(|root| root.label.as_deref() == Some(label))
-            .map(|root| root.id)
-    })
-}
-
-/// Names a root, for whoever opened it: `"main"`, `"settings"`, `"log"`.
+/// Names the root `scope` is in: `"main"`, `"settings"`, `"log"`.
 ///
-/// The shell's call - it is the one that knows which window this is. Naming
-/// two open roots the same is allowed but pointless: [`labelled`] then answers
-/// with the older one.
-pub fn set_label(id: RootId, label: impl Into<String>) {
+/// The shell's call - it is the one that knows which window this is.
+///
+/// # Panics
+///
+/// When `scope` is in no root.
+pub fn set_label(scope: Scope, label: impl Into<String>) {
+    let Some(own) = own(scope) else {
+        panic!("naming the root {scope:?} is in, and it is in none");
+    };
+
     let label = label.into();
-    open_roots(|open| {
-        if let Some(root) = open.iter_mut().find(|root| root.id == id) {
-            root.label = Some(label);
-        }
-    });
-}
-
-/// How many roots are open. `0` before the first one, and again after the
-/// last one closes.
-pub fn count() -> usize {
-    open_roots(|open| open.len())
-}
-
-pub fn is_open(id: RootId) -> bool {
-    open_roots(|open| open.iter().any(|root| root.id == id))
-}
-
-/// A root's place in the registry, held by whoever owns the root.
-///
-/// Closing is a drop: the host goes, the scopes under it go, and the entry
-/// goes with them. Nothing has to remember to deregister, which is the only
-/// way a registry stays true.
-#[derive(Debug)]
-pub struct Registration {
-    id: RootId,
-}
-
-impl Registration {
-    /// The root whose own scope is `scope`.
-    pub(crate) fn open(scope: Scope) -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
-
-        open_roots(|open| {
-            open.push(Open {
-                id,
-                label: None,
-                scope,
-            })
-        });
-
-        tracing::debug!(%id, roots = count(), "root opened");
-
-        Self { id }
-    }
-
-    pub fn id(&self) -> RootId {
-        self.id
-    }
-}
-
-impl Drop for Registration {
-    fn drop(&mut self) {
-        open_roots(|open| open.retain(|root| root.id != self.id));
-
-        tracing::debug!(id = %self.id, roots = count(), "root closed");
-    }
+    own.kept::<Root, _>(|root| root.label = Some(label));
 }
 
 #[cfg(test)]
@@ -173,103 +111,63 @@ mod tests {
     use guinea_core::scope::ScopeTree;
 
     #[test]
-    fn a_root_is_open_while_its_registration_lives() {
-        let app = ScopeTree::new();
-        let root = Registration::open(app.scope());
-        let id = root.id();
-
-        assert!(is_open(id));
-        assert!(roots().contains(&id));
-
-        drop(root);
-        assert!(!is_open(id), "closing is a drop, with nothing to remember");
-    }
-
-    #[test]
     fn a_scope_is_in_the_root_whose_scope_it_is_under() {
         let app = ScopeTree::new();
         let window = app.child();
-        let root = Registration::open(window);
+        let id = open(window);
         let page = window.child().child();
 
-        assert_eq!(of(page), Some(root.id()));
-        assert_eq!(of(window), Some(root.id()));
+        assert_eq!(of(page), Some(id));
+        assert_eq!(of(window), Some(id));
         assert_eq!(of(app.scope()), None, "the application is in no root");
     }
 
     #[test]
-    fn a_root_opened_on_another_thread_is_not_one_of_this_thread_s() {
-        let (opened, id) = std::sync::mpsc::channel();
-        let (close, closing) = std::sync::mpsc::channel::<()>();
-        let other = std::thread::spawn(move || {
-            let app = ScopeTree::new();
-            let root = Registration::open(app.scope());
-            opened.send(root.id()).expect("the test is listening");
-            closing.recv().ok();
-        });
-        let id = id.recv().expect("the other thread opened a root");
+    fn a_root_goes_with_its_scope() {
+        let app = ScopeTree::new();
+        let window = app.child();
+        let page = window.child();
+        open(window);
 
-        let seen = (is_open(id), roots().contains(&id));
-        close.send(()).ok();
-        other.join().expect("the other thread closed its root");
+        window.remove();
 
-        assert_eq!(seen, (false, false));
+        assert_eq!((of(window), of(page)), (None, None));
     }
 
     #[test]
-    fn a_name_outlives_the_id_it_was_given_to() {
-        // What a plugin restoring a window's size needs: today's id is new,
-        // yesterday's name is the same.
+    fn a_root_is_named_from_anywhere_in_it() {
         let app = ScopeTree::new();
-        let first = Registration::open(app.scope());
-        set_label(first.id(), "main");
-        assert_eq!(label(first.id()).as_deref(), Some("main"));
-        assert_eq!(labelled("main"), Some(first.id()));
-        drop(first);
+        let window = app.child();
+        let page = window.child();
+        open(window);
 
-        assert_eq!(labelled("main"), None, "a name is only for an open root");
+        set_label(page, "main");
 
-        let again = Registration::open(app.scope());
-        set_label(again.id(), "main");
-        assert_eq!(labelled("main"), Some(again.id()));
+        assert_eq!(label(window).as_deref(), Some("main"));
+        assert_eq!(label(page).as_deref(), Some("main"));
+        assert_eq!(label(app.scope()), None, "the application is in no root");
     }
 
     #[test]
     fn an_unnamed_root_has_no_name() {
         let app = ScopeTree::new();
-        let root = Registration::open(app.scope());
-        assert_eq!(label(root.id()), None);
+        let window = app.child();
+        open(window);
+
+        assert_eq!(label(window), None);
     }
 
     #[test]
-    fn ids_are_not_reused() {
+    fn two_windows_are_two_roots_and_ids_are_not_reused() {
         let app = ScopeTree::new();
-        let first = Registration::open(app.scope());
-        let id = first.id();
-        drop(first);
+        let first = app.child();
+        let gone = open(first);
+        first.remove();
 
-        let second = Registration::open(app.scope());
+        let second = open(app.child());
+        let third = open(app.child());
 
-        assert_ne!(
-            second.id(),
-            id,
-            "a plugin holding an id must never be handed someone else's root"
-        );
-    }
-
-    #[test]
-    fn roots_are_listed_side_by_side_and_leave_one_at_a_time() {
-        let app = ScopeTree::new();
-        let one = Registration::open(app.scope());
-        let two = Registration::open(app.scope());
-        let (first, second) = (one.id(), two.id());
-
-        let open = roots();
-        assert!(open.contains(&first) && open.contains(&second));
-
-        drop(one);
-        assert!(!roots().contains(&first));
-        assert!(is_open(second), "closing one root leaves the other alone");
-        drop(two);
+        assert_ne!(second, gone, "a plugin holding an id must never be handed someone else's root");
+        assert_ne!(second, third);
     }
 }

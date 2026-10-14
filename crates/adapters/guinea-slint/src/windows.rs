@@ -40,6 +40,8 @@ pub(crate) struct SlintWindows {
 
 struct Entry {
     window: Box<dyn Handle>,
+    /// What the root is called, said with every change.
+    label: Option<String>,
     /// Where what the window does is published.
     app: Scope,
     /// The last geometry published, so a poll that finds nothing new says
@@ -53,11 +55,13 @@ impl SlintWindows {
     pub(crate) fn attach<W: ComponentHandle + 'static>(
         self: &std::sync::Arc<Self>,
         root: RootId,
+        label: Option<String>,
         app: Scope,
         window: &W,
     ) {
         let entry = Entry {
             window: Box::new(window.as_weak()),
+            label,
             app,
             last: None,
         };
@@ -117,6 +121,7 @@ impl SlintWindows {
             tracing::debug!(%root, ?geometry, "window changed");
             entry.app.publish(WindowChanged {
                 root: *root,
+                label: entry.label.clone(),
                 geometry,
             });
         }

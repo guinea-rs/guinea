@@ -157,7 +157,7 @@ impl<U: Ui> Inspected for Router<U> {
 
         RouterView {
             root,
-            label: roots::label(root),
+            label: roots::label(self.host().scope()),
             backend: short(std::any::type_name::<U>()),
             route: self.described(),
             segments,

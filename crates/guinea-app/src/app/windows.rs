@@ -164,9 +164,12 @@ pub type Done = Result<(), Unsupported>;
 /// party that can know. Carries the whole geometry rather than what changed:
 /// what listens is code that stores it, and storing half of it is worse than
 /// storing it whole.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct WindowChanged {
     pub root: RootId,
+    /// What the root is called, when the shell named it - what geometry is
+    /// remembered under between runs.
+    pub label: Option<String>,
     pub geometry: Geometry,
 }
 
@@ -293,15 +296,15 @@ mod tests {
     fn a_shell_answers_for_what_it_has_and_says_so_for_the_rest() {
         let service = WindowService::new(Meagre);
         let app = guinea_core::scope::ScopeTree::new();
-        let root = super::super::roots::Registration::open(app.scope());
+        let root = super::super::roots::open(app.child());
 
-        let geometry = service.geometry(root.id()).expect("this one it knows");
+        let geometry = service.geometry(root).expect("this one it knows");
         assert_eq!(geometry.size.unwrap().width, 420.0);
         assert_eq!(geometry.position, None, "unknown is not zero");
 
         // A caller that can carry on should: nothing went wrong, the shell
         // just has no such concept.
-        assert_eq!(service.start_drag(root.id()), Err(Unsupported));
+        assert_eq!(service.start_drag(root), Err(Unsupported));
     }
 
     const PRIMARY: WorkArea = WorkArea {

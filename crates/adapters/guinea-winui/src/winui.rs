@@ -1614,10 +1614,9 @@ where
         #[cfg(feature = "harness")]
         crate::harness::remember_router(&router);
 
-        crate::run::standing(&router);
-        let main = guinea_app::app::roots::labelled(crate::run::MAIN).is_none();
+        let main = crate::run::standing(&router);
         if main {
-            guinea_app::app::roots::set_label(router.root(), crate::run::MAIN);
+            guinea_app::app::roots::set_label(router.host().scope(), crate::run::MAIN);
         }
 
         let sender = cx.sender();

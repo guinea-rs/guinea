@@ -53,7 +53,7 @@ where
     let initial = initial(&runtime);
 
     let router = Rc::new(Router::<Egui>::new(FeatureHost::under(&context)));
-    guinea_app::app::roots::set_label(router.root(), MAIN);
+    guinea_app::app::roots::set_label(router.host().scope(), MAIN);
 
     let route = Rc::new(RefCell::new(initial.clone()));
     nav::install(NavigateHandle::new(router.clone(), {

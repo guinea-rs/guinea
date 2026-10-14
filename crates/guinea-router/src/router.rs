@@ -1270,7 +1270,7 @@ impl<U: Ui> Router<U> {
         installed_for(&route, self.host.application().map(|app| app.scope));
 
         let _navigating = guinea_core::trace::enter(|| guinea_core::trace::Point::Navigate {
-            root: guinea_app::app::roots::label(self.root())
+            root: guinea_app::app::roots::label(self.host.scope())
                 .unwrap_or_else(|| self.root().to_string()),
             to: route.name().to_string(),
         });

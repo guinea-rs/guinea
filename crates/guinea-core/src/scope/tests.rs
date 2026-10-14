@@ -565,6 +565,19 @@ fn a_scope_that_went_keeps_nothing() {
     assert_eq!(page.kept::<u32, _>(|kept| *kept), None);
 }
 
+#[test]
+fn whether_a_scope_keeps_a_type_is_asked_without_taking_it() {
+    let tree = ScopeTree::new();
+    let page = tree.child();
+    page.keep(1u32);
+
+    let asked = (page.keeps::<u32>(), page.keeps::<i64>(), tree.scope().keeps::<u32>());
+    page.remove();
+
+    assert_eq!(asked, (true, false, false));
+    assert!(!page.keeps::<u32>(), "a scope that went keeps nothing");
+}
+
 #[derive(Default)]
 struct Counted(Option<Rc<std::cell::Cell<u32>>>);
 

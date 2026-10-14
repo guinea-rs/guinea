@@ -17,7 +17,7 @@ use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::host::AppHost;
 use super::plugin::{AppFeature, Application, Plugin};
-use super::roots::Registration;
+use super::roots;
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -92,7 +92,6 @@ impl DerefMut for TestApp {
 pub struct Harness {
     segment: FeatureInitContext,
     _scope: ScopeGuard,
-    _root: Registration,
     app: TestApp,
     recorder: Recorder,
     executor: Installed,
@@ -107,7 +106,7 @@ impl Harness {
         let executor = executor::install(seed);
         let app = TestApp::new();
         let scope = app.host().scope().child().guard();
-        let root = Registration::open(scope.scope());
+        roots::open(scope.scope());
 
         let segment = FeatureInitContext {
             scope_cx: ScopeContext::new(scope.scope()),
@@ -117,7 +116,6 @@ impl Harness {
         Self {
             segment,
             _scope: scope,
-            _root: root,
             app,
             recorder: Recorder::start(),
             executor,

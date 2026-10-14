@@ -1,7 +1,7 @@
 use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
-use crate::app::roots::{Registration, RootId};
+use crate::app::roots::{self, RootId};
 
 /// What a feature needs to be installed into a scope: the window's own scope,
 /// under the application's and what its plugins provided.
@@ -21,9 +21,8 @@ pub struct FeatureHost {
     _tree: Option<ScopeTree>,
     /// The application's own context, when there is one.
     app: Option<ScopeContext>,
-    /// This host *is* the root, so its registration is held here: the entry
-    /// goes when the host goes, together with the scopes under it.
-    root: Registration,
+    /// This host *is* the root: its scope keeps it, and it goes with it.
+    root: RootId,
 }
 
 impl FeatureHost {
@@ -46,7 +45,7 @@ impl FeatureHost {
 
     fn open(parent: Scope, tree: Option<ScopeTree>, app: Option<ScopeContext>) -> Self {
         let scope = parent.child();
-        let root = Registration::open(scope);
+        let root = roots::open(scope);
 
         Self {
             scope: scope.guard(),
@@ -69,7 +68,7 @@ impl FeatureHost {
 
     /// Which root this is - the one a feature installed here belongs to.
     pub fn root(&self) -> RootId {
-        self.root.id()
+        self.root
     }
 
     /// The context a feature installs through, for the segment at `cursor`

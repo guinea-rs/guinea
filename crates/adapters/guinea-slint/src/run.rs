@@ -79,16 +79,16 @@ where
 
     let router = Rc::new(Router::<Slint>::new(FeatureHost::under(&context)));
 
-    // The window belongs to this root, and stops belonging to it below, when
-    // the loop is over.
-    let root_id = router.root();
-    shell.attach(root_id, context.scope, &window);
-
     // Named, so that anything remembering something about this window between
     // runs has a key that outlives the id. One window per `run`, so it is the
     // main one; an application opening more names them itself.
-    guinea_app::app::roots::set_label(root_id, MAIN);
-    restore(&shell, root_id, saved);
+    guinea_app::app::roots::set_label(router.host().scope(), MAIN);
+
+    // The window belongs to this root, and stops belonging to it below, when
+    // the loop is over.
+    let root_id = router.root();
+    shell.attach(root_id, Some(MAIN.to_string()), context.scope, &window);
+    restore(&shell, root_id, MAIN, saved);
     let _watching = windows::watch(shell.clone());
 
     let window = Rc::new(window);
@@ -126,14 +126,11 @@ where
 ///
 /// Before the loop starts, which is the whole point: a window restored after
 /// it is on screen jumps, and a jump is what this is meant to avoid.
-fn restore(shell: &SlintWindows, root: RootId, saved: Option<SavedGeometry>) {
-    let Some(label) = guinea_app::app::roots::label(root) else {
-        return;
-    };
+fn restore(shell: &SlintWindows, root: RootId, label: &str, saved: Option<SavedGeometry>) {
     let Some(saved) = saved else {
         return;
     };
-    let Some(geometry) = saved.for_label(&label) else {
+    let Some(geometry) = saved.for_label(label) else {
         return;
     };
 

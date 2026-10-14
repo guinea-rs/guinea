@@ -23,6 +23,12 @@ impl Scope {
         drop(replaced);
     }
 
+    /// Whether a `T` is kept here; `false` once this scope is gone.
+    pub fn keeps<T: 'static>(&self) -> bool {
+        self.data()
+            .is_some_and(|data| data.kept.values.borrow().contains_key(&TypeId::of::<T>()))
+    }
+
     /// Runs `with` on the `T` kept here, and `None` once this scope is gone -
     /// a redraw queued before it went finds nothing to draw.
     ///

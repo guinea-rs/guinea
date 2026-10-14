@@ -26,13 +26,15 @@ thread_local! {
 }
 
 /// A window's router, to be taken down before the application is: its
-/// segments read from what the application holds.
-pub(crate) fn standing(router: &Rc<Router<WinUi>>) {
+/// segments read from what the application holds. Whether it is the only
+/// window standing - the main one.
+pub(crate) fn standing(router: &Rc<Router<WinUi>>) -> bool {
     ROUTERS.with(|routers| {
         let mut routers = routers.borrow_mut();
         routers.retain(|router| router.strong_count() > 0);
         routers.push(Rc::downgrade(router));
-    });
+        routers.len() == 1
+    })
 }
 
 /// The main window's first route did not install: the application ends, and

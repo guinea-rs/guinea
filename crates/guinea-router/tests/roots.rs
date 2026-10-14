@@ -58,13 +58,13 @@ fn a_router_is_a_root_while_it_lives() {
 
     let router = open();
     let id = router.root();
+    let window = router.host().scope();
 
-    assert!(roots::is_open(id));
-    assert!(roots().contains(&id));
+    assert_eq!(roots::of(window), Some(id));
 
     drop(router);
 
-    assert!(!roots::is_open(id), "the entry goes with the host");
+    assert_eq!(roots::of(window), None, "the root goes with the host");
     assert!(
         TORN_DOWN.with(Cell::get),
         "and so do the scopes under it - closing a window has to end its features"
@@ -77,20 +77,16 @@ fn closing_one_root_leaves_the_other_running() {
     // and nothing else.
     let first = open();
     let second = open();
-    let (gone, staying) = (first.root(), second.root());
+    let (gone, staying) = (first.host().scope(), second.host().scope());
 
-    assert_ne!(gone, staying, "each host is its own root");
+    assert_ne!(first.root(), second.root(), "each host is its own root");
 
     drop(first);
 
-    assert!(!roots::is_open(gone));
-    assert!(roots::is_open(staying));
+    assert_eq!(roots::of(gone), None);
+    assert_eq!(roots::of(staying), Some(second.root()));
     assert!(
         second.active_scope().is_some(),
         "the surviving root still has its chain installed"
     );
-}
-
-fn roots() -> Vec<roots::RootId> {
-    roots::roots()
 }

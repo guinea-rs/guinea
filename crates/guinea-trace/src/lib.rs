@@ -221,26 +221,28 @@ pub fn resume(cause: Option<Cause>) -> Resumed {
 /// A guard held across `.await` would stay on the thread the task started on;
 /// this sets the cause for each poll instead.
 pub fn within<F: Future>(cause: Option<Cause>, future: F) -> Within<F> {
-    Within {
-        cause,
-        future: Box::pin(future),
-    }
+    Within { cause, future }
 }
 
-pub struct Within<F> {
-    cause: Option<Cause>,
-    future: std::pin::Pin<Box<F>>,
+pin_project_lite::pin_project! {
+    /// A future with a cause current while it is polled; see [`within`].
+    pub struct Within<F> {
+        cause: Option<Cause>,
+        #[pin]
+        future: F,
+    }
 }
 
 impl<F: Future> Future for Within<F> {
     type Output = F::Output;
 
     fn poll(
-        mut self: std::pin::Pin<&mut Self>,
+        self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<F::Output> {
-        let _resumed = resume(self.cause);
-        self.future.as_mut().poll(cx)
+        let this = self.project();
+        let _resumed = resume(*this.cause);
+        this.future.poll(cx)
     }
 }
 
@@ -319,6 +321,20 @@ mod tests {
                 Trace::End { id, .. } => ("end", *id, None),
             })
             .collect()
+    }
+
+    #[test]
+    fn within_holds_its_future_in_place() {
+        let big = [0u8; 256];
+        let future = async move { big.len() };
+        let held = std::mem::size_of_val(&future);
+
+        let within = within(None, future);
+        assert!(
+            std::mem::size_of_val(&within) >= held,
+            "{} bytes hold a {held}-byte future: it went to the heap",
+            std::mem::size_of_val(&within)
+        );
     }
 
     #[test]

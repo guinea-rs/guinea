@@ -81,6 +81,7 @@ winnow = "1.0"
 # --- Async ---
 tokio = { version = "1.49.0", features = ["full"] }
 futures-core = "0.3"
+pin-project-lite = "0.2"
 
 # --- Serialization & Data ---
 serde = { version = "1.0.228", features = ["derive"] }

@@ -1,6 +1,7 @@
 //! One JSON object per line.
 
-use std::io::Write;
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 use tracing::field::{Field, Visit};
@@ -25,15 +26,37 @@ const RESERVED: [&str; 4] = ["ts", "level", "target", "cause"];
 ///     .with(guinea_trace::json(log))
 ///     .init();
 /// ```
+///
+/// A line that cannot be written is said on stderr, once for each run of
+/// lines that fail, since tracing is what would have carried the news.
 pub fn json<W>(writer: W) -> Json<W>
 where
     W: for<'w> MakeWriter<'w> + 'static,
 {
-    Json { writer }
+    Json {
+        writer,
+        failing: AtomicBool::new(false),
+    }
 }
 
 pub struct Json<W> {
     writer: W,
+    failing: AtomicBool,
+}
+
+impl<W> Json<W> {
+    fn wrote(&self, written: io::Result<()>) {
+        match written {
+            Ok(()) => self.failing.store(false, Ordering::Relaxed),
+            Err(error) if !self.failing.swap(true, Ordering::Relaxed) => {
+                eprintln!(
+                    "guinea-trace: a JSON line could not be written ({error}); \
+                     the lines failing after it go unsaid until one is written"
+                );
+            }
+            Err(_) => {}
+        }
+    }
 }
 
 impl<S, W> tracing_subscriber::Layer<S> for Json<W>
@@ -62,11 +85,11 @@ where
 
         event.record(&mut line);
 
-        let Ok(bytes) = line.into_bytes() else {
-            return;
-        };
-
-        let _ = self.writer.make_writer_for(meta).write_all(&bytes);
+        let written = line
+            .into_bytes()
+            .map_err(io::Error::from)
+            .and_then(|bytes| self.writer.make_writer_for(meta).write_all(&bytes));
+        self.wrote(written);
     }
 }
 

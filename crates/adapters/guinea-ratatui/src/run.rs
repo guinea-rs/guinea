@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
+use guinea_core::ui_thread::UiLoop;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use ratatui::crossterm::cursor::Show;
 use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
@@ -22,7 +23,7 @@ use ratatui::crossterm::terminal::{
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::{Handled, Tui, dialog, dispatcher};
+use crate::{Handled, Tui, dialog};
 
 /// What the application wants after an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,8 +58,9 @@ where
     F: FnMut(&Event, &NavigateHandle<Tui, R>, &Router<Tui>) -> Flow,
 {
     // Before any actor exists: the first thing a feature does during install
-    // may already queue work back to this thread.
-    dispatcher::install();
+    // may already queue work back to this thread. The loop below drains it
+    // between frames, and wakes every tick anyway, so nothing has to wake it.
+    let ui = UiLoop::install();
 
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
@@ -80,7 +82,7 @@ where
     router.navigate(initial.clone())?;
 
     let outcome = Screen::enter().and_then(|mut screen| {
-        let outcome = pump(&mut screen, &router, &nav, &mut on_event);
+        let outcome = pump(&mut screen, &ui, &router, &nav, &mut on_event);
         let left = screen.leave();
         outcome.and(left)
     });
@@ -92,6 +94,7 @@ where
 
 fn pump<R, F>(
     screen: &mut Screen,
+    ui: &UiLoop,
     router: &Router<Tui>,
     nav: &NavigateHandle<Tui, R>,
     on_event: &mut F,
@@ -131,7 +134,7 @@ where
 
         // After the keys, so a navigation made above is already installed and
         // whatever it started can run in the same breath.
-        dispatcher::drain();
+        ui.drain();
     }
 }
 

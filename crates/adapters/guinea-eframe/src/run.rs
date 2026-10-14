@@ -7,12 +7,14 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
+use guinea_core::ui_thread::UiLoop;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 
-use crate::{Egui, dispatcher, nav};
+use crate::{Egui, nav};
 
 /// What [`run`] calls the root it opens.
 pub const MAIN: &str = "main";
@@ -39,8 +41,17 @@ where
     R: RouteChain<Egui> + Clone + PartialEq + 'static,
 {
     // Before any actor exists: the first thing a feature does during install
-    // may already queue work back to this thread.
-    dispatcher::install();
+    // may already queue work back to this thread. egui sleeps between frames,
+    // so work handed over asks for one - once there is a context to ask.
+    let context: Arc<Mutex<Option<egui::Context>>> = Arc::default();
+    let ui = {
+        let context = context.clone();
+        UiLoop::install_waking(move || {
+            if let Some(context) = context.lock().ok().as_deref().and_then(Option::as_ref) {
+                context.request_repaint();
+            }
+        })
+    };
 
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
@@ -49,10 +60,9 @@ where
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let context = runtime.context();
     let initial = initial(&runtime);
 
-    let router = Rc::new(Router::<Egui>::new(FeatureHost::under(&context)));
+    let router = Rc::new(Router::<Egui>::new(FeatureHost::under(&runtime.context())));
     guinea_app::app::roots::set_label(router.host().scope(), MAIN);
 
     let route = Rc::new(RefCell::new(initial.clone()));
@@ -65,19 +75,22 @@ where
 
     let front = Frontend {
         router: router.clone(),
+        ui,
     };
     let outcome = eframe::run_native(
         title,
         options,
         Box::new(|cc| {
-            // Now there is a context to wake: egui sleeps between frames, and
-            // work finished on another thread has to ask for one.
-            dispatcher::wake_with(cc.egui_ctx.clone());
+            if let Ok(mut slot) = context.lock() {
+                *slot = Some(cc.egui_ctx.clone());
+            }
             Ok(Box::new(front))
         }),
     );
 
-    dispatcher::forget_waker();
+    if let Ok(mut slot) = context.lock() {
+        *slot = None;
+    }
     nav::clear();
     router.deactivate();
     drop(runtime);
@@ -87,13 +100,14 @@ where
 
 struct Frontend {
     router: Rc<Router<Egui>>,
+    ui: UiLoop,
 }
 
 impl eframe::App for Frontend {
     /// Before the drawing, and also while the window is hidden: an actor that
     /// finished work still gets its turn on this thread.
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        dispatcher::drain();
+        self.ui.drain();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

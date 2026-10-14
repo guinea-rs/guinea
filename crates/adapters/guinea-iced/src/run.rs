@@ -12,10 +12,11 @@ use std::rc::Rc;
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
 use guinea_core::guard::Ask;
+use guinea_core::ui_thread::UiLoop;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use iced::widget::{button, center, column, container, opaque, row, text};
 
-use crate::{Envelope, Iced, Nodes, dispatcher, envelope, nav};
+use crate::{Envelope, Iced, Nodes, envelope, nav, wakeups};
 
 /// What [`run`] calls the root it opens.
 pub const MAIN: &str = "main";
@@ -33,6 +34,8 @@ pub struct Shell {
     /// - see [`Nodes`]. This is the one thing iced hands out by reference for
     /// exactly the render, which is what a borrowing widget needs.
     nodes: Nodes,
+    /// Where work from other threads waits for the next turn.
+    ui: UiLoop,
 }
 
 /// Runs the application in a window iced opens, starting where `initial` says.
@@ -57,7 +60,7 @@ where
 {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread.
-    dispatcher::install();
+    let ui = wakeups::install();
 
     // Genuinely this thread: it is the one that will draw, and nothing else
     // touches the router or the scopes.
@@ -86,19 +89,24 @@ where
     if let Some(chain) = router.active_chain() {
         nodes.sync(chain);
     }
-    let nodes = RefCell::new(Some(nodes));
+    let booting = RefCell::new(Some((nodes, ui)));
 
     let title = title.to_string();
     let boot = {
         let router = router.clone();
-        move || Shell {
-            router: router.clone(),
+        move || {
             // Called once by iced; a second call would find the store gone,
             // which is a louder failure than silently starting empty.
-            nodes: nodes
+            let (nodes, ui) = booting
                 .borrow_mut()
                 .take()
-                .expect("iced boots an application once"),
+                .expect("iced boots an application once");
+
+            Shell {
+                router: router.clone(),
+                nodes,
+                ui,
+            }
         }
     };
 
@@ -108,7 +116,7 @@ where
         .window(window)
         .run();
 
-    dispatcher::close();
+    wakeups::close();
     nav::clear();
     router.deactivate();
     drop(runtime);
@@ -116,7 +124,11 @@ where
     outcome.map_err(|e| anyhow::anyhow!("iced: {e}"))
 }
 
+/// Every message is a turn, and a turn begins with what other threads handed
+/// over: running it is what makes observers fire, and the settling after the
+/// message picks up whatever they parked.
 fn update(shell: &mut Shell, message: Envelope) {
+    shell.ui.drain();
     envelope::settle(&shell.router, &mut shell.nodes, message);
 }
 
@@ -178,5 +190,5 @@ fn question(ask: Ask) -> iced::Element<'static, Envelope> {
 
 /// The only subscription: work finished on another thread asking for a turn.
 fn subscription(_shell: &Shell) -> iced::Subscription<Envelope> {
-    iced::Subscription::run(dispatcher::wakeups)
+    iced::Subscription::run(wakeups::wakeups)
 }

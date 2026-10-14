@@ -9,8 +9,6 @@ use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 struct EventLoopDispatcher;
 
 impl UiDispatcher for EventLoopDispatcher {
-    fn init(&self) {}
-
     fn dispatch(&self, task: UiTask) {
         // Fails only when the loop has not started yet or has already
         // finished. Neither is worth failing an actor over: before the loop

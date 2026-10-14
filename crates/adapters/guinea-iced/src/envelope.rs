@@ -20,7 +20,7 @@ use guinea_core::guard::Verdict;
 use guinea_core::scope::Scope;
 use guinea_router::router::{Router, SegmentProps};
 
-use crate::{Iced, Nodes, UpdateCx, dispatcher};
+use crate::{Iced, Nodes, UpdateCx};
 
 /// How an envelope gets back to the node that made it.
 pub(crate) type Deliver = fn(&SegmentProps<Iced>, &mut Nodes, Box<dyn Any + Send>);
@@ -176,9 +176,7 @@ pub(crate) fn settle(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Env
 
 fn apply(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Envelope) {
     match envelope.0 {
-        // Running the queue is what makes observers fire; the loop above
-        // picks up whatever they parked.
-        Payload::Settled => dispatcher::drain(),
+        Payload::Settled => {}
         Payload::Answer(allowed) => router.answer(allowed),
         Payload::Node {
             cursor,

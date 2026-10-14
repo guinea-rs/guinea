@@ -46,8 +46,6 @@ impl Handler<Refresh> for Refresher {
 struct Channel(Mutex<mpsc::Sender<UiTask>>);
 
 impl UiDispatcher for Channel {
-    fn init(&self) {}
-
     fn dispatch(&self, task: UiTask) {
         let _ = self.0.lock().unwrap().send(task);
     }

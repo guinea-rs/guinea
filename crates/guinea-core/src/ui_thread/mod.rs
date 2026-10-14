@@ -13,8 +13,9 @@ pub use ui_loop::UiLoop;
 
 pub type UiTask = Box<dyn FnOnce() + Send>;
 
+/// Hands work to the UI thread's loop. A toolkit with a queue of its own
+/// implements it over that queue; one without uses a [`UiLoop`].
 pub trait UiDispatcher: Send + Sync {
-    fn init(&self);
     fn dispatch(&self, task: UiTask);
 }
 

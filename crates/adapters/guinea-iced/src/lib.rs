@@ -36,11 +36,11 @@
 
 extern crate self as guinea_iced;
 
-mod dispatcher;
 mod envelope;
 mod nav;
 mod nodes;
 mod run;
+mod wakeups;
 
 pub use envelope::Envelope;
 pub use nodes::Nodes;

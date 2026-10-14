@@ -157,18 +157,6 @@ mod tests {
         assert!(for_root(7).is_empty());
     }
 
-    #[cfg(not(feature = "test-utils"))]
-    struct Queue(std::sync::mpsc::Sender<crate::ui_thread::UiTask>);
-
-    #[cfg(not(feature = "test-utils"))]
-    impl crate::ui_thread::UiDispatcher for Queue {
-        fn init(&self) {}
-
-        fn dispatch(&self, task: crate::ui_thread::UiTask) {
-            let _ = self.0.send(task);
-        }
-    }
-
     #[test]
     #[cfg(not(feature = "test-utils"))]
     fn a_mark_from_another_thread_lands_on_the_watched_one_under_its_cause() {
@@ -177,8 +165,7 @@ mod tests {
 
         use super::*;
 
-        let (tx, rx) = std::sync::mpsc::channel();
-        crate::ui_thread::set_ui_dispatcher(Queue(tx));
+        let ui = crate::ui_thread::UiLoop::install();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
         trace::observe(move |record| {
@@ -194,9 +181,7 @@ mod tests {
         })
         .join()
         .expect("writer");
-        for task in rx.try_iter() {
-            task();
-        }
+        ui.drain();
         trace::stop_observing();
 
         assert_eq!(

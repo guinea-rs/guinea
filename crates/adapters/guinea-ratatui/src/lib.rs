@@ -13,7 +13,6 @@
 //! passes down whatever rectangle it wants the page to occupy.
 
 mod dialog;
-mod dispatcher;
 mod keys;
 mod run;
 

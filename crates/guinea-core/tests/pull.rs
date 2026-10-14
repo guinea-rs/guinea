@@ -62,8 +62,6 @@ impl Handler<Made> for Maker {
 struct Nowhere;
 
 impl UiDispatcher for Nowhere {
-    fn init(&self) {}
-
     fn dispatch(&self, _: UiTask) {}
 }
 

@@ -6,8 +6,6 @@ use windows_reactor::AppProxy;
 struct Proxy(AppProxy);
 
 impl UiDispatcher for Proxy {
-    fn init(&self) {}
-
     fn dispatch(&self, task: UiTask) {
         let run = move |_: &windows_reactor::AppContext| {
             task();

@@ -53,8 +53,6 @@ impl Handler<Pulled> for Puller {
 struct Nowhere;
 
 impl UiDispatcher for Nowhere {
-    fn init(&self) {}
-
     fn dispatch(&self, _: UiTask) {}
 }
 

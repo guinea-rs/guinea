@@ -15,8 +15,6 @@ struct Recording {
 }
 
 impl UiDispatcher for Recording {
-    fn init(&self) {}
-
     fn dispatch(&self, task: UiTask) {
         self.tasks.lock().unwrap().push(task);
     }

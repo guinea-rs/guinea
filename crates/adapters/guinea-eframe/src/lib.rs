@@ -10,9 +10,8 @@
 //! way the reactor does under WinUI, so [`run`] hands it over and puts the
 //! frame inside `eframe::App::update`. And unlike a terminal, egui sleeps when
 //! nothing happens - so work finished on another thread has to wake it, which
-//! is what the dispatcher's `request_repaint` is for.
+//! is what the UI loop's wake-up, a `request_repaint`, is for.
 
-mod dispatcher;
 mod nav;
 mod run;
 
@@ -249,7 +248,7 @@ impl<P> PageCx<'_, P> {
     /// No subscription, as in the terminal: egui redraws the whole frame, so
     /// there is nothing to invalidate - the next pass reads the state again.
     /// What does need saying is when a frame should happen at all, and that is
-    /// the dispatcher's job.
+    /// the UI loop's job.
     ///
     /// The feature that answers is the one this page installed, or the nearest
     /// above that listed `R` in `Exports`. A read that reaches nothing panics

@@ -7,8 +7,6 @@ use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 struct Nowhere;
 
 impl UiDispatcher for Nowhere {
-    fn init(&self) {}
-
     fn dispatch(&self, _: UiTask) {}
 }
 

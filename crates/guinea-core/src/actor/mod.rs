@@ -2,7 +2,7 @@ pub mod addr;
 pub mod cancel;
 pub mod ctx;
 pub mod envelope;
-pub mod flow;
+pub(crate) mod flow;
 
 pub mod traits;
 

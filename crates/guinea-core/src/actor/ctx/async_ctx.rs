@@ -4,7 +4,7 @@ use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::event_bus::RpcCall;
 use crate::actor::traits::Handler;
-use crate::actor::{AllowedSignal, ManagedActor};
+use crate::actor::PublishedBy;
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
 use std::time::Duration;
@@ -232,9 +232,7 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     pub fn publish<M>(&self, msg: M)
     where
-        A: ManagedActor,
-        M: Event,
-        A::Signals: AllowedSignal<M>,
+        M: Event + PublishedBy<A>,
     {
         self.reach.scope().publish(msg);
     }

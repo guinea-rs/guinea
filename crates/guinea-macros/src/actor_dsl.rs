@@ -493,19 +493,15 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     } = manifest;
 
     let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let private = quote!(#gc::__private);
 
-    let signals_marker = format_ident!("__Signals_{}", ident);
-    let bus_marker = format_ident!("__Bus_{}", ident);
+    let bus_marker = format_ident!("__GuineaBus");
 
     let handler_asserts = handlers.iter().map(|decl| {
         let msg = &decl.msg;
         quote! { assert_handler::<#self_ty, #msg>(); }
     });
 
-    // Registering what this actor answers, from the very list that declares
-    // it. Nothing outside names the actor: the scope is keyed by the action,
-    // so an actor is what the domain happens to use, not part of anything's
-    // signature.
     let served = handlers.iter().map(|decl| {
         let msg = &decl.msg;
         quote! {
@@ -516,7 +512,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         }
     });
 
-    let flow_marker = format_ident!("__Flow_{}", ident);
+    let flow_marker = format_ident!("__GuineaFlow");
     let declares_flow = handlers.iter().any(|decl| decl.edges.is_some());
 
     let mut seen = HashSet::new();
@@ -534,7 +530,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
             if !seen.insert(key) {
                 return None;
             }
-            Some(quote! { impl #gc::actor::flow::Allows<#msg, #target> for #flow_marker {} })
+            Some(quote! { impl #private::Allows<#msg, #target> for #flow_marker {} })
         })
         .collect();
 
@@ -542,23 +538,21 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         (
             quote!(#flow_marker),
             quote! {
-                #[doc(hidden)]
-                #[allow(non_camel_case_types)]
                 pub struct #flow_marker;
                 #(#allow_impls)*
             },
         )
     } else {
-        (quote!(#gc::actor::flow::Open), quote!())
+        (quote!(#private::Open), quote!())
     };
 
-    let signal_impls = publishes.iter().map(|msg| {
-        quote! { impl #gc::actor::traits::AllowedSignal<#msg> for #signals_marker {} }
+    let published = publishes.iter().map(|msg| {
+        quote! { impl #impl_generics #gc::actor::PublishedBy<#self_ty> for #msg #where_clause {} }
     });
 
     let subscriptions = subscribes.iter().map(|msg| {
         quote! {
-            <#msg as #gc::actor::traits::EventSubscription<#self_ty>>::subscribe_into(addr);
+            <#msg as #private::EventSubscription<#self_ty>>::subscribe_into(addr);
         }
     });
 
@@ -620,11 +614,9 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         quote!()
     } else {
         quote! {
-            #[doc(hidden)]
-            #[allow(non_camel_case_types)]
             pub struct #bus_marker;
 
-            impl #impl_generics #gc::actor::traits::EventSubscription<#self_ty>
+            impl #impl_generics #private::EventSubscription<#self_ty>
                 for #bus_marker #where_clause
             {
                 fn subscribe_into(addr: &#gc::actor::Addr<#self_ty>) {
@@ -635,47 +627,42 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     };
 
     Ok(quote! {
-        #[doc(hidden)]
-        #[allow(non_camel_case_types)]
-        pub struct #signals_marker;
-
-        #bus_impl
-
-        #flow_decl
-
-        #(#signal_impls)*
-
-        impl #impl_generics #gc::feature::Serves for #self_ty #where_clause {
-            fn serve(
-                addr: &#gc::actor::Addr<Self>,
-                section: #gc::scope::Section,
-            ) {
-                #(#served)*
-            }
-        }
-
-        impl #impl_generics #gc::actor::traits::ManagedActor for #self_ty #where_clause {
-            type Bus = #bus_ty;
-            type Signals = #signals_marker;
-            type Flow = #flow_ty;
-            const SHAPE: #gc::actor::shape::Shape = #gc::actor::shape::Shape {
-                handles: &[#(#shape_handles),*],
-                publishes: &[#(#shape_publishes),*],
-                subscribes: &[#(#shape_subscribes),*],
-                declared: ::core::option::Option::Some(#declared),
-            };
-
-            fn show(&self, at: #gc::inspect::Inspector<'_>) {
-                use #gc::inspect::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
-                (&&&#gc::inspect::pick::Probe(self)).show(at)
-            }
-        }
-
         const _: () = {
+            #bus_impl
+
+            #flow_decl
+
+            #(#published)*
+
+            impl #impl_generics #private::Serves for #self_ty #where_clause {
+                fn serve(
+                    addr: &#gc::actor::Addr<Self>,
+                    section: #gc::scope::Section,
+                ) {
+                    #(#served)*
+                }
+            }
+
+            impl #impl_generics #gc::actor::ManagedActor for #self_ty #where_clause {
+                type Bus = #bus_ty;
+                type Flow = #flow_ty;
+                const SHAPE: #gc::actor::shape::Shape = #gc::actor::shape::Shape {
+                    handles: &[#(#shape_handles),*],
+                    publishes: &[#(#shape_publishes),*],
+                    subscribes: &[#(#shape_subscribes),*],
+                    declared: ::core::option::Option::Some(#declared),
+                };
+
+                fn show(&self, at: #gc::inspect::Inspector<'_>) {
+                    use #gc::inspect::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
+                    (&&&#gc::inspect::pick::Probe(self)).show(at)
+                }
+            }
+
             fn check_handlers #impl_generics () #where_clause {
                 fn assert_handler<A, M>()
                 where
-                    A: #gc::actor::traits::Handler<M>,
+                    A: #gc::actor::Handler<M>,
                     M: 'static,
                 {
                 }

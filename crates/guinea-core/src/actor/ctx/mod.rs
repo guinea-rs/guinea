@@ -4,7 +4,7 @@ use crate::actor::event_bus::subscribe::Event;
 use crate::actor::event_bus::{RpcCall, RpcRequest};
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
-use crate::actor::{AllowedSignal, ManagedActor};
+use crate::actor::{ManagedActor, PublishedBy};
 use std::marker::PhantomData;
 
 mod async_ctx;
@@ -58,9 +58,7 @@ impl<A: 'static, M> Cx<A, M> {
 
     pub fn publish<E>(&self, msg: E)
     where
-        A: ManagedActor,
-        E: Event,
-        A::Signals: AllowedSignal<E>,
+        E: Event + PublishedBy<A>,
     {
         if let Some(bus) = self.addr.tree_bus() {
             bus.publish(msg);

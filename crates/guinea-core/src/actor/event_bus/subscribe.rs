@@ -50,6 +50,11 @@ impl Drop for BusSubscription {
 /// Implemented by hand or with `#[derive(Event)]`, never for free: the orphan
 /// rule then keeps `String`, `u32` and `()` off the bus, since two features
 /// that each published a type nobody owns would receive each other's events.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not an event, so it cannot go on the bus",
+    label = "not an event",
+    note = "derive it where the type is declared: `#[derive(Clone, guinea::Event)]`"
+)]
 pub trait Event: Clone + Send + 'static {
     /// What a subscriber that only hears this is handed: the event itself,
     /// except for a request, which its listeners must not be able to answer.

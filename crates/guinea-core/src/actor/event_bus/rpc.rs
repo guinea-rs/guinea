@@ -124,6 +124,11 @@ impl<R: Send + 'static> ReplyTo<R> {
 /// [`EventBus::answer_fn`](super::EventBus::answer_fn). A handler that
 /// returns nothing only hears it; a `Handler<RpcRequest<Req>>` written by hand
 /// answers only if it says `const ANSWERS: bool = true`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a request, so nothing waits for what its handler returns",
+    label = "not a request",
+    note = "a handler returns a value only to answer a request, `#[derive(guinea::Request)]` with `#[request(reply = ..)]`; a handler for a message returns nothing"
+)]
 pub trait RpcCall: Clone + Send + 'static {
     type Response: Clone + Send + 'static;
 }

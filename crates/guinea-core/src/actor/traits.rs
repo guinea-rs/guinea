@@ -1,8 +1,13 @@
-use crate::actor::event_bus::subscribe::Event;
+use crate::actor::flow::EventSubscription;
 use crate::actor::shape::{Declared, Shape};
 use crate::actor::{Addr, Cx};
 use crate::inspect::Inspector;
 
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` has no handler for `{M}`",
+    label = "no handler for `{M}`",
+    note = "write one: `#[handler] fn name(this: &mut {Self}, msg: {M}) {{ .. }}`"
+)]
 pub trait Handler<M: 'static>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<Declared> = None;
@@ -19,7 +24,6 @@ pub trait Handler<M: 'static>: 'static {
 
 pub trait ManagedActor: Sized + 'static {
     type Bus: EventSubscription<Self>;
-    type Signals;
     /// Declared outgoing messages per handler, or `Open` when undeclared.
     type Flow;
     /// What `actor!` declared, for devtools.
@@ -28,26 +32,6 @@ pub trait ManagedActor: Sized + 'static {
     /// How devtools show its state; `actor!` writes it.
     #[doc(hidden)]
     fn show(&self, at: Inspector<'_>);
-}
-
-/// What an actor's manifest subscribes to on the bus of its tree. `actor!` writes
-/// it; the subscriptions are the actor's, and end when it is disposed.
-pub trait EventSubscription<A> {
-    fn subscribe_into(addr: &Addr<A>);
-}
-
-impl<A, M> EventSubscription<A> for M
-where
-    M: Event,
-    A: Handler<M> + 'static,
-{
-    fn subscribe_into(addr: &Addr<A>) {
-        addr.subscribe::<M>();
-    }
-}
-
-impl<A> EventSubscription<A> for () {
-    fn subscribe_into(_: &Addr<A>) {}
 }
 
 /// What can be handed an `M`: a function that takes it, or an actor that
@@ -68,5 +52,10 @@ impl<M: 'static, A: Handler<M>> Receives<M> for Addr<A> {
     }
 }
 
-pub trait AllowedSignal<M: 'static> {}
-impl<M: 'static> AllowedSignal<M> for M {}
+/// An event `A` declares publishing; `actor!` writes it from `publishes`.
+#[diagnostic::on_unimplemented(
+    message = "`{A}` does not declare publishing `{Self}`",
+    label = "not in `publishes`",
+    note = "add it to the manifest: `actor! {{ {A} {{ publishes {{ {Self} }} }} }}`"
+)]
+pub trait PublishedBy<A> {}

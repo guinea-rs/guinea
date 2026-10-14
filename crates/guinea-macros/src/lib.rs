@@ -249,12 +249,16 @@ pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// actor! {
 ///     ProcessActor<P: ProcessesPort + 'static> {
-///         handlers   { Kill, Refresh }
+///         handlers   { Kill => { send Killed }, Killed, Refresh }
 ///         publishes  { ProcessKilled }
 ///         subscribes { SettingsChanged }
 ///     }
 /// }
 /// ```
+///
+/// What it subscribes to it handles, edges and all - `subscribes { Saved =>
+/// { send Flush } }` - so a message is named once: in `handlers` or in
+/// `subscribes`, never both. Each section appears once.
 #[proc_macro]
 pub fn actor(input: TokenStream) -> TokenStream {
     actor_dsl::actor_impl(input)
@@ -324,7 +328,6 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// actor! {
 ///     Processes {
-///         handlers { RpcRequest<Kill> }
 ///         subscribes { RpcRequest<Kill> }
 ///     }
 /// }
@@ -405,7 +408,6 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// actor! {
 ///     Audit {
-///         handlers { RpcRequest<Kill> }
 ///         subscribes { RpcRequest<Kill> }
 ///     }
 /// }

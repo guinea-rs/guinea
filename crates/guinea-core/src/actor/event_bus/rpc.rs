@@ -167,7 +167,7 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// # #[derive(Debug)]
 /// # struct Actions { transport: Option<Transport> }
 /// # guinea_macros::actor! {
-/// #     Actions { handlers { RpcRequest<Act> } subscribes { RpcRequest<Act> } }
+/// #     Actions { subscribes { RpcRequest<Act> } }
 /// # }
 /// #[handler]
 /// fn act(this: &mut Actions, Act(action): Act) -> Reply<Outcome> {

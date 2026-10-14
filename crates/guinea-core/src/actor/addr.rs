@@ -141,7 +141,6 @@ impl<A: 'static> Addr<A> {
     ///
     /// guinea_macros::actor! {
     ///     Autosave {
-    ///         handlers { Saved }
     ///         subscribes { Saved }
     ///     }
     /// }
@@ -566,7 +565,6 @@ mod tests {
 
     guinea_macros::actor! {
         Listening {
-            handlers { Heard }
             subscribes { Heard }
         }
     }

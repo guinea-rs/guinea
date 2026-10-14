@@ -744,7 +744,6 @@ mod routing {
 
         actor! {
             ProbeActor {
-                handlers { ProbeEvent }
                 subscribes { ProbeEvent }
             }
         }

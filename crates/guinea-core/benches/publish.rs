@@ -23,7 +23,6 @@ struct Sink(u64);
 
 guinea_macros::actor! {
     Sink {
-        handlers { Payload<0>, Payload<256>, Payload<4096> }
         subscribes { Payload<0>, Payload<256>, Payload<4096> }
     }
 }

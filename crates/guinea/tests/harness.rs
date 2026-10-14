@@ -410,7 +410,7 @@ mod reports {
 
     actor! {
         Reader {
-            handlers { Report, Announce }
+            handlers { Announce }
             publishes { Report }
             subscribes { Report }
         }
@@ -551,7 +551,7 @@ mod named {
 
     actor! {
         Namer {
-            handlers { Rename, Renamed }
+            handlers { Rename }
             publishes { Renamed }
             subscribes { Renamed }
         }
@@ -720,7 +720,6 @@ mod listening {
 
     actor! {
         Listener {
-            handlers { reports::Report }
             subscribes { reports::Report }
         }
     }

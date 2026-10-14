@@ -13,7 +13,6 @@ struct Processes;
 
 guinea_macros::actor! {
     Processes {
-        handlers { Report }
         subscribes { Report }
     }
 }

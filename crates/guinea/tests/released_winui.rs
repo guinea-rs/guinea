@@ -60,7 +60,6 @@ pub struct Listener {
 
 actor! {
     Listener {
-        handlers { Ping }
         subscribes { Ping }
     }
 }

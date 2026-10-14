@@ -37,7 +37,7 @@ pub struct Meter {
 
 actor! {
     Meter {
-        handlers { Sampled, Reset }
+        handlers { Reset }
         subscribes { Sampled }
     }
 }
@@ -225,7 +225,6 @@ pub struct Ticker {
 
 actor! {
     Ticker {
-        handlers { Ticked }
         subscribes { Ticked }
     }
 }

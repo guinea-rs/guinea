@@ -49,7 +49,6 @@ struct Sink(u64);
 
 guinea_macros::actor! {
     Sink {
-        handlers { Saved }
         subscribes { Saved }
     }
 }

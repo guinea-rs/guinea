@@ -42,7 +42,6 @@ mod answering {
 
     actor! {
         Processes {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -80,7 +79,6 @@ mod answering_later {
 
     actor! {
         Processes {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -130,11 +128,8 @@ mod answering_and_sending {
 
     actor! {
         Processes {
-            handlers {
-                RpcRequest<Kill> => { send Killed },
-                Killed,
-            }
-            subscribes { RpcRequest<Kill> }
+            handlers { Killed }
+            subscribes { RpcRequest<Kill> => { send Killed } }
         }
     }
 
@@ -221,7 +216,6 @@ mod listening {
 
     actor! {
         Audit {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -253,7 +247,6 @@ mod answering_async {
 
     actor! {
         Processes {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -287,7 +280,6 @@ mod dropping {
 
     actor! {
         Processes {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -327,7 +319,6 @@ mod listening_and_replying {
 
     actor! {
         Audit {
-            handlers { RpcRequest<Kill> }
             subscribes { RpcRequest<Kill> }
         }
     }
@@ -376,14 +367,12 @@ mod cycle {
 
     actor! {
         There {
-            handlers { RpcRequest<Loop> }
             subscribes { RpcRequest<Loop> }
         }
     }
 
     actor! {
         Again {
-            handlers { RpcRequest<Back> }
             subscribes { RpcRequest<Back> }
         }
     }

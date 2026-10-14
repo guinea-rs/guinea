@@ -21,6 +21,8 @@ struct Manifest {
 
 struct HandlerDecl {
     msg: syn::Type,
+    /// Declared under `subscribes`, which makes it a handler too.
+    subscribed: bool,
     /// `None` when the handler declares no outgoing messages at all, which is
     /// different from declaring an empty set.
     edges: Option<Vec<Edge>>,
@@ -100,11 +102,35 @@ fn parse_manifest(tokens: &[TokenTree]) -> syn::Result<Manifest> {
     if manifest.handlers.is_empty() {
         return Err(syn::Error::new(
             manifest.ident.span(),
-            "an actor must declare at least one handler: `handlers { .. }`",
+            "an actor must declare at least one handler: `handlers { .. }` or `subscribes { .. }`",
         ));
     }
+    check_handled_once(&manifest.handlers)?;
 
     Ok(manifest)
+}
+
+fn check_handled_once(handlers: &[HandlerDecl]) -> syn::Result<()> {
+    let key = |ty: &syn::Type| quote!(#ty).to_string();
+
+    for (at, later) in handlers.iter().enumerate() {
+        let Some(earlier) = handlers[..at].iter().find(|decl| key(&decl.msg) == key(&later.msg)) else {
+            continue;
+        };
+
+        let msg = key(&later.msg).replace(' ', "");
+        let (at, message) = match (earlier.subscribed, later.subscribed) {
+            (true, false) | (false, true) => (
+                if earlier.subscribed { later } else { earlier },
+                format!("`{msg}` is in `subscribes`, which already makes it a handler; take it out of `handlers`"),
+            ),
+            (true, true) => (later, format!("`{msg}` is subscribed to twice")),
+            (false, false) => (later, format!("`{msg}` is handled twice")),
+        };
+        return Err(syn::Error::new_spanned(&at.msg, message));
+    }
+
+    Ok(())
 }
 
 /// The header reads like a struct declaration, so it is parsed as one: that
@@ -124,6 +150,7 @@ fn parse_header(header: &[TokenTree]) -> syn::Result<(Ident, syn::Generics)> {
 
 fn parse_sections(tokens: &[TokenTree], manifest: &mut Manifest) -> syn::Result<()> {
     let mut slice: Tokens = tokens;
+    let mut seen = HashSet::new();
 
     while !slice.is_empty() {
         let name = any_ident
@@ -134,10 +161,24 @@ fn parse_sections(tokens: &[TokenTree], manifest: &mut Manifest) -> syn::Result<
             .parse_next(&mut slice)
             .map_err(|_| syn::Error::new(name.span(), "expected `{ .. }` after the section name"))?;
 
-        match name.to_string().as_str() {
-            "handlers" => manifest.handlers = parse_handlers(&body)?,
+        let section = name.to_string();
+        if !seen.insert(section.clone()) {
+            return Err(syn::Error::new(
+                name.span(),
+                format!("`{section}` is declared twice; list all of it in one section"),
+            ));
+        }
+
+        match section.as_str() {
+            "handlers" => manifest.handlers.extend(parse_handlers(&body, false)?),
             "publishes" => manifest.publishes = parse_type_list(&body)?,
-            "subscribes" => manifest.subscribes = parse_type_list(&body)?,
+            "subscribes" => {
+                let subscribed = parse_handlers(&body, true)?;
+                manifest
+                    .subscribes
+                    .extend(subscribed.iter().map(|decl| decl.msg.clone()));
+                manifest.handlers.extend(subscribed);
+            }
             other => {
                 return Err(syn::Error::new(
                     name.span(),
@@ -152,7 +193,7 @@ fn parse_sections(tokens: &[TokenTree], manifest: &mut Manifest) -> syn::Result<
 
 /// `Msg` or `Msg => { send Other, task Third }`, comma-separated; the comma
 /// after a block is optional, as with match arms.
-fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
+fn parse_handlers(tokens: &[TokenTree], subscribed: bool) -> syn::Result<Vec<HandlerDecl>> {
     let mut decls = Vec::new();
     let mut pending: Vec<TokenTree> = Vec::new();
     let mut depth = 0;
@@ -164,6 +205,7 @@ fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
                 if !pending.is_empty() {
                     decls.push(HandlerDecl {
                         msg: parse_one_type(&mut pending)?,
+                        subscribed,
                         edges: None,
                     });
                 }
@@ -187,6 +229,7 @@ fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
                 let edges = parse_edges(&body.stream().into_iter().collect::<Vec<_>>())?;
                 decls.push(HandlerDecl {
                     msg,
+                    subscribed,
                     edges: Some(edges),
                 });
 
@@ -204,6 +247,7 @@ fn parse_handlers(tokens: &[TokenTree]) -> syn::Result<Vec<HandlerDecl>> {
     if !pending.is_empty() {
         decls.push(HandlerDecl {
             msg: parse_one_type(&mut pending)?,
+            subscribed,
             edges: None,
         });
     }
@@ -723,6 +767,78 @@ mod tests {
         });
 
         assert!(checked.is_ok(), "{checked:?}");
+    }
+
+    fn declared(tokens: TokenStream) -> Result<(Vec<String>, Vec<String>), String> {
+        let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+        let names = |types: Vec<String>| types.into_iter().map(|ty| ty.replace(' ', "")).collect();
+
+        parse_manifest(&tokens)
+            .map(|manifest| {
+                (
+                    names(manifest.handlers.iter().map(|decl| {
+                        let msg = &decl.msg;
+                        quote!(#msg).to_string()
+                    }).collect()),
+                    names(manifest.subscribes.iter().map(|ty| quote!(#ty).to_string()).collect()),
+                )
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn what_an_actor_subscribes_to_it_handles_without_listing_it_again() {
+        let read = declared(quote! {
+            Saver {
+                handlers { Refresh }
+                subscribes { RpcRequest<Kill> => { send Killed }, Saved }
+            }
+        });
+
+        assert_eq!(
+            read,
+            Ok((
+                vec!["Refresh".into(), "RpcRequest<Kill>".into(), "Saved".into()],
+                vec!["RpcRequest<Kill>".into(), "Saved".into()],
+            ))
+        );
+    }
+
+    #[test]
+    fn an_actor_that_only_subscribes_has_its_handlers() {
+        let read = declared(quote! {
+            Listener {
+                subscribes { Saved }
+            }
+        });
+
+        assert_eq!(read, Ok((vec!["Saved".into()], vec!["Saved".into()])));
+    }
+
+    #[test]
+    fn a_message_both_handled_and_subscribed_is_refused() {
+        let read = declared(quote! {
+            Saver {
+                handlers { Saved }
+                subscribes { Saved }
+            }
+        });
+
+        let error = read.expect_err("Saved is listed twice");
+        assert!(error.contains("`Saved`") && error.contains("subscribes"), "{error}");
+    }
+
+    #[test]
+    fn a_section_declared_twice_is_refused() {
+        let read = declared(quote! {
+            Saver {
+                handlers { Refresh }
+                handlers { Reload }
+            }
+        });
+
+        let error = read.expect_err("the second handlers would replace the first");
+        assert!(error.contains("`handlers`"), "{error}");
     }
 
     #[test]

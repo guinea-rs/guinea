@@ -1,5 +1,7 @@
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use guinea_core::scope::Scope;
 
 #[derive(Clone, Copy)]
 pub(crate) enum Unit {
@@ -20,10 +22,32 @@ impl Unit {
     }
 }
 
+/// The plugins an application was built with, by id: kept in its scope for
+/// as long as it lives.
+#[derive(Default)]
+pub(crate) struct Plugins(HashMap<&'static str, TypeId>);
+
+impl Plugins {
+    pub(crate) fn ids(&self) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = self.0.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Notes `id` as installed in `app`.
+    pub(crate) fn mark(app: Scope, id: &'static str, concrete: TypeId) {
+        app.kept::<Plugins, _>(|plugins| plugins.0.insert(id, concrete));
+    }
+
+    fn installed(app: Scope, id: &'static str) -> Option<TypeId> {
+        app.kept::<Plugins, _>(|plugins| plugins.0.get(id).copied())
+            .flatten()
+    }
+}
+
+/// What is being installed right now, outermost first.
 #[derive(Default)]
 pub(crate) struct Registry {
-    plugins: HashMap<&'static str, TypeId>,
-    features: HashSet<TypeId>,
     stack: Vec<Unit>,
 }
 
@@ -33,22 +57,17 @@ pub(crate) enum Admission {
 }
 
 impl Registry {
-    pub(crate) fn plugin_ids(&self) -> Vec<&'static str> {
-        let mut ids: Vec<&'static str> = self.plugins.keys().copied().collect();
-        ids.sort_unstable();
-        ids
-    }
-
     pub(crate) fn current(&self) -> &'static str {
         self.stack.last().map(|unit| unit.label()).unwrap_or("app root")
     }
 
     pub(crate) fn admit_plugin(
         &self,
+        app: Scope,
         id: &'static str,
         concrete: TypeId,
     ) -> anyhow::Result<Admission> {
-        if let Some(&installed) = self.plugins.get(id) {
+        if let Some(installed) = Plugins::installed(app, id) {
             anyhow::ensure!(
                 installed == concrete,
                 "plugin ID collision: `{id}` is already installed by a different type - \
@@ -69,27 +88,11 @@ impl Registry {
         Ok(Admission::Proceed)
     }
 
-    pub(crate) fn admit_feature(&self, concrete: TypeId, name: &'static str) -> Admission {
-        if self.features.contains(&concrete) {
-            tracing::warn!(feature = name, "feature installed twice - ignoring the second");
-            return Admission::AlreadyInstalled;
-        }
-        Admission::Proceed
-    }
-
     pub(crate) fn enter(&mut self, unit: Unit) {
         self.stack.push(unit);
     }
 
     pub(crate) fn leave(&mut self) {
         self.stack.pop();
-    }
-
-    pub(crate) fn mark_plugin(&mut self, id: &'static str, concrete: TypeId) {
-        self.plugins.insert(id, concrete);
-    }
-
-    pub(crate) fn mark_feature(&mut self, concrete: TypeId) {
-        self.features.insert(concrete);
     }
 }

@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::ScopeContext;
 use guinea_router::router::{RouteChain, Router};
 use windows_reactor::{
@@ -98,8 +98,7 @@ where
         };
         let context = runtime.context();
         let initial = initial(&runtime);
-        install_runtime(runtime);
-        let installed = Installed;
+        let installed = Installed { _runtime: runtime };
 
         cx.open_component_window::<Shown>(opening(&context, window, initial))?;
         Ok(installed)
@@ -119,9 +118,11 @@ where
     result.map_err(|error| anyhow::anyhow!("windows-reactor: {error}"))
 }
 
-/// Tears the application down when the reactor lets go of it - the windows'
+/// The application, torn down when the reactor lets go of it - the windows'
 /// route trees first, which the reactor would otherwise take down after it.
-struct Installed;
+struct Installed {
+    _runtime: AppRuntime,
+}
 
 impl Drop for Installed {
     fn drop(&mut self) {
@@ -129,8 +130,6 @@ impl Drop for Installed {
         for router in routers.iter().filter_map(Weak::upgrade) {
             router.deactivate();
         }
-
-        shutdown_current();
     }
 }
 

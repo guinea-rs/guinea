@@ -115,7 +115,6 @@ mod routing {
             .install()
             .expect("install");
         let context = runtime.context();
-        guinea_app::app::install_runtime(runtime);
 
         let router = Rc::new(Router::<WinUi>::new(FeatureHost::under(&context)));
 

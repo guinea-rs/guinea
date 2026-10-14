@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
 use guinea_core::guard::Ask;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
@@ -68,7 +68,6 @@ where
     };
     let context = runtime.context();
     let initial = initial(&runtime);
-    install_runtime(runtime);
 
     let router = Rc::new(Router::<Iced>::new(FeatureHost::under(&context)));
     guinea_app::app::roots::set_label(router.root(), MAIN);
@@ -112,7 +111,7 @@ where
     dispatcher::close();
     nav::clear();
     router.deactivate();
-    shutdown_current();
+    drop(runtime);
 
     outcome.map_err(|e| anyhow::anyhow!("iced: {e}"))
 }

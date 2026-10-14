@@ -101,13 +101,10 @@ fn find(root: u64) -> Option<Rc<dyn Inspected>> {
         .find(|router| router.root_id().get() == root)
 }
 
-/// The actor `id`, read now: one of window `root`'s, or of the application's
-/// for `None` - the root [`roots::of`] names for the scope that owns it.
-pub fn actor(root: Option<u64>, id: usize) -> Option<ActorSnapshot> {
-    match root {
-        Some(root) => find(root)?.actor(id),
-        None => guinea_app::observability::app_actor(id),
-    }
+/// The actor `id` of window `root`, read now. The application's own are read
+/// through its scope, with [`app_actor`](guinea_app::observability::app_actor).
+pub fn actor(root: u64, id: usize) -> Option<ActorSnapshot> {
+    find(root)?.actor(id)
 }
 
 /// Sends the action registered as `action`, decoded from `json`, to the scope

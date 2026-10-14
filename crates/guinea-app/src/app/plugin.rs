@@ -83,6 +83,7 @@ pub(crate) type Settle = fn(Scope, &'static str) -> anyhow::Result<()>;
 pub(crate) struct Identity {
     pub(crate) id: &'static str,
     pub(crate) concrete: TypeId,
+    pub(crate) installed: fn(Scope) -> bool,
     pub(crate) settle: Settle,
 }
 
@@ -91,6 +92,7 @@ impl Identity {
         Self {
             id: P::ID,
             concrete: TypeId::of::<P>(),
+            installed: installed::<P>,
             settle: settle::<P, P::Exports>,
         }
     }
@@ -99,9 +101,14 @@ impl Identity {
         Self {
             id: std::any::type_name::<F>(),
             concrete: TypeId::of::<F>(),
+            installed: installed::<F>,
             settle: settle::<F, F::Exports>,
         }
     }
+}
+
+fn installed<U: 'static>(scope: Scope) -> bool {
+    scope.has_feature::<U>()
 }
 
 pub(crate) trait ErasedPlugin: Send {

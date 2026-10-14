@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
 
 use anyhow::Context as _;
 use guinea_core::actor::{Addr, ManagedActor};
@@ -10,7 +9,7 @@ use crate::feature::ScopeContext;
 
 use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
-use super::registry::{Admission, Registry, Unit};
+use super::registry::{Admission, Plugins, Registry, Unit};
 
 /// What a plugin may do during installation.
 ///
@@ -21,7 +20,7 @@ use super::registry::{Admission, Registry, Unit};
 pub struct PluginBuilder {
     cx: ScopeContext,
     host: AppHost,
-    registry: Rc<RefCell<Registry>>,
+    registry: RefCell<Registry>,
 }
 
 /// Everything a plugin may do, plus this application's own wiring.
@@ -31,19 +30,17 @@ pub struct FeatureBuilder {
 
 impl PluginBuilder {
     pub(crate) fn new(host: AppHost) -> Self {
+        host.scope().keep(Plugins::default());
+
         Self {
             cx: ScopeContext::new(host.scope()),
             host,
-            registry: Rc::new(RefCell::new(Registry::default())),
+            registry: RefCell::default(),
         }
     }
 
     pub(crate) fn host(&self) -> &AppHost {
         &self.host
-    }
-
-    pub(crate) fn observed(&self) -> crate::observability::Observed {
-        crate::observability::Observed::new(self.cx.scope, self.registry.clone())
     }
 
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {
@@ -103,7 +100,11 @@ impl PluginBuilder {
     ) -> anyhow::Result<()> {
         let id = plugin.id();
 
-        match self.registry.borrow().admit_plugin(identity.id, identity.concrete)? {
+        let admitted = self
+            .registry
+            .borrow()
+            .admit_plugin(self.scope, identity.id, identity.concrete)?;
+        match admitted {
             Admission::AlreadyInstalled => return Ok(()),
             Admission::Proceed => {}
         }
@@ -118,10 +119,9 @@ impl PluginBuilder {
             .with_context(|| format!("plugin `{id}` failed to build"));
         self.cx = outer;
 
-        let mut registry = self.registry.borrow_mut();
-        registry.leave();
+        self.registry.borrow_mut().leave();
         match outcome {
-            Ok(()) => registry.mark_plugin(identity.id, identity.concrete),
+            Ok(()) => Plugins::mark(self.scope, identity.id, identity.concrete),
             Err(_) => section.withdraw(),
         }
         outcome
@@ -163,9 +163,9 @@ impl FeatureBuilder {
     ) -> anyhow::Result<()> {
         let name = feature.name();
 
-        match self.registry.borrow().admit_feature(identity.concrete, identity.id) {
-            Admission::AlreadyInstalled => return Ok(()),
-            Admission::Proceed => {}
+        if (identity.installed)(self.scope) {
+            tracing::warn!(feature = name, "feature installed twice - ignoring the second");
+            return Ok(());
         }
 
         self.registry.borrow_mut().enter(Unit::Feature(name));
@@ -178,11 +178,9 @@ impl FeatureBuilder {
             .with_context(|| format!("feature `{name}` failed to install"));
         self.inner.cx = outer;
 
-        let mut registry = self.registry.borrow_mut();
-        registry.leave();
-        match outcome {
-            Ok(()) => registry.mark_feature(identity.concrete),
-            Err(_) => section.withdraw(),
+        self.registry.borrow_mut().leave();
+        if outcome.is_err() {
+            section.withdraw();
         }
         outcome
     }

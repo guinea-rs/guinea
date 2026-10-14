@@ -12,14 +12,12 @@ use guinea_core::short_type_name;
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureInitContext, ScopeContext};
-use crate::observability::Observed;
 
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::host::AppHost;
 use super::plugin::{AppFeature, Application, Plugin};
 use super::roots::Registration;
-use super::runtime;
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -29,16 +27,12 @@ use super::runtime;
 /// actually touches the reactor still needs one.
 pub struct TestApp {
     builder: FeatureBuilder,
-    _observed: Observed,
 }
 
 impl TestApp {
     pub fn new() -> Self {
-        let builder = FeatureBuilder::new(AppHost::new());
-
         Self {
-            _observed: builder.observed(),
-            builder,
+            builder: FeatureBuilder::new(AppHost::new()),
         }
     }
 
@@ -59,7 +53,7 @@ impl TestApp {
 
     /// Tears the application down: everything it set up, the last first.
     pub fn shutdown(self) {
-        runtime::teardown(&self.builder);
+        self.builder.host().shutdown();
     }
 }
 
@@ -302,7 +296,7 @@ impl Drop for Harness {
     /// can put it back.
     fn drop(&mut self) {
         self.segment.scope.remove();
-        runtime::teardown(&self.app.builder);
+        self.app.builder.host().shutdown();
     }
 }
 

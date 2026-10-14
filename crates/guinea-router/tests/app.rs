@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
-use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
+use guinea_app::app::{AppFeature, AppRuntime, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_macros::{app, installs, reducer, routes};
 use guinea_router::headless::{Headless, HeadlessCx, Layout, Page};
@@ -137,19 +137,18 @@ routes! {
     }
 }
 
-fn router(app: GuineaApp) -> Rc<Router<Headless>> {
+fn router(app: GuineaApp) -> (AppRuntime, Rc<Router<Headless>>) {
     SEEN.with(|seen| seen.borrow_mut().clear());
 
     let runtime = app.install().expect("install");
-    let context = runtime.context();
-    guinea_app::app::install_runtime(runtime);
+    let router = Rc::new(Router::<Headless>::new(FeatureHost::under(&runtime.context())));
 
-    Rc::new(Router::<Headless>::new(FeatureHost::under(&context)))
+    (runtime, router)
 }
 
 #[test]
 fn a_page_and_its_layout_read_what_the_application_installs() {
-    let router = router(GuineaApp::new().application::<App>());
+    let (_app, router) = router(GuineaApp::new().application::<App>());
 
     router.navigate(Route::Reader {}).expect("to the reader");
     router.render(&());
@@ -162,7 +161,7 @@ fn a_page_and_its_layout_read_what_the_application_installs() {
 
 #[test]
 fn navigating_in_an_application_built_without_it_panics_naming_it() {
-    let router = router(GuineaApp::new().feature(Localisation).plugin(Accents));
+    let (_app, router) = router(GuineaApp::new().feature(Localisation).plugin(Accents));
 
     let outcome = catch_unwind(AssertUnwindSafe(|| router.navigate(Route::Reader {}).map(|_| ())));
 

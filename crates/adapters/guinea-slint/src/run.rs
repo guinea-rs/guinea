@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
-use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use slint::ComponentHandle;
@@ -76,7 +76,6 @@ where
     let context = runtime.context();
     let saved = runtime.service::<SavedGeometry>();
     let initial = initial(&runtime);
-    install_runtime(runtime);
 
     let router = Rc::new(Router::<Slint>::new(FeatureHost::under(&context)));
 
@@ -119,7 +118,7 @@ where
     nav::clear();
     router.deactivate();
     root::clear();
-    shutdown_current();
+    drop(runtime);
     Ok(outcome?)
 }
 

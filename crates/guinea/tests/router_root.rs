@@ -6,7 +6,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use guinea::app::{GuineaApp, install_runtime};
+use guinea::app::{AppRuntime, GuineaApp};
 use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
 use guinea::router::NavigateHandle;
@@ -137,10 +137,9 @@ fn go(route: Route) {
     nav.to(route);
 }
 
-fn mount(initial: Route) -> Host {
+fn mount(initial: Route) -> (AppRuntime, Host) {
     let runtime = GuineaApp::new().install().expect("install");
     let app = runtime.context();
-    install_runtime(runtime);
 
     let mut adapter = RecordingAdapter::new();
     adapter.record_batches(true);
@@ -149,7 +148,7 @@ fn mount(initial: Route) -> Host {
     let mut host = Host::mount(adapter, [component::<RouterRoot<Route>>("root", rooted)])
         .expect("the route tree mounts");
     settle(&mut host);
-    host
+    (runtime, host)
 }
 
 fn settle(host: &mut Host) {
@@ -183,7 +182,7 @@ fn asking(host: &Host) -> bool {
 
 #[test]
 fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope() {
-    let mut pump = mount(Route::Process { pid: 1 });
+    let (_app, mut pump) = mount(Route::Process { pid: 1 });
     assert_eq!(last_shown(), "process 1 at 0%");
 
     go(Route::Process { pid: 2 });
@@ -202,7 +201,7 @@ fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope() {
 
 #[test]
 fn a_page_that_minds_being_left_asks_and_the_answer_decides() {
-    let mut pump = mount(Route::Editor {});
+    let (_app, mut pump) = mount(Route::Editor {});
     assert!(!asking(&pump));
 
     go(Route::Guarded {});
@@ -225,7 +224,7 @@ fn a_page_that_minds_being_left_asks_and_the_answer_decides() {
 
 #[test]
 fn a_navigation_asks_its_guards_once() {
-    let mut pump = mount(Route::Editor {});
+    let (_app, mut pump) = mount(Route::Editor {});
 
     ENTERED.with(|entered| entered.set(0));
     go(Route::Guarded {});
@@ -242,7 +241,7 @@ fn a_navigation_asks_its_guards_once() {
 
 #[test]
 fn a_first_route_that_fails_to_install_is_shown_not_a_panic() {
-    let host = mount(Route::Unreachable {});
+    let (_app, host) = mount(Route::Unreachable {});
 
     assert!(SHOWN.with(|shown| shown.borrow().is_empty()));
     let said = host
@@ -256,7 +255,7 @@ fn a_first_route_that_fails_to_install_is_shown_not_a_panic() {
 
 #[test]
 fn a_page_that_fails_to_install_leaves_the_window_where_it_was() {
-    let mut pump = mount(Route::Process { pid: 3 });
+    let (_app, mut pump) = mount(Route::Process { pid: 3 });
 
     go(Route::Unreachable {});
     settle(&mut pump);

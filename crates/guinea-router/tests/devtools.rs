@@ -200,13 +200,9 @@ fn one_actor_of_one_window_is_read_by_its_id() {
         .find(|view| view.root.get() == root)
         .and_then(|view| view.actors.into_iter().find(|actor| actor.type_name.ends_with("Clock")))
         .map(|actor| actor.id);
-    let read = listed.and_then(|id| observability::actor(Some(root), id)).map(|actor| actor.id);
+    let read = listed.and_then(|id| observability::actor(root, id)).map(|actor| actor.id);
 
     assert!(listed.is_some(), "the clock was spawned");
     assert_eq!(read, listed);
-    assert!(observability::actor(Some(root), usize::MAX).is_none());
-    assert!(
-        listed.and_then(|id| observability::actor(None, id)).is_none(),
-        "the application's actors are not the window's"
-    );
+    assert!(observability::actor(root, usize::MAX).is_none());
 }

@@ -53,7 +53,7 @@ pub mod observability {
     /// What is open now: routers, the application, their actors - read when
     /// asked, not kept.
     pub mod snapshot {
-        pub use guinea_app::observability::{app_actor, app_actors, app_scope, installed_plugins};
+        pub use guinea_app::observability::{app_actor, app_actors, installed_plugins};
         pub use guinea_router::observability::{
             RouterView, SegmentView, actor, router, routers, short,
         };

@@ -117,6 +117,31 @@ impl AppFeature for Startup {
     }
 }
 
+struct Tidy;
+impl Plugin for Tidy {
+    type Exports = ();
+
+    const ID: &'static str = "test.tidy";
+    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        app.on_cleanup(|| {
+            trace("tidied");
+            Ok(())
+        });
+        Ok(())
+    }
+}
+
+#[test]
+fn an_application_goes_when_its_runtime_is_let_go_of() {
+    taken();
+    let runtime = super::GuineaApp::new().plugin(Tidy).install().unwrap();
+    assert_eq!(taken(), [""; 0]);
+
+    drop(runtime);
+
+    assert_eq!(taken(), ["tidied"]);
+}
+
 #[test]
 fn a_plugin_pulled_twice_is_built_once() {
     let mut app = builder();
@@ -528,9 +553,8 @@ mod exports {
             .application::<Speaking>()
             .install()
             .expect("install");
-        crate::app::install_runtime(runtime);
 
-        let app = crate::observability::app_scope().expect("an application");
+        let app = runtime.context().scope;
 
         assert!(app.has_feature::<Speaking>());
         assert_eq!(language(app), Some("en"));
@@ -580,7 +604,7 @@ mod exports {
 mod owners {
     use guinea_macros::{actor, handler};
 
-    use crate::observability::{app_actors, app_scope, installed_plugins};
+    use crate::observability::{app_actors, installed_plugins};
     use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
 
     pub struct Sweep;
@@ -640,10 +664,10 @@ mod owners {
             .feature(Housekeeping)
             .install()
             .expect("install");
-        crate::app::install_runtime(runtime);
+        let app = runtime.context().scope;
 
         let owner = |name: &str| {
-            app_actors()
+            app_actors(app)
                 .into_iter()
                 .find(|actor| actor.type_name.ends_with(name))
                 .map(|actor| actor.owner.feature)
@@ -653,18 +677,23 @@ mod owners {
     }
 
     #[test]
-    fn a_harness_is_the_application_read_from_outside_while_it_lives() {
+    fn what_an_application_was_built_with_is_read_from_its_scope() {
         let mut harness = crate::app::Harness::new(0);
         harness.feature(Housekeeping).unwrap();
+        let app = harness.application().scope;
 
-        assert_eq!(app_scope(), Some(harness.application().scope));
-        assert_eq!(installed_plugins(), ["test.tools"]);
-        assert_eq!(app_actors().len(), 2);
+        assert_eq!(installed_plugins(app), ["test.tools"]);
+        assert_eq!(app_actors(app).len(), 2);
+    }
 
-        drop(harness);
+    #[test]
+    fn two_applications_on_one_thread_are_read_apart() {
+        let mut first = crate::app::Harness::new(0);
+        first.feature(Housekeeping).unwrap();
+        let second = crate::app::Harness::new(0);
 
-        assert_eq!(app_scope(), None);
-        assert_eq!(installed_plugins(), [""; 0]);
+        assert_eq!(installed_plugins(first.application().scope), ["test.tools"]);
+        assert_eq!(installed_plugins(second.application().scope), [""; 0]);
     }
 }
 

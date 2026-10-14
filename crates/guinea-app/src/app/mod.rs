@@ -15,7 +15,7 @@ mod acts;
 mod harness;
 
 pub use builder::{FeatureBuilder, PluginBuilder};
-pub use host::AppHost;
+pub(crate) use host::AppHost;
 pub use meta::AppMeta;
 pub use plugin::{AppFeature, Application, Installed, Plugin, Stop};
 
@@ -24,7 +24,7 @@ pub use acts::{Chain, Shape, Step};
 #[cfg(any(test, feature = "test-utils"))]
 pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
-pub use runtime::{AppRuntime, install_runtime, shutdown_current};
+pub use runtime::AppRuntime;
 
 type Provision = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
 type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
@@ -96,8 +96,8 @@ impl GuineaApp {
     /// Replays the recipe: installs every plugin and feature in registration
     /// order.
     ///
-    /// For backend adapters. The caller must hand the result to
-    /// [`install_runtime`] so teardown can find it.
+    /// For backend adapters, which hold the runtime for as long as the
+    /// application runs and let go of it after their windows.
     ///
     /// When a plugin or feature fails, or returns [`Stop`], what was installed
     /// before it is torn down here and the error is returned; an adapter
@@ -132,16 +132,10 @@ impl GuineaApp {
         }
 
         for register in self.registrations {
-            if let Err(error) = register(&mut builder) {
-                runtime::teardown(&builder);
-                return Err(error);
-            }
+            register(&mut builder)?;
         }
 
-        Ok(AppRuntime {
-            _observed: builder.observed(),
-            builder,
-        })
+        Ok(AppRuntime { builder })
     }
 }
 

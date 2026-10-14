@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop, install_runtime, shutdown_current};
+use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
 use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
 use ratatui::crossterm::cursor::Show;
@@ -69,7 +69,6 @@ where
     };
     let context = runtime.context();
     let initial = initial(&runtime);
-    install_runtime(runtime);
 
     let router = Rc::new(Router::<Tui>::new(FeatureHost::under(&context)));
     let route = Rc::new(RefCell::new(initial.clone()));
@@ -87,7 +86,7 @@ where
     });
 
     router.deactivate();
-    shutdown_current();
+    drop(runtime);
     outcome
 }
 

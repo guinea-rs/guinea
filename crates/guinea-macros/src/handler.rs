@@ -13,15 +13,16 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     let gc = crate::paths::core();
     let is_async = item.sig.asyncness.is_some();
 
+    let signature = item.sig.span();
     let (actor_ty, actor_name) = if is_async {
-        extract_actor_from_async_ctx(item.sig.inputs.get(0))?
+        extract_actor_from_async_ctx(item.sig.inputs.get(0), signature)?
     } else {
-        extract_actor_from_ref(item.sig.inputs.get(0))?
+        extract_actor_from_ref(item.sig.inputs.get(0), signature)?
     };
     let actor_ty = actor_ty.clone();
     let actor_ty = &actor_ty;
 
-    let msg_ty = extract_msg_info(item.sig.inputs.get(1))?.0.clone();
+    let msg_ty = extract_msg_info(item.sig.inputs.get(1), signature)?.0.clone();
     let msg_ty = &msg_ty;
 
     let takes_cx = !is_async && item.sig.inputs.len() == 3;
@@ -38,11 +39,6 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     };
     let passed_cx = takes_cx.then(|| quote!(, __guinea_cx));
 
-    // A return type is the signal that this handler answers an
-    // `Scope::request` rather than reacting to a fire-and-forget event.
-    // The generated impl is the only code path that can call
-    // reply to this message, so "replies exactly once" holds
-    // by construction regardless of which of the four branches below fires.
     let ret_ty = match &item.sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => Some(ty),
@@ -65,13 +61,12 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     };
 
     let trait_impl = match (is_async, ret_ty) {
-        // Fire-and-forget sync handler.
         (false, None) => {
             if !(2..=3).contains(&inputs.len()) {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "a handler for '{actor_name}' takes the actor, the message, and - when it sends, publishes or spawns - its `Cx`: (this: &mut {actor_name}, msg: Msg) or (this: &mut {actor_name}, msg: Msg, cx: Cx<{actor_name}, Msg>)"
+                        "a handler for `{actor_name}` takes the actor, the message, and - when it sends, publishes or spawns - its `Cx`: (this: &mut {actor_name}, msg: Msg) or (this: &mut {actor_name}, msg: Msg, cx: Cx<{actor_name}, Msg>)"
                     ),
                 ));
             }
@@ -86,15 +81,12 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
             }
         }
 
-        // Sync RPC handler - `RpcHandler<#msg_ty>`'s blanket `Handler<RpcRequest<#msg_ty>>`
-        // impl (in guinea-core) replies with what this returns: the reply
-        // itself, or a `Reply` that may come later.
         (false, Some(_)) => {
             if !(2..=3).contains(&inputs.len()) {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "an RPC handler for '{actor_name}' takes the actor, the request, and optionally its `Cx`: (this: &mut {actor_name}, req: Req) or (this: &mut {actor_name}, req: Req, cx: Cx<{actor_name}, Req>)"
+                        "a handler answering a request for `{actor_name}` takes the actor, the request, and optionally its `Cx`: (this: &mut {actor_name}, req: Req) or (this: &mut {actor_name}, req: Req, cx: Cx<{actor_name}, Req>)"
                     ),
                 ));
             }
@@ -120,8 +112,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "Async handler for actor '{}' must have exactly 2 arguments: (ctx: AsyncContext<{}>, msg: _)",
-                        actor_name, actor_name
+                        "an async handler for `{actor_name}` takes its context and the message: (cx: AsyncContext<{actor_name}>, msg: Msg)"
                     ),
                 ));
             }
@@ -131,10 +122,6 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
 
                     fn handle(&mut self, __guinea_msg: #msg_ty, __guinea_cx: #gc::actor::Cx<Self, #msg_ty>) {
                         let __guinea_actx = __guinea_cx.async_ctx();
-                        // `_with`, so the body is left to finish once it has
-                        // been told: it holds the same token through its
-                        // `AsyncContext`, and that promise is only true if
-                        // nothing drops it at the next await.
                         __guinea_cx.task().detached().spawn_with(move |_| async move {
                             #fn_name(__guinea_actx, __guinea_msg).await;
                         });
@@ -143,24 +130,12 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
             }
         }
 
-        // Async RPC handler - the reply only becomes available after
-        // `.await`, so `RpcHandler` (sync-only) doesn't fit. Implement
-        // `Handler<RpcRequest<#msg_ty>>` directly instead: unwrap the
-        // envelope up front, spawn the body, and reply with whatever it
-        // returns once it resolves. The user's fn body never sees
-        // where the reply goes and has no way to call `reply` itself - this
-        // generated glue is the only thing that can, same "exactly once"
-        // guarantee as the sync branch, just paid for with generated code
-        // instead of the trait system (async traits can't express "you
-        // must eventually produce exactly one value" the way a plain
-        // return type does).
         (true, Some(ret_ty)) => {
             if inputs.len() != 2 {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "Async RPC handler for actor '{}' must have exactly 2 arguments: (ctx: AsyncContext<{}>, req: _)",
-                        actor_name, actor_name
+                        "an async handler answering a request for `{actor_name}` takes its context and the request: (cx: AsyncContext<{actor_name}>, req: Req)"
                     ),
                 ));
             }
@@ -217,22 +192,21 @@ fn spell_out_cx(item: &mut ItemFn, actor: &Type, msg: &Type) {
     }
 }
 
-fn extract_msg_info(arg: Option<&FnArg>) -> Result<(&Type, String)> {
-    let arg =
-        arg.ok_or_else(|| Error::new(proc_macro2::Span::call_site(), "Missing message argument"))?;
+fn extract_msg_info(arg: Option<&FnArg>, signature: proc_macro2::Span) -> Result<(&Type, String)> {
+    let arg = arg.ok_or_else(|| {
+        Error::new(signature, "a handler takes the message it handles as its second argument")
+    })?;
     if let FnArg::Typed(PatType { ty, .. }) = arg {
         Ok((ty.as_ref(), type_to_string(ty)))
     } else {
-        Err(Error::new(
-            arg.span(),
-            "Expected a typed argument for message",
-        ))
+        Err(Error::new(arg.span(), "expected the message, `msg: Msg`"))
     }
 }
 
-fn extract_actor_from_ref(arg: Option<&FnArg>) -> Result<(&Type, String)> {
-    let arg =
-        arg.ok_or_else(|| Error::new(proc_macro2::Span::call_site(), "Missing actor argument"))?;
+fn extract_actor_from_ref(arg: Option<&FnArg>, signature: proc_macro2::Span) -> Result<(&Type, String)> {
+    let arg = arg.ok_or_else(|| {
+        Error::new(signature, "a handler takes its actor first: `this: &mut Actor`")
+    })?;
     if let FnArg::Typed(PatType { ty, .. }) = arg {
         if let Type::Reference(tr) = ty.as_ref() {
             let inner = tr.elem.as_ref();
@@ -241,16 +215,16 @@ fn extract_actor_from_ref(arg: Option<&FnArg>) -> Result<(&Type, String)> {
     }
     Err(Error::new(
         arg.span(),
-        "First argument of a sync handler must be '&ActorType' or '&mut ActorType'",
+        "a handler takes its actor first: `this: &mut Actor`, or `this: &Actor`",
     ))
 }
 
-fn extract_actor_from_async_ctx(arg: Option<&FnArg>) -> Result<(&Type, String)> {
+fn extract_actor_from_async_ctx(
+    arg: Option<&FnArg>,
+    signature: proc_macro2::Span,
+) -> Result<(&Type, String)> {
     let arg = arg.ok_or_else(|| {
-        Error::new(
-            proc_macro2::Span::call_site(),
-            "Missing AsyncContext argument",
-        )
+        Error::new(signature, "an async handler takes its context first: `cx: AsyncContext<Actor>`")
     })?;
     if let FnArg::Typed(PatType { ty, .. }) = arg {
         if let Type::Path(tp) = ty.as_ref() {
@@ -268,13 +242,13 @@ fn extract_actor_from_async_ctx(arg: Option<&FnArg>) -> Result<(&Type, String)> 
                 }
                 return Err(Error::new(
                     arg.span(),
-                    "AsyncContext must specify the Actor type in angle brackets: AsyncContext<MyActor>",
+                    "name the actor: `AsyncContext<Actor>`",
                 ));
             }
         }
     }
     Err(Error::new(
         arg.span(),
-        "First argument of an async handler must be 'AsyncContext<ActorType>'",
+        "an async handler takes its context first: `cx: AsyncContext<Actor>`",
     ))
 }

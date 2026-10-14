@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use guinea_macros::given;
 
-use super::{AppFeature, AppHost, FeatureBuilder, Plugin, PluginBuilder};
+use super::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -19,7 +19,7 @@ fn taken() -> Vec<&'static str> {
 
 fn builder() -> FeatureBuilder {
     TRACE.with(|t| t.borrow_mut().clear());
-    FeatureBuilder::new(AppHost::new())
+    FeatureBuilder::new()
 }
 
 struct Settings;
@@ -213,8 +213,8 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     struct Tick;
     impl Event for Tick {}
 
-    let app = PluginBuilder::new(AppHost::new());
-    let bus = app.host().scope().bus();
+    let app = PluginBuilder::new();
+    let bus = app.scope.bus();
     let seen = Rc::new(RefCell::new(0usize));
 
     {
@@ -224,7 +224,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
 
     assert_eq!(bus.count_subscribers::<Tick>(), 1);
 
-    app.host().shutdown();
+    drop(app);
 
     assert_eq!(bus.count_subscribers::<Tick>(), 0);
 }

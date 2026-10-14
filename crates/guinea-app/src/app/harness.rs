@@ -11,13 +11,11 @@ use guinea_core::scope::{Reducer, Scope, ScopeGuard};
 use guinea_core::short_type_name;
 use guinea_core::trace::{self, Cause, Point};
 
-use crate::feature::{Feature, FeatureInitContext, ScopeContext};
+use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
 
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
-use super::host::AppHost;
 use super::plugin::{AppFeature, Application, Plugin};
-use super::roots;
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -32,7 +30,7 @@ pub struct TestApp {
 impl TestApp {
     pub fn new() -> Self {
         Self {
-            builder: FeatureBuilder::new(AppHost::new()),
+            builder: FeatureBuilder::new(),
         }
     }
 
@@ -49,11 +47,6 @@ impl TestApp {
     /// What was provided as `T`, for the test holding the application.
     pub fn service<T: Clone + 'static>(&self) -> Option<T> {
         self.builder.scope.service::<T>()
-    }
-
-    /// Tears the application down: everything it set up, the last first.
-    pub fn shutdown(self) {
-        self.builder.host().shutdown();
     }
 }
 
@@ -89,9 +82,14 @@ impl DerefMut for TestApp {
 /// Time is the executor's: a `tokio::time::sleep`, `interval` or `timeout` in
 /// the code under test is made against a paused clock, which moves only by
 /// [`advance`](Self::advance).
+///
+/// Dropping it tears the application down the way leaving `run` does: the
+/// window first, then every plugin's cleanups. A plugin that puts something
+/// process-wide in place takes it away again, so the next seed can put it
+/// back.
 pub struct Harness {
     segment: FeatureInitContext,
-    _scope: ScopeGuard,
+    _window: FeatureHost,
     app: TestApp,
     recorder: Recorder,
     executor: Installed,
@@ -105,17 +103,12 @@ impl Harness {
     pub fn new(seed: u64) -> Self {
         let executor = executor::install(seed);
         let app = TestApp::new();
-        let scope = app.host().scope().child().guard();
-        roots::open(scope.scope());
-
-        let segment = FeatureInitContext {
-            scope_cx: ScopeContext::new(scope.scope()),
-            cursor: 0,
-        };
+        let window = FeatureHost::under(&app);
+        let segment = window.context(window.scope(), 0);
 
         Self {
             segment,
-            _scope: scope,
+            _window: window,
             app,
             recorder: Recorder::start(),
             executor,
@@ -183,7 +176,7 @@ impl Harness {
     /// The application's bus: the bus of the tree the harness's scopes are
     /// in.
     pub fn bus(&self) -> Rc<EventBus> {
-        self.app.host().scope().bus()
+        self.app.scope.bus()
     }
 
     /// Runs `done` as one action called `name`, and hands back what it set
@@ -284,17 +277,6 @@ impl Harness {
     /// something nothing here will wake.
     pub fn stuck(&self) -> usize {
         self.executor.stuck()
-    }
-}
-
-impl Drop for Harness {
-    /// Tears the application down the way leaving `run` does: the segment's
-    /// features first, then every plugin's cleanups. A plugin that puts
-    /// something process-wide in place takes it away again, so the next seed
-    /// can put it back.
-    fn drop(&mut self) {
-        self.segment.scope.remove();
-        self.app.builder.host().shutdown();
     }
 }
 

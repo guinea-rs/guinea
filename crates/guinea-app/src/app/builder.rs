@@ -3,11 +3,10 @@ use std::ops::{Deref, DerefMut};
 
 use anyhow::Context as _;
 use guinea_core::actor::{Addr, ManagedActor};
-use guinea_core::scope::Scope;
+use guinea_core::scope::{Scope, ScopeTree};
 use guinea_core::short_type_name;
 use crate::feature::ScopeContext;
 
-use super::host::AppHost;
 use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
 use super::registry::{Admission, Plugins, Registry, Unit};
 
@@ -19,7 +18,10 @@ use super::registry::{Admission, Plugins, Registry, Unit};
 /// lets every window read is its [`Exports`](Plugin::Exports).
 pub struct PluginBuilder {
     cx: ScopeContext,
-    host: AppHost,
+    /// The application's tree: its scope is the root, the windows are under
+    /// it, and letting go of the tree removes all of it - the windows first,
+    /// then what the application set up, the last first.
+    tree: ScopeTree,
     registry: RefCell<Registry>,
 }
 
@@ -29,18 +31,15 @@ pub struct FeatureBuilder {
 }
 
 impl PluginBuilder {
-    pub(crate) fn new(host: AppHost) -> Self {
-        host.scope().keep(Plugins::default());
+    pub(crate) fn new() -> Self {
+        let tree = ScopeTree::new();
+        tree.scope().keep(Plugins::default());
 
         Self {
-            cx: ScopeContext::new(host.scope()),
-            host,
+            cx: ScopeContext::new(tree.scope()),
+            tree,
             registry: RefCell::default(),
         }
-    }
-
-    pub(crate) fn host(&self) -> &AppHost {
-        &self.host
     }
 
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {
@@ -79,7 +78,7 @@ impl PluginBuilder {
     /// Runs `f` when the application exits - after what was set up after it,
     /// and before what was set up before it.
     pub fn on_cleanup(&self, f: impl FnOnce() -> anyhow::Result<()> + 'static) -> &Self {
-        self.host.on_cleanup(move || {
+        self.tree.on_teardown(move || {
             if let Err(e) = f() {
                 tracing::error!(error = %e, "an application cleanup failed");
             }
@@ -129,9 +128,9 @@ impl PluginBuilder {
 }
 
 impl FeatureBuilder {
-    pub(crate) fn new(host: AppHost) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            inner: PluginBuilder::new(host),
+            inner: PluginBuilder::new(),
         }
     }
 

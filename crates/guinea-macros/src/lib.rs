@@ -264,6 +264,18 @@ pub fn ratatui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
     elm::node_impl(item, elm::Kind::Layout, "guinea-ratatui", "ratatui", elm::Model::Immediate)
 }
 
+/// [`eframe_page`] for Slint, where a page has no drawing of its own.
+#[proc_macro_attribute]
+pub fn slint_page(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Page, "guinea-slint", "slint", elm::Model::Immediate)
+}
+
+/// [`slint_page`] for a layout.
+#[proc_macro_attribute]
+pub fn slint_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    elm::node_impl(item, elm::Kind::Layout, "guinea-slint", "slint", elm::Model::Immediate)
+}
+
 /// [`iced_page`] for the windows-reactor backend.
 ///
 /// The same macro because the two backends are the same kind of thing: the

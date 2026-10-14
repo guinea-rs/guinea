@@ -119,9 +119,55 @@ where
     }
 }
 
+/// A Slint value back as the Rust one it was made from: what a route's
+/// parameter arrives as when the window navigates.
+pub trait FromSlint: ToSlint {
+    fn from_slint(value: Self::Slint) -> Self;
+}
+
+macro_rules! back_itself {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl FromSlint for $ty {
+                fn from_slint(value: Self::Slint) -> Self {
+                    value
+                }
+            }
+        )*
+    };
+}
+
+back_itself!(bool, i32, f32);
+
+macro_rules! back_from_int {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl FromSlint for $ty {
+                fn from_slint(value: i32) -> Self {
+                    value as $ty
+                }
+            }
+        )*
+    };
+}
+
+back_from_int!(i8, i16, i64, isize, u8, u16, u32, u64, usize);
+
+impl FromSlint for f64 {
+    fn from_slint(value: f32) -> Self {
+        f64::from(value)
+    }
+}
+
+impl FromSlint for String {
+    fn from_slint(value: SharedString) -> Self {
+        value.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ToSlint;
+    use super::{FromSlint, ToSlint};
     use slint::Model;
 
     #[test]
@@ -136,6 +182,12 @@ mod tests {
     #[test]
     fn a_count_becomes_an_int() {
         assert_eq!(7usize.to_slint(), 7i32);
+    }
+
+    #[test]
+    fn a_value_comes_back_as_what_it_was_made_from() {
+        assert_eq!(String::from_slint("db-01".to_string().to_slint()), "db-01");
+        assert_eq!(u32::from_slint(7u32.to_slint()), 7);
     }
 
     #[test]

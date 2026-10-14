@@ -27,7 +27,7 @@
 //! enables no backend, so a build for Linux with `ratatui` added has ratatui
 //! as its one backend.
 
-pub use guinea_router::{enter, headless, link, manifest, restore, router, slot};
+pub use guinea_router::{enter, headless, link, manifest, mount, navigator, restore, router, slot};
 #[doc(hidden)]
 pub use guinea_router::sample;
 
@@ -244,8 +244,8 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Inspect, Mark, Remote, Request, actor, app, feature, given, handler, installs, reducer,
-    routes, slot,
+    Event, Inspect, Mark, Remote, Request, Route, actor, app, feature, given, handler, installs,
+    reducer, routes, slot,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -

@@ -15,6 +15,7 @@ mod paths;
 mod reducer;
 mod remote;
 mod request;
+mod route;
 mod routes_dsl;
 
 /// A feature's manifest: its name, the reducers it exports and the feeds it
@@ -438,6 +439,27 @@ pub fn event(item: TokenStream) -> TokenStream {
 pub fn request(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);
     request::derive_request(input).into()
+}
+
+/// Makes an enum a place a window can be: a variant per place, and a
+/// one-field tuple variant - `Processes(ProcessesRoute)` - for each layout
+/// that has places of its own below it.
+///
+/// `#[at("/process/:pid")]` gives a variant an address: a `:name` is the
+/// named field of that name, written with `Display` and read with `FromStr`.
+/// A branch's link is the prefix of the enum it holds, and `"/"` is the place
+/// a level is at when nothing is added. At any one position a literal is
+/// tried before a capture, whatever the order of declaration.
+///
+/// `#[guard(A, B)]` puts enter guards in front of a variant, or in front of
+/// every variant when it is on the enum; a branch passes its guards on to
+/// everything it holds.
+#[proc_macro_derive(Route, attributes(at, guard))]
+pub fn route(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    route::derive(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
 /// Lets devtools open the type a node at a time: a struct by its fields, an

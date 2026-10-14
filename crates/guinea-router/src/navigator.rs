@@ -44,6 +44,32 @@ pub trait Route: Clone + PartialEq + 'static {
     fn levels() -> Vec<Level<Self>> {
         Vec::new()
     }
+
+    /// The address this route answers to, when every level of it has one.
+    fn link(&self) -> Option<String> {
+        let mut segments = Vec::new();
+        self.write(&mut segments)
+            .then(|| format!("/{}", segments.join("/")))
+    }
+
+    /// The route at `link`, when one answers to it.
+    fn parse(link: &str) -> Option<Self> {
+        let segments: Vec<&str> = link.split('/').filter(|segment| !segment.is_empty()).collect();
+        Self::read(&segments)
+    }
+
+    /// Writes this route's path segments after the ones already in `into`;
+    /// `false` when a level of it has no link.
+    #[doc(hidden)]
+    fn write(&self, _into: &mut Vec<String>) -> bool {
+        false
+    }
+
+    /// The route the whole of `segments` reaches.
+    #[doc(hidden)]
+    fn read(_segments: &[&str]) -> Option<Self> {
+        None
+    }
 }
 
 /// A route type nested in `R`, and how to get from one to the other.

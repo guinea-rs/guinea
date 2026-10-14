@@ -99,7 +99,6 @@ jobs:
             guinea-meta
             guinea-codegen
             guinea-meta-build
-            guinea-route-dsl
             guinea-trace
             guinea-slint-build
             guinea-macros

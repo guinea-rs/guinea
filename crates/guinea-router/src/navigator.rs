@@ -21,10 +21,13 @@ use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::Scope;
 
 use crate::enter::{EnterCx, EnterGuard};
+use crate::observability::NavigatorView;
 
 /// A place the application can be: an enum, a variant per place, and a
 /// variant holding another route for each layout below.
-pub trait Route: Clone + PartialEq + 'static {
+///
+/// `Debug` is how devtools write where a window is.
+pub trait Route: Clone + PartialEq + std::fmt::Debug + 'static {
     /// The variant, for a log line and for devtools.
     fn name(&self) -> &'static str;
 
@@ -64,9 +67,23 @@ pub trait Route: Clone + PartialEq + 'static {
     }
 
     /// The route at `link`, when one answers to it.
+    ///
+    /// The leading slash is optional and one trailing slash is forgiven; any
+    /// other empty segment is a segment, so an empty capture reads back as
+    /// itself and `//` is not skipped.
     fn parse(link: &str) -> Option<Self> {
-        let segments: Vec<&str> = link.split('/').filter(|segment| !segment.is_empty()).collect();
-        Self::read(&segments).map(|(route, _)| route)
+        let path = link.strip_prefix('/').unwrap_or(link);
+        let segments: Vec<&str> = match path.is_empty() {
+            true => Vec::new(),
+            false => path.split('/').collect(),
+        };
+
+        Self::read(&segments)
+            .or_else(|| match segments.split_last() {
+                Some((&"", rest)) => Self::read(rest),
+                _ => None,
+            })
+            .map(|(route, _)| route)
     }
 
     /// Writes this route's path segments after the ones already in `into`;
@@ -368,6 +385,17 @@ trait Navigates {
     fn failure(&self) -> Option<String>;
     fn watch(&self, heard: Rc<dyn Fn()>) -> u64;
     fn unwatch(&self, id: u64);
+    fn view(&self) -> NavigatorView;
+}
+
+/// The navigators `scope` opened, as devtools read them.
+pub(crate) fn views(scope: Scope) -> Vec<NavigatorView> {
+    if !scope.keeps::<Held>() {
+        return Vec::new();
+    }
+    scope
+        .kept::<Held, _>(|held| held.0.iter().map(|root| root.view()).collect())
+        .unwrap_or_default()
 }
 
 struct Root<R: Route> {
@@ -703,5 +731,17 @@ impl<R: Route> Navigates for Root<R> {
 
     fn unwatch(&self, id: u64) {
         self.watchers.borrow_mut().retain(|(watching, _)| *watching != id);
+    }
+
+    fn view(&self) -> NavigatorView {
+        let state = self.state.borrow();
+        NavigatorView {
+            scope: self.window,
+            route: format!("{:?}", state.current),
+            back: state.back.len(),
+            forward: state.forward.len(),
+            pending: state.pending.as_ref().map(|parked| parked.ask.text.clone()),
+            failure: state.failure.clone(),
+        }
     }
 }

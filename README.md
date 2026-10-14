@@ -12,15 +12,15 @@ An opinion about how a desktop application is built, and the machinery that
 makes the opinion cheap to follow.
 
 - **An architecture** - state is a reducer, the domain is actors that change it, and a feature owns both. A page is written the way its toolkit works; whatever it is, it reads what it may, and asks a feature for the rest
-- **Routing after Next.js** - nested layouts and pages, declared once in `routes!`. A layout stays mounted while the pages under it change, and what it installs lives exactly as long as it does
+- **Routing after Next.js** - nested layouts and pages: a layout `match`es its own level of the route and mounts the page there. A layout stays mounted while the pages under it change, and what it installs lives exactly as long as it does
 - **Plugins** - a feature is the unit of reuse: installed by any page or layout, in any application, and gone with it. [guinea-plugins](https://github.com/guinea-rs/guinea-plugins) is what a desktop needs, written once
 - **Infrastructure for free** - guinea knows how the application is put together: which feature a page installed, which actor answered, what a message caused. So nothing has to be wired by hand for structured tracing with cause chains, tests after gpui's with background work ordered by a seed, and devtools that show the application live
 
 ### Features
 
-- **Typed routes** - the route tree is an enum `routes!` writes; navigation takes a value, not a path. Paths exist only where a deep link or a restored session needs one, and the compiler checks every field survives the round trip
-- **Scoped lifetimes, known at compile time** - a feature lives exactly as long as the page or layout that installed it, and the route tree says at build time what is alive where: its actors, timers and subscriptions end when the user leaves
-- **Reads checked at build time** - a page reads what it installed itself and what a layout above it exports; anything else is a compile error at the read, not a panic at the first render
+- **Typed routes** - the route is your own enum, one level per layout, with `#[derive(Route)]`; navigation takes a value, not a path. Paths exist only where a deep link needs one, and the derive checks every field survives the round trip
+- **Scoped lifetimes** - a feature lives exactly as long as the page or layout that installed it: its actors, timers and subscriptions end when the user leaves
+- **Reads that say where they missed** - a page reads what it installed itself and what a layout above it exports; a read that reaches nothing fails the first render naming the chain it walked, and a test that mounts every place finds it first
 - **The toolkit's own model on the page, actors in the domain** - on WinUI and iced a page is an Elm node with messages and one `update`, on egui and ratatui it draws itself every frame, on Slint the view is the `.slint` file and Rust wires it; the domain behind any of them answers actions through actors, and pushes state back through reducers
 - **Deterministic tests** - `#[guinea::test]` runs a test once per seed, with background work interleaved the way the seed says. WinUI pages mount without a window, and are clicked and read back as a tree
 - **What caused what** - every action, message, publication and state change is traced with its cause, to `tracing` as structured events and to devtools as a live graph

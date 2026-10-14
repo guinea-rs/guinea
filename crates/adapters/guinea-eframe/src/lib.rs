@@ -36,10 +36,6 @@ use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::mount::{Outlet, Pass, binding, navigator};
 
-/// What `guinea::Backend` names under the eframe feature, while `routes!` is
-/// still there for the other backends.
-pub struct Egui;
-
 /// Drawing that has not happened yet.
 ///
 /// `FnOnce` because a node is drawn exactly once per frame - the next frame
@@ -149,6 +145,7 @@ struct Draws(fn(Scope, &mut egui::Ui));
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(page_draw::<P>));
+    guinea_router::mount::written(ctx.scope, P::DECLARED);
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);
@@ -158,6 +155,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(layout_draw::<L>));
+    guinea_router::mount::written(ctx.scope, L::DECLARED);
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);

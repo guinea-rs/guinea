@@ -238,6 +238,22 @@ impl Open {
 }
 
 #[test]
+fn what_is_mounted_says_where_it_was_written() {
+    let window = Open::at(Place::Processes);
+    let root = guinea_app::app::roots::of(window.host.scope()).map(|root| root.get());
+
+    let written: Option<Vec<&str>> = root.and_then(guinea_router::observability::window).map(|view| {
+        view.mounted
+            .iter()
+            .filter(|mounted| mounted.written.is_some_and(|at| at.file.ends_with("tests.rs")))
+            .map(|mounted| mounted.name)
+            .collect()
+    });
+
+    assert_eq!(written, Some(vec!["Shell", "Processes"]));
+}
+
+#[test]
 fn the_page_the_navigator_is_at_is_mounted_and_bound() {
     let window = Open::at(Place::Processes);
 

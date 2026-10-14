@@ -295,6 +295,22 @@ fn release(typed: char) -> Event {
 }
 
 #[test]
+fn what_is_mounted_says_where_it_was_written() {
+    let window = Window::at(Place::Processes);
+    let root = guinea_app::app::roots::of(window.scope()).map(|root| root.get());
+
+    let written: Option<Vec<&str>> = root.and_then(guinea_router::observability::window).map(|view| {
+        view.mounted
+            .iter()
+            .filter(|mounted| mounted.written.is_some_and(|at| at.file.ends_with("tests.rs")))
+            .map(|mounted| mounted.name)
+            .collect()
+    });
+
+    assert_eq!(written, Some(vec!["Shell", "Processes"]));
+}
+
+#[test]
 fn a_layout_places_the_page_it_mounts() {
     let window = Window::at(Place::Processes);
 

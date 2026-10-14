@@ -41,10 +41,6 @@ use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::Rect;
 use ratatui::widgets::{Paragraph, Wrap};
 
-/// What `guinea::Backend` names under the ratatui feature, while `routes!` is
-/// still there for the other backends.
-pub struct Tui;
-
 /// Drawing that has not happened yet.
 ///
 /// `FnOnce` because a node is drawn exactly once per frame - the next frame
@@ -202,6 +198,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
         draw: page_draw::<P>,
         offer: page_offer::<P>,
     });
+    guinea_router::mount::written(ctx.scope, P::DECLARED);
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);
@@ -214,6 +211,7 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
         draw: layout_draw::<L>,
         offer: layout_offer::<L>,
     });
+    guinea_router::mount::written(ctx.scope, L::DECLARED);
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     ctx.scope.keep(node);

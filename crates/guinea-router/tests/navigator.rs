@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_core::guard::{Ask, Verdict};
+use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::ScopeTree;
 use guinea_router::enter::{Enter, EnterCx, EnterGuard, Stands};
 use guinea_router::navigator::{Level, Moved, Navigator, Route};
@@ -10,7 +10,9 @@ use guinea_router::navigator::{Level, Moved, Navigator, Route};
 enum Top {
     Processes(Processes),
     Services,
+    Logs,
     Admin,
+    Vault,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,12 +29,30 @@ impl Enter for Refuses {
     }
 }
 
+thread_local! {
+    static AT_THE_VAULT: RefCell<Option<Decision>> = const { RefCell::new(None) };
+}
+
+/// Asks before letting anyone in, and leaves its decision where a test can
+/// answer it.
+struct AsksFirst;
+
+impl Enter for AsksFirst {
+    fn decide(_cx: &EnterCx<'_>) -> Verdict {
+        let decision = Decision::new();
+        AT_THE_VAULT.set(Some(decision.clone()));
+        Verdict::Ask(Ask::new("Unlock?", "Unlock", "Leave"), decision)
+    }
+}
+
 impl Route for Top {
     fn name(&self) -> &'static str {
         match self {
             Top::Processes(_) => "Processes",
             Top::Services => "Services",
+            Top::Logs => "Logs",
             Top::Admin => "Admin",
+            Top::Vault => "Vault",
         }
     }
 
@@ -43,6 +63,7 @@ impl Route for Top {
     fn guards(&self) -> Vec<&'static dyn EnterGuard> {
         match self {
             Top::Admin => vec![&Stands::<Refuses>(std::marker::PhantomData)],
+            Top::Vault => vec![&Stands::<AsksFirst>(std::marker::PhantomData)],
             _ => Vec::new(),
         }
     }
@@ -260,4 +281,119 @@ fn a_handler_goes_where_it_was_made_for_each_time_it_is_called() {
     go();
     assert_eq!(navigator.current(), Some(Top::Services));
     assert!(navigator.can_go_back());
+}
+
+#[test]
+fn an_enter_guard_may_ask_and_the_navigation_waits_for_the_answer() {
+    let (_tree, navigator) = opened();
+
+    assert!(matches!(navigator.to(Top::Vault), Moved::Deferred));
+    assert_eq!(navigator.pending().map(|ask| ask.text), Some("Unlock?".into()));
+    assert_eq!(navigator.current(), Some(Top::Processes(Processes::List)));
+
+    AT_THE_VAULT.take().into_iter().for_each(|decision| decision.allow());
+
+    assert_eq!(navigator.current(), Some(Top::Vault));
+    assert_eq!(navigator.pending(), None);
+}
+
+#[test]
+fn a_leave_guard_that_refuses_leaves_everything_where_it_was() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let page = shell.child();
+    page.on_leave(|| Verdict::Block);
+    navigator.rendered(shell, page, &Top::Services);
+    navigator.to(Top::Services);
+
+    assert!(matches!(navigator.to(Top::Logs), Moved::Blocked));
+    assert_eq!(navigator.current(), Some(Top::Services));
+    assert!(page.is_alive());
+
+    assert!(
+        matches!(navigator.to(Top::Services), Moved::Done),
+        "staying where it is does not ask what would not be left"
+    );
+}
+
+#[test]
+fn a_second_navigation_asks_again_for_its_own_destination() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let page = shell.child();
+    page.on_leave(|| Verdict::ask(Ask::new("Discard?", "Discard", "Stay")));
+    navigator.rendered(shell, page, &Top::Processes(Processes::List));
+
+    assert!(matches!(navigator.to(Top::Services), Moved::Deferred));
+    assert!(matches!(navigator.to(Top::Logs), Moved::Deferred));
+    navigator.answer(true);
+
+    assert_eq!(navigator.current(), Some(Top::Logs));
+}
+
+#[test]
+fn a_guard_that_answered_before_it_returned_lets_the_navigation_through() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let page = shell.child();
+    page.on_leave(|| {
+        let decision = Decision::new();
+        decision.allow();
+        Verdict::Ask(Ask::new("Discard?", "Discard", "Stay"), decision)
+    });
+    navigator.rendered(shell, page, &Top::Processes(Processes::List));
+
+    assert!(matches!(navigator.to(Top::Services), Moved::Done));
+    assert_eq!(navigator.current(), Some(Top::Services));
+    assert_eq!(navigator.pending(), None);
+}
+
+/// A page at `at` that asks before it is left while `asking` says so.
+fn minding(tree: &ScopeTree, navigator: &Navigator<Top>, at: Top) -> Rc<Cell<bool>> {
+    let shell = tree.scope().child();
+    let page = shell.child();
+    let asking = Rc::new(Cell::new(true));
+    let minds = asking.clone();
+    page.on_leave(move || match minds.get() {
+        true => Verdict::ask(Ask::new("Discard?", "Discard", "Stay")),
+        false => Verdict::Allow,
+    });
+    navigator.rendered(shell, page, &at);
+    asking
+}
+
+#[test]
+fn a_back_that_supersedes_a_waiting_back_is_one_step_from_where_it_stands() {
+    let (tree, navigator) = opened();
+    navigator.to(Top::Services);
+    navigator.to(Top::Logs);
+    let asking = minding(&tree, &navigator, Top::Logs);
+
+    navigator.back();
+    navigator.back();
+    navigator.answer(true);
+    assert_eq!(navigator.current(), Some(Top::Services));
+
+    asking.set(false);
+    navigator.back();
+    assert_eq!(navigator.current(), Some(Top::Processes(Processes::List)));
+}
+
+#[test]
+fn a_forward_that_supersedes_a_waiting_forward_is_one_step_from_where_it_stands() {
+    let (tree, navigator) = opened();
+    navigator.to(Top::Services);
+    navigator.to(Top::Logs);
+    navigator.back();
+    navigator.back();
+    let asking = minding(&tree, &navigator, Top::Processes(Processes::List));
+
+    navigator.forward();
+    navigator.forward();
+    navigator.answer(true);
+    assert_eq!(navigator.current(), Some(Top::Services));
+
+    asking.set(false);
+    navigator.forward();
+    assert_eq!(navigator.current(), Some(Top::Logs));
 }

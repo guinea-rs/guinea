@@ -5,29 +5,17 @@
 //! and what they expand to finds its way through here too. What almost every
 //! file needs is one import, `use guinea::prelude::*;`.
 //!
-//! A backend arrives as a feature, and while exactly one is enabled it also
-//! arrives as [`Backend`] and [`backend`] - which `routes!` targets by default,
-//! so a single-backend application names its toolkit nowhere.
+//! A backend arrives as a feature, under its own name: `guinea::winui`,
+//! `guinea::ratatui`, `guinea::slint`, `guinea::eframe`, `guinea::iced`.
+//! Several may be enabled at once; nothing here picks one.
 //!
-//! Enable two and that shorthand goes away on purpose: there is no sensible
-//! answer to "the backend" any more, and every route tree has to say which one
-//! it is for:
+//! With no backend at all what is left is navigation and mounting, the
+//! application runtime and the macros - which is what a port to another
+//! toolkit starts from.
 //!
-//! ```ignore
-//! routes! {
-//!     backend = guinea::ratatui::Tui,
-//!     Route { .. }
-//! }
-//! ```
-//!
-//! With no backend at all what is left is the router, the application runtime
-//! and the macros - which is what a port to another toolkit starts from.
-//!
-//! `winui` is a default feature and means nothing off Windows: there it
-//! enables no backend, so a build for Linux with `ratatui` added has ratatui
-//! as its one backend.
+//! `winui` is a default feature and means nothing off Windows.
 
-pub use guinea_router::{enter, headless, link, manifest, mount, navigator, restore, router, slot};
+pub use guinea_router::{enter, link, manifest, mount, navigator, slot};
 #[doc(hidden)]
 pub use guinea_router::sample;
 
@@ -50,12 +38,12 @@ pub mod observability {
     pub use guinea_core::trace;
     pub use guinea_router::observability::act;
 
-    /// What is open now: routers, the application, their actors - read when
+    /// What is open now: windows, the application, their actors - read when
     /// asked, not kept.
     pub mod snapshot {
         pub use guinea_app::observability::{app_actor, app_actors, installed_plugins};
         pub use guinea_router::observability::{
-            RouterView, SegmentView, actor, router, routers, short,
+            MountedView, NavigatorView, WindowView, actor, short, window, windows,
         };
     }
 }
@@ -75,164 +63,6 @@ pub use guinea_eframe as eframe;
 #[cfg(feature = "iced")]
 pub use guinea_iced as iced;
 
-/// The backend this build renders with, as a module and as a type.
-///
-/// Defined only while exactly one backend feature is on. `routes!` falls back
-/// to these when a route tree does not name a backend itself.
-#[cfg(all(
-    all(feature = "winui", target_os = "windows"),
-    not(any(
-        feature = "ratatui",
-        feature = "slint",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub use guinea_winui as backend;
-#[cfg(all(
-    all(feature = "winui", target_os = "windows"),
-    not(any(
-        feature = "ratatui",
-        feature = "slint",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub type Backend = guinea_winui::WinUi;
-
-#[cfg(all(
-    feature = "ratatui",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "slint",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub use guinea_ratatui as backend;
-#[cfg(all(
-    feature = "ratatui",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "slint",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub type Backend = guinea_ratatui::Tui;
-
-#[cfg(all(
-    feature = "slint",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub use guinea_slint as backend;
-#[cfg(all(
-    feature = "slint",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "eframe",
-        feature = "iced"
-    ))
-))]
-pub type Backend = guinea_slint::Slint;
-
-#[cfg(all(
-    feature = "eframe",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "slint",
-        feature = "iced"
-    ))
-))]
-pub use guinea_eframe as backend;
-#[cfg(all(
-    feature = "eframe",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "slint",
-        feature = "iced"
-    ))
-))]
-pub type Backend = guinea_eframe::Egui;
-
-#[cfg(all(
-    feature = "iced",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "slint",
-        feature = "eframe"
-    ))
-))]
-pub use guinea_iced as backend;
-#[cfg(all(
-    feature = "iced",
-    not(any(
-        all(feature = "winui", target_os = "windows"),
-        feature = "ratatui",
-        feature = "slint",
-        feature = "eframe"
-    ))
-))]
-pub type Backend = guinea_iced::Iced;
-
-/// Stands in for `Backend` when more than one backend is enabled.
-///
-/// It deliberately implements nothing: the error an application gets is that
-/// its routes are not for a backend, which is exactly the mistake - and the
-/// `Ui` trait's own diagnostic says how to name one.
-#[cfg(any(
-    all(
-        all(feature = "winui", target_os = "windows"),
-        any(
-            feature = "ratatui",
-            feature = "slint",
-            feature = "eframe",
-            feature = "iced"
-        )
-    ),
-    all(
-        feature = "ratatui",
-        any(feature = "slint", feature = "eframe", feature = "iced")
-    ),
-    all(feature = "slint", any(feature = "eframe", feature = "iced")),
-    all(feature = "eframe", feature = "iced"),
-))]
-pub enum Backend {}
-
-#[cfg(any(
-    all(
-        all(feature = "winui", target_os = "windows"),
-        any(
-            feature = "ratatui",
-            feature = "slint",
-            feature = "eframe",
-            feature = "iced"
-        )
-    ),
-    all(
-        feature = "ratatui",
-        any(feature = "slint", feature = "eframe", feature = "iced")
-    ),
-    all(feature = "slint", any(feature = "eframe", feature = "iced")),
-    all(feature = "eframe", feature = "iced"),
-))]
-pub mod backend {
-    //! Empty on purpose: with more than one backend enabled there is no "the"
-    //! backend, so `routes!` has to be told which one - `backend =
-    //! guinea::winui::WinUi`, `guinea::ratatui::Tui`, `guinea::slint::Slint`,
-    //! `guinea::eframe::Egui` or `guinea::iced::Iced`.
-}
-
-
 pub use guinea_app::{app, app_meta, feature};
 pub use guinea_core::timers;
 
@@ -245,7 +75,7 @@ pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
     Event, Inspect, Mark, Remote, Request, Route, actor, app, feature, given, handler, installs,
-    reducer, routes, slot,
+    reducer, slot,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -
@@ -261,8 +91,7 @@ pub use guinea_core::__private::anyhow;
 /// they draw with: `use guinea::prelude::*;`.
 ///
 /// A backend's own types - `Page`, `PageCx`, `Layout` - are not here; they
-/// come from `guinea::backend`, or from the backend's module by name when
-/// there are several.
+/// come from the backend's module: `guinea::winui`, `guinea::eframe`.
 pub mod prelude {
     pub use guinea_app::app::{
         AppFeature, Application, FeatureBuilder, GuineaApp, Installed, Plugin, PluginBuilder,
@@ -277,6 +106,6 @@ pub mod prelude {
     pub use guinea_core::inspect::Inspect;
     pub use guinea_core::{Load, Reducer};
     pub use guinea_macros::{
-        Event, Inspect, actor, app, feature, given, handler, installs, reducer, routes,
+        Event, Inspect, actor, app, feature, given, handler, installs, reducer,
     };
 }

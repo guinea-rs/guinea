@@ -3,6 +3,7 @@
 use std::any::{Any, TypeId};
 
 use guinea_app::feature::FeatureInitContext;
+use guinea_core::actor::shape::Declared;
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::{Reducer, Scope};
 
@@ -303,6 +304,20 @@ fn unreached<R: 'static>(scope: Scope) -> String {
 /// installs on its own.
 pub fn root<S: 'static>(scope: Scope) {
     scope.keep(Named(std::any::type_name::<S>()));
+}
+
+/// Where what is mounted into `scope` was written, for devtools to link to.
+pub fn written(scope: Scope, declared: Option<Declared>) {
+    if let Some(declared) = declared {
+        scope.keep(Written(declared));
+    }
+}
+
+struct Written(Declared);
+
+/// Where what is mounted into `scope` was written, if it said.
+pub(crate) fn written_at(scope: Scope) -> Option<Declared> {
+    scope.keeps::<Written>().then(|| scope.kept::<Written, _>(|written| written.0)).flatten()
 }
 
 /// The name of the type `scope` was mounted as.

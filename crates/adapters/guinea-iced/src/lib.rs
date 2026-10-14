@@ -71,10 +71,6 @@ use guinea_router::mount::{Outlet, Pass, binding, navigator};
 use envelope::Deliver;
 use nodes::Held;
 
-/// What `guinea::Backend` names under the iced feature, while `routes!` is
-/// still there for the other backends.
-pub struct Iced;
-
 /// What a node's `view` returns.
 ///
 /// iced's own name, kept. An alias exists only to fix the message type at the
@@ -582,6 +578,7 @@ fn stage_node<Node: 'static>(ctx: &FeatureInitContext, node: Node, leaving: fn(&
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(page_view::<P>));
+    guinea_router::mount::written(ctx.scope, P::DECLARED);
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, P::leaving);
@@ -592,6 +589,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(layout_view::<L>));
+    guinea_router::mount::written(ctx.scope, L::DECLARED);
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, L::leaving);

@@ -193,8 +193,8 @@ impl FeatureInitContext {
         installed
     }
 
-    /// Runs `hook` every time this segment wakes - for one declared `keep`
-    /// in `routes!`, which the router puts to sleep instead of tearing down.
+    /// Runs `hook` every time this scope wakes - for one mounted with `keep`,
+    /// which is put to sleep instead of let go when it is left out.
     ///
     /// What it slept through it missed: its timers did not tick and the
     /// buses did not tell it anything. This is where it catches up - asks for

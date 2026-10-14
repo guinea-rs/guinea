@@ -1,6 +1,6 @@
 [package]
 name = "guinea-macros"
-description = "guinea's macros: actor!, feature!, #[handler], routes! and the backends' #[page]"
+description = "guinea's macros: actor!, feature!, #[handler], #[derive(Route)] and the backends' #[page]"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,6 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-guinea-route-dsl.workspace = true
 proc-macro2.workspace = true
 proc-macro-crate.workspace = true
 quote.workspace = true

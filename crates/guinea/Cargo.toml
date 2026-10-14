@@ -30,8 +30,7 @@ guinea-winui = { workspace = true, optional = true }
 [features]
 default = ["winui", "own-runtime"]
 
-# Backends. Enable one and it becomes `Backend`, which `routes!` uses without
-# being told; enable several and each route tree names its own.
+# Backends, each under its own name: `guinea::winui`, `guinea::ratatui`.
 winui = ["dep:guinea-winui"]
 ratatui = ["dep:guinea-ratatui"]
 eframe = ["dep:guinea-eframe"]

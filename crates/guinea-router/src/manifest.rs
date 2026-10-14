@@ -39,9 +39,6 @@ use crate::link::DeepLink;
 pub fn render(scheme: &str, trees: &[&[DeepLink]]) -> String {
     let mut links: Vec<&DeepLink> = trees.iter().flat_map(|tree| tree.iter()).collect();
 
-    // By address, not by declaration order: moving a page inside `routes!`
-    // changes nothing about what the application answers to, and should not
-    // read as though it did.
     links.sort_by(|one, other| (&one.path, one.tree, &one.route).cmp(&(&other.path, other.tree, &other.route)));
 
     let mut out = String::new();

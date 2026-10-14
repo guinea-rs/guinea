@@ -1,5 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Data, Fields, Ident, LitStr, Path, Token, Type};
 
@@ -38,7 +39,7 @@ impl Pattern {
         let mut segments = Vec::new();
         for segment in path.split('/').filter(|segment| !segment.is_empty()) {
             match segment.strip_prefix(':') {
-                Some(name) => match syn::parse_str::<Ident>(name) {
+                Some(name) => match syn::parse_str::<Ident>(name).or_else(|_| syn::parse_str::<Ident>(&format!("r#{name}"))) {
                     Ok(field) => segments.push(Segment::Capture(field)),
                     Err(_) => {
                         return Err(syn::Error::new(span, format!("`:{name}` does not name a field")));
@@ -74,7 +75,7 @@ impl Pattern {
             .iter()
             .map(|segment| match segment {
                 Segment::Literal(text) => text.clone(),
-                Segment::Capture(field) => format!(":{field}"),
+                Segment::Capture(field) => format!(":{}", field.unraw()),
             })
             .collect();
         format!("/{}", written.join("/"))
@@ -210,7 +211,7 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                 let captures = pattern.segments.iter().filter_map(|segment| {
                     let Segment::Capture(field) = segment else { return None };
                     let ty = &fields.iter().find(|(name, _)| name == field)?.1;
-                    let text = field.to_string();
+                    let text = field.unraw().to_string();
                     Some(quote!(#link::Capture { name: #text, ty: <#ty as #link::LinkValue>::NAME }))
                 });
                 quote! {
@@ -425,7 +426,7 @@ fn read(navigator: &TokenStream, link: &TokenStream, variant: &Variant) -> Token
     let matches = pattern.segments.iter().enumerate().map(|(index, segment)| match segment {
         Segment::Literal(text) => quote!(if segments[#index] != #text { return ::core::option::Option::None; }),
         Segment::Capture(field) => {
-            let local = format_ident!("__{}", field);
+            let local = format_ident!("__{}", field.unraw());
             quote!(let #local = segments[#index];)
         }
     });
@@ -448,7 +449,7 @@ fn read(navigator: &TokenStream, link: &TokenStream, variant: &Variant) -> Token
         ),
         Shape::Leaf(fields) => {
             let parsed = fields.iter().map(|(name, ty)| {
-                let local = format_ident!("__{}", name);
+                let local = format_ident!("__{}", name.unraw());
                 quote!(#name: <#ty as #link::LinkValue>::decode(#local)?)
             });
             (

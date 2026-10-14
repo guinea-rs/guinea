@@ -54,11 +54,3 @@ pub(crate) fn app() -> TokenStream {
 pub(crate) fn router(module: &str) -> TokenStream {
     resolve("guinea-router", module, module)
 }
-
-/// The facade's root, for what only the facade names.
-pub(crate) fn facade() -> TokenStream {
-    match crate_name("guinea") {
-        Ok(FoundCrate::Name(name)) => within(&name, ""),
-        _ => within("guinea", ""),
-    }
-}

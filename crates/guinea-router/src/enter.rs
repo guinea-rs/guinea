@@ -29,18 +29,19 @@
 //! navigation that asked.
 //!
 //! ```ignore
-//! routes! {
-//!     Route {
-//!         layout(AdminArea) guard(RequiresAdmin) {
-//!             page(Audit) link("/admin/audit")
-//!             page(Public) !guard(RequiresAdmin) link("/admin/public")
-//!         }
-//!     }
+//! #[derive(Clone, PartialEq, Debug, Route)]
+//! enum Route {
+//!     #[guard(RequiresAdmin)]
+//!     #[at("/admin")]
+//!     Admin(AdminRoute),
+//!     #[at("/")]
+//!     Home,
 //! }
 //! ```
 //!
-//! `guard` cascades, because it tightens; opting out has to name what it
-//! opens, so that removing protection reads as removing protection.
+//! A guard on the enum stands in front of every place in it, and one on a
+//! variant holding a nested route in front of every place below it: it
+//! cascades, outermost first, because it tightens.
 
 use std::marker::PhantomData;
 
@@ -91,10 +92,9 @@ impl guinea_app::feature::given::Context for EnterCx<'_> {
 
 /// The vtable behind a declared guard.
 ///
-/// A trait object for the same reason [`Mount`](crate::router::Mount) is one:
-/// a route's guard list is `&'static`, built by `routes!` in a `const`, and
-/// `Enter::decide` is an associated function with no value to point at. The
-/// marker supplies one.
+/// A trait object because a route's guard list is `&'static`, built by
+/// `#[derive(Route)]`, and `Enter::decide` is an associated function with no
+/// value to point at. The marker supplies one.
 pub trait EnterGuard: 'static {
     /// What the guard is called, for tracing and for the deep-link manifest.
     fn name(&self) -> &'static str;
@@ -102,7 +102,8 @@ pub trait EnterGuard: 'static {
     fn decide(&self, cx: &EnterCx<'_>) -> Verdict;
 }
 
-/// What `routes!` puts in a guard list: a zero-sized marker per guard type.
+/// What `#[derive(Route)]` puts in a guard list: a zero-sized marker per
+/// guard type.
 pub struct Stands<G>(pub PhantomData<G>);
 
 impl<G: Enter> EnterGuard for Stands<G> {

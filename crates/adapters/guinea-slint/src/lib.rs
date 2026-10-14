@@ -54,10 +54,6 @@ use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::mount::{Pass, binding, navigator};
 
-/// What `guinea::Backend` names under the slint feature, while `routes!` is
-/// still there for the other backends.
-pub struct Slint;
-
 /// A route the window's `Navigator` global shows: written by
 /// `guinea-slint-build` beside that global, from the same enum.
 ///
@@ -173,6 +169,7 @@ struct Component(Rc<dyn Any>);
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Segment(|_| {}));
+    guinea_router::mount::written(ctx.scope, P::DECLARED);
     let (mut page, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     page.bind(&BindCx {
@@ -186,6 +183,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Segment(layout_mount::<L>));
+    guinea_router::mount::written(ctx.scope, L::DECLARED);
     let (mut layout, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     layout.bind(&BindCx {

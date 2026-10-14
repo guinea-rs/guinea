@@ -1,5 +1,5 @@
 //! A value for a route's field, where its type has a default - for
-//! `RouteChain::samples`, which `routes!` writes.
+//! `Route::samples`, which `#[derive(Route)]` writes.
 //!
 //! Which of the two `make`s applies is decided by method resolution on the
 //! concrete field type: the one taking `Probe<T>` by reference wins where

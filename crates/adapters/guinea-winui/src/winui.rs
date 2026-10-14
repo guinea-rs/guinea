@@ -30,9 +30,6 @@ use windows_reactor::{
     Border, Callback, Component, ComponentContext, Grid, TextBlock, View, ViewContext,
 };
 
-/// windows-reactor, as the backend a build renders with.
-pub struct WinUi;
-
 /// A leaf of the route tree, and an Elm node.
 ///
 /// The struct that implements this is the page's state. Nothing above it ever
@@ -974,6 +971,7 @@ fn staged<N: 'static>(scope: Scope) -> Option<Shared<N>> {
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(page_view::<P>));
+    guinea_router::mount::written(ctx.scope, P::DECLARED);
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, P::leaving);
@@ -1023,6 +1021,7 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(layout_view::<L>));
+    guinea_router::mount::written(ctx.scope, L::DECLARED);
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
     stage_node(ctx, node, L::leaving);

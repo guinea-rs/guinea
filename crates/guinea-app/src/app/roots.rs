@@ -21,8 +21,10 @@
 //!
 //! [`FeatureHost`]: crate::feature::FeatureHost
 
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use guinea_core::observability::changes::{self, Change};
 use guinea_core::scope::Scope;
 
 /// Names one root for as long as it is open.
@@ -51,9 +53,16 @@ struct Root {
     label: Option<String>,
 }
 
+thread_local! {
+    static OPEN: RefCell<Vec<(RootId, Scope)>> = const { RefCell::new(Vec::new()) };
+}
+
 impl Drop for Root {
     fn drop(&mut self) {
-        tracing::debug!(id = %self.id, "root closed");
+        let id = self.id;
+        let _ = OPEN.try_with(|open| open.borrow_mut().retain(|(open, _)| *open != id));
+        changes::changed(|| Change::RootClosed { root: id.0 });
+        tracing::debug!(%id, "root closed");
     }
 }
 
@@ -64,8 +73,16 @@ pub(crate) fn open(window: Scope) -> RootId {
     let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
     window.keep(Root { id, label: None });
+    OPEN.with(|open| open.borrow_mut().push((id, window)));
+    changes::changed(|| Change::RootOpened { root: id.0 });
     tracing::debug!(%id, "root opened");
     id
+}
+
+/// Every root open on this thread, in the order they opened, each with its
+/// own scope.
+pub fn opened() -> Vec<(RootId, Scope)> {
+    OPEN.with(|open| open.borrow().clone())
 }
 
 /// The root's own scope `scope` is in: `scope` or the nearest above it that
@@ -155,6 +172,42 @@ mod tests {
         open(window);
 
         assert_eq!(label(window), None);
+    }
+
+    #[test]
+    fn an_open_root_is_listed_until_its_scope_goes() {
+        let app = ScopeTree::new();
+        let window = app.child();
+        let id = open(window);
+        assert!(opened().contains(&(id, window)));
+
+        window.remove();
+
+        assert!(!opened().iter().any(|(root, _)| *root == id));
+    }
+
+    #[test]
+    fn a_tool_is_told_when_a_root_opens_and_when_it_goes() {
+        use guinea_core::observability::changes::{self, Change};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
+
+        let app = ScopeTree::new();
+        let window = app.child();
+        let id = open(window);
+        window.remove();
+        changes::stop_watching();
+
+        let roots: Vec<Change> = seen
+            .take()
+            .into_iter()
+            .filter(|change| matches!(change, Change::RootOpened { .. } | Change::RootClosed { .. }))
+            .collect();
+        assert_eq!(roots, [Change::RootOpened { root: id.get() }, Change::RootClosed { root: id.get() }]);
     }
 
     #[test]

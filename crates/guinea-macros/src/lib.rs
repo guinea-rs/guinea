@@ -16,7 +16,7 @@ mod reducer;
 mod remote;
 mod request;
 mod route;
-mod routes_dsl;
+mod slot;
 
 /// A feature's manifest: its name, the reducers it exports and the feeds it
 /// opens.
@@ -197,7 +197,7 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn slot(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    routes_dsl::slot_impl(item)
+    slot::slot_impl(item)
 }
 
 /// Writes down what an `impl Page` for the iced backend left out, and the
@@ -311,23 +311,6 @@ pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn actor(input: TokenStream) -> TokenStream {
     actor_dsl::actor_impl(input)
-}
-
-/// `routes! { Route { layout(TabsLayout) { page(Processes) link("/:context/processes")
-/// { context: String } ... } } }` - the tree's `{}` nesting *is* the segment
-/// chain (no attribute stack to track); `page(...)`'s type also names the
-/// generated variant, so there's one name per leaf, not two kept in sync by
-/// hand. Generates the enum itself, `link` and `deep_links` for the routes
-/// that agreed to have an address, and `RouteChain` (enum -> segment chain).
-///
-/// `app(App) { .. }` as the root of the tree - `Route { app(App) { .. } }` -
-/// names the application `app!` declared: it is the top segment of every
-/// chain, so its pages read what it installs. It holds the whole tree;
-/// nothing stands beside it. Navigating panics when the application running
-/// is not that one.
-#[proc_macro]
-pub fn routes(input: TokenStream) -> TokenStream {
-    routes_dsl::routes_impl(input)
 }
 
 /// Puts a type on the bus: `impl Event for T {}`.

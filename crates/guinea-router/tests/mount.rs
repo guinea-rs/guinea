@@ -227,3 +227,113 @@ fn a_first_place_that_fails_to_mount_says_why() {
     };
     assert_eq!(format!("{error:#}"), "Details did not mount: no connection");
 }
+
+#[derive(Clone, Default, Debug, PartialEq)]
+struct Hidden(u32);
+
+#[guinea_macros::reducer]
+fn hidden(this: &mut Hidden, to: u32) {
+    this.0 = to;
+}
+
+struct Shell;
+struct Prier;
+
+fn said(run: impl FnOnce()) -> String {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+        .err()
+        .and_then(|panic| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_default()
+}
+
+fn keeping_hidden(parent: Scope) -> Scope {
+    drawn(parent, |pass| {
+        vec![
+            pass.mount::<Shell, _>(&(), |cx| {
+                cx.scope.hold_installed(cx.state::<Hidden>().seed(Hidden(1)).plain());
+                Ok(())
+            })
+            .unwrap(),
+        ]
+    })[0]
+}
+
+#[test]
+fn a_read_of_what_a_layout_kept_to_itself_names_the_chain_it_walked() {
+    let tree = ScopeTree::new();
+    let shell = keeping_hidden(tree.scope());
+    let prier = drawn(shell, |pass| vec![pass.mount::<Prier, _>(&(), |_| Ok(())).unwrap()])[0];
+
+    let said = said(|| {
+        guinea_router::mount::binding::<Hidden>(prier);
+    });
+
+    assert!(said.contains("`Prier` reads `Hidden`, but nothing reaches it"), "{said}");
+    assert!(said.contains("Prier <- Shell"), "{said}");
+    assert!(said.contains("claimed by Shell, which does not list it in `Exports`"), "{said}");
+}
+
+#[test]
+fn a_read_in_a_scope_that_was_removed_says_so() {
+    let tree = ScopeTree::new();
+    let shell = keeping_hidden(tree.scope());
+    shell.remove();
+
+    let said = said(|| {
+        guinea_router::mount::binding::<Hidden>(shell);
+    });
+
+    assert!(said.contains("which was removed"), "{said}");
+}
+
+#[derive(Clone, Debug, guinea_macros::Event)]
+struct Ping;
+
+#[test]
+fn a_kept_child_asleep_hears_nothing_and_is_not_told_on_waking() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let heard = Rc::new(Cell::new(0));
+    let mount = |pass: &Pass| {
+        let heard = heard.clone();
+        let child = pass
+            .mount::<Listing, _>(&(), move |cx| {
+                cx.subscribe(move |_: Ping| heard.set(heard.get() + 1));
+                Ok(())
+            })
+            .unwrap();
+        pass.keep(child);
+        child
+    };
+
+    drawn(parent, |pass| vec![mount(pass)]);
+    drawn(parent, |_| Vec::new());
+    parent.bus().publish(Ping);
+    assert_eq!(heard.get(), 0, "it heard a ping in its sleep");
+
+    drawn(parent, |pass| vec![mount(pass)]);
+    assert_eq!(heard.get(), 0, "what it slept through came to it on waking");
+
+    parent.bus().publish(Ping);
+    assert_eq!(heard.get(), 1);
+}
+
+#[test]
+fn a_kept_child_asleep_stays_asleep_when_its_type_mounts_with_other_params() {
+    let tree = ScopeTree::new();
+    let parent = tree.scope();
+    let installs = Rc::new(Cell::new(0));
+
+    let one = drawn(parent, |pass| {
+        let child = pass.mount::<Details, _>(&1u32, counting(&installs)).unwrap();
+        pass.keep(child);
+        vec![child]
+    })[0];
+    drawn(parent, |_| Vec::new());
+    let two = drawn(parent, |pass| vec![pass.mount::<Details, _>(&2u32, counting(&installs)).unwrap()])[0];
+
+    assert_ne!(one, two);
+    assert_eq!(installs.get(), 2);
+    assert!(one.is_alive() && !one.is_awake(), "the kept one sleeps on beside it");
+    assert!(two.is_awake());
+}

@@ -332,6 +332,22 @@ impl Window {
 }
 
 #[test]
+fn what_is_mounted_says_where_it_was_written() {
+    let window = Window::at(Place::Leaf);
+    let root = guinea_app::app::roots::of(window.host.scope()).map(|root| root.get());
+
+    let written: Option<Vec<&str>> = root.and_then(guinea_router::observability::window).map(|view| {
+        view.mounted
+            .iter()
+            .filter(|mounted| mounted.written.is_some_and(|at| at.file.ends_with("tests.rs")))
+            .map(|mounted| mounted.name)
+            .collect()
+    });
+
+    assert_eq!(written, Some(vec!["Shell", "Leaf"]));
+}
+
+#[test]
 fn a_message_reaches_its_own_node_and_no_other() {
     let mut window = Window::at(Place::Leaf);
 

@@ -1,4 +1,4 @@
-//! What a tool lists came or went: actors, timers, subscriptions, routers.
+//! What a tool lists came or went: actors, timers, subscriptions, roots.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -29,9 +29,10 @@ pub enum Change {
     TimerStopped { id: u64 },
     /// Something subscribed to a bus, or stopped being.
     Subscriptions,
-    /// A window's router navigated for the first time.
-    RouterOpened { root: u64 },
-    RouterClosed { root: u64 },
+    /// A root - a window's tree - opened.
+    RootOpened { root: u64 },
+    /// A root [`Change::RootOpened`] told of went.
+    RootClosed { root: u64 },
 }
 
 type Watcher = Rc<dyn Fn(&Change)>;

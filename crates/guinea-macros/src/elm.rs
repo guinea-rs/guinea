@@ -26,16 +26,7 @@ pub enum Kind {
     Layout,
 }
 
-/// Whether the backend mounts its nodes from a layout's view - winui does,
-/// iced still mounts them from `routes!` - and so has `Mountable` written for
-/// each, and a layout's `Params` defaulted like a page's.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Mounts {
-    FromViews,
-    FromRoutes,
-}
-
-pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mounts: Mounts) -> TokenStream1 {
+pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str) -> TokenStream1 {
     let mut item = syn::parse_macro_input!(item as ItemImpl);
     if let Err(error) = crate::given::segment_install(&mut item) {
         return error.to_compile_error().into();
@@ -70,7 +61,7 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
             });
     });
 
-    if (kind == Kind::Page || mounts == Mounts::FromViews) && !has_params {
+    if !has_params {
         item.items.push(parse_quote!(
             type Params = ();
         ));
@@ -117,34 +108,25 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
         }
     }
 
-    let mountable = match mounts {
-        Mounts::FromViews => {
-            let (impl_generics, _, where_clause) = item.generics.split_for_impl();
-            let node = &item.self_ty;
-            let (trait_name, install, view) = match kind {
-                Kind::Page => (quote!(Page), quote!(install_page), quote!(page_view)),
-                Kind::Layout => (quote!(Layout), quote!(install_layout), quote!(layout_view)),
-            };
+    let (impl_generics, _, where_clause) = item.generics.split_for_impl();
+    let node = &item.self_ty;
+    let (trait_name, install) = match kind {
+        Kind::Page => (quote!(Page), quote!(install_page)),
+        Kind::Layout => (quote!(Layout), quote!(install_layout)),
+    };
 
-            quote! {
-                impl #impl_generics #adapter::Mountable for #node #where_clause {
-                    type Params = <Self as #adapter::#trait_name>::Params;
-                    type Message = <Self as #adapter::#trait_name>::Message;
+    let mountable = quote! {
+        impl #impl_generics #adapter::Mountable for #node #where_clause {
+            type Params = <Self as #adapter::#trait_name>::Params;
+            type Message = <Self as #adapter::#trait_name>::Message;
 
-                    fn install(
-                        cx: &#adapter::FeatureInitContext,
-                        params: &Self::Params,
-                    ) -> #gc::__private::anyhow::Result<()> {
-                        #adapter::#install::<Self>(cx, params)
-                    }
-
-                    fn view(scope: #gc::scope::Scope) -> #adapter::reactor::View {
-                        #adapter::#view::<Self>(scope)
-                    }
-                }
+            fn install(
+                cx: &#adapter::FeatureInitContext,
+                params: &Self::Params,
+            ) -> #gc::__private::anyhow::Result<()> {
+                #adapter::#install::<Self>(cx, params)
             }
         }
-        Mounts::FromRoutes => quote!(),
     };
 
     quote!(#item #mountable).into()

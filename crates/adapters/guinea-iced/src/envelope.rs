@@ -1,29 +1,28 @@
 //! The one message type iced sees.
 //!
 //! iced wants a single `Message` at the top of the application; guinea has a
-//! chain of nodes that each keep their own. The usual Elm bridge between those
+//! tree of nodes that each keep their own. The usual Elm bridge between those
 //! two facts is for every parent to grow a variant per child and a `map` per
 //! placement - the cost that makes an Elm tree expensive to rearrange.
 //!
 //! An envelope avoids it by carrying its own delivery: the message, the
 //! function that knows how to apply it (monomorphised for the node that made
-//! it, so the node type never has to be named anywhere else), and where in the
-//! chain that node sat and in which scope. Nothing between the widget and the
-//! node reads any of it.
+//! it, so the node type never has to be named anywhere else), and the scope
+//! the node was mounted into. Nothing between the widget and the node reads
+//! any of it.
 
-use std::any::{Any, TypeId};
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Scope;
-use guinea_router::router::{Router, SegmentProps};
+use guinea_router::navigator::Asking;
 
-use crate::{Iced, Nodes, UpdateCx};
+use crate::{Nodes, UpdateCx};
 
 /// How an envelope gets back to the node that made it.
-pub(crate) type Deliver = fn(&SegmentProps<Iced>, &mut Nodes, Box<dyn Any + Send>);
+pub(crate) type Deliver = fn(Scope, &mut Nodes, Box<dyn Any + Send>);
 
 /// What iced routes. Opaque: only this module ever looks inside.
 pub struct Envelope(Payload);
@@ -33,13 +32,12 @@ enum Payload {
     /// it is how a background thread asks for a turn.
     Settled,
     /// The answer to a guard's question. Not a node's message either: the
-    /// question belongs to the router, and so does the answer.
+    /// question belongs to the navigator, and so does the answer.
     Answer(bool),
     Node {
-        cursor: usize,
-        /// The scope of the segment that made it. A node installed again at
-        /// `cursor`, under other params, has a scope of its own.
-        drawn: Scope,
+        /// The scope of the node that made it. A node mounted again, under
+        /// other params, has a scope of its own.
+        scope: Scope,
         deliver: Deliver,
         message: Box<dyn Any + Send>,
     },
@@ -55,15 +53,9 @@ impl Envelope {
         Envelope(Payload::Answer(allowed))
     }
 
-    pub(crate) fn new(
-        cursor: usize,
-        drawn: Scope,
-        deliver: Deliver,
-        message: Box<dyn Any + Send>,
-    ) -> Self {
+    pub(crate) fn node(scope: Scope, deliver: Deliver, message: Box<dyn Any + Send>) -> Self {
         Envelope(Payload::Node {
-            cursor,
-            drawn,
+            scope,
             deliver,
             message,
         })
@@ -76,7 +68,7 @@ impl Envelope {
 /// and layouts share this body without a shared trait having to exist to
 /// relate them.
 pub(crate) fn deliver<Node, Message>(
-    props: &SegmentProps<Iced>,
+    scope: Scope,
     nodes: &mut Nodes,
     message: Box<dyn Any + Send>,
     update: fn(&mut Node, Message, &mut UpdateCx<'_, Node>),
@@ -85,18 +77,17 @@ pub(crate) fn deliver<Node, Message>(
     Node: 'static,
     Message: Send + 'static,
 {
-    // The chain can have moved since the widget produced this: a click and a
-    // navigation in the same turn, or an observer that fired while the node it
-    // belongs to was being torn down. Delivering to whatever now occupies the
-    // position would be worse than dropping it.
-    if (props.chain[props.cursor].type_id)() != TypeId::of::<Node>() {
+    // The node can have gone since the widget produced this: a click and a
+    // navigation in the same turn, or an observer that fired while its node
+    // was being let go. Its scope went with it, and so did its place in the
+    // store.
+    let Some((node, verdict)) = nodes.get_mut::<Node>(scope) else {
         tracing::debug!(
             node = std::any::type_name::<Node>(),
-            cursor = props.cursor,
-            "message arrived after its node left the chain; dropped"
+            "message arrived after its node was let go; dropped"
         );
         return;
-    }
+    };
 
     let Ok(message) = message.downcast::<Message>() else {
         tracing::warn!(
@@ -106,19 +97,15 @@ pub(crate) fn deliver<Node, Message>(
         return;
     };
 
-    let Some((node, verdict)) = nodes.get_mut::<Node>(props.cursor) else {
-        return;
-    };
-
     let mut cx = UpdateCx {
-        props,
-        segment: std::marker::PhantomData,
+        scope,
+        node: std::marker::PhantomData,
     };
     update(node, *message, &mut cx);
 
-    // The router asks the scope, and a guard registered there cannot reach
-    // this store - so the answer is recomputed here, where the node just
-    // changed, and left where the guard can read it.
+    // The navigator asks the scope, and a guard registered there cannot
+    // reach this store - so the answer is recomputed here, where the node
+    // just changed, and left where the guard can read it.
     *verdict.borrow_mut() = leaving(node);
 }
 
@@ -143,8 +130,12 @@ fn take_parked() -> Vec<Envelope> {
 const SETTLE_ROUNDS: usize = 16;
 
 /// Applies one envelope, then everything the observers made of it.
-pub(crate) fn settle(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Envelope) {
-    apply(router, nodes, envelope);
+///
+/// First lets go of the nodes whose scopes went since the last frame: the
+/// frame is over, so nothing borrows them.
+pub(crate) fn settle(nodes: &mut Nodes, asking: Option<&dyn Asking>, envelope: Envelope) {
+    nodes.sweep();
+    apply(nodes, asking, envelope);
 
     for round in 0.. {
         let parked = take_parked();
@@ -162,51 +153,23 @@ pub(crate) fn settle(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Env
         }
 
         for envelope in parked {
-            apply(router, nodes, envelope);
+            apply(nodes, asking, envelope);
         }
-    }
-
-    // Anything above may have navigated - directly, or by answering a guard -
-    // and installing stages new nodes rather than storing them, because it
-    // runs inside the router with no way to reach this store.
-    if let Some(chain) = router.active_chain() {
-        nodes.sync(chain);
     }
 }
 
-fn apply(router: &Rc<Router<Iced>>, nodes: &mut Nodes, envelope: Envelope) {
+fn apply(nodes: &mut Nodes, asking: Option<&dyn Asking>, envelope: Envelope) {
     match envelope.0 {
         Payload::Settled => {}
-        Payload::Answer(allowed) => router.answer(allowed),
+        Payload::Answer(allowed) => {
+            if let Some(asking) = asking {
+                asking.answer(allowed);
+            }
+        }
         Payload::Node {
-            cursor,
-            drawn,
+            scope,
             deliver,
             message,
-        } => {
-            let Some(props) = props_at(router, cursor) else {
-                return;
-            };
-
-            if props.scope() != drawn {
-                tracing::debug!(
-                    cursor,
-                    "message arrived after the segment that made it was installed again; dropped"
-                );
-                return;
-            }
-
-            deliver(&props, nodes, message);
-        }
+        } => deliver(scope, nodes, message),
     }
-}
-
-fn props_at(router: &Rc<Router<Iced>>, cursor: usize) -> Option<SegmentProps<Iced>> {
-    let chain = router.active_chain()?;
-    let scopes = router.active_scopes()?;
-    (cursor < chain.len() && cursor < scopes.len()).then_some(SegmentProps {
-        chain,
-        scopes,
-        cursor,
-    })
 }

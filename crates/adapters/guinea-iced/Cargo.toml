@@ -16,6 +16,9 @@ guinea-router.workspace = true
 guinea-macros.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+# A view borrows its node for the frame, and a layout mounts while it draws:
+# the store takes a node through `&self` without moving the ones lent out.
+elsa.workspace = true
 
 # No wgpu: tiny-skia draws this on the CPU, which is what a proof of concept
 # needs and costs about a tenth of the build. `thread-pool` is the executor

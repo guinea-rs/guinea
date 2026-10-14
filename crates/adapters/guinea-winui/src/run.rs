@@ -8,7 +8,7 @@ use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::{FeatureHost, ScopeContext};
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
-use guinea_router::navigator::{Navigator, Route, Watching};
+use guinea_router::navigator::{Asking, Navigator, Route, Watching};
 use windows_reactor::{
     AppProxy, Component, ComponentContext, ContentDialog, ContentDialogExt,
     ContentDialogResult, Grid, TextBlock, View, ViewContext, WindowVisuals,
@@ -152,27 +152,6 @@ pub struct Window {
     size: Option<(f64, f64)>,
     root: Root,
     start: Option<Rc<dyn Fn(Scope) -> Rc<dyn Asking>>>,
-}
-
-/// What the window's dialog asks a navigator, whatever it navigates.
-pub(crate) trait Asking {
-    fn pending(&self) -> Option<guinea_core::guard::Ask>;
-    fn answer(&self, allowed: bool);
-    fn watch(&self, heard: Box<dyn Fn()>) -> Watching;
-}
-
-impl<R: Route> Asking for Navigator<R> {
-    fn pending(&self) -> Option<guinea_core::guard::Ask> {
-        Navigator::pending(self)
-    }
-
-    fn answer(&self, allowed: bool) {
-        Navigator::answer(self, allowed);
-    }
-
-    fn watch(&self, heard: Box<dyn Fn()>) -> Watching {
-        Navigator::watch(self, heard)
-    }
 }
 
 /// The layout a window roots at, by type.

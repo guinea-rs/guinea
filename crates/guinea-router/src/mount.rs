@@ -3,7 +3,8 @@
 use std::any::{Any, TypeId};
 
 use guinea_app::feature::FeatureInitContext;
-use guinea_core::scope::Scope;
+use guinea_core::binding::ReducerBinding;
+use guinea_core::scope::{Reducer, Scope};
 
 use crate::navigator::{Navigator, Route};
 
@@ -229,6 +230,73 @@ pub fn mounted(parent: Scope) -> Vec<(Scope, &'static str)> {
         .into_iter()
         .filter_map(|child| Some((child, name(child)?)))
         .collect()
+}
+
+/// The navigator over `R` nearest above `scope`, or a panic naming what was
+/// looked for: a view that navigates where none was opened is a wiring
+/// mistake.
+pub fn navigator<R: Route>(scope: Scope) -> Navigator<R> {
+    Navigator::find(scope).unwrap_or_else(|| {
+        panic!(
+            "no navigator over `{}` above `{}`: open one where the window starts, \
+             or in a layout above",
+            crate::observability::short(std::any::type_name::<R>()),
+            name(scope).map(crate::observability::short).unwrap_or("this view"),
+        )
+    })
+}
+
+/// The scope that owns `R`, as seen from `scope`, and a binding to its state.
+///
+/// The scope itself counts whatever it claimed; one above counts only what it
+/// *exported*. A miss is a setup bug rather than a race: what a scope claims
+/// is recorded while it installs, before its first render. So it panics,
+/// naming what `scope` was mounted under.
+pub fn binding<R: Reducer>(scope: Scope) -> ReducerBinding<R> {
+    let owner = scope.owner_of::<R>().unwrap_or_else(|| {
+        if !scope.is_alive() {
+            panic!(
+                "reading {} in {scope:?}, which was removed: whatever mounted it let go of it \
+                 while it still renders",
+                std::any::type_name::<R>()
+            );
+        }
+
+        panic!("{}", unreached::<R>(scope))
+    });
+    owner.binding::<R>()
+}
+
+fn unreached<R: 'static>(scope: Scope) -> String {
+    let short = crate::observability::short;
+    let reducer = short(std::any::type_name::<R>());
+    let walked: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
+    let named = |scope: Scope| name(scope).map(short);
+    let names: Vec<&str> = walked.iter().filter_map(|scope| named(*scope)).collect();
+
+    let mut said = format!(
+        "`{}` reads `{reducer}`, but nothing reaches it:\n  {}",
+        names.first().copied().unwrap_or("this view"),
+        names.join(" <- ")
+    );
+
+    let kept: Vec<&str> = walked[1..]
+        .iter()
+        .filter(|scope| scope.claims::<R>())
+        .map(|scope| named(*scope).unwrap_or("the window"))
+        .collect();
+    if kept.is_empty() {
+        said.push_str(&format!(
+            "\n  nothing above it installs the feature that owns `{reducer}` - it installs \
+             elsewhere, or not at all"
+        ));
+    } else {
+        said.push_str(&format!(
+            "\n  `{reducer}` is claimed by {}, which does not list it in `Exports`",
+            kept.join(", ")
+        ));
+    }
+    said
 }
 
 /// Names `scope` as an `S` that no parent's pass mounted: what a test

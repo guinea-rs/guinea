@@ -1,10 +1,10 @@
 //! Installing the application into the loop iced owns.
 //!
-//! The route tree is built before the window opens, as in every other backend:
-//! `install()` runs on this thread, actors start, and only then is the loop
-//! handed over. What iced adds is that the loop is reached through three free
-//! functions rather than a trait object, so the router travels in the state
-//! iced holds for us.
+//! The application is installed before the window opens, as in every other
+//! backend: `install()` runs on this thread, actors start, and only then is the
+//! loop handed over. What iced adds is that the loop is reached through three
+//! free functions rather than a trait object, so what the window holds travels
+//! in the state iced keeps for us.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,113 +12,162 @@ use std::rc::Rc;
 use guinea_app::app::{AppRuntime, GuineaApp, Stop};
 use guinea_app::feature::FeatureHost;
 use guinea_core::guard::Ask;
+use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
-use guinea_router::router::{NavigateHandle, RouteChain, RouteSink, Router};
+use guinea_router::mount::Pass;
+use guinea_router::navigator::{Asking, Navigator, Route};
 use iced::widget::{button, center, column, container, opaque, row, text};
 
-use crate::{Envelope, Iced, Nodes, envelope, nav, wakeups};
+use crate::{Element, Envelope, Mountable, Nodes, drawn, envelope, failed, wakeups};
 
-/// What [`run`] calls the root it opens.
+/// What [`run`] calls the window it opens.
 pub const MAIN: &str = "main";
 
-/// The state iced keeps for us: the router, and the nodes of the chain it
-/// mounted.
+/// A window: the layout it roots at, where it starts, and how it looks.
 ///
-/// The reducers live in each segment's scope, where the router's cache
-/// carries them across navigation. The nodes cannot: a view borrows its node
-/// for the render, so they live here, and [`Nodes`] keeps the ones a page
-/// asked to keep by the router's rules.
+/// ```ignore
+/// Window::of::<Shell>().title("guinea").at(Route::Processes)
+/// ```
+pub struct Window {
+    title: String,
+    settings: iced::window::Settings,
+    root: Root,
+    start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
+}
+
+/// The layout a window roots at.
+pub(crate) struct Root {
+    mount: for<'a> fn(&Pass, &'a Nodes) -> anyhow::Result<Scope>,
+}
+
+impl Root {
+    pub(crate) fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            mount: |pass, nodes| {
+                let root = pass.mount::<L, ()>(&(), |cx| L::install(cx, &()))?;
+                nodes.adopt(root);
+                Ok(root)
+            },
+        }
+    }
+}
+
+impl Window {
+    /// A window whose content is the layout or page `L`.
+    pub fn of<L: Mountable<Params = ()>>() -> Self {
+        Self {
+            title: String::new(),
+            settings: iced::window::Settings::default(),
+            root: Root::of::<L>(),
+            start: None,
+        }
+    }
+
+    /// Starts the window at `route`, with a navigator of its own over `R`:
+    /// what the layouts in it find with `cx.navigate::<R>()`, and whose
+    /// guards' questions the window puts up as a dialog.
+    pub fn at<R: Route>(mut self, route: R) -> Self {
+        self.start = Some(Box::new(move |window| Rc::new(Navigator::open(window, route)) as Rc<dyn Asking>));
+        self
+    }
+
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// How iced opens the window: its size, position, decorations.
+    pub fn settings(mut self, settings: iced::window::Settings) -> Self {
+        self.settings = settings;
+        self
+    }
+}
+
+/// One frame of the window whose scope is `window`: its root, mounted, and
+/// what that mounts in turn.
+pub(crate) fn frame<'a>(window: Scope, root: &Root, nodes: &'a Nodes) -> Element<'a, Envelope> {
+    let pass = Pass::begin(window);
+    let mounted = (root.mount)(&pass, nodes);
+    pass.end();
+
+    match mounted {
+        Ok(root) => drawn(root, nodes),
+        Err(error) => failed(&error),
+    }
+}
+
+/// The state iced keeps for us: the window's scope, what navigates it, and
+/// the nodes of what it mounted.
+///
+/// The reducers live in each node's scope. The nodes cannot: a view borrows
+/// its node for the frame, so they live here - see [`Nodes`].
 pub struct Shell {
-    router: Rc<Router<Iced>>,
-    /// The nodes of the mounted chain, owned here because a view borrows them
-    /// - see [`Nodes`]. This is the one thing iced hands out by reference for
-    /// exactly the render, which is what a borrowing widget needs.
+    window: Scope,
+    root: Root,
+    asking: Option<Rc<dyn Asking>>,
+    title: String,
     nodes: Nodes,
     /// Where work from other threads waits for the next turn.
     ui: UiLoop,
 }
 
-/// Runs the application in a window iced opens, starting where `initial` says.
+/// Installs `app`, opens the window `main` makes, and runs until it closes.
+///
+/// `main` runs after the plugins are installed, and is handed the installed
+/// application to read what they provided from - where to start, say.
 ///
 /// ```ignore
-/// guinea_iced::run(app, "Processes", iced::window::Settings::default(), initial_route)
+/// guinea_iced::run(app, |_| Window::of::<Shell>().title("guinea").at(Route::Processes))
 /// ```
 ///
-/// A closure rather than a value because where an application starts is often
-/// something only the installed plugins know - a route saved by the last run,
-/// read out of the store the store plugin just provided. Called once, after
-/// `install`, before the first frame, with the installed application to read
-/// them from.
-pub fn run<R>(
-    app: GuineaApp,
-    title: &str,
-    window: iced::window::Settings,
-    initial: impl FnOnce(&AppRuntime) -> R,
-) -> anyhow::Result<()>
-where
-    R: RouteChain<Iced> + Clone + PartialEq + 'static,
-{
+/// A root that fails to mount ends it with why, before the window opens.
+pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread.
     let ui = wakeups::install();
 
-    // Genuinely this thread: it is the one that will draw, and nothing else
-    // touches the router or the scopes.
     let runtime = match app.install() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let context = runtime.context();
-    let initial = initial(&runtime);
+    let window = main(&runtime);
 
-    let router = Rc::new(Router::<Iced>::new(FeatureHost::under(&context)));
-    guinea_app::app::roots::set_label(router.host().scope(), MAIN);
+    let host = FeatureHost::under(&runtime.context());
+    let scope = host.scope();
+    guinea_app::app::roots::set_label(scope, MAIN);
+    let asking = window.start.map(|start| start(scope));
 
-    let route = Rc::new(RefCell::new(initial.clone()));
-    nav::install(NavigateHandle::new(router.clone(), {
-        let route = route.clone();
-        RouteSink::new(move |next: R| *route.borrow_mut() = next)
-    }));
-
-    router.navigate(initial)?;
-
-    // The first chain is installed before iced exists, so its nodes are taken
-    // out of staging here rather than in the first update.
-    let mut nodes = Nodes::default();
-    if let Some(chain) = router.active_chain() {
-        nodes.sync(chain);
+    let nodes = Nodes::default();
+    let pass = Pass::begin(scope);
+    let mounted = (window.root.mount)(&pass, &nodes);
+    pass.end();
+    if let Err(error) = mounted {
+        return Err(error.context("guinea: mounting the main window"));
     }
-    let booting = RefCell::new(Some((nodes, ui)));
 
-    let title = title.to_string();
-    let boot = {
-        let router = router.clone();
-        move || {
-            // Called once by iced; a second call would find the store gone,
-            // which is a louder failure than silently starting empty.
-            let (nodes, ui) = booting
-                .borrow_mut()
-                .take()
-                .expect("iced boots an application once");
-
-            Shell {
-                router: router.clone(),
-                nodes,
-                ui,
-            }
-        }
+    let booting = RefCell::new(Some(Shell {
+        window: scope,
+        root: window.root,
+        asking,
+        title: window.title,
+        nodes,
+        ui,
+    }));
+    let boot = move || {
+        // Called once by iced; a second call would find the shell gone,
+        // which is a louder failure than silently starting empty.
+        booting.borrow_mut().take().expect("iced boots an application once")
     };
 
     let outcome = iced::application(boot, update, view)
-        .title(move |_: &Shell| title.clone())
+        .title(|shell: &Shell| shell.title.clone())
         .subscription(subscription)
-        .window(window)
+        .window(window.settings)
         .run();
 
     wakeups::close();
-    nav::clear();
-    router.deactivate();
+    drop(host);
     drop(runtime);
 
     outcome.map_err(|e| anyhow::anyhow!("iced: {e}"))
@@ -129,18 +178,18 @@ where
 /// message picks up whatever they parked.
 fn update(shell: &mut Shell, message: Envelope) {
     shell.ui.drain();
-    envelope::settle(&shell.router, &mut shell.nodes, message);
+    envelope::settle(&mut shell.nodes, shell.asking.as_deref(), message);
 }
 
-fn view(shell: &Shell) -> iced::Element<'_, Envelope> {
-    let tree = shell.router.render(&shell.nodes);
+fn view(shell: &Shell) -> Element<'_, Envelope> {
+    let tree = frame(shell.window, &shell.root, &shell.nodes);
 
-    // A guard's question is router state, so it is drawn like anything else -
-    // and `opaque` is the obligation the adapter contract puts on every
-    // backend that draws over its own frame: while a question is up, the tree
-    // underneath must not take input, or the tabs keep switching behind the
-    // dialog.
-    match shell.router.pending() {
+    // A guard's question is the navigator's, so it is drawn like anything
+    // else - and `opaque` is the obligation the adapter contract puts on
+    // every backend that draws over its own frame: while a question is up,
+    // the tree underneath must not take input, or the tabs keep switching
+    // behind the dialog.
+    match shell.asking.as_ref().and_then(|asking| asking.pending()) {
         None => tree,
         Some(ask) => iced::widget::stack![tree, opaque(question(ask))].into(),
     }
@@ -158,7 +207,7 @@ enum Answer {
     No,
 }
 
-fn question(ask: Ask) -> iced::Element<'static, Envelope> {
+fn question(ask: Ask) -> Element<'static, Envelope> {
     let buttons = row![
         button(text(ask.cancel)).on_press(Answer::No),
         button(text(ask.confirm))
@@ -185,7 +234,7 @@ fn question(ask: Ask) -> iced::Element<'static, Envelope> {
         ..container::Style::default()
     });
 
-    iced::Element::from(dialog).map(|answer| Envelope::answer(matches!(answer, Answer::Yes)))
+    Element::from(dialog).map(|answer| Envelope::answer(matches!(answer, Answer::Yes)))
 }
 
 /// The only subscription: work finished on another thread asking for a turn.

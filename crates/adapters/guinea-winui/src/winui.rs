@@ -19,12 +19,11 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_core::guard::Verdict;
-use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
-use guinea_router::mount::{Outlet, Pass};
+use guinea_router::mount::{Outlet, Pass, binding, navigator};
 use guinea_router::navigator::{Navigator, Route};
 use guinea_router::slot::Slot;
 use windows_reactor::{
@@ -943,11 +942,9 @@ pub trait Mountable: 'static {
     type Params: PartialEq + Clone + 'static;
     type Message: 'static;
 
-    /// Installs it into the scope `cx` is for, and keeps its node there.
+    /// Installs it into the scope `cx` is for, and keeps its node there and
+    /// how it draws.
     fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
-
-    /// Its component, over the scope it was installed into.
-    fn view(scope: Scope) -> View;
 }
 
 /// The view of whatever was mounted into a scope, kept there as it mounts:
@@ -983,13 +980,11 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
     Ok(())
 }
 
-#[doc(hidden)]
-pub fn page_view<P: Page>(scope: Scope) -> View {
+fn page_view<P: Page>(scope: Scope) -> View {
     View::component::<PageNode<P>>(scope)
 }
 
-#[doc(hidden)]
-pub fn layout_view<L: Layout>(scope: Scope) -> View {
+fn layout_view<L: Layout>(scope: Scope) -> View {
     View::component::<LayoutNode<L>>(scope)
 }
 
@@ -1083,59 +1078,6 @@ pub(crate) fn drawn(scope: Scope) -> View {
 
 fn failed(error: &anyhow::Error) -> View {
     TextBlock::new().text(format!("{error:#}")).into()
-}
-
-/// The scope that owns `R`, as seen from `scope`, and a binding to its state.
-///
-/// The scope itself counts whatever it claimed; one above counts only what it
-/// *exported*. A miss is a setup bug rather than a race: what a scope claims
-/// is recorded while it installs, before its first render. So it panics,
-/// naming what `scope` was mounted under.
-fn binding<R: Reducer>(scope: Scope) -> ReducerBinding<R> {
-    let owner = scope.owner_of::<R>().unwrap_or_else(|| {
-        if !scope.is_alive() {
-            panic!(
-                "reading {} in {scope:?}, which was removed: whatever mounted it let go of it \
-                 while it still renders",
-                std::any::type_name::<R>()
-            );
-        }
-
-        panic!("{}", unreached::<R>(scope))
-    });
-    owner.binding::<R>()
-}
-
-fn unreached<R: 'static>(scope: Scope) -> String {
-    let short = guinea_router::observability::short;
-    let reducer = short(std::any::type_name::<R>());
-    let walked: Vec<Scope> = std::iter::successors(Some(scope), Scope::parent).collect();
-    let name = |scope: Scope| guinea_router::mount::name(scope).map(short);
-    let names: Vec<&str> = walked.iter().filter_map(|scope| name(*scope)).collect();
-
-    let mut said = format!(
-        "`{}` reads `{reducer}`, but nothing reaches it:\n  {}",
-        names.first().copied().unwrap_or("this view"),
-        names.join(" <- ")
-    );
-
-    let kept: Vec<&str> = walked[1..]
-        .iter()
-        .filter(|scope| scope.claims::<R>())
-        .map(|scope| name(*scope).unwrap_or("the window"))
-        .collect();
-    if kept.is_empty() {
-        said.push_str(&format!(
-            "\n  nothing above it installs the feature that owns `{reducer}` - it installs \
-             elsewhere, or not at all"
-        ));
-    } else {
-        said.push_str(&format!(
-            "\n  `{reducer}` is claimed by {}, which does not list it in `Exports`",
-            kept.join(", ")
-        ));
-    }
-    said
 }
 
 /// What reaches a segment's component.
@@ -1582,22 +1524,6 @@ fn watching<R: Route, C: Refreshable>(
         let watch = nav.watch(move || refresher.refresh());
         Some(Box::new(move || drop(watch)) as Box<dyn FnOnce()>)
     });
-}
-
-/// The navigator over `R` nearest above `scope`, or a panic naming what was
-/// looked for: a view that navigates where none was opened is a wiring
-/// mistake.
-fn navigator<R: Route>(scope: Scope) -> Navigator<R> {
-    Navigator::find(scope).unwrap_or_else(|| {
-        panic!(
-            "no navigator over `{}` above `{}`: open one where the window starts, \
-             or in a layout above",
-            guinea_router::observability::short(std::any::type_name::<R>()),
-            guinea_router::mount::name(scope)
-                .map(guinea_router::observability::short)
-                .unwrap_or("this view"),
-        )
-    })
 }
 
 /// What a page's view is handed.

@@ -1,20 +1,18 @@
 //! The seam, without a window.
 //!
-//! Everything here is about what an envelope does between the widget that made
-//! it and the node that receives it - which needs a router, two scopes and the
-//! shell's node store, and nothing iced draws with.
-
-use std::any::Any;
+//! Everything here is about what a frame mounts and what an envelope does
+//! between the widget that made it and the node that receives it - which
+//! needs a window's scope, a navigator and the shell's node store, and nothing
+//! iced draws with.
 
 use guinea_app::feature::{FeatureHost, FeatureInitContext};
 use guinea_core::scope::Scope;
 use guinea_macros::reducer;
-use guinea_router::router::{RouteChain, Router, SegmentEntry};
 
+use crate::run::{Root, frame};
 use crate::{
-    Ask, Verdict,
-    Element, Envelope, Iced, Layout, LayoutCx, Nodes, Observing, Page, PageCx, UpdateCx, deliver_page,
-    envelope, layout, layout_entry, page, segment_entry,
+    Ask, Element, Envelope, Layout, LayoutCx, Navigator, Nodes, Observing, Page, PageCx, Route, UpdateCx,
+    Verdict, deliver_layout, deliver_page, envelope, layout, page,
 };
 
 /// A list the domain owns and replaces wholesale - the shape the coherence
@@ -30,6 +28,17 @@ fn domain(this: &mut Domain, update: Replaced) {
     this.0 = update.0;
 }
 
+#[derive(Clone, PartialEq, Debug, Route)]
+enum Place {
+    Leaf,
+    Counter,
+    Other,
+    Draft,
+    Editor,
+    Numbered { pid: u32 },
+    Reader,
+}
+
 #[derive(Default)]
 struct Shell {
     hits: usize,
@@ -40,7 +49,6 @@ struct ShellMsg;
 
 #[layout]
 impl Layout for Shell {
-    type Params = ();
     type Message = ShellMsg;
 
     fn update(&mut self, _message: ShellMsg, _cx: &mut UpdateCx<'_, Self>) {
@@ -48,7 +56,16 @@ impl Layout for Shell {
     }
 
     fn view<'a>(&'a self, cx: &mut LayoutCx<'a, Self>) -> Element<'a, Envelope> {
-        cx.outlet()
+        let nav = cx.navigate::<Place>();
+        cx.outlet(&nav, |place, cx| match place {
+            Place::Leaf => cx.mount::<Leaf>(&()).keep(),
+            Place::Counter => cx.mount::<Counter>(&()),
+            Place::Other => cx.mount::<Other>(&()),
+            Place::Draft => cx.mount::<Draft>(&()),
+            Place::Editor => cx.mount::<Editor>(&()).keep(),
+            Place::Numbered { pid } => cx.mount::<Numbered>(pid),
+            Place::Reader => cx.mount::<Reader>(&()),
+        })
     }
 }
 
@@ -76,9 +93,6 @@ fn list_replaced(update: &Replaced) -> Option<LeafMsg> {
 
 #[page]
 impl Page for Leaf {
-    const CACHE_STATE_IN_MEMORY: bool = true;
-
-    type Params = ();
     type Message = LeafMsg;
 
     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
@@ -108,9 +122,30 @@ impl Page for Leaf {
     }
 }
 
-/// A different page for the same position in the chain - and everything
-/// `#[page]` writes for a node that keeps nothing and says nothing: `Params`,
-/// `Message` and the empty `update`.
+/// Counts, and is not kept: leaving it is the end of it.
+#[derive(Default)]
+struct Counter {
+    hits: usize,
+}
+
+#[derive(Clone)]
+struct Hit;
+
+#[page]
+impl Page for Counter {
+    type Message = Hit;
+
+    fn update(&mut self, _message: Hit, _cx: &mut UpdateCx<'_, Self>) {
+        self.hits += 1;
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Hit> {
+        iced::widget::text("").into()
+    }
+}
+
+/// Everything `#[page]` writes for a node that keeps nothing and says
+/// nothing: `Params`, `Message` and the empty `update`.
 #[derive(Default)]
 struct Other;
 
@@ -136,277 +171,6 @@ impl Page for Draft {
     }
 }
 
-const WITH_DRAFT: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Draft>()];
-
-#[derive(Clone, PartialEq, Debug)]
-enum Place {
-    Draft,
-    Other,
-}
-
-impl RouteChain<Iced> for Place {
-    fn chain(&self) -> &'static [SegmentEntry<Iced>] {
-        match self {
-            Place::Draft => &WITH_DRAFT,
-            Place::Other => &WITH_OTHER,
-        }
-    }
-
-    fn params(&self) -> Vec<Box<dyn Any>> {
-        params()
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Place::Draft => "Draft",
-            Place::Other => "Other",
-        }
-    }
-}
-
-const WITH_LEAF: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Leaf>()];
-const WITH_OTHER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Other>()];
-
-fn params() -> Vec<Box<dyn Any>> {
-    vec![Box::new(()), Box::new(())]
-}
-
-/// The router and the store the shell would own, kept together because every
-/// step of a navigation touches both.
-struct Mounted {
-    router: std::rc::Rc<Router<Iced>>,
-    nodes: Nodes,
-}
-
-impl Mounted {
-    fn at(chain: &'static [SegmentEntry<Iced>]) -> Self {
-        Self::hosted(chain, FeatureHost::detached())
-    }
-
-    fn hosted(chain: &'static [SegmentEntry<Iced>], host: FeatureHost) -> Self {
-        let router = std::rc::Rc::new(Router::<Iced>::new(host));
-        let mut mounted = Mounted {
-            router,
-            nodes: Nodes::default(),
-        };
-        mounted.activate(chain);
-        mounted
-    }
-
-    fn activate(&mut self, chain: &'static [SegmentEntry<Iced>]) {
-        self.router.activate(chain, params()).expect("activate");
-        self.nodes.sync(chain);
-    }
-
-    fn send(&mut self, envelope: Envelope) {
-        envelope::settle(&self.router, &mut self.nodes, envelope);
-    }
-
-    fn leaf(&self) -> &Leaf {
-        self.nodes.get::<Leaf>(1).expect("a leaf is mounted")
-    }
-
-    fn scope(&self, cursor: usize) -> Scope {
-        self.router.scope_at(cursor).expect("a segment is mounted there")
-    }
-}
-
-fn to_leaf(mounted: &Mounted, message: LeafMsg) -> Envelope {
-    Envelope::new(1, mounted.scope(1), deliver_page::<Leaf>, Box::new(message))
-}
-
-#[test]
-fn a_message_reaches_its_own_node_and_no_other() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-
-    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
-
-    assert_eq!(mounted.leaf().picked, 2);
-    assert_eq!(
-        mounted
-            .nodes
-            .get::<Shell>(0)
-            .expect("a layout is mounted")
-            .hits,
-        0,
-        "the layout above never sees its child's messages - which is why \
-         adding a page costs it no edit"
-    );
-}
-
-#[test]
-fn an_observer_translates_rather_than_mutates() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
-
-    // The domain replaces the list with a shorter one, leaving the selection
-    // past the end.
-    mounted
-        .router
-        .scope_at(1)
-        .expect("a leaf is mounted")
-        .push::<Domain>(Replaced(vec![9]));
-
-    assert_eq!(
-        mounted.leaf().picked,
-        2,
-        "observing produced a message, and a message is not a mutation"
-    );
-
-    mounted.send(Envelope::settled());
-
-    assert_eq!(
-        mounted.leaf().picked,
-        0,
-        "the node clamped itself, through update"
-    );
-    assert_eq!(
-        mounted.leaf().log,
-        ["pick", "clamp"],
-        "both changes went through the same update - there is one mutation point"
-    );
-}
-
-#[test]
-fn a_cached_page_comes_back_to_the_state_it_left() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(to_leaf(&mounted, LeafMsg::Pick(2)));
-
-    // What navigating away and back does: the chain is torn down to nothing
-    // and installed again.
-    mounted.activate(&WITH_OTHER);
-    mounted.activate(&WITH_LEAF);
-
-    assert_eq!(
-        mounted.leaf().picked,
-        2,
-        "the node the shell kept came back, rather than the one install built"
-    );
-}
-
-#[test]
-fn a_page_that_did_not_ask_starts_fresh() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.send(Envelope::new(
-        0,
-        mounted.scope(0),
-        crate::deliver_layout::<Shell>,
-        Box::new(ShellMsg),
-    ));
-
-    assert_eq!(mounted.nodes.get::<Shell>(0).expect("mounted").hits, 1);
-
-    mounted.activate(&WITH_OTHER);
-    mounted.activate(&WITH_LEAF);
-
-    assert_eq!(
-        mounted.nodes.get::<Shell>(0).expect("mounted").hits,
-        0,
-        "keeping state across navigation is opt-in, and this layout did not"
-    );
-}
-
-#[test]
-fn a_page_kept_once_is_asked_again_the_next_time() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.router.navigate(Place::Draft).expect("to the draft");
-    mounted.nodes.sync(&WITH_DRAFT);
-
-    mounted.router.navigate(Place::Other).expect("asked");
-    assert!(mounted.router.pending().is_some());
-    mounted.router.answer(false);
-    assert!(mounted.router.pending().is_none());
-    assert_eq!(mounted.router.current_route::<Place>(), Some(Place::Draft));
-
-    mounted.router.navigate(Place::Other).expect("asked again");
-    assert!(
-        mounted.router.pending().is_some(),
-        "the second attempt is a question of its own, not the first one's answer"
-    );
-    mounted.router.answer(true);
-    assert_eq!(mounted.router.current_route::<Place>(), Some(Place::Other));
-}
-
-#[derive(Clone, Default, Debug, PartialEq)]
-struct Shown(u32);
-
-#[reducer]
-fn shown(this: &mut Shown, to: u32) {
-    this.0 = to;
-}
-
-struct Showing;
-
-impl guinea_app::app::Plugin for Showing {
-    const ID: &'static str = "showing";
-    type Exports = (Shown,);
-
-    fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
-        app.state::<Shown>().seed(Shown(7)).plain();
-        Ok(())
-    }
-}
-
-guinea_macros::app! {
-    App {
-        installs { Showing }
-    }
-}
-
-thread_local! {
-    static SEEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
-}
-
-/// A plugin's shortcut, written once for every backend.
-trait Sees: guinea_app::feature::Reads {
-    fn shown(&mut self) -> u32 {
-        self.read::<Shown>().0.0
-    }
-}
-
-impl<C: guinea_app::feature::Reads> Sees for C {}
-
-#[derive(Default)]
-struct Reader;
-
-#[page]
-impl Page for Reader {
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
-        SEEN.set(Some(cx.shown()));
-        iced::widget::text("").into()
-    }
-}
-
-const WITH_READER: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Reader>()];
-
-#[test]
-fn a_shortcut_written_over_reads_reads_in_a_view() {
-    let runtime = guinea_app::app::GuineaApp::new()
-        .plugin(Showing)
-        .install()
-        .expect("install");
-    let mounted = Mounted::hosted(&WITH_READER, FeatureHost::under(&runtime.context()));
-
-    drop(mounted.router.render(&mounted.nodes));
-
-    assert_eq!(SEEN.get(), Some(7));
-}
-
-#[test]
-fn a_message_for_a_node_that_left_the_chain_is_dropped() {
-    let mut mounted = Mounted::at(&WITH_LEAF);
-    mounted.activate(&WITH_OTHER);
-
-    // A click that raced a navigation. The position still exists; what sits
-    // there is a different page.
-    mounted.send(to_leaf(&mounted, LeafMsg::Pick(9)));
-
-    assert!(
-        mounted.nodes.get::<Leaf>(1).is_none(),
-        "delivering it would have made a node for a page that is not there"
-    );
-}
-
 #[derive(Default)]
 struct Editor {
     dirty: bool,
@@ -417,8 +181,6 @@ struct Typed;
 
 #[page]
 impl Page for Editor {
-    const CACHE_STATE_IN_MEMORY: bool = true;
-
     type Message = Typed;
 
     fn leaving(&self) -> Verdict {
@@ -435,58 +197,6 @@ impl Page for Editor {
     fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Typed> {
         iced::widget::text("").into()
     }
-}
-
-const WITH_EDITOR: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Editor>()];
-
-#[derive(Clone, PartialEq, Debug)]
-enum Editing {
-    Editor,
-    Other,
-}
-
-impl RouteChain<Iced> for Editing {
-    fn chain(&self) -> &'static [SegmentEntry<Iced>] {
-        match self {
-            Editing::Editor => &WITH_EDITOR,
-            Editing::Other => &WITH_OTHER,
-        }
-    }
-
-    fn params(&self) -> Vec<Box<dyn Any>> {
-        params()
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Editing::Editor => "Editor",
-            Editing::Other => "Other",
-        }
-    }
-}
-
-#[test]
-fn a_cached_node_that_came_back_dirty_still_minds_being_left() {
-    let mut mounted = Mounted::at(&WITH_EDITOR);
-    mounted.send(Envelope::new(1, mounted.scope(1), deliver_page::<Editor>, Box::new(Typed)));
-
-    mounted.router.navigate(Editing::Other).expect("asked");
-    assert!(mounted.router.pending().is_some(), "a dirty editor asks");
-    mounted.router.answer(true);
-    mounted.nodes.sync(&WITH_OTHER);
-
-    mounted.router.navigate(Editing::Editor).expect("back");
-    mounted.nodes.sync(&WITH_EDITOR);
-    assert!(
-        mounted.nodes.get::<Editor>(1).expect("mounted").dirty,
-        "the cached node came back as it was left"
-    );
-
-    mounted.router.navigate(Editing::Other).expect("asked again");
-    assert!(
-        mounted.router.pending().is_some(),
-        "the node on screen is dirty, so leaving it asks"
-    );
 }
 
 #[derive(Default)]
@@ -516,34 +226,274 @@ impl Page for Numbered {
     }
 }
 
-const WITH_NUMBERED: [SegmentEntry<Iced>; 2] = [layout_entry::<Shell>(), segment_entry::<Numbered>()];
+#[derive(Clone, Default, Debug, PartialEq)]
+struct Shown(u32);
+
+#[reducer]
+fn shown(this: &mut Shown, to: u32) {
+    this.0 = to;
+}
+
+struct Showing;
+
+impl guinea_app::app::Plugin for Showing {
+    const ID: &'static str = "showing";
+    type Exports = (Shown,);
+
+    fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
+        app.state::<Shown>().seed(Shown(7)).plain();
+        Ok(())
+    }
+}
+
+thread_local! {
+    static SEEN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// A plugin's shortcut, written once for every backend.
+trait Sees: guinea_app::feature::Reads {
+    fn shown(&mut self) -> u32 {
+        self.read::<Shown>().0.0
+    }
+}
+
+impl<C: guinea_app::feature::Reads> Sees for C {}
+
+#[derive(Default)]
+struct Reader;
+
+#[page]
+impl Page for Reader {
+    fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
+        SEEN.set(Some(cx.shown()));
+        iced::widget::text("").into()
+    }
+}
+
+/// A window's scope, its navigator and the store the shell would own, drawn
+/// the way the shell draws them.
+struct Window {
+    host: FeatureHost,
+    nodes: Nodes,
+    nav: Navigator<Place>,
+}
+
+impl Window {
+    fn at(place: Place) -> Self {
+        Self::hosted(place, FeatureHost::detached())
+    }
+
+    fn hosted(place: Place, host: FeatureHost) -> Self {
+        let nav = Navigator::open(host.scope(), place);
+        let window = Window {
+            host,
+            nodes: Nodes::default(),
+            nav,
+        };
+        window.draw();
+        window
+    }
+
+    fn draw(&self) {
+        drop(frame(self.host.scope(), &Root::of::<Shell>(), &self.nodes));
+    }
+
+    fn send(&mut self, envelope: Envelope) {
+        envelope::settle(&mut self.nodes, Some(&self.nav), envelope);
+        self.draw();
+    }
+
+    fn go(&mut self, place: Place) {
+        let _moved = self.nav.to(place);
+        self.draw();
+    }
+
+    fn answer(&mut self, allowed: bool) {
+        self.send(Envelope::answer(allowed));
+    }
+
+    /// The scope the `N` drawn in this window was mounted into.
+    fn scope<N: 'static>(&self) -> Option<Scope> {
+        self.host
+            .scope()
+            .subtree()
+            .into_iter()
+            .find(|scope| guinea_router::mount::name(*scope) == Some(std::any::type_name::<N>()))
+    }
+
+    fn node<N: 'static>(&self) -> Option<&N> {
+        self.nodes.get::<N>(self.scope::<N>()?)
+    }
+
+    fn to<N: Page>(&self, message: N::Message) -> Envelope {
+        let scope = self.scope::<N>().expect("mounted");
+        Envelope::node(scope, deliver_page::<N>, Box::new(message))
+    }
+}
 
 #[test]
-fn a_message_for_a_node_installed_again_with_other_params_is_dropped() {
-    let router = std::rc::Rc::new(Router::<Iced>::new(FeatureHost::detached()));
-    let mut mounted = Mounted {
-        router,
-        nodes: Nodes::default(),
-    };
-    mounted
-        .router
-        .activate(&WITH_NUMBERED, vec![Box::new(()), Box::new(1u32)])
-        .expect("pid 1");
-    mounted.nodes.sync(&WITH_NUMBERED);
+fn a_message_reaches_its_own_node_and_no_other() {
+    let mut window = Window::at(Place::Leaf);
 
-    let from_pid_1 = Envelope::new(1, mounted.scope(1), deliver_page::<Numbered>, Box::new(PickHere));
+    window.send(window.to::<Leaf>(LeafMsg::Pick(2)));
 
-    mounted
-        .router
-        .activate(&WITH_NUMBERED, vec![Box::new(()), Box::new(2u32)])
-        .expect("pid 2");
-    mounted.nodes.sync(&WITH_NUMBERED);
-    assert_eq!(mounted.nodes.get::<Numbered>(1).expect("mounted").pid, 2);
+    assert_eq!(window.node::<Leaf>().expect("a leaf is mounted").picked, 2);
+    assert_eq!(
+        window.node::<Shell>().expect("a layout is mounted").hits,
+        0,
+        "the layout above never sees its child's messages - which is why \
+         adding a page costs it no edit"
+    );
+}
 
-    mounted.send(from_pid_1);
+#[test]
+fn a_layout_s_own_message_reaches_the_layout() {
+    let mut window = Window::at(Place::Leaf);
+    let shell = window.scope::<Shell>().expect("mounted");
+
+    window.send(Envelope::node(shell, deliver_layout::<Shell>, Box::new(ShellMsg)));
+
+    assert_eq!(window.node::<Shell>().expect("mounted").hits, 1);
+}
+
+#[test]
+fn an_observer_translates_rather_than_mutates() {
+    let mut window = Window::at(Place::Leaf);
+    window.send(window.to::<Leaf>(LeafMsg::Pick(2)));
+
+    window.scope::<Leaf>().expect("a leaf is mounted").push::<Domain>(Replaced(vec![9]));
 
     assert_eq!(
-        mounted.nodes.get::<Numbered>(1).expect("mounted").picked,
+        window.node::<Leaf>().expect("mounted").picked,
+        2,
+        "observing produced a message, and a message is not a mutation"
+    );
+
+    window.send(Envelope::settled());
+
+    let leaf = window.node::<Leaf>().expect("mounted");
+    assert_eq!(leaf.picked, 0, "the node clamped itself, through update");
+    assert_eq!(
+        leaf.log,
+        ["pick", "clamp"],
+        "both changes went through the same update - there is one mutation point"
+    );
+}
+
+#[test]
+fn a_page_navigated_to_is_drawn_in_the_same_frame() {
+    let mut window = Window::at(Place::Leaf);
+
+    window.go(Place::Other);
+
+    assert!(window.node::<Other>().is_some(), "mounted and in the store after one frame");
+}
+
+#[test]
+fn a_kept_page_comes_back_to_the_state_it_left() {
+    let mut window = Window::at(Place::Leaf);
+    window.send(window.to::<Leaf>(LeafMsg::Pick(2)));
+
+    window.go(Place::Other);
+    window.go(Place::Leaf);
+
+    assert_eq!(
+        window.node::<Leaf>().expect("mounted").picked,
+        2,
+        "the node slept with its scope and came back, rather than one install built"
+    );
+}
+
+#[test]
+fn a_page_not_kept_starts_fresh() {
+    let mut window = Window::at(Place::Counter);
+    window.send(window.to::<Counter>(Hit));
+    assert_eq!(window.node::<Counter>().expect("mounted").hits, 1);
+
+    window.go(Place::Other);
+    window.go(Place::Counter);
+
+    assert_eq!(
+        window.node::<Counter>().expect("mounted").hits,
+        0,
+        "keeping state across navigation is opt-in, and this mount did not"
+    );
+}
+
+#[test]
+fn a_page_kept_once_is_asked_again_the_next_time() {
+    let mut window = Window::at(Place::Draft);
+
+    let _moved = window.nav.to(Place::Other);
+    assert!(window.nav.pending().is_some());
+    window.answer(false);
+    assert!(window.nav.pending().is_none());
+    assert_eq!(window.nav.current(), Some(Place::Draft));
+
+    let _moved = window.nav.to(Place::Other);
+    assert!(
+        window.nav.pending().is_some(),
+        "the second attempt is a question of its own, not the first one's answer"
+    );
+    window.answer(true);
+    assert_eq!(window.nav.current(), Some(Place::Other));
+}
+
+#[test]
+fn a_shortcut_written_over_reads_reads_in_a_view() {
+    let runtime = guinea_app::app::GuineaApp::new()
+        .plugin(Showing)
+        .install()
+        .expect("install");
+    SEEN.set(None);
+
+    let _window = Window::hosted(Place::Reader, FeatureHost::under(&runtime.context()));
+
+    assert_eq!(SEEN.get(), Some(7));
+}
+
+#[test]
+fn a_message_for_a_node_that_left_is_dropped() {
+    let mut window = Window::at(Place::Counter);
+    let late = window.to::<Counter>(Hit);
+
+    window.go(Place::Other);
+    window.send(late);
+
+    assert!(
+        window.node::<Counter>().is_none(),
+        "delivering it would have made a node for a page that is not there"
+    );
+}
+
+#[test]
+fn a_kept_node_that_came_back_dirty_still_minds_being_left() {
+    let mut window = Window::at(Place::Editor);
+    window.send(window.to::<Editor>(Typed));
+
+    let _moved = window.nav.to(Place::Other);
+    assert!(window.nav.pending().is_some(), "a dirty editor asks");
+    window.answer(true);
+
+    window.go(Place::Editor);
+    assert!(window.node::<Editor>().expect("mounted").dirty, "the kept node came back as it was left");
+
+    let _moved = window.nav.to(Place::Other);
+    assert!(window.nav.pending().is_some(), "the node on screen is dirty, so leaving it asks");
+}
+
+#[test]
+fn a_message_for_a_node_mounted_again_with_other_params_is_dropped() {
+    let mut window = Window::at(Place::Numbered { pid: 1 });
+    let from_pid_1 = window.to::<Numbered>(PickHere);
+
+    window.go(Place::Numbered { pid: 2 });
+    assert_eq!(window.node::<Numbered>().expect("mounted").pid, 2);
+
+    window.send(from_pid_1);
+
+    assert_eq!(
+        window.node::<Numbered>().expect("mounted").picked,
         None,
         "the pick was made on the page for pid 1, which is gone"
     );

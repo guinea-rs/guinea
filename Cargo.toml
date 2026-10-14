@@ -64,6 +64,7 @@ windows-core = "0.100.0"
 eframe = { version = "0.36", default-features = false }
 egui = "0.36"
 iced = { version = "0.14", default-features = false }
+elsa = "1.11"
 ratatui = "0.30"
 crossterm = "0.29"
 slint = { version = "1.17", default-features = false }

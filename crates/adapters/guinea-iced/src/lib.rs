@@ -4,17 +4,17 @@
 //! where a click goes. iced does: it is Elm, so every interaction is a value
 //! of one `Message` type that comes back to one `update`. That is the whole
 //! reason this adapter exists - it is the one that has to say what happens
-//! when a route tree of independent nodes meets a toolkit that wants a single
+//! when a tree of independent nodes meets a toolkit that wants a single
 //! message type at the top.
 //!
 //! The answer is that a node keeps its own `State`, its own `Message` and its
-//! own `update`, all on the one trait that puts it in the route tree, and
+//! own `update`, all on the one trait that makes it a page or a layout, and
 //! nothing above it ever names any of them. A parent does not wrap a child's
 //! messages, so adding a page costs no edit anywhere else - the composition
 //! tax Elm normally charges (a variant, a match arm, a `map`, per child, per
 //! level) is not paid at all. What the toolkit sees is [`Envelope`]: an opaque
-//! carrier holding the message, the node's own delivery function, and where in
-//! the chain that node sits.
+//! carrier holding the message, the node's own delivery function, and the
+//! scope the node was mounted into.
 //!
 //! What is left over is the part Elm has no answer for: two pieces of state
 //! that reference each other rather than nest - a selected row and a list an
@@ -22,13 +22,16 @@
 //! it turns what happened elsewhere into this node's own message, so there is
 //! still exactly one place the node's state changes.
 //!
+//! A layout mounts what goes under it from its view, as on every backend:
+//! `cx.mount::<Services>(&())` beside its own widgets, and
+//! `cx.outlet(&nav, |route, cx| ..)` for what a navigator says is here.
+//!
 //! ```ignore
 //! #[page]
 //! impl Page for Processes {
-//!     type Params = ProcessesParams;
 //!     type Message = Msg;
 //!
-//!     fn observes(cx: &Observing<'_, Msg>) { cx.on::<ProcessesReducer>(list_replaced); }
+//!     fn observes(cx: &Observing<'_, Msg>) { cx.on::<Listing>(list_replaced); }
 //!     fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) { .. }
 //!     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> { .. }
 //! }
@@ -37,14 +40,13 @@
 extern crate self as guinea_iced;
 
 mod envelope;
-mod nav;
 mod nodes;
 mod run;
 mod wakeups;
 
 pub use envelope::Envelope;
 pub use nodes::Nodes;
-pub use run::{MAIN, run};
+pub use run::{MAIN, Window, run};
 
 /// What a node answers when asked whether it may be left.
 pub use guinea_core::guard::{Ask, Verdict};
@@ -52,32 +54,26 @@ pub use guinea_core::guard::{Ask, Verdict};
 /// that name it, and a node should not have to import it just for that.
 pub use guinea_app::feature::{FeatureInitContext, Install};
 /// Writes down the associated types a node left out. See [`Page`].
-pub use guinea_macros::{iced_layout as layout, iced_page as page};
+pub use guinea_macros::{Route, iced_layout as layout, iced_page as page};
+/// Where a window is, and how to move it.
+pub use guinea_router::navigator::{Moved, Navigator, Route};
 
-use std::any::{Any, TypeId};
+use std::any::Any;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
 use guinea_app::feature::Reads;
 use guinea_core::feature::Dispatch;
-use guinea_core::scope::Reducer;
-use guinea_router::router::{
-    Mount, NavigateHandle, RouteChain, SegmentEntry, SegmentProps, Ui, narrow, same_params,
-    single_entry_chain,
-};
+use guinea_core::scope::{Reducer, Scope};
+use guinea_router::mount::{Outlet, Pass, binding, navigator};
 
 use envelope::Deliver;
-use nodes::{Held, Placement};
+use nodes::Held;
 
-/// iced as a [`Ui`].
+/// What `guinea::Backend` names under the iced feature, while `routes!` is
+/// still there for the other backends.
 pub struct Iced;
-
-impl Ui for Iced {
-    type View<'a> = iced::Element<'a, Envelope>;
-    type Nodes = Nodes;
-    type Mount = dyn Mount<Self>;
-}
 
 /// What a node's `view` returns.
 ///
@@ -91,7 +87,7 @@ impl Ui for Iced {
 /// them. See [`Nodes`] for where the borrow comes from and why.
 pub type Element<'a, Message> = iced::Element<'a, Message>;
 
-/// A leaf of the route tree, and an Elm node in its own right.
+/// A leaf: an Elm node a layout mounts.
 ///
 /// The type that implements this **is** the node's state. There is no
 /// `type State`, because the struct is already there and already named:
@@ -103,43 +99,40 @@ pub type Element<'a, Message> = iced::Element<'a, Message>;
 ///
 /// That is what an iced application writes anyway - `struct Counter { value:
 /// i64 }` - and it removes the last trace of "a view, with its state installed
-/// beside it". Where the page sits, what it captured, what it keeps and what
-/// can happen to it are one declaration.
+/// beside it".
 pub trait Page: Sized + 'static {
-    /// When `true`, this segment's states are kept in memory while the page is
-    /// not mounted - the reducers the router owns, and the node itself.
-    const CACHE_STATE_IN_MEMORY: bool = false;
-
     /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What this page captured from the route, named by `routes!`.
+    /// What the page is mounted with: `cx.mount::<ProcessPage>(&pid)`. `()`
+    /// for a page that needs nothing, which `#[page]` writes when it is left
+    /// out.
     ///
-    /// `PartialEq` because the router's one question about a capture is
-    /// whether it is still the same one; `Clone` because the answer is asked
-    /// again later, against what a kept node was mounted with.
+    /// `PartialEq` because a mount's one question about it is whether it is
+    /// still the same: equal params are the same page in the same scope,
+    /// other params another page in a scope of its own.
     type Params: Clone + PartialEq + 'static;
 
     /// What can happen to this node. `Send` because iced's message type is,
     /// and this one travels inside it.
     type Message: Send + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this page installs, and `()` when it installs nothing.
     ///
     /// The list is not written beside the body - it *is* the body's
     /// obligation: `install` returns it, so a feature that stops being
     /// installed stops type-checking. `#[page]` fills in both this and the
-    /// empty `install` when a segment installs nothing.
+    /// empty `install` when a page installs nothing.
     ///
-    /// What is returned is owned by the segment's scope, which is what gives a
+    /// What is returned is owned by the page's scope, which is what gives a
     /// feature its own lifetime.
     type Installs: guinea_app::feature::Lists;
 
     /// Mounts the page: installs what it needs while it is mounted, and
     /// returns the node it starts as beside its [`Installs`](Self::Installs).
     ///
-    /// Runs once per scope, when the scope is made. The node it returns is
-    /// discarded when a kept node comes back instead.
+    /// Runs once per scope, when the scope is made. A page woken from sleep
+    /// is not mounted again.
     fn install(
         ctx: &FeatureInitContext,
         params: &Self::Params,
@@ -173,28 +166,21 @@ pub trait Page: Sized + 'static {
     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message>;
 }
 
-/// A branch: an Elm node that also decides where its child goes.
+/// A branch: an Elm node that also mounts what goes under it.
 pub trait Layout: Sized + 'static {
     /// Where `impl Layout` was written; see [`Page::DECLARED`].
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
 
-    /// What every page under this layout carries, derived by `routes!` as the
-    /// intersection of their parameters. A layout declares nothing; it is
-    /// handed what all of its children were reached with, which is how a tab
-    /// strip navigates to a sibling without inventing the context itself.
+    /// What the layout is mounted with, as a page is: see [`Page::Params`].
     type Params: Clone + PartialEq + 'static;
 
     type Message: Send + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
+    /// What this layout installs. See [`Page::Installs`].
     ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. `#[page]` fills in both this and the
-    /// empty `install` when a segment installs nothing.
-    ///
-    /// What is returned is owned by the segment's scope, which is what gives a
-    /// feature its own lifetime.
+    /// For a layout it is also what the nodes below share: they come and go,
+    /// and what is installed here stays. Whatever its features list in
+    /// `Exports` those nodes may read.
     type Installs: guinea_app::feature::Lists;
 
     /// Mounts the layout. See [`Page::install`].
@@ -215,19 +201,30 @@ pub trait Layout: Sized + 'static {
     /// Returns [`Envelope`], not `Self::Message`, and this is the one place a
     /// layout differs from a page.
     ///
-    /// A layout's tree contains its child's, and the child's messages are
-    /// already sealed - they belong to the child. Elm's usual answer is for
-    /// the parent to wrap them in a variant of its own, which is the tax this
-    /// design refuses. So the seam is drawn once, here: `cx.mine(..)` seals
-    /// the layout's own widgets, `cx.outlet()` hands over the child's already
-    /// sealed, and both sides are then the same type.
+    /// A layout's tree contains its children's, and their messages are
+    /// already sealed - they belong to the children. Elm's usual answer is
+    /// for the parent to wrap them in a variant of its own, which is the tax
+    /// this design refuses. So the seam is drawn once, here: `cx.mine(..)`
+    /// seals the layout's own widgets, what `cx.mount` and `cx.outlet` give
+    /// back is sealed already, and both sides are then the same type.
     fn view<'a>(&'a self, cx: &mut LayoutCx<'a, Self>) -> Element<'a, Envelope>;
+}
+
+/// A page or a layout: what [`LayoutCx::mount`] mounts. `#[page]` and
+/// `#[layout]` write it.
+#[doc(hidden)]
+pub trait Mountable: 'static {
+    type Params: PartialEq + Clone + 'static;
+    type Message: 'static;
+
+    /// Installs it into the scope `cx` is for, and leaves its node there and
+    /// how it draws.
+    fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<()>;
 }
 
 /// Where a node says what it watches.
 pub struct Observing<'a, Message> {
     ctx: &'a FeatureInitContext,
-    cursor: usize,
     deliver: Deliver,
     message: PhantomData<fn() -> Message>,
 }
@@ -235,7 +232,6 @@ pub struct Observing<'a, Message> {
 impl<'a, Message: Send + 'static> Observing<'a, Message> {
     fn new(ctx: &'a FeatureInitContext, deliver: Deliver) -> Self {
         Self {
-            cursor: ctx.cursor,
             ctx,
             deliver,
             message: PhantomData,
@@ -255,15 +251,14 @@ impl<'a, Message: Send + 'static> Observing<'a, Message> {
     /// node's `update` remains the single place state changes. `None` means
     /// this particular change is none of the node's business.
     ///
-    /// The subscription belongs to the segment's scope, so the rule dies with
+    /// The subscription belongs to the node's scope, so the rule dies with
     /// the node that declared it.
     pub fn on<R: Reducer>(&self, translate: fn(&R::Update) -> Option<Message>) {
-        let cursor = self.cursor;
-        let drawn = self.ctx.scope;
+        let scope = self.ctx.scope;
         let deliver = self.deliver;
         self.ctx.observe::<R>(move |update| {
             if let Some(message) = translate(update) {
-                envelope::park(Envelope::new(cursor, drawn, deliver, Box::new(message)));
+                envelope::park(Envelope::node(scope, deliver, Box::new(message)));
             }
         });
     }
@@ -281,21 +276,18 @@ impl<'a, Message: Send + 'static> Observing<'a, Message> {
 /// opposite case - it is borrowed, see [`Nodes`].
 pub type Feature<R> = (Rc<R>, Dispatch);
 
-fn feature_of<R>(props: &SegmentProps<Iced>) -> Feature<R>
-where
-    R: Reducer,
-{
-    let binding = props.binding::<R>();
+fn feature_of<R: Reducer>(scope: Scope) -> Feature<R> {
+    let binding = binding::<R>(scope);
     (binding.get(), binding.dispatch())
 }
 
 /// What a page's `view` is handed.
 ///
 /// Carries the page type, not because a view needs it, but because reading
-/// does: what a segment may read is a fact about where it sits, and this is
+/// does: what a page may read is a fact about where it sits, and this is
 /// where that fact enters the signature.
 pub struct PageCx<'a, P> {
-    props: SegmentProps<Iced>,
+    scope: Scope,
     page: PhantomData<fn() -> P>,
     borrow: PhantomData<&'a Nodes>,
 }
@@ -305,12 +297,20 @@ impl<P> PageCx<'_, P> {
     ///
     /// The one this page installed, or the nearest above that listed `R` in
     /// its `Exports`. A read that reaches nothing panics on the frame that
-    /// makes it, naming the chain it walked.
+    /// makes it, naming what the page was mounted under.
     pub fn read<R>(&mut self) -> Feature<R>
     where
         R: Reducer + Clone,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
+    }
+
+    /// The navigator over `R` nearest above this page.
+    ///
+    /// Panics when none was opened above: a page that navigates where nothing
+    /// navigates is a wiring mistake.
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
     }
 }
 
@@ -319,14 +319,14 @@ impl<P> Reads for PageCx<'_, P> {
     where
         R: Reducer + PartialEq,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
     fn dispatch<R>(&self) -> Dispatch
     where
         R: Reducer,
     {
-        self.props.binding::<R>().dispatch()
+        binding::<R>(self.scope).dispatch()
     }
 }
 
@@ -335,21 +335,22 @@ impl<L: Layout> Reads for LayoutCx<'_, L> {
     where
         R: Reducer + PartialEq,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
     fn dispatch<R>(&self) -> Dispatch
     where
         R: Reducer,
     {
-        self.props.binding::<R>().dispatch()
+        binding::<R>(self.scope).dispatch()
     }
 }
 
-/// What a layout's `view` is handed: the same reading as a page, plus the
-/// child and the seam between the two message types.
+/// What a layout's `view` is handed: the same reading as a page, mounting,
+/// and the seam between the two message types.
 pub struct LayoutCx<'a, L: Layout> {
-    props: SegmentProps<Iced>,
+    scope: Scope,
+    pass: Pass,
     nodes: &'a Nodes,
     layout: PhantomData<fn() -> L>,
 }
@@ -360,33 +361,118 @@ impl<'a, L: Layout> LayoutCx<'a, L> {
     where
         R: Reducer + Clone,
     {
-        feature_of::<R>(&self.props)
+        feature_of::<R>(self.scope)
     }
 
     /// Seals widgets that speak this layout's own message.
     pub fn mine(&self, element: impl Into<Element<'a, L::Message>>) -> Element<'a, Envelope> {
-        let cursor = self.props.cursor;
-        let drawn = self.props.scope();
+        let scope = self.scope;
         element
             .into()
-            .map(move |message| Envelope::new(cursor, drawn, deliver_layout::<L>, Box::new(message)))
+            .map(move |message| Envelope::node(scope, deliver_layout::<L>, Box::new(message)))
     }
 
-    /// The next segment down the chain, for the layout to place where it
-    /// wants. It borrows from the same store this layout does, which is what
-    /// makes the whole tree one borrow rather than a chain of temporaries.
-    pub fn outlet(&self) -> Element<'a, Envelope> {
-        self.props.outlet(self.nodes)
+    /// Mounts `S` - a page or a layout - under this layout, with `params`.
+    ///
+    /// Installed the first time this layout's view asks for it, in a scope of
+    /// its own under the layout's, and the same one every frame after that
+    /// while the params are equal. Other params are another child. A child
+    /// the view stops asking for goes when the view returns - unless it was
+    /// [`keep`](Child::keep)s, which puts it to sleep instead.
+    ///
+    /// One that fails to install leaves nothing behind, and draws why in its
+    /// place.
+    pub fn mount<S: Mountable>(&mut self, params: &S::Params) -> Child<'a> {
+        let mounted = self.pass.mount::<S, _>(params, |cx| S::install(cx, params));
+        if let Ok(scope) = &mounted {
+            self.nodes.adopt(*scope);
+        }
+
+        Child {
+            pass: self.pass.clone(),
+            nodes: self.nodes,
+            mounted,
+        }
     }
 
-    /// Whether the segment directly below is `P` - what a tab strip needs to
-    /// highlight the current tab without keeping a copy of the route.
-    pub fn child_is<P: 'static>(&self) -> bool {
-        self.props
-            .chain
-            .get(self.props.cursor + 1)
-            .is_some_and(|entry| (entry.type_id)() == TypeId::of::<P>())
+    /// What `nav` says is here, mounted by `draw`: the layout's `match` on
+    /// its own level of the route.
+    ///
+    /// What it mounted is what the navigator asks before it moves on - its
+    /// leave guards, and everything under it. A child that fails to mount
+    /// puts the navigator back where it was, keeps what stood here before,
+    /// and leaves why on the navigator's
+    /// [`failure`](guinea_router::navigator::Navigator::failure).
+    pub fn outlet<R: Route>(
+        &mut self,
+        nav: &Navigator<R>,
+        draw: impl FnOnce(&R, &mut Self) -> Child<'a>,
+    ) -> Element<'a, Envelope> {
+        let pass = self.pass.clone();
+        match pass.outlet(nav, |here| draw(here, self).mounted) {
+            Outlet::Here(scope) | Outlet::Held(scope) => drawn(scope, self.nodes),
+            Outlet::Failed(error) => failed(&error),
+            Outlet::Nowhere => iced::widget::text("").into(),
+        }
     }
+
+    /// See [`PageCx::navigate`].
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
+    }
+}
+
+/// What a layout mounted: the child's view, or why it did not mount.
+///
+/// Placed as it is - `cx.mount::<Services>(&()).into()` - or handed to an
+/// [`outlet`](LayoutCx::outlet). One that failed draws what went wrong in its
+/// place, and the others beside it stand.
+#[must_use = "a mounted child shows only where its view is placed"]
+pub struct Child<'a> {
+    pass: Pass,
+    nodes: &'a Nodes,
+    mounted: Result<Scope, anyhow::Error>,
+}
+
+impl Child<'_> {
+    /// Keeps the child asleep when a later frame leaves it out, instead of
+    /// letting it go: it comes back as it was left.
+    pub fn keep(self) -> Self {
+        if let Ok(scope) = &self.mounted {
+            self.pass.keep(*scope);
+        }
+        self
+    }
+
+    /// Why it did not mount, when it did not.
+    pub fn failure(&self) -> Option<&anyhow::Error> {
+        self.mounted.as_ref().err()
+    }
+}
+
+impl<'a> From<Child<'a>> for Element<'a, Envelope> {
+    fn from(child: Child<'a>) -> Self {
+        match child.mounted {
+            Ok(scope) => drawn(scope, child.nodes),
+            Err(error) => failed(&error),
+        }
+    }
+}
+
+/// How what was mounted into a scope draws, kept there as it mounts.
+struct Draws(for<'a> fn(Scope, &'a Nodes) -> Element<'a, Envelope>);
+
+/// The view of what was mounted into `scope`.
+pub(crate) fn drawn(scope: Scope, nodes: &Nodes) -> Element<'_, Envelope> {
+    let draws = scope.keeps::<Draws>().then(|| scope.kept::<Draws, _>(|draws| draws.0)).flatten();
+    match draws {
+        Some(draw) => draw(scope, nodes),
+        None => iced::widget::text("").into(),
+    }
+}
+
+pub(crate) fn failed<'a>(error: &anyhow::Error) -> Element<'a, Envelope> {
+    iced::widget::text(format!("{error:#}")).into()
 }
 
 /// What a node's `update` is handed: reading, acting, and navigating.
@@ -394,8 +480,8 @@ impl<'a, L: Layout> LayoutCx<'a, L> {
 /// Carries the node type for the same reason [`PageCx`] does - `update` reads
 /// exactly what `view` may.
 pub struct UpdateCx<'a, S> {
-    props: &'a SegmentProps<Iced>,
-    segment: PhantomData<fn() -> S>,
+    scope: Scope,
+    node: PhantomData<fn() -> &'a S>,
 }
 
 impl<S> UpdateCx<'_, S> {
@@ -411,172 +497,106 @@ impl<S> UpdateCx<'_, S> {
     where
         R: Reducer + Clone,
     {
-        feature_of::<R>(self.props)
+        feature_of::<R>(self.scope)
     }
 
-    pub fn navigate<R>(&self) -> NavigateHandle<Iced, R>
-    where
-        R: RouteChain<Iced> + Clone + PartialEq + 'static,
-    {
-        nav::current::<R>()
+    /// See [`PageCx::navigate`].
+    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+        navigator::<R>(self.scope)
     }
 }
 
-fn deliver_page<P: Page>(
-    props: &SegmentProps<Iced>,
-    nodes: &mut Nodes,
-    message: Box<dyn Any + Send>,
-) {
-    envelope::deliver::<P, P::Message>(props, nodes, message, P::update, P::leaving);
+fn deliver_page<P: Page>(scope: Scope, nodes: &mut Nodes, message: Box<dyn Any + Send>) {
+    envelope::deliver::<P, P::Message>(scope, nodes, message, P::update, P::leaving);
 }
 
-fn deliver_layout<L: Layout>(
-    props: &SegmentProps<Iced>,
-    nodes: &mut Nodes,
-    message: Box<dyn Any + Send>,
-) {
-    envelope::deliver::<L, L::Message>(props, nodes, message, L::update, L::leaving);
+fn deliver_layout<L: Layout>(scope: Scope, nodes: &mut Nodes, message: Box<dyn Any + Send>) {
+    envelope::deliver::<L, L::Message>(scope, nodes, message, L::update, L::leaving);
 }
 
-/// A zero-sized marker per segment type: what a `const` entry points at to get
-/// its `&'static dyn Mount`.
-pub struct MountPage<P>(pub PhantomData<P>);
-pub struct MountLayout<L>(pub PhantomData<L>);
+fn page_view<P: Page>(scope: Scope, nodes: &Nodes) -> Element<'_, Envelope> {
+    let Some(page) = nodes.get::<P>(scope) else {
+        return iced::widget::text("").into();
+    };
 
-impl<P: Page> Mount<Iced> for MountPage<P> {
-    fn view<'a>(&self, props: SegmentProps<Iced>, nodes: &'a Nodes) -> Element<'a, Envelope> {
-        let cursor = props.cursor;
-        let drawn = props.scope();
-        let Some(page) = nodes.get::<P>(cursor) else {
-            // A view asked for before the shell caught up with a navigation.
-            // Drawing nothing beats a panic on a frame that is about to be
-            // replaced anyway.
-            return iced::widget::text("").into();
-        };
-
-        let mut cx = PageCx {
-            props,
-            page: PhantomData,
-            borrow: PhantomData,
-        };
-        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
-        page.view(&mut cx)
-            .map(move |message| Envelope::new(cursor, drawn, deliver_page::<P>, Box::new(message)))
-    }
+    let mut cx = PageCx {
+        scope,
+        page: PhantomData,
+        borrow: PhantomData,
+    };
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<P>());
+    page.view(&mut cx)
+        .map(move |message| Envelope::node(scope, deliver_page::<P>, Box::new(message)))
 }
 
-impl<L: Layout> Mount<Iced> for MountLayout<L> {
-    fn view<'a>(&self, props: SegmentProps<Iced>, nodes: &'a Nodes) -> Element<'a, Envelope> {
-        let cursor = props.cursor;
-        let Some(layout) = nodes.get::<L>(cursor) else {
-            return iced::widget::text("").into();
-        };
+fn layout_view<L: Layout>(scope: Scope, nodes: &Nodes) -> Element<'_, Envelope> {
+    let Some(layout) = nodes.get::<L>(scope) else {
+        return iced::widget::text("").into();
+    };
 
-        let mut cx = LayoutCx {
-            props,
-            nodes,
-            layout: PhantomData,
-        };
-        let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
-        layout.view(&mut cx)
-    }
+    let pass = Pass::begin(scope);
+    let mut cx = LayoutCx {
+        scope,
+        pass: pass.clone(),
+        nodes,
+        layout: PhantomData,
+    };
+    let _drawing = guinea_core::observability::Rendering::of(std::any::type_name::<L>());
+    let element = layout.view(&mut cx);
+    pass.end();
+
+    element
 }
 
-pub const fn segment_entry<P: Page>() -> SegmentEntry<Iced> {
-    SegmentEntry::new::<P>(
-        install_page::<P>,
-        same_params::<P::Params>,
-        <P::Installs as guinea_app::feature::Lists>::list,
-        &const { MountPage::<P>(PhantomData) } as &dyn Mount<Iced>,
-        P::CACHE_STATE_IN_MEMORY,
-    )
-    .written(P::DECLARED)
-}
-
-pub const fn layout_entry<L: Layout>() -> SegmentEntry<Iced> {
-    SegmentEntry::new::<L>(
-        install_layout::<L>,
-        same_params::<L::Params>,
-        <L::Installs as guinea_app::feature::Lists>::list,
-        &const { MountLayout::<L>(PhantomData) } as &dyn Mount<Iced>,
-        false,
-    )
-    .written(L::DECLARED)
-}
-
-/// Builds the node and parks it for the shell, and registers the guard that
-/// will read its verdict.
+/// Builds the node and leaves it in its scope for the store to adopt, and
+/// registers the guard that will read its verdict.
 ///
-/// The guard is registered on the scope, which the router asks, but it cannot
-/// reach the shell's store - so what it reads is a slot beside the node, kept
-/// current by every `update`.
+/// The guard is registered on the scope, which the navigator asks, but it
+/// cannot reach the shell's store - so what it reads is a slot beside the
+/// node, kept current by every `update`.
 ///
 /// A question already answered is asked again with a token of its own: the
 /// answer to the last attempt is not the answer to this one.
-fn stage_node<Node: 'static>(
-    ctx: &FeatureInitContext,
-    node: Node,
-    params: Box<dyn Any>,
-    leaving: fn(&Node) -> Verdict,
-    cache_state: bool,
-) {
+fn stage_node<Node: 'static>(ctx: &FeatureInitContext, node: Node, leaving: fn(&Node) -> Verdict) {
     let verdict = Rc::new(RefCell::new(leaving(&node)));
 
-    let held = Held {
-        node: Box::new(node),
-        params,
-        verdict: verdict.clone(),
-    };
-
-    ctx.on_leave(move || match &*verdict.borrow() {
-        Verdict::Ask(ask, decision) if decision.is_settled() => {
-            Verdict::Ask(ask.clone(), guinea_core::guard::Decision::new())
+    ctx.on_leave({
+        let verdict = verdict.clone();
+        move || match &*verdict.borrow() {
+            Verdict::Ask(ask, decision) if decision.is_settled() => {
+                Verdict::Ask(ask.clone(), guinea_core::guard::Decision::new())
+            }
+            kept => kept.clone(),
         }
-        kept => kept.clone(),
     });
+
     nodes::stage(
-        Placement {
-            cursor: ctx.cursor,
-            segment: TypeId::of::<Node>(),
+        ctx.scope,
+        Held {
+            node: Box::new(node),
+            verdict,
         },
-        held,
-        cache_state,
     );
 }
 
-fn install_page<P: Page>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
-    let params = narrow::<P::Params, P>(params)?;
+#[doc(hidden)]
+pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(page_view::<P>));
     let (node, installs) = P::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
-    stage_node(
-        ctx,
-        node,
-        Box::new(params.clone()),
-        P::leaving,
-        P::CACHE_STATE_IN_MEMORY,
-    );
+    stage_node(ctx, node, P::leaving);
     P::observes(&Observing::new(ctx, deliver_page::<P>));
     Ok(())
 }
 
-fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &dyn Any) -> anyhow::Result<()> {
-    let params = narrow::<L::Params, L>(params)?;
+#[doc(hidden)]
+pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
+    ctx.scope.keep(Draws(layout_view::<L>));
     let (node, installs) = L::install(ctx, params)?;
     ctx.scope.hold_installed(installs);
-    stage_node(
-        ctx,
-        node,
-        Box::new(params.clone()),
-        L::leaving,
-        false,
-    );
+    stage_node(ctx, node, L::leaving);
     L::observes(&Observing::new(ctx, deliver_layout::<L>));
     Ok(())
-}
-
-/// A one-segment chain, for a page drawn without a route tree.
-pub fn page_chain<P: Page>() -> &'static [SegmentEntry<Iced>] {
-    single_entry_chain(segment_entry::<P>())
 }
 
 #[cfg(test)]

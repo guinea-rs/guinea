@@ -407,7 +407,7 @@ impl<'h, S: Mountable> Mounted<'h, S> {
         let cx = segment.context();
         guinea_router::mount::root::<S>(cx.scope);
         S::install(cx, &params)?;
-        let view = S::view(cx.scope);
+        let view = crate::winui::drawn(cx.scope);
 
         let owner = next_owner();
         let host = host(owner, component::<Shown>(ROOT, wrap(view)))

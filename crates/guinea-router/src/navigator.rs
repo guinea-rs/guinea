@@ -314,6 +314,30 @@ impl<T: Route> Navigator<T> {
     }
 }
 
+/// A navigator as a window's question dialog sees it, whatever it navigates.
+pub trait Asking {
+    /// See [`Navigator::pending`].
+    fn pending(&self) -> Option<Ask>;
+    /// See [`Navigator::answer`].
+    fn answer(&self, allowed: bool);
+    /// See [`Navigator::watch`].
+    fn watch(&self, heard: Box<dyn Fn()>) -> Watching;
+}
+
+impl<T: Route> Asking for Navigator<T> {
+    fn pending(&self) -> Option<Ask> {
+        Navigator::pending(self)
+    }
+
+    fn answer(&self, allowed: bool) {
+        Navigator::answer(self, allowed);
+    }
+
+    fn watch(&self, heard: Box<dyn Fn()>) -> Watching {
+        Navigator::watch(self, heard)
+    }
+}
+
 fn held(scope: Scope, level: TypeId) -> Option<Rc<dyn Navigates>> {
     if !scope.keeps::<Held>() {
         return None;

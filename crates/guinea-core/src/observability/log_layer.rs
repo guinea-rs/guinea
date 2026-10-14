@@ -249,7 +249,7 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             let _resumed = trace::resume(Some(action));
             tracing::info!(pid = 42, "process killed");
-            tracing::debug!(target: "guinea::note", "a guinea point, logged: not traced twice");
+            tracing::debug!(target: "guinea::plugin", "a guinea point, logged: not traced twice");
         });
         trace::stop_observing();
 
@@ -302,7 +302,10 @@ mod tests {
                 let _entered = span.enter();
                 trace::mark(|| Point::Push { reducer: "Rows" });
             }
-            trace::mark(|| Point::Note("after the span".into()));
+            trace::mark(|| Point::Plugin {
+                kind: "after",
+                fields: Vec::new(),
+            });
         });
         trace::stop_observing();
 
@@ -332,7 +335,7 @@ mod tests {
             })
         };
         assert_eq!(parent_of("push"), Some(Some(span.id)), "inside it, under it");
-        assert_eq!(parent_of("note"), Some(Some(action)), "after it, under what was there");
+        assert_eq!(parent_of("after"), Some(Some(action)), "after it, under what was there");
         assert!(
             matches!(seen.last(), Some(trace::Trace::End { id, .. }) if *id == span.id),
             "{seen:?}"

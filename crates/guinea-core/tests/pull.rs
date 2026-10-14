@@ -27,7 +27,10 @@ impl Stream for Making {
         }
         self.left -= 1;
 
-        trace::mark(|| Point::Note("making an item".into()));
+        trace::mark(|| Point::Plugin {
+            kind: "making",
+            fields: Vec::new(),
+        });
 
         Poll::Ready(Some(self.left))
     }
@@ -111,7 +114,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
         .expect("the source was opened");
     let making = heard
         .iter()
-        .filter(|one| matches!(&one.point, Point::Note(text) if text == "making an item"))
+        .filter(|one| matches!(&one.point, Point::Plugin { kind: "making", .. }))
         .collect::<Vec<_>>();
 
     assert_eq!(making.len(), 2, "the source made two items:\n{heard:#?}");

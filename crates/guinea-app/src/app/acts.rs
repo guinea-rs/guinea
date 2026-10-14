@@ -136,7 +136,7 @@ pub struct Chain {
 impl Chain {
     fn grow(log: &Log, at: Cause) -> Self {
         Self {
-            point: log.points.get(&at).cloned().unwrap_or(Point::Note(String::new())),
+            point: log.points[&at].clone(),
             then: log.children(at).iter().map(|child| Self::grow(log, *child)).collect(),
         }
     }
@@ -229,11 +229,10 @@ pub enum Step {
     Push { reducer: &'static str },
     Navigate { to: String },
     Tick,
-    Store { op: &'static str, path: String, field: Option<String>, outside: bool },
     Render { segment: &'static str },
     Log { level: String, target: &'static str, text: String },
     Span { name: &'static str, fields: String },
-    Note(String),
+    Plugin { kind: &'static str, fields: Vec<(&'static str, String)> },
 }
 
 impl Step {
@@ -268,21 +267,6 @@ impl Step {
             Point::Push { reducer } => Step::Push { reducer },
             Point::Navigate { to, .. } => Step::Navigate { to: to.clone() },
             Point::Tick { .. } => Step::Tick,
-            Point::Store {
-                op,
-                path,
-                field,
-                outside,
-            } => Step::Store {
-                op: match op {
-                    guinea_core::trace::StoreOp::Set => "set",
-                    guinea_core::trace::StoreOp::Delete => "delete",
-                    guinea_core::trace::StoreOp::DeletePrefix => "delete prefix",
-                },
-                path: path.clone(),
-                field: field.clone(),
-                outside: *outside,
-            },
             Point::Render { segment, .. } => Step::Render { segment },
             Point::Log {
                 level,
@@ -298,8 +282,10 @@ impl Step {
                 name,
                 fields: fields.clone(),
             },
-            Point::Note(note) => Step::Note(note.clone()),
-            point => Step::Note(point.to_string()),
+            Point::Plugin { kind, fields } => Step::Plugin {
+                kind,
+                fields: fields.clone(),
+            },
         }
     }
 }

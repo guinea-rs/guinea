@@ -1,53 +1,11 @@
 use std::fmt;
 
-/// How a stored value changed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum StoreOp {
-    Set,
-    Delete,
-    /// Everything under the path went at once.
-    DeletePrefix,
-}
-
 /// An observable point, with what identifies it.
 ///
-/// Names are short type names: `processes::Kill`, not a crate path.
-///
-/// New kinds of point come in patch releases, so a match on it outside this
-/// crate needs an arm for the ones it doesn't know yet:
-///
-/// ```compile_fail
-/// use guinea_trace::Point;
-///
-/// fn known(point: &Point) -> bool {
-///     match point {
-///         Point::Action { .. }
-///         | Point::Send { .. }
-///         | Point::Handle { .. }
-///         | Point::Spawn { .. }
-///         | Point::Settled { .. }
-///         | Point::Cancelled { .. }
-///         | Point::Superseded { .. }
-///         | Point::Skipped { .. }
-///         | Point::Source { .. }
-///         | Point::Arrived { .. }
-///         | Point::Pull { .. }
-///         | Point::Closed { .. }
-///         | Point::Publish { .. }
-///         | Point::Deliver { .. }
-///         | Point::Push { .. }
-///         | Point::Navigate { .. }
-///         | Point::Tick { .. }
-///         | Point::Store { .. }
-///         | Point::Render { .. }
-///         | Point::Log { .. }
-///         | Point::Span { .. }
-///         | Point::Note(_) => true,
-///     }
-/// }
-/// ```
+/// Names are short type names: `processes::Kill`, not a crate path. What
+/// guinea itself does not know - a plugin's own work - is a
+/// [`Point::Plugin`], so a match on it names every kind there is.
 #[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
 pub enum Point {
     /// The UI asked a feature for something.
     Action { message: &'static str },
@@ -157,16 +115,6 @@ pub enum Point {
         file: &'static str,
         line: u32,
     },
-    /// A persisted value changed.
-    Store {
-        op: StoreOp,
-        path: String,
-        /// The declared field the path belongs to, `Settings.theme`, when
-        /// the store knows it.
-        field: Option<String>,
-        /// Whether the change came from outside the process, an edited file.
-        outside: bool,
-    },
     /// A page or layout drew itself, and how long that took. Recorded only
     /// for the frames worth looking at - see `observability::Rendering`.
     Render {
@@ -201,8 +149,13 @@ pub enum Point {
         /// Its fields as `name=value`, as they were when it opened.
         fields: String,
     },
-    /// Anything else worth a line.
-    Note(String),
+    /// Something a plugin recorded about its own work: a value it stored, a
+    /// request it made. `kind` says what, `store.set`; `fields` say the rest,
+    /// by name.
+    Plugin {
+        kind: &'static str,
+        fields: Vec<(&'static str, String)>,
+    },
 }
 
 impl Point {
@@ -226,22 +179,11 @@ impl Point {
             Point::Push { .. } => "push",
             Point::Navigate { .. } => "navigate",
             Point::Tick { .. } => "tick",
-            Point::Store { .. } => "store",
             Point::Render { .. } => "render",
             Point::Log { .. } => "log",
             Point::Span { .. } => "span",
-            Point::Note(_) => "note",
+            Point::Plugin { kind, .. } => kind,
         }
-    }
-}
-
-impl fmt::Display for StoreOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            StoreOp::Set => "set",
-            StoreOp::Delete => "delete",
-            StoreOp::DeletePrefix => "delete_prefix",
-        })
     }
 }
 
@@ -320,24 +262,6 @@ impl fmt::Display for Point {
             Point::Render { segment, took_us } => {
                 write!(f, "{segment} drew itself in {:.1} ms", *took_us as f64 / 1000.0)
             }
-            Point::Store {
-                op,
-                path,
-                field,
-                outside,
-            } => {
-                let who = if *outside { "disk" } else { "store" };
-                let verb = match op {
-                    StoreOp::Set => "sets",
-                    StoreOp::Delete => "deletes",
-                    StoreOp::DeletePrefix => "clears",
-                };
-                write!(f, "{who} {verb} {path}")?;
-                match field {
-                    Some(field) => write!(f, " ({field})"),
-                    None => Ok(()),
-                }
-            }
             Point::Log {
                 level,
                 target,
@@ -346,7 +270,23 @@ impl fmt::Display for Point {
             } => write!(f, "{level} {target}: {text}"),
             Point::Span { name, fields, .. } if fields.is_empty() => f.write_str(name),
             Point::Span { name, fields, .. } => write!(f, "{name} {fields}"),
-            Point::Note(text) => f.write_str(text),
+            Point::Plugin { kind, fields } if fields.is_empty() => f.write_str(kind),
+            Point::Plugin { kind, fields } => write!(f, "{kind} {}", Fields(fields)),
         }
+    }
+}
+
+/// A plugin point's fields as `name=value`, a space between each.
+pub(crate) struct Fields<'a>(pub(crate) &'a [(&'static str, String)]);
+
+impl fmt::Display for Fields<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (at, (name, value)) in self.0.iter().enumerate() {
+            if at > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{name}={value}")?;
+        }
+        Ok(())
     }
 }

@@ -212,4 +212,45 @@ mod tests {
         assert_eq!(event["alive"], value!(false));
         assert_eq!(event["name"], "init");
     }
+
+    fn stored() -> Point {
+        Point::Plugin {
+            kind: "store.set",
+            fields: vec![("path", "settings/theme".into()), ("outside", "false".into())],
+        }
+    }
+
+    #[test]
+    fn a_plugin_point_is_a_line_with_its_kind_and_its_fields() {
+        let buffer = Buffer::default();
+        let subscriber = tracing_subscriber::registry().with(super::json(buffer.clone()));
+
+        tracing::subscriber::with_default(subscriber, || {
+            mark(stored);
+        });
+
+        let lines = lines(&buffer);
+        let read = lines.first().map(|(_, point)| {
+            (
+                point["target"].as_str().map(str::to_owned),
+                point["kind"].as_str().map(str::to_owned),
+                point["fields"].as_str().map(str::to_owned),
+            )
+        });
+        assert_eq!(
+            read,
+            Some((
+                Some("guinea::plugin".into()),
+                Some("store.set".into()),
+                Some("path=settings/theme outside=false".into())
+            )),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_plugin_point_reads_as_its_kind_and_its_fields() {
+        assert_eq!(stored().to_string(), "store.set path=settings/theme outside=false");
+        assert_eq!(stored().kind(), "store.set");
+    }
 }

@@ -10,7 +10,10 @@ fn nothing_is_built_while_nobody_listens() {
     let built = Cell::new(false);
     mark(|| {
         built.set(true);
-        Point::Note("unused".into())
+        Point::Plugin {
+            kind: "unused",
+            fields: Vec::new(),
+        }
     });
 
     assert!(!built.get());

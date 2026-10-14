@@ -11,7 +11,10 @@ fn a_thread_that_observed_and_ended_is_watching_nothing() {
         "the observing thread is gone, yet devtools are said to watch"
     );
 
-    mark(|| Point::Note("nobody hears this".into()));
+    mark(|| Point::Plugin {
+        kind: "unheard",
+        fields: Vec::new(),
+    });
     assert!(
         take_elsewhere().records.is_empty(),
         "a record was kept for an observer that is gone"

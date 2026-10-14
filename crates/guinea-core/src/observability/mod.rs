@@ -177,7 +177,10 @@ mod tests {
         let action = trace::mark(|| Point::Action { message: "Save" });
         std::thread::spawn(move || {
             let _resumed = trace::resume(Some(action));
-            mark_anywhere(|| Point::Note("written".into()));
+            mark_anywhere(|| Point::Plugin {
+                kind: "written",
+                fields: Vec::new(),
+            });
         })
         .join()
         .expect("writer");
@@ -186,7 +189,7 @@ mod tests {
 
         assert_eq!(
             *seen.borrow(),
-            [(None, "action"), (Some(action), "note")],
+            [(None, "action"), (Some(action), "written")],
             "the write is marked here, under the action that caused it"
         );
     }

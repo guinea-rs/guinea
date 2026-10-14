@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 use tracing::Level;
 use tracing::level_filters::LevelFilter;
 
+use crate::point::Fields;
 use crate::{Cause, Point, Record, Trace};
 
 type Observer = Rc<dyn Fn(&Trace)>;
@@ -91,10 +92,9 @@ fn is_written() -> bool {
             || tracing::enabled!(target: "guinea::push", Level::DEBUG)
             || tracing::enabled!(target: "guinea::navigate", Level::DEBUG)
             || tracing::enabled!(target: "guinea::tick", Level::DEBUG)
-            || tracing::enabled!(target: "guinea::store", Level::DEBUG)
             || tracing::enabled!(target: "guinea::render", Level::DEBUG)
             || tracing::enabled!(target: "guinea::span", Level::DEBUG)
-            || tracing::enabled!(target: "guinea::note", Level::DEBUG))
+            || tracing::enabled!(target: "guinea::plugin", Level::DEBUG))
 }
 
 /// How many records [`take_elsewhere`] keeps between two takes; past it the
@@ -331,19 +331,6 @@ fn write(record: &Record) {
             file,
             line,
         } => point!("guinea::tick", record, timer, name = *name, file = *file, line = *line),
-        Point::Store {
-            op,
-            path,
-            field,
-            outside,
-        } => point!(
-            "guinea::store",
-            record,
-            op = %op,
-            path = %path,
-            field = field.as_deref(),
-            outside
-        ),
         Point::Render { segment, took_us } => {
             point!("guinea::render", record, segment = %segment, took_us)
         }
@@ -363,7 +350,9 @@ fn write(record: &Record) {
             line = *line,
             fields = %fields
         ),
-        Point::Note(text) => point!("guinea::note", record, "{text}"),
+        Point::Plugin { kind, fields } => {
+            point!("guinea::plugin", record, kind = *kind, fields = %Fields(fields))
+        }
         Point::Log { .. } => {}
     }
 }

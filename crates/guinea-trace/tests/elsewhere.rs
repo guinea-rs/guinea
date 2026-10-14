@@ -3,7 +3,7 @@ use guinea_trace::{ELSEWHERE_LIMIT, Point, Trace, mark, observe, stop_observing,
 fn note(trace: &Trace) -> Option<&str> {
     match trace {
         Trace::Mark(record) => match &record.point {
-            Point::Note(text) => Some(text.as_ref()),
+            Point::Plugin { kind: "worker", fields } => fields.first().map(|(_, n)| n.as_str()),
             _ => None,
         },
         _ => None,
@@ -13,7 +13,10 @@ fn note(trace: &Trace) -> Option<&str> {
 fn on_a_thread(marks: usize) -> u32 {
     std::thread::spawn(move || {
         for n in 0..marks {
-            mark(|| Point::Note(format!("worker {n}").into()));
+            mark(|| Point::Plugin {
+                kind: "worker",
+                fields: vec![("n", n.to_string())],
+            });
         }
         thread_id()
     })
@@ -37,7 +40,7 @@ fn what_other_threads_record_waits_for_the_observing_thread_and_keeps_the_newest
         .filter(|(thread, _)| *thread == worker)
         .filter_map(|(_, trace)| note(trace))
         .collect();
-    assert_eq!(from_worker, ["worker 0", "worker 1", "worker 2"]);
+    assert_eq!(from_worker, ["0", "1", "2"]);
     assert_eq!(seen_here.get(), 0, "the observer here hears only this thread");
     assert!(
         take_elsewhere().records.iter().all(|(thread, _)| *thread != worker),
@@ -51,7 +54,7 @@ fn what_other_threads_record_waits_for_the_observing_thread_and_keeps_the_newest
     let last = taken.records.iter().rev().find(|(thread, _)| *thread == flood);
     assert_eq!(
         last.and_then(|(_, trace)| note(trace)),
-        Some(format!("worker {}", ELSEWHERE_LIMIT + 4).as_str()),
+        Some((ELSEWHERE_LIMIT + 4).to_string().as_str()),
         "the newest stay"
     );
 

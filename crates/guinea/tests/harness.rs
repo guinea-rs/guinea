@@ -1229,7 +1229,7 @@ mod supervising {
         let comes_and_goes = cx.addr().home().child();
         let agent = Addr::new(Agent, &comes_and_goes);
         agent.send(Ping);
-        comes_and_goes.scope().remove();
+        drop(comes_and_goes);
 
         this.push.send(found);
     }

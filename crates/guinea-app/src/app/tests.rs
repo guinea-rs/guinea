@@ -389,7 +389,7 @@ mod exports {
         let window = crate::feature::FeatureHost::under(&english.context());
 
         assert_eq!(language(window.scope()), Some("en"));
-        assert_eq!(window.application().map(|app| app.scope), Some(english.context().scope));
+        assert!(window.application() == Some(&english.context()));
     }
 
     #[test]
@@ -524,7 +524,7 @@ mod owners {
     #[test]
     fn an_application_actor_names_the_feature_that_spawned_it() {
         let (runtime, ()) = start("test", housekeeping_app).expect("install");
-        let app = runtime.context().scope;
+        let app = runtime.context().__scope();
 
         let owner = |name: &str| {
             app_actors(app)
@@ -540,7 +540,7 @@ mod owners {
     fn what_an_application_was_built_with_is_read_from_its_scope() {
         let mut harness = crate::app::Harness::new(0);
         harness.app(housekeeping_app).unwrap();
-        let app = harness.application().scope;
+        let app = harness.application_scope();
 
         assert_eq!(installed_plugins(app), [name::<Tools>()]);
         assert_eq!(app_actors(app).len(), 2);
@@ -552,8 +552,8 @@ mod owners {
         first.app(housekeeping_app).unwrap();
         let second = crate::app::Harness::new(0);
 
-        assert_eq!(installed_plugins(first.application().scope), [name::<Tools>()]);
-        assert_eq!(installed_plugins(second.application().scope), [""; 0]);
+        assert_eq!(installed_plugins(first.application_scope()), [name::<Tools>()]);
+        assert_eq!(installed_plugins(second.application_scope()), [""; 0]);
     }
 }
 

@@ -22,7 +22,8 @@ use guinea_core::guard::Verdict;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
-use guinea_app::feature::{FeatureInitContext, ScopeContext};
+use guinea_app::app::AppContext;
+use guinea_app::feature::FeatureInitContext;
 use guinea_router::mount::{Outlet, Pass, Reads, binding, navigator};
 use guinea_router::navigator::{Navigator, Routable};
 use guinea_router::slot::Slot;
@@ -1323,12 +1324,12 @@ pub struct NewWindow(Opens);
 
 enum Opens {
     View(View),
-    Under(Box<dyn FnOnce(&ScopeContext) -> View>),
+    Under(Box<dyn FnOnce(&AppContext) -> View>),
 }
 
 impl NewWindow {
     /// A window built from the application it is opened from.
-    pub fn under(build: impl FnOnce(&ScopeContext) -> View + 'static) -> Self {
+    pub fn under(build: impl FnOnce(&AppContext) -> View + 'static) -> Self {
         Self(Opens::Under(Box::new(build)))
     }
 

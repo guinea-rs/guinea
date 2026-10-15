@@ -16,6 +16,7 @@ use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::plugin::Plugin;
+use super::runtime::AppContext;
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -93,7 +94,7 @@ impl Harness {
     pub fn new(seed: u64) -> Self {
         let executor = executor::install(seed);
         let app = TestApp::new();
-        let window = FeatureHost::under(&app);
+        let window = FeatureHost::under(&AppContext::of(&app));
         let segment = window.context(window.scope(), 0);
 
         Self {
@@ -111,8 +112,8 @@ impl Harness {
 
     /// The application around the harness, as a window is opened from it -
     /// see [`FeatureHost::under`](crate::feature::FeatureHost::under).
-    pub fn application(&self) -> ScopeContext {
-        ScopeContext::clone(&self.app)
+    pub fn application(&self) -> AppContext {
+        AppContext::of(&self.app)
     }
 
     /// The application's scope itself, for a test reading what is in it.

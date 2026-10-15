@@ -56,14 +56,19 @@ impl<P: ?Sized> Deref for Install<'_, P> {
     }
 }
 
+/// Where a function's arguments are looked up: the scope its context
+/// installs into, which nothing outside this crate reads.
+#[derive(Clone, Copy)]
+pub struct Lookup(pub(crate) Scope);
+
 /// A context the application's services, and the feeds above it, are
-/// reached through: the scope it installs into.
+/// reached through.
 pub trait Context {
-    fn scope(&self) -> Scope;
+    fn lookup(&self) -> Lookup;
 }
 
-pub fn scope<C: Context + ?Sized>(cx: &C) -> Scope {
-    cx.scope()
+pub fn lookup<C: Context + ?Sized>(cx: &C) -> Lookup {
+    cx.lookup()
 }
 
 /// Something a function takes and cannot do without: a service, or a feed.
@@ -111,7 +116,7 @@ impl Need {
 
 /// Refuses `W` when anything it cannot do without is not there, naming all
 /// of it at once.
-pub fn check<W: ?Sized>(scope: Scope, needs: &[Option<Need>]) -> anyhow::Result<()> {
+pub fn check<W: ?Sized>(Lookup(scope): Lookup, needs: &[Option<Need>]) -> anyhow::Result<()> {
     let missing = |fed: bool| -> Vec<String> {
         needs
             .iter()
@@ -169,7 +174,7 @@ pub trait Twice {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, scope: Scope) -> Self::Taken;
+    fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
@@ -179,7 +184,7 @@ impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
         None
     }
 
-    fn take(&self, scope: Scope) -> Option<Feed<T>> {
+    fn take(&self, Lookup(scope): Lookup) -> Option<Feed<T>> {
         Feed::above(scope)
     }
 }
@@ -189,7 +194,7 @@ pub trait Once {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, scope: Scope) -> Self::Taken;
+    fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
@@ -199,7 +204,7 @@ impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
         Some(Need::feed::<T>())
     }
 
-    fn take(&self, scope: Scope) -> Feed<T> {
+    fn take(&self, Lookup(scope): Lookup) -> Feed<T> {
         Feed::above(scope).expect("checked before it was taken")
     }
 }
@@ -211,7 +216,7 @@ impl<T: Service> Once for &&Given<Option<T>> {
         None
     }
 
-    fn take(&self, scope: Scope) -> Option<T> {
+    fn take(&self, Lookup(scope): Lookup) -> Option<T> {
         scope.service::<T>()
     }
 }
@@ -221,7 +226,7 @@ pub trait Bare {
     type Taken;
 
     fn need(&self) -> Option<Need>;
-    fn take(&self, scope: Scope) -> Self::Taken;
+    fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Service> Bare for Given<T> {
@@ -231,7 +236,7 @@ impl<T: Service> Bare for Given<T> {
         Some(Need::of::<T>())
     }
 
-    fn take(&self, scope: Scope) -> T {
+    fn take(&self, Lookup(scope): Lookup) -> T {
         scope.service::<T>().expect("checked before it was taken")
     }
 }

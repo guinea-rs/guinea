@@ -4,8 +4,8 @@ use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_app::app::{AppRuntime, FeatureBuilder, Stop, start};
-use guinea_app::feature::{FeatureHost, ScopeContext};
+use guinea_app::app::{AppContext, AppRuntime, FeatureBuilder, Stop, start};
+use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
 use guinea_router::navigator::{Asking, Navigator, Routable, Watching};
@@ -53,10 +53,10 @@ fn failed(error: anyhow::Error) {
 }
 
 /// The application a window belongs to, kept in the window's scope.
-struct Application(ScopeContext);
+struct Application(AppContext);
 
 /// The application the window `from` is in belongs to.
-pub(crate) fn application(from: Scope) -> Option<ScopeContext> {
+pub(crate) fn application(from: Scope) -> Option<AppContext> {
     std::iter::successors(Some(from), Scope::parent)
         .find(|scope| scope.keeps::<Application>())
         .and_then(|window| window.kept::<Application, _>(|app| app.0.clone()))
@@ -70,7 +70,7 @@ pub fn window(window: Window) -> NewWindow {
     NewWindow::under(move |app| opening(app, window))
 }
 
-fn opening(app: &ScopeContext, window: Window) -> View {
+fn opening(app: &AppContext, window: Window) -> View {
     let rooted = Rooted {
         app: app.clone(),
         window,
@@ -220,14 +220,14 @@ impl PartialEq for Window {
 /// the window.
 #[derive(Clone)]
 pub(crate) struct Rooted {
-    pub(crate) app: ScopeContext,
+    pub(crate) app: AppContext,
     pub(crate) window: Window,
 }
 
 /// The same application, the same window.
 impl PartialEq for Rooted {
     fn eq(&self, other: &Self) -> bool {
-        self.app.__scope() == other.app.__scope() && self.window == other.window
+        self.app == other.app && self.window == other.window
     }
 }
 

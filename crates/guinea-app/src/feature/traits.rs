@@ -12,6 +12,8 @@ use guinea_core::feed::{Feed, FeedWriter};
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::{Reducer, Scope, Section};
 
+use super::given::Lookup;
+
 /// What installing into a scope may do, wherever the scope is: a segment's in
 /// a window, or the application's own.
 ///
@@ -43,11 +45,6 @@ impl ScopeContext {
             scope: section.scope(),
             section,
         }
-    }
-
-    /// Whose what is registered through this context is.
-    pub fn section(&self) -> Section {
-        self.section
     }
 
     /// The scope itself, for the adapters and the router. A feature reaches
@@ -102,20 +99,20 @@ pub(crate) fn publish<E: Exported>(scope: Scope, who: &'static str) -> anyhow::R
 }
 
 impl super::given::Context for ScopeContext {
-    fn scope(&self) -> Scope {
-        self.scope
+    fn lookup(&self) -> Lookup {
+        Lookup(self.scope)
     }
 }
 
 impl super::given::Context for FeatureInitContext {
-    fn scope(&self) -> Scope {
-        self.scope
+    fn lookup(&self) -> Lookup {
+        Lookup(self.scope)
     }
 }
 
 impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
-    fn scope(&self) -> Scope {
-        self.scope
+    fn lookup(&self) -> Lookup {
+        Lookup(self.scope)
     }
 }
 

@@ -1,6 +1,7 @@
 use guinea_core::scope::{Scope, ScopeGuard, ScopeTree};
 
 use super::{FeatureInitContext, ScopeContext};
+use crate::app::AppContext;
 use crate::app::roots::{self, RootId};
 
 /// What a feature needs to be installed into a scope: the window's own scope,
@@ -19,8 +20,8 @@ pub struct FeatureHost {
     /// The tree the window's scope is in, when there is no application to
     /// host it - a test, say.
     _tree: Option<ScopeTree>,
-    /// The application's own context, when there is one.
-    app: Option<ScopeContext>,
+    /// The application, when there is one.
+    app: Option<AppContext>,
     /// This host *is* the root: its scope keeps it, and it goes with it.
     root: RootId,
 }
@@ -29,10 +30,10 @@ impl FeatureHost {
     /// A window of `app`: its scope under the application's, with what the
     /// application's plugins provided.
     ///
-    /// `app` is the application's own context - what
-    /// [`AppRuntime::context`](crate::app::AppRuntime::context) hands back.
-    pub fn under(app: &ScopeContext) -> Self {
-        Self::open(app.scope, None, Some(app.clone()))
+    /// `app` is what [`AppRuntime::context`](crate::app::AppRuntime::context)
+    /// hands back.
+    pub fn under(app: &AppContext) -> Self {
+        Self::open(app.0.scope, None, Some(app.clone()))
     }
 
     /// A window with no application around it - a test, say. Nothing is
@@ -43,7 +44,7 @@ impl FeatureHost {
         Self::open(parent, Some(tree), None)
     }
 
-    fn open(parent: Scope, tree: Option<ScopeTree>, app: Option<ScopeContext>) -> Self {
+    fn open(parent: Scope, tree: Option<ScopeTree>, app: Option<AppContext>) -> Self {
         let scope = parent.child();
         let root = roots::open(scope);
 
@@ -57,7 +58,7 @@ impl FeatureHost {
 
     /// The application this window belongs to, when it has one - what a
     /// window opened from this one is opened under.
-    pub fn application(&self) -> Option<&ScopeContext> {
+    pub fn application(&self) -> Option<&AppContext> {
         self.app.as_ref()
     }
 

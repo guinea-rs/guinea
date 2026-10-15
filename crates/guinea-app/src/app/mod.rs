@@ -22,7 +22,7 @@ pub use acts::{Chain, Shape, Step};
 #[cfg(any(test, feature = "test-utils"))]
 pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
-pub use runtime::AppRuntime;
+pub use runtime::{AppContext, AppRuntime};
 
 /// Builds the application with `app`, for a backend adapter's `run`, once
 /// its UI thread is ready: the application's function installs plugins and

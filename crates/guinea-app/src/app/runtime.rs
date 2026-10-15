@@ -1,3 +1,5 @@
+use guinea_core::scope::Scope;
+
 use super::builder::FeatureBuilder;
 use crate::feature::ScopeContext;
 
@@ -10,9 +12,34 @@ pub struct AppRuntime {
 }
 
 impl AppRuntime {
-    /// The application's own context: its scope, and what it provided. What
-    /// a backend opens its windows under.
-    pub fn context(&self) -> ScopeContext {
-        ScopeContext::clone(&self.builder)
+    /// The application, as a backend opens its windows under it.
+    pub fn context(&self) -> AppContext {
+        AppContext::of(&self.builder)
+    }
+}
+
+/// The application, as a backend opens its windows under it: what
+/// [`FeatureHost::under`](crate::feature::FeatureHost::under) takes. Only
+/// whoever runs the application has one; nothing a feature or a plugin is
+/// handed turns into it.
+#[derive(Clone)]
+pub struct AppContext(pub(crate) ScopeContext);
+
+impl AppContext {
+    pub(crate) fn of(app: &FeatureBuilder) -> Self {
+        Self(ScopeContext::clone(app))
+    }
+
+    /// The application's scope, for the adapters.
+    #[doc(hidden)]
+    pub fn __scope(&self) -> Scope {
+        self.0.scope
+    }
+}
+
+/// The same application.
+impl PartialEq for AppContext {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.scope == other.0.scope
     }
 }

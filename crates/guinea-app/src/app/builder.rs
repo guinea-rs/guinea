@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use anyhow::Context as _;
 use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
-use guinea_core::scope::{Scope, ScopeTree};
+use guinea_core::scope::ScopeTree;
 use guinea_core::short_type_name;
 use crate::feature::{ScopeContext, publish, settle};
 
@@ -180,7 +180,7 @@ impl Deref for PluginBuilder {
 }
 
 impl crate::feature::given::Context for FeatureBuilder {
-    fn scope(&self) -> Scope {
-        self.inner.cx.scope
+    fn lookup(&self) -> crate::feature::given::Lookup {
+        crate::feature::given::Lookup(self.inner.cx.scope)
     }
 }

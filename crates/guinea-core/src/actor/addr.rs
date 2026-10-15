@@ -53,20 +53,39 @@ impl Home {
     }
 
     /// A home in a new scope under this one, for something that comes and
-    /// goes: removing that scope ends it, and it is still the same feature's.
-    pub fn child(&self) -> Home {
+    /// goes: letting go of it ends what was made in it, and it is still the
+    /// same feature's.
+    pub fn child(&self) -> HomeGuard {
         let scope = self.scope().child();
-        Self::in_section(scope.open_section(self.section.feature(), self.section.declared()))
+        HomeGuard(Self::in_section(scope.open_section(self.section.feature(), self.section.declared())))
     }
 
     /// The scope that owns what is made here.
-    pub fn scope(&self) -> Scope {
+    pub(crate) fn scope(&self) -> Scope {
         self.section.scope()
     }
 
     /// The section what is made here belongs to.
-    pub fn section(&self) -> Section {
+    pub(crate) fn section(&self) -> Section {
         self.section
+    }
+}
+
+/// A home that comes and goes: what was made in it ends when this is dropped.
+#[must_use = "what is made in it ends as soon as this is dropped"]
+pub struct HomeGuard(Home);
+
+impl std::ops::Deref for HomeGuard {
+    type Target = Home;
+
+    fn deref(&self) -> &Home {
+        &self.0
+    }
+}
+
+impl Drop for HomeGuard {
+    fn drop(&mut self) {
+        self.0.scope().remove();
     }
 }
 
@@ -468,6 +487,18 @@ mod tests {
         home.tree.remove();
 
         assert!(addr.is_asleep(), "a removed scope read as awake");
+    }
+
+    #[test]
+    fn what_was_made_in_a_child_home_ends_when_the_child_is_let_go_of() {
+        let home = TestHome::new();
+        let child = home.child();
+        let staying = Addr::bare((), &home);
+        let leaving = Addr::bare((), &child);
+
+        drop(child);
+
+        assert_eq!((staying.is_asleep(), leaving.is_asleep()), (false, true));
     }
 
     #[test]

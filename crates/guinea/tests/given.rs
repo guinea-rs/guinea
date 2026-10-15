@@ -1,5 +1,6 @@
-//! What a feature, a plugin or an application feature needs it takes as
-//! arguments, and the application provides: the signature is the whole list.
+//! What a feature or an application feature needs it takes as arguments, and
+//! the application provides: the signature is the whole list. A plugin is
+//! handed what it needs instead, and hands back what it built.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -97,23 +98,23 @@ mod plugins {
     impl Plugin for Greets {
         const ID: &'static str = "test.greets";
         type Exports = ();
+        type Provides = Greeting;
 
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            app.provide(Greeting("hello"));
-            Ok(())
+        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Greeting> {
+            Ok(Greeting("hello"))
         }
     }
 
-    pub struct Amplifies;
+    /// Handed the greeting it amplifies.
+    pub struct Amplifies(pub Greeting);
 
     impl Plugin for Amplifies {
         const ID: &'static str = "test.amplifies";
         type Exports = ();
+        type Provides = Volume;
 
-        #[given]
-        fn build(self, app: &mut PluginBuilder, greeting: Greeting) -> anyhow::Result<()> {
-            app.provide(Volume(greeting.0.len() as u8));
-            Ok(())
+        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Volume> {
+            Ok(Volume(self.0.0.len() as u8))
         }
     }
 
@@ -167,43 +168,38 @@ fn what_the_segment_hands_in_is_read_through_the_install(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 1)]
-fn a_plugin_takes_what_an_earlier_plugin_provided(h: &mut Harness) {
-    h.plugin(plugins::Greets).unwrap();
+fn what_one_plugin_built_is_handed_to_another_and_provided_to_features(h: &mut Harness) {
+    let built = h.app(|app| {
+        let greeting = app.plugin(plugins::Greets)?;
+        let volume = app.plugin(plugins::Amplifies(greeting.clone()))?;
+        app.provide(greeting).provide(volume);
+        Ok(())
+    });
 
-    assert_eq!(installed(h.plugin(plugins::Amplifies)), Ok(()));
+    assert_eq!(installed(built), Ok(()));
     assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
     assert_eq!(h.state::<Said>().0, "hello at 5");
-}
-
-#[guinea::test(iterations = 1)]
-fn a_plugin_built_before_what_it_takes_is_refused_by_name(h: &mut Harness) {
-    let refused = installed(h.plugin(plugins::Amplifies)).unwrap_err();
-
-    assert!(refused.contains("Amplifies") && refused.contains("Greeting"), "{refused}");
 }
 
 #[guinea::test(iterations = 1)]
 fn an_application_feature_takes_what_it_needs_as_arguments(h: &mut Harness) {
     h.provide(Greeting("hi"));
 
-    let mut app = GuineaApp::new();
-    app.install::<plugins::Quiets>();
-
-    assert_eq!(installed(h.app(app)), Ok(()));
+    assert_eq!(installed(h.app(|app| app.install::<plugins::Quiets>())), Ok(()));
     assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
     assert_eq!(h.state::<Said>().0, "hi at 1");
 }
 
 #[guinea::test(iterations = 1)]
 fn a_service_provided_twice_is_a_mistake_that_names_the_first_provider(h: &mut Harness) {
-    h.plugin(plugins::Greets).unwrap();
+    h.app(|app| app.install::<plugins::Quiets>()).unwrap();
 
     let twice = catch_unwind(AssertUnwindSafe(|| {
-        h.provide(Greeting("again"));
+        h.provide(Volume(2));
     }));
     let refused = twice.err().map(said).unwrap_or_default();
 
-    assert!(refused.contains("Greeting") && refused.contains("test.greets"), "{refused}");
+    assert!(refused.contains("Volume") && refused.contains("Quiets"), "{refused}");
 }
 
 mod counted {
@@ -236,7 +232,8 @@ fn a_service_that_stays_on_the_ui_thread_is_taken_like_any_other(h: &mut Harness
 #[test]
 fn whoever_holds_the_application_reads_what_was_provided() {
     let mut app = TestApp::new();
-    app.plugin(plugins::Greets).unwrap();
+    let greeting = app.plugin(plugins::Greets).unwrap();
+    app.provide(greeting);
 
     assert_eq!(app.service::<Greeting>(), Some(Greeting("hello")));
     assert_eq!(app.service::<Volume>(), None);

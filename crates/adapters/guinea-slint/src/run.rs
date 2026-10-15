@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use guinea_app::app::roots::RootId;
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
-use guinea_app::app::{AppRuntime, GuineaApp, Stop};
+use guinea_app::app::{FeatureBuilder, Stop, start};
 use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
@@ -34,6 +34,7 @@ pub struct Window<W> {
     component: W,
     root: Root,
     start: Option<Box<Start<W>>>,
+    remembered: Option<SavedGeometry>,
 }
 
 type Start<W> = dyn FnOnce(Scope, &W, Remount) -> Started;
@@ -75,7 +76,20 @@ impl<W: ComponentHandle + 'static> Window<W> {
             component,
             root: Root::of::<L>(),
             start: None,
+            remembered: None,
         }
+    }
+
+    /// Opens the window where `saved` remembers it, before it shows: what a
+    /// plugin remembering windows hands the application.
+    ///
+    /// ```ignore
+    /// let saved = app.plugin(WindowStatePlugin::new().remembered_in(internal))?;
+    /// Ok(Window::of::<Shell>(AppWindow::new()?).remembered_by(saved))
+    /// ```
+    pub fn remembered_by(mut self, saved: SavedGeometry) -> Self {
+        self.remembered = Some(saved);
+        self
     }
 
     /// Starts the window at `route`, with a navigator of its own over `R`:
@@ -180,37 +194,39 @@ fn remounter(window: Scope, root: Root) -> Remount {
     })
 }
 
-/// Installs `app`, opens the window `main` makes, and runs until it closes.
-///
-/// `main` runs after the plugins are installed, and is handed the installed
-/// application to read what they provided from - where to start, say.
+/// Builds the application with `app`, opens the window it returns, and runs
+/// until it closes.
 ///
 /// ```ignore
-/// guinea_slint::run(app, |_| Ok(Window::of::<Shell>(AppWindow::new()?).at(Route::Processes)))
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window<AppWindow>> {
+///     app.install::<Activity>()?;
+///     Ok(Window::of::<Shell>(AppWindow::new()?).at(Route::Processes))
+/// }
+///
+/// guinea_slint::run(app)
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the window shows.
 pub fn run<W: ComponentHandle + 'static>(
-    mut app: GuineaApp,
-    main: impl FnOnce(&AppRuntime) -> anyhow::Result<Window<W>>,
+    app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window<W>>,
 ) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread.
     dispatcher::install();
 
-    // Provided before the plugins are built, so one that wants to restore a
-    // window's geometry finds the service already there.
     let shell = Arc::new(SlintWindows::default());
-    app.provide(WindowService::from_arc(shell.clone()));
+    let windows = WindowService::from_arc(shell.clone());
 
-    let runtime = match app.start() {
-        Ok(runtime) => runtime,
+    let (runtime, window) = match start(|builder| {
+        builder.provide(windows);
+        app(builder)
+    }) {
+        Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
     let context = runtime.context();
-    let saved = runtime.service::<SavedGeometry>();
-    let window = main(&runtime)?;
+    let saved = window.remembered.clone();
 
     let host = FeatureHost::under(&context);
     let scope = host.scope();

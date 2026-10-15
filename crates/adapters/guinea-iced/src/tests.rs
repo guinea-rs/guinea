@@ -239,6 +239,7 @@ struct Showing;
 impl guinea_app::app::Plugin for Showing {
     const ID: &'static str = "showing";
     type Exports = (Shown,);
+    type Provides = ();
 
     fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
         app.state::<Shown>().seed(Shown(7)).plain();
@@ -457,9 +458,7 @@ fn a_page_kept_once_is_asked_again_the_next_time() {
 
 #[test]
 fn a_shortcut_written_over_reads_reads_in_a_view() {
-    let mut app = guinea_app::app::GuineaApp::new();
-    app.plugin(Showing);
-    let runtime = app.start().expect("install");
+    let (runtime, ()) = guinea_app::app::start(|app| app.plugin(Showing)).expect("install");
     SEEN.set(None);
 
     let _window = Window::hosted(Place::Reader, FeatureHost::under(&runtime.context()));

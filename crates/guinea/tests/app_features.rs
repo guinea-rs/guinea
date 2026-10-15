@@ -1,5 +1,5 @@
 //! An application's own feature is written as a window's is - `feature!` and
-//! `#[installs]` - and the recipe installs it by type.
+//! `#[installs]` - and the application's function installs it by type.
 
 use guinea::app::Harness;
 use guinea::prelude::*;
@@ -35,10 +35,8 @@ fn greeting(app: &mut FeatureBuilder) -> anyhow::Result<Greeting> {
 }
 
 #[guinea::test(iterations = 1)]
-fn a_page_reads_what_an_application_feature_the_recipe_installs_exports(h: &mut Harness) {
-    let mut app = GuineaApp::new();
-    app.install::<Localisation>();
-    h.app(app).unwrap();
+fn a_page_reads_what_an_application_feature_exports(h: &mut Harness) {
+    h.app(|app| app.install::<Localisation>()).unwrap();
 
     let page = h.child();
 
@@ -47,19 +45,20 @@ fn a_page_reads_what_an_application_feature_the_recipe_installs_exports(h: &mut 
 
 #[guinea::test(iterations = 1)]
 fn an_application_feature_wires_another_through_its_handles(h: &mut Harness) {
-    let mut app = GuineaApp::new();
-    app.install::<Greeting>();
-    h.app(app).unwrap();
+    h.app(|app| app.install::<Greeting>()).unwrap();
 
     assert_eq!(h.child().context().read::<Language>().map(|it| it.0), Some("de"));
 }
 
 #[guinea::test(iterations = 1)]
 fn an_application_feature_installed_twice_is_an_error_that_names_it(h: &mut Harness) {
-    let mut app = GuineaApp::new();
-    app.install::<Localisation>().install::<Greeting>();
-
-    let outcome = h.app(app).map(|_| ()).map_err(|error| format!("{error:#}"));
+    let outcome = h
+        .app(|app| {
+            app.install::<Localisation>()?;
+            app.install::<Greeting>()
+        })
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"));
 
     assert!(matches!(&outcome, Err(error) if error.contains("Localisation")), "{outcome:?}");
 }

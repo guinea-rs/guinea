@@ -1,8 +1,8 @@
 #![cfg(all(windows, feature = "winui"))]
 
 //! A page that reads from its application, mounted under the harness: with
-//! the application's recipe as it is, or with a test's own recipe that has a
-//! fake where the application has the real thing.
+//! the application as it is, or with a test's own application function that
+//! has a fake where the application has the real thing.
 
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -54,6 +54,7 @@ pub struct Loud;
 impl Plugin for Loud {
     const ID: &'static str = "test.loud";
     type Exports = ();
+    type Provides = ();
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         LOUD_BUILT.set(true);
@@ -61,10 +62,10 @@ impl Plugin for Loud {
     }
 }
 
-fn recipe() -> GuineaApp {
-    let mut app = GuineaApp::new();
-    app.plugin(Loud).install::<Agents>();
-    app
+fn app(app: &mut FeatureBuilder) -> anyhow::Result<()> {
+    app.plugin(Loud)?;
+    app.install::<Agents>()?;
+    Ok(())
 }
 
 #[derive(Default)]
@@ -98,7 +99,7 @@ fn shows(h: &Harness, text: &str) -> Result<bool, String> {
 fn a_page_mounts_under_the_application_as_it_is(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
-    let installed = h.app(recipe()).map(|_| ());
+    let installed = h.app(app);
     assert!(installed.is_ok(), "{installed:?}");
 
     assert_eq!(shows(h, "link real"), Ok(true));
@@ -106,14 +107,12 @@ fn a_page_mounts_under_the_application_as_it_is(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 2)]
-fn a_page_mounts_under_a_test_s_own_recipe(h: &mut Harness) {
+fn a_page_mounts_under_a_test_s_own_application(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
-    let mut app = GuineaApp::new();
-    app.install::<FakeAgents>();
-    let installed = h.app(app).map(|_| ());
+    let installed = h.app(|app| app.install::<FakeAgents>()).map(|_| ());
     assert!(installed.is_ok(), "{installed:?}");
 
     assert_eq!(shows(h, "link fake"), Ok(true));
-    assert!(!LOUD_BUILT.get(), "what the test's recipe leaves out is not built");
+    assert!(!LOUD_BUILT.get(), "what the test's application leaves out is not built");
 }

@@ -6,17 +6,19 @@ use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
 use guinea_core::scope::{Scope, ScopeTree};
 use guinea_core::short_type_name;
-use crate::feature::{ScopeContext, settle};
+use crate::feature::{ScopeContext, publish, settle};
 
-use super::plugin::{AppFeature, ErasedPlugin, Identity, Plugin};
-use super::registry::{Admission, Plugins, Registry, Unit};
+use super::plugin::{AppFeature, Plugin};
+use super::registry::{Plugins, Registry, Unit};
+use super::windows::WindowService;
 
-/// What a plugin may do during installation.
+/// What a plugin may do while it builds.
 ///
 /// Everything a [`ScopeContext`] may do, in the application's own scope - the
-/// one every window sits under - plus what only the application has:
-/// installing other plugins, providing services, cleaning up at exit. What it
-/// lets every window read is its [`Exports`](Plugin::Exports).
+/// one every window sits under - plus cleaning up at exit and reaching the
+/// windows the backend opens. What it lets every window read is its
+/// [`Exports`](Plugin::Exports); what it hands the application is what
+/// [`build`](Plugin::build) returns.
 pub struct PluginBuilder {
     cx: ScopeContext,
     /// The application's tree: its scope is the root, the windows are under
@@ -26,7 +28,11 @@ pub struct PluginBuilder {
     registry: RefCell<Registry>,
 }
 
-/// Everything a plugin may do, plus this application's own wiring.
+/// The application being built: what [`run`](crate) hands the application's
+/// function, and what an application feature is installed with.
+///
+/// Everything a plugin may do, plus installing plugins and features, and
+/// providing what windows and features take by type.
 pub struct FeatureBuilder {
     inner: PluginBuilder,
 }
@@ -43,26 +49,9 @@ impl PluginBuilder {
         }
     }
 
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<()> {
-        self.install_plugin(Identity::plugin::<P>(), Box::new(plugin))
-    }
-
-    /// Provides `value` as the one `T` of the application: what every install
-    /// function taking a `T` is handed, by clone.
-    ///
-    /// Providing a second `T` is a setup mistake, and panics naming who
-    /// provided the first.
-    pub fn provide<T: Clone + 'static>(&self, value: T) -> &Self {
-        let by = self.registry.borrow().current();
-
-        if let Err(first) = self.cx.scope.provide(value, by) {
-            panic!(
-                "`{}` is provided by `{first}`, and again by `{by}` - an application has one \
-                 of each service",
-                short_type_name::<T>()
-            );
-        }
-        self
+    /// The windows the backend opens, or `None` under one without windows.
+    pub fn windows(&self) -> Option<WindowService> {
+        self.cx.scope.service::<WindowService>()
     }
 
     /// Runs `f` when the application exits - after what was set up after it,
@@ -81,40 +70,6 @@ impl PluginBuilder {
     pub fn spawn<A: ManagedActor + 'static>(&self, actor: A) -> Addr<A> {
         self.cx.spawn(actor)
     }
-
-    fn install_plugin(
-        &mut self,
-        identity: Identity,
-        plugin: Box<dyn ErasedPlugin>,
-    ) -> anyhow::Result<()> {
-        let id = plugin.id();
-
-        let admitted = self
-            .registry
-            .borrow()
-            .admit_plugin(self.scope, identity.id, identity.concrete)?;
-        match admitted {
-            Admission::AlreadyInstalled => return Ok(()),
-            Admission::Proceed => {}
-        }
-
-        self.registry.borrow_mut().enter(Unit::Plugin(identity.id));
-        let section = self.scope.open_section(None, None);
-        let inner = self.cx.in_section(section);
-        let outer = std::mem::replace(&mut self.cx, inner);
-        let outcome = plugin
-            .build_boxed(self)
-            .and_then(|()| (identity.settle)(self.scope, id))
-            .with_context(|| format!("plugin `{id}` failed to build"));
-        self.cx = outer;
-
-        self.registry.borrow_mut().leave();
-        match outcome {
-            Ok(()) => Plugins::mark(self.scope, identity.id, identity.concrete),
-            Err(_) => section.withdraw(),
-        }
-        outcome
-    }
 }
 
 impl FeatureBuilder {
@@ -122,6 +77,51 @@ impl FeatureBuilder {
         Self {
             inner: PluginBuilder::new(),
         }
+    }
+
+    /// Builds `plugin` now, and hands back what it [`Provides`](Plugin::Provides).
+    ///
+    /// Each call is a copy of its own: two stores are two calls. One that
+    /// fails publishes nothing and keeps nothing it set up.
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<P::Provides> {
+        let id = P::ID;
+
+        self.registry.borrow_mut().enter(Unit::Plugin(id));
+        let section = self.scope.open_section(None, None);
+        let inner = self.inner.cx.in_section(section);
+        let outer = std::mem::replace(&mut self.inner.cx, inner);
+
+        let outcome = plugin
+            .build(&mut self.inner)
+            .and_then(|provided| publish::<P::Exports>(self.scope, id).map(|()| provided))
+            .with_context(|| format!("plugin `{id}` failed to build"));
+
+        self.inner.cx = outer;
+        self.registry.borrow_mut().leave();
+
+        match &outcome {
+            Ok(_) => Plugins::mark(self.scope, id),
+            Err(_) => section.withdraw(),
+        }
+        outcome
+    }
+
+    /// Provides `value` as the one `T` of the application: what every window
+    /// and feature taking a `T` is handed, by clone.
+    ///
+    /// Providing a second `T` is a setup mistake, and panics naming who
+    /// provided the first.
+    pub fn provide<T: Clone + 'static>(&self, value: T) -> &Self {
+        let by = self.registry.borrow().current();
+
+        if let Err(first) = self.scope.provide(value, by) {
+            panic!(
+                "`{}` is provided by `{first}`, and again by `{by}` - an application has one \
+                 of each service",
+                short_type_name::<T>()
+            );
+        }
+        self
     }
 
     /// Installs `F` in the application's scope, and publishes what it exports
@@ -175,12 +175,6 @@ impl Deref for PluginBuilder {
 
     fn deref(&self) -> &ScopeContext {
         &self.cx
-    }
-}
-
-impl crate::feature::given::Context for PluginBuilder {
-    fn scope(&self) -> Scope {
-        self.cx.scope
     }
 }
 

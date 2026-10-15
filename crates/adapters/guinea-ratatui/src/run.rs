@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop};
+use guinea_app::app::{FeatureBuilder, Stop, start};
 use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
@@ -93,29 +93,30 @@ pub(crate) fn frame(window: Scope, root: &Root, frame: &mut ratatui::Frame, area
     }
 }
 
-/// Installs `app`, takes over the terminal with the window `main` makes, and
-/// runs until a segment [`closes`](crate::InputCx::close) it.
-///
-/// `main` runs after the plugins are installed, and is handed the installed
-/// application to read what they provided from - where to start, say.
+/// Builds the application with `app`, takes over the terminal with the window
+/// it returns, and runs until a segment [`closes`](crate::InputCx::close) it.
 ///
 /// ```ignore
-/// guinea_ratatui::run(app, |_| Window::of::<Shell>().at(Route::Processes))
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
+///     app.install::<Activity>()?;
+///     Ok(Window::of::<Shell>().at(Route::Processes))
+/// }
+///
+/// guinea_ratatui::run(app)
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the terminal is taken.
-pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::Result<()> {
+pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread. The loop below drains it
     // between frames, and wakes every tick anyway, so nothing has to wake it.
     let ui = UiLoop::install();
 
-    let runtime = match app.start() {
-        Ok(runtime) => runtime,
+    let (runtime, window) = match start(app) {
+        Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let window = main(&runtime);
 
     let host = FeatureHost::under(&runtime.context());
     let scope = host.scope();

@@ -4,7 +4,7 @@ use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop};
+use guinea_app::app::{AppRuntime, FeatureBuilder, Stop, start};
 use guinea_app::feature::{FeatureHost, ScopeContext};
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
@@ -78,16 +78,18 @@ fn opening(app: &ScopeContext, window: Window) -> View {
     View::component::<Chrome>(rooted)
 }
 
-/// Installs `app`, opens the window `main` makes, and runs until the last
-/// window closes.
-///
-/// `main` runs after the plugins are installed, and is handed the installed
-/// application to read what they provided from - where to start, say.
+/// Builds the application with `app` once XAML is up, opens the window it
+/// returns, and runs until the last window closes.
 ///
 /// ```ignore
-/// run(app, |_| Window::of::<Shell>().title("guinea").at(Route::Processes))
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
+///     app.install::<Activity>()?;
+///     Ok(Window::of::<Shell>().title("guinea").at(Route::Processes))
+/// }
+///
+/// run(app)
 /// ```
-pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window + 'static) -> anyhow::Result<()> {
+pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'static) -> anyhow::Result<()> {
     let failure = Rc::new(RefCell::new(None));
     let startup_failure = failure.clone();
 
@@ -96,15 +98,14 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window + 'static) -
         crate::dispatching::install(proxy.clone());
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
-        let runtime = match app.start() {
-            Ok(runtime) => runtime,
+        let (runtime, window) = match start(app) {
+            Ok(started) => started,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);
                 return Err(windows_core::Error::new(E_FAIL, "installing the application"));
             }
         };
         let context = runtime.context();
-        let window = main(&runtime);
         let installed = Installed { _runtime: runtime };
 
         cx.open_component_window::<Shown>(opening(&context, window))?;

@@ -15,10 +15,10 @@ mod provided {
     impl guinea_app::app::Plugin for GreetingPlugin {
         const ID: &'static str = "test.greeting";
         type Exports = ();
+        type Provides = Greeting;
 
-        fn build(self, app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<()> {
-            app.provide(Greeting("hello"));
-            Ok(())
+        fn build(self, _app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<Greeting> {
+            Ok(Greeting("hello"))
         }
     }
 
@@ -55,10 +55,13 @@ mod provided {
     }
 
     #[test]
-    fn a_page_s_feature_takes_what_an_application_plugin_provided() {
-        let mut app = guinea::app::GuineaApp::new();
-        app.plugin(GreetingPlugin);
-        let runtime = app.start().expect("install");
+    fn a_page_s_feature_takes_what_the_application_provided_from_a_plugin() {
+        let (runtime, ()) = guinea::app::start(|app| {
+            let greeting = app.plugin(GreetingPlugin)?;
+            app.provide(greeting);
+            Ok(())
+        })
+        .expect("install");
 
         mount(&FeatureHost::under(&runtime.context()))
             .expect("the page's feature must be handed the service the plugin provided");

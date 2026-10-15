@@ -2,7 +2,7 @@
 //! application provided, handed out by clone, and the feeds the segments
 //! above it opened.
 //!
-//! `#[installs]` and `#[given]` write each argument after the context as
+//! `#[installs]`, `#[page]` and `#[layout]` write each argument after the context as
 //! `(&&Given::<T>::new()).take(..)`. Method lookup tries the receiver as it
 //! is, then borrowed again, then dereferenced, and the first trait with an
 //! impl for that type wins: [`Twice`] on `&Given<T>` takes an

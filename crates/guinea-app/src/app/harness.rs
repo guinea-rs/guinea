@@ -13,17 +13,16 @@ use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
 
-use super::GuineaApp;
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::plugin::Plugin;
 
 /// An application without a window, for testing plugins and features.
 ///
-/// Installs run exactly as they would inside [`super::App::run`] - same
-/// builder, same registry, same lifecycle - so a plugin can be exercised from
-/// its own crate. Nothing here attests to being on a real UI thread: work that
-/// actually touches the reactor still needs one.
+/// Installs run exactly as they would under a backend's `run` - same builder,
+/// same lifecycle - so a plugin can be exercised from its own crate. Nothing
+/// here attests to being on a real UI thread: work that actually touches the
+/// reactor still needs one.
 pub struct TestApp {
     builder: FeatureBuilder,
 }
@@ -33,11 +32,6 @@ impl TestApp {
         Self {
             builder: FeatureBuilder::new(),
         }
-    }
-
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
-        self.builder.plugin(plugin)?;
-        Ok(self)
     }
 
     /// What was provided as `T`, for the test holding the application.
@@ -126,22 +120,23 @@ impl Harness {
         self.app.scope
     }
 
-    /// Replays `recipe` into the application around the harness, as `run`
-    /// does: what it installs reaches every segment, so replay it before
-    /// whatever reads it.
+    /// Builds the application around the harness with `app`, as a backend's
+    /// `run` does, and hands back what it returned: what it installs reaches
+    /// every segment, so build it before whatever reads it.
     ///
     /// A test that wants a fake where the application has the real thing
-    /// writes a recipe of its own with the fake in it.
-    pub fn app(&mut self, recipe: GuineaApp) -> anyhow::Result<&mut Self> {
-        recipe.replay(&mut self.app)?;
-        Ok(self)
+    /// writes a function of its own with the fake in it.
+    pub fn app<W>(
+        &mut self,
+        app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<W>,
+    ) -> anyhow::Result<W> {
+        app(&mut self.app)
     }
 
-    /// Installs a plugin into the application around the harness. What it
-    /// provides reaches every segment, so install it before whatever reads it.
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
-        self.app.plugin(plugin)?;
-        Ok(self)
+    /// Builds a plugin in the application around the harness, and hands back
+    /// what it provides.
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<P::Provides> {
+        self.app.plugin(plugin)
     }
 
     /// Provides one service, as a plugin would - for a test that needs a

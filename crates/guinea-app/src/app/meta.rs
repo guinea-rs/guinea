@@ -50,13 +50,11 @@ impl AppMeta {
 /// This application's identity, read from its manifest.
 ///
 /// ```ignore
-/// windows_reactor::App::new()
-///     .title(app_meta!().window_title)
-///     .render(root)
-///
-/// fn root(cx: &mut RenderCx) -> Element {
-///     GuineaApp::new().meta(app_meta!()).bootstrap(cx);
-///     ...
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
+///     let meta = app_meta!();
+///     app.plugin(SingleInstancePlugin::new(&meta))?;
+///     app.provide(meta.clone());
+///     Ok(Window::of::<Shell>().title(meta.window_title))
 /// }
 /// ```
 ///

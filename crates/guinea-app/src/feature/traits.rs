@@ -81,6 +81,14 @@ impl std::ops::Deref for FeatureInitContext {
 /// long as the application runs; otherwise marks it installed and publishes
 /// its exports.
 pub(crate) fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -> anyhow::Result<()> {
+    publish::<E>(scope, who)?;
+    scope.mark_feature_installed::<U>();
+    Ok(())
+}
+
+/// [`settle`] without marking anything installed: for a plugin, of which an
+/// application may have several copies.
+pub(crate) fn publish<E: Exported>(scope: Scope, who: &'static str) -> anyhow::Result<()> {
     if let Some(reducer) = E::unclaimed(scope) {
         anyhow::bail!(
             "`{who}` exports {reducer}, but nothing in it claimed that reducer - \
@@ -88,7 +96,6 @@ pub(crate) fn settle<U: 'static, E: Exported>(scope: Scope, who: &'static str) -
         );
     }
 
-    scope.mark_feature_installed::<U>();
     E::mark(scope);
     Ok(())
 }

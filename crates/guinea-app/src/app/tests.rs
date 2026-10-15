@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_macros::{feature, given, installs};
+use guinea_macros::{feature, installs};
 
-use super::{FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
+use super::{FeatureBuilder, Plugin, PluginBuilder, start};
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -22,86 +22,33 @@ fn builder() -> FeatureBuilder {
     FeatureBuilder::new()
 }
 
-struct Settings;
-impl Plugin for Settings {
-    type Exports = ();
+/// Opens a store in a file of its own.
+struct Settings(&'static str);
 
+impl Plugin for Settings {
     const ID: &'static str = "test.settings";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        trace("settings");
-        app.provide(Store("db"));
-        Ok(())
+    type Exports = ();
+    type Provides = Store;
+
+    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Store> {
+        trace(self.0);
+        Ok(Store(self.0))
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 struct Store(&'static str);
 
-struct Updater;
-impl Plugin for Updater {
+/// Remembers the language in whichever store it is handed.
+struct Remembering(Store);
+
+impl Plugin for Remembering {
+    const ID: &'static str = "test.remembering";
     type Exports = ();
+    type Provides = ();
 
-    const ID: &'static str = "test.updater";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.plugin(Settings)?;
-        trace("updater");
-        Ok(())
-    }
-}
-
-struct Left;
-impl Plugin for Left {
-    type Exports = ();
-
-    const ID: &'static str = "test.left";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.plugin(Settings)?;
-        trace("left");
-        Ok(())
-    }
-}
-
-struct Colliding;
-impl Plugin for Colliding {
-    type Exports = ();
-
-    const ID: &'static str = "test.settings";
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-struct CycleA;
-struct CycleB;
-
-impl Plugin for CycleA {
-    type Exports = ();
-
-    const ID: &'static str = "test.cycle.a";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.plugin(CycleB)?;
-        Ok(())
-    }
-}
-
-impl Plugin for CycleB {
-    type Exports = ();
-
-    const ID: &'static str = "test.cycle.b";
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.plugin(CycleA)?;
-        Ok(())
-    }
-}
-
-struct Orphan;
-impl Plugin for Orphan {
-    type Exports = ();
-
-    const ID: &'static str = "test.orphan";
-
-    #[given]
-    fn build(self, _app: &mut PluginBuilder, _store: Store) -> anyhow::Result<()> {
+        trace(self.0.0);
         Ok(())
     }
 }
@@ -113,15 +60,17 @@ feature! {
 #[installs]
 fn startup(app: &mut FeatureBuilder) -> anyhow::Result<Startup> {
     trace("startup");
-    app.plugin(Settings)?;
+    let store = app.plugin(Settings("db"))?;
+    app.provide(store);
     Ok(Startup)
 }
 
 struct Tidy;
 impl Plugin for Tidy {
-    type Exports = ();
-
     const ID: &'static str = "test.tidy";
+    type Exports = ();
+    type Provides = ();
+
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.on_cleanup(|| {
             trace("tidied");
@@ -134,9 +83,7 @@ impl Plugin for Tidy {
 #[test]
 fn an_application_goes_when_its_runtime_is_let_go_of() {
     taken();
-    let mut app = GuineaApp::new();
-    app.plugin(Tidy);
-    let runtime = app.start().unwrap();
+    let (runtime, ()) = start(|app| app.plugin(Tidy)).unwrap();
     assert_eq!(taken(), [""; 0]);
 
     drop(runtime);
@@ -145,49 +92,54 @@ fn an_application_goes_when_its_runtime_is_let_go_of() {
 }
 
 #[test]
-fn a_plugin_pulled_twice_is_built_once() {
+fn a_plugin_hands_back_what_it_built() {
     let mut app = builder();
-    app.plugin(Updater).unwrap();
-    app.plugin(Left).unwrap();
 
-    assert_eq!(taken(), vec!["settings", "updater", "left"]);
+    let store = app.plugin(Settings("settings")).map_err(|error| format!("{error:#}"));
+
+    assert_eq!(store, Ok(Store("settings")));
 }
 
 #[test]
-fn a_diamond_builds_the_shared_dependency_once() {
+fn a_plugin_installed_twice_is_two_copies_each_handed_to_whoever_the_application_says() {
     let mut app = builder();
-    app.plugin(Left).unwrap();
-    app.plugin(Updater).unwrap();
 
-    assert_eq!(taken(), vec!["settings", "left", "updater"]);
+    let built = (|| {
+        let user = app.plugin(Settings("settings"))?;
+        let internal = app.plugin(Settings("state"))?;
+        app.plugin(Remembering(internal))?;
+        anyhow::Ok(user)
+    })()
+    .map_err(|error| format!("{error:#}"));
+
+    assert_eq!(built, Ok(Store("settings")));
+    assert_eq!(taken(), ["settings", "state", "state"]);
 }
 
 #[test]
-fn a_dependency_cycle_names_the_path() {
+fn what_a_plugin_hands_back_is_not_provided_until_the_application_provides_it() {
     let mut app = builder();
-    let err = format!("{:#}", app.plugin(CycleA).map(|_| ()).unwrap_err());
 
-    assert!(err.contains("cycle"), "got {err}");
-    assert!(err.contains("test.cycle.a"), "got {err}");
-    assert!(err.contains("test.cycle.b"), "got {err}");
+    let store = app.plugin(Settings("settings")).map_err(|error| format!("{error:#}"));
+    let before = app.scope.service::<Store>();
+    if let Ok(store) = store {
+        app.provide(store);
+    }
+
+    assert_eq!(before, None);
+    assert_eq!(app.scope.service::<Store>(), Some(Store("settings")));
 }
 
 #[test]
-fn two_plugins_sharing_an_id_is_an_error() {
+fn every_copy_of_a_plugin_is_listed() {
     let mut app = builder();
-    app.plugin(Settings).unwrap();
+    let _ = app.plugin(Settings("settings"));
+    let _ = app.plugin(Settings("state"));
 
-    let err = format!("{:#}", app.plugin(Colliding).map(|_| ()).unwrap_err());
-    assert!(err.contains("ID collision"), "got {err}");
-}
-
-#[test]
-fn a_missing_service_names_who_wanted_it() {
-    let mut app = builder();
-    let err = format!("{:#}", app.plugin(Orphan).map(|_| ()).unwrap_err());
-
-    assert!(err.contains("test.orphan"), "got {err}");
-    assert!(err.contains("Store"), "got {err}");
+    assert_eq!(
+        crate::observability::installed_plugins(app.scope),
+        ["test.settings", "test.settings"]
+    );
 }
 
 #[test]
@@ -197,11 +149,11 @@ fn a_feature_installed_twice_is_refused_before_it_runs_again() {
     let again = app.install::<Startup>().map(|_| ());
 
     assert!(matches!(&again, Err(error) if error.to_string().contains("Startup")), "{again:?}");
-    assert_eq!(taken(), vec!["startup", "settings"]);
+    assert_eq!(taken(), vec!["startup", "db"]);
 }
 
 #[test]
-fn a_feature_may_pull_plugins_and_read_what_they_provide() {
+fn a_feature_may_install_plugins_and_provide_what_they_hand_back() {
     let mut app = builder();
     app.install::<Startup>().unwrap();
 
@@ -238,21 +190,23 @@ struct Greeting(&'static str);
 struct GreetingPlugin;
 
 impl Plugin for GreetingPlugin {
-    type Exports = ();
-
     const ID: &'static str = "test.greeting";
+    type Exports = ();
+    type Provides = Greeting;
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.provide(Greeting("hello"));
-        Ok(())
+    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Greeting> {
+        Ok(Greeting("hello"))
     }
 }
 
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
-    let mut app = GuineaApp::new();
-    app.plugin(GreetingPlugin);
-    let runtime = app.start().expect("install");
+    let (runtime, ()) = start(|app| {
+        let greeting = app.plugin(GreetingPlugin)?;
+        app.provide(greeting);
+        Ok(())
+    })
+    .expect("install");
 
     let host = crate::feature::FeatureHost::under(&runtime.context());
     let scope = host
@@ -279,50 +233,12 @@ struct Ping;
 
 impl guinea_core::actor::event_bus::Event for Ping {}
 
-struct NeedsMeta;
-
-impl Plugin for NeedsMeta {
-    type Exports = ();
-
-    const ID: &'static str = "test.needs-meta";
-
-    #[given]
-    fn build(self, _app: &mut PluginBuilder, meta: super::AppMeta) -> anyhow::Result<()> {
-        trace(if meta.identifier == "dev.uniproc.test" {
-            "read the identifier"
-        } else {
-            "read something else"
-        });
-        Ok(())
-    }
-}
-
-#[test]
-fn a_plugin_reads_the_application_identity_instead_of_being_told_it() {
-    let mut app = GuineaApp::new();
-    app.meta(super::AppMeta::new("Test", "dev.uniproc.test", "1.2.3", "uniproc"))
-        .plugin(NeedsMeta);
-    app.start().expect("install");
-
-    assert_eq!(taken(), vec!["read the identifier"]);
-}
-
-#[test]
-fn meta_declared_after_a_plugin_is_still_there_for_it() {
-    let mut app = GuineaApp::new();
-    app.plugin(NeedsMeta)
-        .meta(super::AppMeta::new("Test", "dev.uniproc.test", "1.2.3", "uniproc"));
-    app.start().expect("install");
-
-    assert_eq!(taken(), vec!["read the identifier"]);
-}
-
 struct Opened;
 
 impl Plugin for Opened {
-    type Exports = ();
-
     const ID: &'static str = "test.opened";
+    type Exports = ();
+    type Provides = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         trace("opened");
@@ -337,9 +253,9 @@ impl Plugin for Opened {
 struct SecondCopy;
 
 impl Plugin for SecondCopy {
-    type Exports = ();
-
     const ID: &'static str = "test.second-copy";
+    type Exports = ();
+    type Provides = ();
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         Err(super::Stop.into())
@@ -349,9 +265,9 @@ impl Plugin for SecondCopy {
 struct Broken;
 
 impl Plugin for Broken {
-    type Exports = ();
-
     const ID: &'static str = "test.broken";
+    type Exports = ();
+    type Provides = ();
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         anyhow::bail!("broken")
@@ -362,9 +278,14 @@ impl Plugin for Broken {
 fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
     taken();
 
-    let mut app = GuineaApp::new();
-    app.plugin(Opened).plugin(SecondCopy).install::<Startup>();
-    let error = app.start().err().expect("stopped");
+    let error = start(|app| {
+        app.plugin(Opened)?;
+        app.plugin(SecondCopy)?;
+        app.install::<Startup>()?;
+        Ok(())
+    })
+    .err()
+    .expect("stopped");
 
     assert!(error.is::<super::Stop>(), "{error:#}");
     assert_eq!(taken(), vec!["opened", "closed"], "nothing after it was built");
@@ -374,23 +295,15 @@ fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
 fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     taken();
 
-    let mut app = GuineaApp::new();
-    app.plugin(Opened).plugin(Broken);
-    let error = app.start().err().expect("failed");
+    let error = start(|app| {
+        app.plugin(Opened)?;
+        app.plugin(Broken)
+    })
+    .err()
+    .expect("failed");
 
     assert!(!error.is::<super::Stop>(), "{error:#}");
     assert_eq!(taken(), vec!["opened", "closed"]);
-}
-
-#[test]
-fn an_installed_application_hands_out_what_its_plugins_provided() {
-    let mut app = GuineaApp::new();
-    app.plugin(Settings);
-    let runtime = app.start().expect("install");
-
-    let store = runtime.service::<Store>().map(|store| store.0);
-
-    assert_eq!(store, Some("db"));
 }
 
 mod exports {
@@ -398,7 +311,7 @@ mod exports {
     use guinea_macros::{feature, installs, reducer};
 
     use super::super::Harness;
-    use super::{FeatureBuilder, GuineaApp, Plugin, PluginBuilder, builder};
+    use super::{FeatureBuilder, Plugin, PluginBuilder, builder, start};
     use crate::app::AppFeature;
 
     #[derive(Clone, Debug, Default)]
@@ -420,10 +333,9 @@ mod exports {
         Ok(Localisation(app.state::<Language>().seed(Language("en")).plain()))
     }
 
-    fn localised() -> GuineaApp {
-        let mut app = GuineaApp::new();
-        app.install::<Localisation>();
-        app
+    fn localised(app: &mut FeatureBuilder) -> anyhow::Result<()> {
+        app.install::<Localisation>()?;
+        Ok(())
     }
 
     struct Forgetful;
@@ -441,6 +353,7 @@ mod exports {
     impl Plugin for Translations {
         const ID: &'static str = "translations";
         type Exports = (Language,);
+        type Provides = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             app.state::<Language>().seed(Language("de")).plain();
@@ -457,7 +370,7 @@ mod exports {
     #[test]
     fn a_page_reads_what_an_application_feature_exports() {
         let mut harness = Harness::new(0);
-        harness.app(localised()).unwrap();
+        harness.app(localised).unwrap();
 
         let page = harness.child();
 
@@ -467,7 +380,7 @@ mod exports {
 
     #[test]
     fn a_window_reads_what_the_installed_application_exports() {
-        let runtime = localised().start().expect("install");
+        let (runtime, ()) = start(localised).expect("install");
 
         let window = crate::feature::FeatureHost::under(&runtime.context());
 
@@ -476,10 +389,8 @@ mod exports {
 
     #[test]
     fn a_window_sits_under_the_application_it_was_opened_from_not_the_latest_one() {
-        let english = localised().start().expect("install");
-        let mut german = GuineaApp::new();
-        german.plugin(Translations);
-        let _german = german.start().expect("install");
+        let (english, ()) = start(localised).expect("install");
+        let _german = start(|app| app.plugin(Translations)).expect("install");
 
         let window = crate::feature::FeatureHost::under(&english.context());
 
@@ -490,7 +401,7 @@ mod exports {
     #[test]
     fn a_feature_reads_what_the_application_exports() {
         let mut harness = Harness::new(0);
-        harness.app(localised()).unwrap();
+        harness.app(localised).unwrap();
 
         let page = harness.child();
 
@@ -562,7 +473,7 @@ mod owners {
     use guinea_macros::{actor, feature, handler, installs};
 
     use crate::observability::{app_actors, installed_plugins};
-    use super::{FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
+    use super::{FeatureBuilder, Plugin, PluginBuilder, start};
 
     pub struct Sweep;
 
@@ -601,18 +512,17 @@ mod owners {
         Ok(Housekeeping)
     }
 
-    fn housekeeping_app() -> GuineaApp {
-        let mut app = GuineaApp::new();
-        app.install::<Housekeeping>();
-        app
+    fn housekeeping_app(app: &mut FeatureBuilder) -> anyhow::Result<()> {
+        app.install::<Housekeeping>()?;
+        Ok(())
     }
 
     struct Tools;
 
     impl Plugin for Tools {
-        type Exports = ();
-
         const ID: &'static str = "test.tools";
+        type Exports = ();
+        type Provides = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             app.spawn(Loose);
@@ -622,7 +532,7 @@ mod owners {
 
     #[test]
     fn an_application_actor_names_the_feature_that_spawned_it() {
-        let runtime = housekeeping_app().start().expect("install");
+        let (runtime, ()) = start(housekeeping_app).expect("install");
         let app = runtime.context().scope;
 
         let owner = |name: &str| {
@@ -638,7 +548,7 @@ mod owners {
     #[test]
     fn what_an_application_was_built_with_is_read_from_its_scope() {
         let mut harness = crate::app::Harness::new(0);
-        harness.app(housekeeping_app()).unwrap();
+        harness.app(housekeeping_app).unwrap();
         let app = harness.application().scope;
 
         assert_eq!(installed_plugins(app), ["test.tools"]);
@@ -648,7 +558,7 @@ mod owners {
     #[test]
     fn two_applications_on_one_thread_are_read_apart() {
         let mut first = crate::app::Harness::new(0);
-        first.app(housekeeping_app()).unwrap();
+        first.app(housekeeping_app).unwrap();
         let second = crate::app::Harness::new(0);
 
         assert_eq!(installed_plugins(first.application().scope), ["test.tools"]);

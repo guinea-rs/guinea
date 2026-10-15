@@ -71,27 +71,6 @@ pub fn installs(_attr: TokenStream, item: TokenStream) -> TokenStream {
     installs::installs_impl(item)
 }
 
-/// Services as arguments, for a method a trait gives one context: a plugin's
-/// `build`.
-///
-/// ```ignore
-/// impl Plugin for WindowStatePlugin {
-///     const ID: &'static str = "window-state";
-///     type Exports = ();
-///
-///     #[given]
-///     fn build(self, app: &mut PluginBuilder, store: Store) -> anyhow::Result<()> { .. }
-/// }
-/// ```
-///
-/// Every argument after the context is taken as [`installs`] takes it. What is
-/// missing is the error the method returns, or a panic when it returns no
-/// `Result`.
-#[proc_macro_attribute]
-pub fn given(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    given::given_impl(item)
-}
-
 /// Makes a function a reducer: `impl Reducer` written from its signature. The
 /// state is what the first argument borrows mutably, the update is the second
 /// argument's type:

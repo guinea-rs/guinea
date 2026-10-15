@@ -107,6 +107,7 @@ mod boasting {
     impl Plugin for Boasting {
         const ID: &'static str = "test.boasting";
         type Exports = (counting::Count,);
+        type Provides = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             app.state::<Own>().plain();

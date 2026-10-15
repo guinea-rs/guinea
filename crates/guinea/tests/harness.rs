@@ -447,10 +447,10 @@ mod reports {
     impl Plugin for Prefixing {
         const ID: &'static str = "test.prefixing";
         type Exports = ();
+        type Provides = Prefix;
 
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            app.provide(Prefix("proc-"));
-            Ok(())
+        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Prefix> {
+            Ok(Prefix("proc-"))
         }
     }
 
@@ -465,6 +465,7 @@ mod reports {
     impl Plugin for Global {
         const ID: &'static str = "test.global";
         type Exports = ();
+        type Provides = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             if IN_PLACE.get() {
@@ -809,13 +810,14 @@ fn every_harness_starts_on_an_empty_bus(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 2)]
-fn a_plugin_installed_into_the_harness_serves_its_features(h: &mut Harness) {
+fn what_a_plugin_hands_the_harness_serves_its_features_once_provided(h: &mut Harness) {
+    let prefix = h.plugin(reports::Prefixing).unwrap();
     assert!(
         h.child().install::<reports::Prefixed>(&()).is_err(),
         "nothing provides the prefix yet"
     );
 
-    h.plugin(reports::Prefixing).unwrap();
+    h.provide(prefix);
     h.child().install::<reports::Prefixed>(&()).unwrap();
 }
 

@@ -76,7 +76,7 @@ impl Page for Home {
 }
 
 fn main() -> anyhow::Result<()> {
-    run(GuineaApp::new(), |_| Window::of::<Home>().title("Counter"))
+    run(|_| Ok(Window::of::<Home>().title("Counter")))
 }
 //@show-end
 

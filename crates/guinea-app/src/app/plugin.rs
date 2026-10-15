@@ -1,23 +1,39 @@
-use std::any::TypeId;
-
 use guinea_core::actor::shape::Declared;
 use guinea_core::feature::Exported;
-use guinea_core::scope::Scope;
 
 use super::builder::{FeatureBuilder, PluginBuilder};
-use crate::feature::settle;
 
 /// Reusable, application-agnostic: the application knows the plugin, never the
 /// other way round.
-pub trait Plugin: Send + 'static {
-    /// Identity for diagnostics and for installing at most once.
+///
+/// What it needs from another plugin it is handed in its own configuration,
+/// and what it gives back is [`Provides`](Self::Provides), returned from
+/// [`build`](Self::build) to whoever installed it:
+///
+/// ```ignore
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
+///     let internal = app.plugin(StorePlugin::for_app(meta, "state"))?;
+///     app.plugin(L10nPlugin::new("en").remembered_in(internal))?;
+///     ..
+/// }
+/// ```
+///
+/// Nothing it returns is in the application's scope until the application
+/// [`provide`](FeatureBuilder::provide)s it, so a plugin may be installed more
+/// than once - two stores, say - and the application decides which one its
+/// windows see.
+pub trait Plugin: 'static {
+    /// What diagnostics and devtools call it.
     const ID: &'static str;
 
     /// What every window may read of what it claims, as a feature's
     /// [`Exports`](crate::feature::Feature::Exports): `()`, or a tuple.
     type Exports: Exported;
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()>;
+    /// What it hands back to the application: `()`, a value, or a tuple.
+    type Provides;
+
+    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<Self::Provides>;
 }
 
 /// This application's own wiring: a feature installed in the application's
@@ -68,37 +84,3 @@ impl std::fmt::Display for Stop {
 }
 
 impl std::error::Error for Stop {}
-
-pub(crate) type Settle = fn(Scope, &'static str) -> anyhow::Result<()>;
-
-/// What a plugin is installed as.
-pub(crate) struct Identity {
-    pub(crate) id: &'static str,
-    pub(crate) concrete: TypeId,
-    pub(crate) settle: Settle,
-}
-
-impl Identity {
-    pub(crate) fn plugin<P: Plugin>() -> Self {
-        Self {
-            id: P::ID,
-            concrete: TypeId::of::<P>(),
-            settle: settle::<P, P::Exports>,
-        }
-    }
-}
-
-pub(crate) trait ErasedPlugin: Send {
-    fn id(&self) -> &'static str;
-    fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()>;
-}
-
-impl<P: Plugin> ErasedPlugin for P {
-    fn id(&self) -> &'static str {
-        P::ID
-    }
-
-    fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        Plugin::build(*self, app)
-    }
-}

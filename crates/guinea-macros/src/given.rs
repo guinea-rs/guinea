@@ -1,26 +1,12 @@
-//! `#[given]`, and what it shares with `#[installs]`: every argument after a
-//! function's context is a service the application provided, taken by clone
-//! before the body runs.
+//! What `#[installs]`, `#[page]` and `#[layout]` share: every argument after
+//! a function's context - and, for a page's or a layout's `install`, its
+//! parameters - is a service the application provided, taken by clone before
+//! the body runs.
 //!
-//! ```ignore
-//! impl Plugin for WindowStatePlugin {
-//!     const ID: &'static str = "window-state";
-//!     type Exports = ();
-//!
-//!     #[given]
-//!     fn build(self, app: &mut PluginBuilder, store: Store) -> anyhow::Result<()> { .. }
-//! }
-//! ```
-//!
-//! The method keeps the trait's signature - its receiver and its context -
-//! and opens with what the arguments it lost were. Whatever is missing is
-//! named all at once, as the error the method returns or, for a method that
-//! returns no `Result`, as a panic.
-//!
-//! `#[page]`, `#[layout]` and `#[segment]` do the same for `install`, after
-//! its context and its parameters.
+//! The method keeps the trait's signature and opens with what the arguments
+//! it lost were. Whatever is missing is named all at once, as the error the
+//! method returns or, for a method that returns no `Result`, as a panic.
 
-use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
@@ -104,16 +90,8 @@ pub(crate) fn refused(output: &ReturnType) -> TokenStream {
     }
 }
 
-pub fn given_impl(item: TokenStream1) -> TokenStream1 {
-    let mut method = syn::parse_macro_input!(item as ImplItemFn);
-    match expand(&mut method, 1) {
-        Ok(()) => quote!(#method).into(),
-        Err(error) => error.to_compile_error().into(),
-    }
-}
-
 /// A page's or a layout's `install`: what follows its context and its
-/// parameters is taken as `#[given]` takes it.
+/// parameters is taken as a service.
 pub(crate) fn segment_install(item: &mut ItemImpl) -> syn::Result<()> {
     for entry in &mut item.items {
         if let ImplItem::Fn(method) = entry

@@ -8,7 +8,7 @@
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use guinea_app::app::{AppRuntime, GuineaApp, Stop};
+use guinea_app::app::{FeatureBuilder, Stop, start};
 use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
@@ -89,17 +89,20 @@ pub(crate) fn frame(window: Scope, root: &Root, ui: &mut egui::Ui) {
     }
 }
 
-/// Installs `app`, opens the window `main` makes, and runs until it closes.
-///
-/// `main` runs after the plugins are installed, and is handed the installed
-/// application to read what they provided from - where to start, say.
+/// Builds the application with `app`, opens the window it returns, and runs
+/// until it closes.
 ///
 /// ```ignore
-/// guinea_eframe::run(app, |_| Window::of::<Shell>().title("guinea").at(Route::Processes))
+/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
+///     app.install::<Activity>()?;
+///     Ok(Window::of::<Shell>().title("guinea").at(Route::Processes))
+/// }
+///
+/// guinea_eframe::run(app)
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the window opens.
-pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::Result<()> {
+pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
     // may already queue work back to this thread. egui sleeps between frames,
     // so work handed over asks for one - once there is a context to ask.
@@ -114,12 +117,11 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::
     };
     let ui = UiLoop::install_waking(repaint.clone());
 
-    let runtime = match app.start() {
-        Ok(runtime) => runtime,
+    let (runtime, window) = match start(app) {
+        Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let window = main(&runtime);
 
     let host = FeatureHost::under(&runtime.context());
     let scope = host.scope();

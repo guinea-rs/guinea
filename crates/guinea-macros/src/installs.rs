@@ -12,7 +12,7 @@
 //! it returns, `Params` is what its `Install` carries - `()` for a plain
 //! `&FeatureInitContext` - and `Exports` is what the manifest listed. Every
 //! argument after the context is a service the application provided, taken
-//! by clone before the function runs; see `#[given]`. So the macro writes
+//! by clone before the function runs. So the macro writes
 //! `impl Feature` from those, and the function stays a function.
 //!
 //! A function whose first argument is `&mut FeatureBuilder` installs a

@@ -1311,9 +1311,7 @@ mod application_exports {
     pub struct Speak(&'static str);
 
     fn localised(h: &mut Harness) {
-        let mut app = GuineaApp::new();
-        app.install::<Localisation>();
-        h.app(app).unwrap();
+        h.app(|app| app.install::<Localisation>()).unwrap();
     }
 
     #[derive(Default)]

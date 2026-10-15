@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use guinea_app::app::{GuineaApp, Plugin, PluginBuilder, Stop};
+use guinea_app::app::{Plugin, PluginBuilder, Stop};
 use guinea_ratatui::Window;
 
 struct Opened(Arc<AtomicBool>);
@@ -12,6 +12,7 @@ struct Opened(Arc<AtomicBool>);
 impl Plugin for Opened {
     const ID: &'static str = "test.opened";
     type Exports = ();
+    type Provides = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         app.on_cleanup(move || {
@@ -27,6 +28,7 @@ struct SecondCopy;
 impl Plugin for SecondCopy {
     const ID: &'static str = "test.second-copy";
     type Exports = ();
+    type Provides = ();
 
     fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
         Err(Stop.into())
@@ -37,10 +39,12 @@ impl Plugin for SecondCopy {
 fn a_plugin_that_stops_the_application_ends_run_quietly() {
     let closed = Arc::new(AtomicBool::new(false));
 
-    let mut app = GuineaApp::new();
-    app.plugin(Opened(closed.clone())).plugin(SecondCopy);
-
-    let ran = guinea_ratatui::run(app, |_| -> Window { panic!("nothing is opened after a stop") });
+    let opened = closed.clone();
+    let ran = guinea_ratatui::run(move |app| -> anyhow::Result<Window> {
+        app.plugin(Opened(opened))?;
+        app.plugin(SecondCopy)?;
+        panic!("nothing is opened after a stop")
+    });
 
     assert!(ran.is_ok(), "{:#}", ran.unwrap_err());
     assert!(closed.load(Ordering::SeqCst), "the plugin before it was torn down");

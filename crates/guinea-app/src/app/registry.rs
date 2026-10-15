@@ -1,6 +1,3 @@
-use std::any::TypeId;
-use std::collections::HashMap;
-
 use guinea_core::scope::Scope;
 
 #[derive(Clone, Copy)]
@@ -16,32 +13,21 @@ impl Unit {
             Unit::Feature(name) => name,
         }
     }
-
-    fn is_plugin(self, id: &str) -> bool {
-        matches!(self, Unit::Plugin(own) if own == id)
-    }
 }
 
-/// The plugins an application was built with, by id: kept in its scope for
-/// as long as it lives.
+/// The plugins an application was built with, in the order they were, once
+/// per copy: kept in its scope for as long as it lives.
 #[derive(Default)]
-pub(crate) struct Plugins(HashMap<&'static str, TypeId>);
+pub(crate) struct Plugins(Vec<&'static str>);
 
 impl Plugins {
     pub(crate) fn ids(&self) -> Vec<&'static str> {
-        let mut ids: Vec<&'static str> = self.0.keys().copied().collect();
-        ids.sort_unstable();
-        ids
+        self.0.clone()
     }
 
-    /// Notes `id` as installed in `app`.
-    pub(crate) fn mark(app: Scope, id: &'static str, concrete: TypeId) {
-        app.kept::<Plugins, _>(|plugins| plugins.0.insert(id, concrete));
-    }
-
-    fn installed(app: Scope, id: &'static str) -> Option<TypeId> {
-        app.kept::<Plugins, _>(|plugins| plugins.0.get(id).copied())
-            .flatten()
+    /// Notes a copy of `id` as installed in `app`.
+    pub(crate) fn mark(app: Scope, id: &'static str) {
+        app.kept::<Plugins, _>(|plugins| plugins.0.push(id));
     }
 }
 
@@ -51,41 +37,9 @@ pub(crate) struct Registry {
     stack: Vec<Unit>,
 }
 
-pub(crate) enum Admission {
-    Proceed,
-    AlreadyInstalled,
-}
-
 impl Registry {
     pub(crate) fn current(&self) -> &'static str {
         self.stack.last().map(|unit| unit.label()).unwrap_or("app root")
-    }
-
-    pub(crate) fn admit_plugin(
-        &self,
-        app: Scope,
-        id: &'static str,
-        concrete: TypeId,
-    ) -> anyhow::Result<Admission> {
-        if let Some(installed) = Plugins::installed(app, id) {
-            anyhow::ensure!(
-                installed == concrete,
-                "plugin ID collision: `{id}` is already installed by a different type - \
-                 two plugins must not share `Plugin::ID`"
-            );
-            return Ok(Admission::AlreadyInstalled);
-        }
-
-        if let Some(at) = self.stack.iter().position(|unit| unit.is_plugin(id)) {
-            let path = self.stack[at..]
-                .iter()
-                .map(|unit| unit.label())
-                .collect::<Vec<_>>()
-                .join(" -> ");
-            anyhow::bail!("plugin dependency cycle: {path} -> {id}");
-        }
-
-        Ok(Admission::Proceed)
     }
 
     pub(crate) fn enter(&mut self, unit: Unit) {

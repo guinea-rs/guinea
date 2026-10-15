@@ -10,16 +10,15 @@ mod provided {
     #[derive(Clone)]
     struct Greeting(&'static str);
 
-    struct GreetingPlugin;
-
-    impl guinea_app::app::Plugin for GreetingPlugin {
-        const ID: &'static str = "test.greeting";
-        type Exports = ();
-        type Provides = Greeting;
-
-        fn build(self, _app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<Greeting> {
-            Ok(Greeting("hello"))
+    guinea_macros::plugin! {
+        Greets {
+            provides { Greeting }
         }
+    }
+
+    #[guinea_macros::builds]
+    fn greets(_app: &mut guinea_app::app::PluginBuilder) -> anyhow::Result<Greets> {
+        Ok(Greets(Greeting("hello")))
     }
 
     guinea_macros::feature! {
@@ -57,7 +56,7 @@ mod provided {
     #[test]
     fn a_page_s_feature_takes_what_the_application_provided_from_a_plugin() {
         let (runtime, ()) = guinea::app::start("test", |app| {
-            let greeting = app.plugin(GreetingPlugin)?;
+            let Greets(greeting) = app.plugin::<Greets>(())?;
             app.provide(greeting);
             Ok(())
         })

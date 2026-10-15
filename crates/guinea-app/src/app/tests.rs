@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_macros::{feature, installs};
+use guinea_core::actor::shape::name;
+use guinea_macros::{builds, feature, installs, plugin};
 
-use super::{FeatureBuilder, Plugin, PluginBuilder, start};
+use super::{FeatureBuilder, PluginBuilder, start};
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -22,35 +23,31 @@ fn builder() -> FeatureBuilder {
     FeatureBuilder::new()
 }
 
-/// Opens a store in a file of its own.
-struct Settings(&'static str);
-
-impl Plugin for Settings {
-    const ID: &'static str = "test.settings";
-    type Exports = ();
-    type Provides = Store;
-
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Store> {
-        trace(self.0);
-        Ok(Store(self.0))
+plugin! {
+    /// Opens a store in a file of its own.
+    Settings {
+        provides { Store }
     }
+}
+
+#[builds]
+fn settings(_app: &mut PluginBuilder, file: &'static str) -> anyhow::Result<Settings> {
+    trace(file);
+    Ok(Settings(Store(file)))
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct Store(&'static str);
 
-/// Remembers the language in whichever store it is handed.
-struct Remembering(Store);
+plugin! {
+    /// Remembers the language in whichever store it is handed.
+    Remembering {}
+}
 
-impl Plugin for Remembering {
-    const ID: &'static str = "test.remembering";
-    type Exports = ();
-    type Provides = ();
-
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
-        trace(self.0.0);
-        Ok(())
-    }
+#[builds]
+fn remembering(_app: &mut PluginBuilder, store: Store) -> anyhow::Result<Remembering> {
+    trace(store.0);
+    Ok(Remembering)
 }
 
 feature! {
@@ -60,30 +57,28 @@ feature! {
 #[installs]
 fn startup(app: &mut FeatureBuilder) -> anyhow::Result<Startup> {
     trace("startup");
-    let store = app.plugin(Settings("db"))?;
+    let Settings(store) = app.plugin::<Settings>("db")?;
     app.provide(store);
     Ok(Startup)
 }
 
-struct Tidy;
-impl Plugin for Tidy {
-    const ID: &'static str = "test.tidy";
-    type Exports = ();
-    type Provides = ();
+plugin! {
+    Tidy {}
+}
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        app.on_cleanup(|| {
-            trace("tidied");
-            Ok(())
-        });
+#[builds]
+fn tidy(app: &mut PluginBuilder) -> anyhow::Result<Tidy> {
+    app.on_cleanup(|| {
+        trace("tidied");
         Ok(())
-    }
+    });
+    Ok(Tidy)
 }
 
 #[test]
 fn an_application_goes_when_its_runtime_is_let_go_of() {
     taken();
-    let (runtime, ()) = start("test", |app| app.plugin(Tidy)).unwrap();
+    let (runtime, _) = start("test", |app| app.plugin::<Tidy>(())).unwrap();
     assert_eq!(taken(), [""; 0]);
 
     drop(runtime);
@@ -95,7 +90,10 @@ fn an_application_goes_when_its_runtime_is_let_go_of() {
 fn a_plugin_hands_back_what_it_built() {
     let mut app = builder();
 
-    let store = app.plugin(Settings("settings")).map_err(|error| format!("{error:#}"));
+    let store = app
+        .plugin::<Settings>("settings")
+        .map(|Settings(store)| store)
+        .map_err(|error| format!("{error:#}"));
 
     assert_eq!(store, Ok(Store("settings")));
 }
@@ -105,9 +103,9 @@ fn a_plugin_installed_twice_is_two_copies_each_handed_to_whoever_the_application
     let mut app = builder();
 
     let built = (|| {
-        let user = app.plugin(Settings("settings"))?;
-        let internal = app.plugin(Settings("state"))?;
-        app.plugin(Remembering(internal))?;
+        let Settings(user) = app.plugin::<Settings>("settings")?;
+        let Settings(internal) = app.plugin::<Settings>("state")?;
+        app.plugin::<Remembering>(internal)?;
         anyhow::Ok(user)
     })()
     .map_err(|error| format!("{error:#}"));
@@ -120,7 +118,7 @@ fn a_plugin_installed_twice_is_two_copies_each_handed_to_whoever_the_application
 fn what_a_plugin_hands_back_is_not_provided_until_the_application_provides_it() {
     let mut app = builder();
 
-    let store = app.plugin(Settings("settings")).map_err(|error| format!("{error:#}"));
+    let store = app.plugin::<Settings>("settings").map(|Settings(store)| store);
     let before = app.scope.service::<Store>();
     if let Ok(store) = store {
         app.provide(store);
@@ -133,12 +131,12 @@ fn what_a_plugin_hands_back_is_not_provided_until_the_application_provides_it() 
 #[test]
 fn every_copy_of_a_plugin_is_listed() {
     let mut app = builder();
-    let _ = app.plugin(Settings("settings"));
-    let _ = app.plugin(Settings("state"));
+    let _ = app.plugin::<Settings>("settings");
+    let _ = app.plugin::<Settings>("state");
 
     assert_eq!(
         crate::observability::installed_plugins(app.scope),
-        ["test.settings", "test.settings"]
+        [name::<Settings>(), name::<Settings>()]
     );
 }
 
@@ -195,22 +193,21 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
 #[derive(Clone)]
 struct Greeting(&'static str);
 
-struct GreetingPlugin;
-
-impl Plugin for GreetingPlugin {
-    const ID: &'static str = "test.greeting";
-    type Exports = ();
-    type Provides = Greeting;
-
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Greeting> {
-        Ok(Greeting("hello"))
+plugin! {
+    Greets {
+        provides { Greeting }
     }
+}
+
+#[builds]
+fn greets(_app: &mut PluginBuilder) -> anyhow::Result<Greets> {
+    Ok(Greets(Greeting("hello")))
 }
 
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
     let (runtime, ()) = start("test", |app| {
-        let greeting = app.plugin(GreetingPlugin)?;
+        let Greets(greeting) = app.plugin::<Greets>(())?;
         app.provide(greeting);
         Ok(())
     })
@@ -241,45 +238,36 @@ struct Ping;
 
 impl guinea_core::actor::event_bus::Event for Ping {}
 
-struct Opened;
+plugin! {
+    Opened {}
+}
 
-impl Plugin for Opened {
-    const ID: &'static str = "test.opened";
-    type Exports = ();
-    type Provides = ();
-
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        trace("opened");
-        app.on_cleanup(|| {
-            trace("closed");
-            Ok(())
-        });
+#[builds]
+fn opened(app: &mut PluginBuilder) -> anyhow::Result<Opened> {
+    trace("opened");
+    app.on_cleanup(|| {
+        trace("closed");
         Ok(())
-    }
+    });
+    Ok(Opened)
 }
 
-struct SecondCopy;
-
-impl Plugin for SecondCopy {
-    const ID: &'static str = "test.second-copy";
-    type Exports = ();
-    type Provides = ();
-
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
-        Err(super::Stop.into())
-    }
+plugin! {
+    SecondCopy {}
 }
 
-struct Broken;
+#[builds]
+fn second_copy(_app: &mut PluginBuilder) -> anyhow::Result<SecondCopy> {
+    Err(super::Stop.into())
+}
 
-impl Plugin for Broken {
-    const ID: &'static str = "test.broken";
-    type Exports = ();
-    type Provides = ();
+plugin! {
+    Broken {}
+}
 
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
-        anyhow::bail!("broken")
-    }
+#[builds]
+fn broken(_app: &mut PluginBuilder) -> anyhow::Result<Broken> {
+    anyhow::bail!("broken")
 }
 
 #[test]
@@ -287,8 +275,8 @@ fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
     taken();
 
     let error = start("test", |app| {
-        app.plugin(Opened)?;
-        app.plugin(SecondCopy)?;
+        app.plugin::<Opened>(())?;
+        app.plugin::<SecondCopy>(())?;
         app.install::<Startup>()?;
         Ok(())
     })
@@ -304,8 +292,8 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     taken();
 
     let error = start("test", |app| {
-        app.plugin(Opened)?;
-        app.plugin(Broken)
+        app.plugin::<Opened>(())?;
+        app.plugin::<Broken>(()).map(drop)
     })
     .err()
     .expect("failed");
@@ -316,10 +304,10 @@ fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
 
 mod exports {
     use guinea_core::scope::Scope;
-    use guinea_macros::{feature, installs, reducer};
+    use guinea_macros::{builds, feature, installs, plugin, reducer};
 
     use super::super::Harness;
-    use super::{FeatureBuilder, Plugin, PluginBuilder, builder, start};
+    use super::{FeatureBuilder, PluginBuilder, builder, start};
     use crate::app::AppFeature;
 
     #[derive(Clone, Debug, Default)]
@@ -356,17 +344,15 @@ mod exports {
         }
     }
 
-    struct Translations;
-
-    impl Plugin for Translations {
-        const ID: &'static str = "translations";
-        type Exports = (Language,);
-        type Provides = ();
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            app.state::<Language>().seed(Language("de")).plain();
-            Ok(())
+    plugin! {
+        Translations {
+            exports { Language }
         }
+    }
+
+    #[builds]
+    fn translations(app: &mut PluginBuilder) -> anyhow::Result<Translations> {
+        Ok(Translations(app.state::<Language>().seed(Language("de")).plain()))
     }
 
     fn language(scope: Scope) -> Option<&'static str> {
@@ -398,7 +384,7 @@ mod exports {
     #[test]
     fn a_window_sits_under_the_application_it_was_opened_from_not_the_latest_one() {
         let (english, ()) = start("test", localised).expect("install");
-        let _german = start("test", |app| app.plugin(Translations)).expect("install");
+        let _german = start("test", |app| app.plugin::<Translations>(())).expect("install");
 
         let window = crate::feature::FeatureHost::under(&english.context());
 
@@ -428,7 +414,7 @@ mod exports {
     #[test]
     fn a_page_reads_what_a_plugin_exports() {
         let mut harness = Harness::new(0);
-        harness.plugin(Translations).unwrap();
+        harness.plugin::<Translations>(()).unwrap();
 
         let page = harness.child();
 
@@ -478,10 +464,10 @@ mod exports {
 
 mod owners {
     use guinea_core::actor::shape::name;
-    use guinea_macros::{actor, feature, handler, installs};
+    use guinea_macros::{actor, builds, feature, handler, installs, plugin};
 
     use crate::observability::{app_actors, installed_plugins};
-    use super::{FeatureBuilder, Plugin, PluginBuilder, start};
+    use super::{FeatureBuilder, PluginBuilder, start};
 
     pub struct Sweep;
 
@@ -515,7 +501,7 @@ mod owners {
 
     #[installs]
     fn housekeeping(app: &mut FeatureBuilder) -> anyhow::Result<Housekeeping> {
-        app.plugin(Tools)?;
+        app.plugin::<Tools>(())?;
         app.spawn(Sweeper);
         Ok(Housekeeping)
     }
@@ -525,17 +511,14 @@ mod owners {
         Ok(())
     }
 
-    struct Tools;
+    plugin! {
+        Tools {}
+    }
 
-    impl Plugin for Tools {
-        const ID: &'static str = "test.tools";
-        type Exports = ();
-        type Provides = ();
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            app.spawn(Loose);
-            Ok(())
-        }
+    #[builds]
+    fn tools(app: &mut PluginBuilder) -> anyhow::Result<Tools> {
+        app.spawn(Loose);
+        Ok(Tools)
     }
 
     #[test]
@@ -559,7 +542,7 @@ mod owners {
         harness.app(housekeeping_app).unwrap();
         let app = harness.application().scope;
 
-        assert_eq!(installed_plugins(app), ["test.tools"]);
+        assert_eq!(installed_plugins(app), [name::<Tools>()]);
         assert_eq!(app_actors(app).len(), 2);
     }
 
@@ -569,7 +552,7 @@ mod owners {
         first.app(housekeeping_app).unwrap();
         let second = crate::app::Harness::new(0);
 
-        assert_eq!(installed_plugins(first.application().scope), ["test.tools"]);
+        assert_eq!(installed_plugins(first.application().scope), [name::<Tools>()]);
         assert_eq!(installed_plugins(second.application().scope), [""; 0]);
     }
 }

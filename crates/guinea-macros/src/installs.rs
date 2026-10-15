@@ -42,7 +42,6 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
 
     let gc = crate::paths::core();
     let feature = crate::paths::feature();
-    let name = &function.sig.ident;
 
     let taken = match crate::given::taken(function.sig.inputs.iter().skip(1)) {
         Ok(taken) => taken,
@@ -64,23 +63,7 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
             });
     };
     let (impl_generics, _, where_clause) = function.sig.generics.split_for_impl();
-
-    let turbofish: Vec<_> = function
-        .sig
-        .generics
-        .params
-        .iter()
-        .filter_map(|param| match param {
-            GenericParam::Type(ty) => Some(&ty.ident),
-            GenericParam::Const(constant) => Some(&constant.ident),
-            GenericParam::Lifetime(_) => None,
-        })
-        .collect();
-    let called = if turbofish.is_empty() {
-        quote!(#name)
-    } else {
-        quote!(#name::<#(#turbofish),*>)
-    };
+    let called = called(&function);
 
     if builds_the_application(&function) {
         let app = crate::paths::app();
@@ -135,6 +118,28 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     .into()
 }
 
+/// The function called with its own generic parameters, turbofished.
+pub(crate) fn called(function: &ItemFn) -> proc_macro2::TokenStream {
+    let name = &function.sig.ident;
+    let turbofish: Vec<_> = function
+        .sig
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            GenericParam::Type(ty) => Some(&ty.ident),
+            GenericParam::Const(constant) => Some(&constant.ident),
+            GenericParam::Lifetime(_) => None,
+        })
+        .collect();
+
+    if turbofish.is_empty() {
+        quote!(#name)
+    } else {
+        quote!(#name::<#(#turbofish),*>)
+    }
+}
+
 /// The `P` of a first argument `&Install<P>` - `()` for a bare `&Install` -
 /// or `None` for any other context.
 fn carried(function: &ItemFn) -> Option<Type> {
@@ -184,7 +189,7 @@ fn builds_the_application(function: &ItemFn) -> bool {
 }
 
 /// The `T` in the function's `-> …Result<T>`.
-fn installed(function: &ItemFn) -> Option<Type> {
+pub(crate) fn installed(function: &ItemFn) -> Option<Type> {
     let ReturnType::Type(_, returned) = &function.sig.output else {
         return None;
     };

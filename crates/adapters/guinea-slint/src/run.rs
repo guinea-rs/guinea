@@ -84,7 +84,7 @@ impl<W: ComponentHandle + 'static> Window<W> {
     /// plugin remembering windows hands the application.
     ///
     /// ```ignore
-    /// let saved = app.plugin(WindowStatePlugin::new().remembered_in(internal))?;
+    /// let WindowStatePlugin(saved) = app.plugin::<WindowStatePlugin>(internal)?;
     /// Ok(Window::of::<Shell>(AppWindow::new()?).remembered_by(saved))
     /// ```
     pub fn remembered_by(mut self, saved: SavedGeometry) -> Self {

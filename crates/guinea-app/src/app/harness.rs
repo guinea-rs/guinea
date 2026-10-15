@@ -133,10 +133,10 @@ impl Harness {
         app(&mut self.app)
     }
 
-    /// Builds a plugin in the application around the harness, and hands back
-    /// what it provides.
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<P::Provides> {
-        self.app.plugin(plugin)
+    /// Builds `P` with `params` in the application around the harness, and
+    /// hands it back.
+    pub fn plugin<P: Plugin>(&mut self, params: P::Params) -> anyhow::Result<P> {
+        self.app.plugin::<P>(params)
     }
 
     /// Provides one service, as a plugin would - for a test that needs a

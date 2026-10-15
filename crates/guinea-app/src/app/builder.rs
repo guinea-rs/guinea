@@ -80,28 +80,28 @@ impl FeatureBuilder {
         }
     }
 
-    /// Builds `plugin` now, and hands back what it [`Provides`](Plugin::Provides).
+    /// Builds `P` with `params` now, and hands it back: what it exports,
+    /// feeds and provides.
     ///
     /// Each call is a copy of its own: two stores are two calls. One that
     /// fails publishes nothing and keeps nothing it set up.
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<P::Provides> {
-        let id = P::ID;
+    pub fn plugin<P: Plugin>(&mut self, params: P::Params) -> anyhow::Result<P> {
+        let who = name::<P>();
 
-        self.registry.borrow_mut().enter(Unit::Plugin(id));
+        self.registry.borrow_mut().enter(Unit::Plugin(who));
         let section = self.scope.open_section(None, None);
         let inner = self.inner.cx.in_section(section);
         let outer = std::mem::replace(&mut self.inner.cx, inner);
 
-        let outcome = plugin
-            .build(&mut self.inner)
-            .and_then(|provided| publish::<P::Exports>(self.scope, id).map(|()| provided))
-            .with_context(|| format!("plugin `{id}` failed to build"));
+        let outcome = P::build(&mut self.inner, params)
+            .and_then(|built| publish::<P::Exports>(self.scope, who).map(|()| built))
+            .with_context(|| format!("plugin `{who}` failed to build"));
 
         self.inner.cx = outer;
         self.registry.borrow_mut().leave();
 
         match &outcome {
-            Ok(_) => Plugins::mark(self.scope, id),
+            Ok(_) => Plugins::mark(self.scope, who),
             Err(_) => section.withdraw(),
         }
         outcome

@@ -442,43 +442,39 @@ mod reports {
     #[derive(Clone)]
     pub struct Prefix(pub &'static str);
 
-    pub struct Prefixing;
-
-    impl Plugin for Prefixing {
-        const ID: &'static str = "test.prefixing";
-        type Exports = ();
-        type Provides = Prefix;
-
-        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Prefix> {
-            Ok(Prefix("proc-"))
+    plugin! {
+        pub Prefixing {
+            provides { Prefix }
         }
+    }
+
+    #[builds]
+    fn prefixing(_app: &mut PluginBuilder) -> anyhow::Result<Prefixing> {
+        Ok(Prefixing(Prefix("proc-")))
     }
 
     thread_local! {
         static IN_PLACE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
-    /// Puts something process-wide in place, the way the store plugin puts
-    /// its global store, and refuses to do it twice.
-    pub struct Global;
+    plugin! {
+        /// Puts something process-wide in place, the way the store plugin
+        /// puts its global store, and refuses to do it twice.
+        pub Global {}
+    }
 
-    impl Plugin for Global {
-        const ID: &'static str = "test.global";
-        type Exports = ();
-        type Provides = ();
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            if IN_PLACE.get() {
-                anyhow::bail!("a global is in place already");
-            }
-
-            IN_PLACE.set(true);
-            app.on_cleanup(|| {
-                IN_PLACE.set(false);
-                Ok(())
-            });
-            Ok(())
+    #[builds]
+    fn global(app: &mut PluginBuilder) -> anyhow::Result<Global> {
+        if IN_PLACE.get() {
+            anyhow::bail!("a global is in place already");
         }
+
+        IN_PLACE.set(true);
+        app.on_cleanup(|| {
+            IN_PLACE.set(false);
+            Ok(())
+        });
+        Ok(Global)
     }
 
     feature! {
@@ -811,7 +807,7 @@ fn every_harness_starts_on_an_empty_bus(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn what_a_plugin_hands_the_harness_serves_its_features_once_provided(h: &mut Harness) {
-    let prefix = h.plugin(reports::Prefixing).unwrap();
+    let reports::Prefixing(prefix) = h.plugin::<reports::Prefixing>(()).unwrap();
     assert!(
         h.child().install::<reports::Prefixed>(&()).is_err(),
         "nothing provides the prefix yet"
@@ -867,7 +863,7 @@ fn tests_that_name_one_key_take_turns_with_this_one_too(_h: &mut Harness) {
 /// run the plugin's cleanup.
 #[guinea::test(iterations = 3)]
 fn a_harness_runs_its_plugins_cleanups_when_it_goes(h: &mut Harness) {
-    h.plugin(reports::Global).unwrap();
+    h.plugin::<reports::Global>(()).unwrap();
 }
 
 /// A page's own count of what the layout above it sampled, kept by observing

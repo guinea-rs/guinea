@@ -93,29 +93,27 @@ mod named {
 mod plugins {
     use super::*;
 
-    pub struct Greets;
-
-    impl Plugin for Greets {
-        const ID: &'static str = "test.greets";
-        type Exports = ();
-        type Provides = Greeting;
-
-        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Greeting> {
-            Ok(Greeting("hello"))
+    plugin! {
+        pub Greets {
+            provides { Greeting }
         }
     }
 
-    /// Handed the greeting it amplifies.
-    pub struct Amplifies(pub Greeting);
+    #[builds]
+    fn greets(_app: &mut PluginBuilder) -> anyhow::Result<Greets> {
+        Ok(Greets(Greeting("hello")))
+    }
 
-    impl Plugin for Amplifies {
-        const ID: &'static str = "test.amplifies";
-        type Exports = ();
-        type Provides = Volume;
-
-        fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<Volume> {
-            Ok(Volume(self.0.0.len() as u8))
+    plugin! {
+        /// Handed the greeting it amplifies.
+        pub Amplifies {
+            provides { Volume }
         }
+    }
+
+    #[builds]
+    fn amplifies(_app: &mut PluginBuilder, greeting: Greeting) -> anyhow::Result<Amplifies> {
+        Ok(Amplifies(Volume(greeting.0.len() as u8)))
     }
 
     feature! {
@@ -170,8 +168,8 @@ fn what_the_segment_hands_in_is_read_through_the_install(h: &mut Harness) {
 #[guinea::test(iterations = 1)]
 fn what_one_plugin_built_is_handed_to_another_and_provided_to_features(h: &mut Harness) {
     let built = h.app(|app| {
-        let greeting = app.plugin(plugins::Greets)?;
-        let volume = app.plugin(plugins::Amplifies(greeting.clone()))?;
+        let plugins::Greets(greeting) = app.plugin::<plugins::Greets>(())?;
+        let plugins::Amplifies(volume) = app.plugin::<plugins::Amplifies>(greeting.clone())?;
         app.provide(greeting).provide(volume);
         Ok(())
     });
@@ -232,7 +230,7 @@ fn a_service_that_stays_on_the_ui_thread_is_taken_like_any_other(h: &mut Harness
 #[test]
 fn whoever_holds_the_application_reads_what_was_provided() {
     let mut app = TestApp::new();
-    let greeting = app.plugin(plugins::Greets).unwrap();
+    let plugins::Greets(greeting) = app.plugin::<plugins::Greets>(()).unwrap();
     app.provide(greeting);
 
     assert_eq!(app.service::<Greeting>(), Some(Greeting("hello")));

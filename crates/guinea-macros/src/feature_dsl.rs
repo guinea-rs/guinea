@@ -1,5 +1,5 @@
-//! `feature!` - a feature's manifest: its name, what it exports and what it
-//! feeds.
+//! `feature!` and `plugin!` - a feature's or a plugin's manifest: its name,
+//! what it exports and what it feeds, and for a plugin what it provides.
 //!
 //! ```ignore
 //! feature! {
@@ -8,13 +8,20 @@
 //!         feeds { AgentReport }
 //!     }
 //! }
+//!
+//! plugin! {
+//!     pub Settings {
+//!         provides { Store }
+//!     }
+//! }
 //! ```
 //!
 //! A list, not a struct: the manifest says what the feature is, and the
-//! feature itself is what `#[installs]` builds. The type it makes holds one
-//! `Bound` per export, then one `Feed` per feed, in the order listed -
+//! feature itself is what `#[installs]` builds - a plugin what `#[builds]`
+//! builds. The type it makes holds one `Bound` per export, then one `Feed`
+//! per feed, then each value provided, in the order listed -
 //! `AgentLink(link, report)` - so the only way to have one is to have claimed
-//! each thing it exports and opened each feed.
+//! each thing it exports, opened each feed and made each thing it provides.
 
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
@@ -23,6 +30,30 @@ use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Attribute, Generics, Ident, Token, Type, Visibility, braced};
 
+/// Which manifest is being read: what it may list, and what it is called in
+/// an error.
+#[derive(Clone, Copy)]
+enum Kind {
+    Feature,
+    Plugin,
+}
+
+impl Kind {
+    fn noun(self) -> &'static str {
+        match self {
+            Kind::Feature => "feature",
+            Kind::Plugin => "plugin",
+        }
+    }
+
+    fn sections(self) -> &'static str {
+        match self {
+            Kind::Feature => "`exports` and `feeds`",
+            Kind::Plugin => "`exports`, `feeds` and `provides`",
+        }
+    }
+}
+
 struct Manifest {
     attrs: Vec<Attribute>,
     vis: Visibility,
@@ -30,10 +61,11 @@ struct Manifest {
     generics: Generics,
     exports: Vec<Type>,
     feeds: Vec<Type>,
+    provides: Vec<Type>,
 }
 
-impl Parse for Manifest {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+impl Manifest {
+    fn parse(input: ParseStream, kind: Kind) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
         let vis: Visibility = input.parse()?;
         let name: Ident = input.parse()?;
@@ -45,15 +77,21 @@ impl Parse for Manifest {
 
         let mut exports = Vec::new();
         let mut feeds = Vec::new();
+        let mut provides = Vec::new();
         while !body.is_empty() {
             let section: Ident = body.parse()?;
-            let into = match section.to_string().as_str() {
-                "exports" => &mut exports,
-                "feeds" => &mut feeds,
+            let into = match (section.to_string().as_str(), kind) {
+                ("exports", _) => &mut exports,
+                ("feeds", _) => &mut feeds,
+                ("provides", Kind::Plugin) => &mut provides,
                 _ => {
                     return Err(syn::Error::new(
                         section.span(),
-                        format!("unknown section `{section}`; a feature lists `exports` and `feeds`"),
+                        format!(
+                            "unknown section `{section}`; a {} lists {}",
+                            kind.noun(),
+                            kind.sections()
+                        ),
                     ));
                 }
             };
@@ -72,16 +110,38 @@ impl Parse for Manifest {
             generics,
             exports,
             feeds,
+            provides,
         })
     }
 }
 
-pub fn feature_impl(input: TokenStream1) -> TokenStream1 {
-    let manifest = syn::parse_macro_input!(input as Manifest);
-    expand(manifest).into()
+struct Feature(Manifest);
+
+impl Parse for Feature {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Manifest::parse(input, Kind::Feature).map(Feature)
+    }
 }
 
-fn expand(manifest: Manifest) -> TokenStream {
+struct Plugin(Manifest);
+
+impl Parse for Plugin {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Manifest::parse(input, Kind::Plugin).map(Plugin)
+    }
+}
+
+pub fn feature_impl(input: TokenStream1) -> TokenStream1 {
+    let Feature(manifest) = syn::parse_macro_input!(input as Feature);
+    expand(manifest, Kind::Feature).into()
+}
+
+pub fn plugin_impl(input: TokenStream1) -> TokenStream1 {
+    let Plugin(manifest) = syn::parse_macro_input!(input as Plugin);
+    expand(manifest, Kind::Plugin).into()
+}
+
+fn expand(manifest: Manifest, kind: Kind) -> TokenStream {
     let Manifest {
         attrs,
         vis,
@@ -89,13 +149,18 @@ fn expand(manifest: Manifest) -> TokenStream {
         generics,
         exports,
         feeds,
+        provides,
     } = manifest;
 
-    if exports.is_empty() && feeds.is_empty() && !generics.params.is_empty() {
+    let holds_nothing = exports.is_empty() && feeds.is_empty() && provides.is_empty();
+    if holds_nothing && !generics.params.is_empty() {
         return syn::Error::new(
             name.span(),
-            "a generic feature holds what it exports and feeds, and this one has nothing to hold \
-             its parameters - list what it exports, or drop the parameters",
+            format!(
+                "a generic {0} holds what it lists, and this one has nothing to hold its \
+                 parameters - list what it exports, or drop the parameters",
+                kind.noun()
+            ),
         )
         .to_compile_error();
     }
@@ -104,7 +169,7 @@ fn expand(manifest: Manifest) -> TokenStream {
     let feature = crate::paths::feature();
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
-    let declared = if exports.is_empty() && feeds.is_empty() {
+    let declared = if holds_nothing {
         quote! {
             #(#attrs)*
             #vis struct #name;
@@ -113,7 +178,8 @@ fn expand(manifest: Manifest) -> TokenStream {
         let fields = exports
             .iter()
             .map(|export| quote!(#vis #gc::feature::Bound<#export>))
-            .chain(feeds.iter().map(|fed| quote!(#vis #gc::feed::Feed<#fed>)));
+            .chain(feeds.iter().map(|fed| quote!(#vis #gc::feed::Feed<#fed>)))
+            .chain(provides.iter().map(|provided| quote!(#vis #provided)));
         quote! {
             #(#attrs)*
             #vis struct #name #generics (#(#fields),*) #where_clause;

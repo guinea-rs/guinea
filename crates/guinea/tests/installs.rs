@@ -105,20 +105,19 @@ mod boasting {
     pub struct Boasting;
 
     impl Plugin for Boasting {
-        const ID: &'static str = "test.boasting";
+        type Params = ();
         type Exports = (counting::Count,);
-        type Provides = ();
 
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        fn build(app: &mut PluginBuilder, (): ()) -> anyhow::Result<Self> {
             app.state::<Own>().plain();
-            Ok(())
+            Ok(Boasting)
         }
     }
 }
 
 #[guinea::test(iterations = 1)]
 fn a_plugin_exporting_what_it_never_claimed_fails_and_names_the_reducer(h: &mut Harness) {
-    let installed = catch_unwind(AssertUnwindSafe(|| h.plugin(boasting::Boasting).map(|_| ())))
+    let installed = catch_unwind(AssertUnwindSafe(|| h.plugin::<boasting::Boasting>(()).map(|_| ())))
         .map_err(said)
         .map(|installed| installed.map_err(|error| format!("{error:#}")));
 
@@ -130,7 +129,7 @@ fn a_plugin_exporting_what_it_never_claimed_fails_and_names_the_reducer(h: &mut 
 
 #[guinea::test(iterations = 1)]
 fn a_plugin_refused_for_what_it_did_not_claim_keeps_nothing_it_did(h: &mut Harness) {
-    let _ = catch_unwind(AssertUnwindSafe(|| h.plugin(boasting::Boasting).map(|_| ())));
+    let _ = catch_unwind(AssertUnwindSafe(|| h.plugin::<boasting::Boasting>(()).map(|_| ())));
 
     assert!(!h.application_scope().claims::<boasting::Own>());
 }

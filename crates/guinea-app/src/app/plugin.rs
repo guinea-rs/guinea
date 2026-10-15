@@ -6,34 +6,47 @@ use super::builder::{FeatureBuilder, PluginBuilder};
 /// Reusable, application-agnostic: the application knows the plugin, never the
 /// other way round.
 ///
-/// What it needs from another plugin it is handed in its own configuration,
-/// and what it gives back is [`Provides`](Self::Provides), returned from
-/// [`build`](Self::build) to whoever installed it:
+/// Written as a feature is: `plugin!` lists what it exports to every window,
+/// the feeds it opens and what it provides to the application, and a
+/// `#[builds]` function builds it from its parameters:
+///
+/// ```ignore
+/// plugin! {
+///     pub Settings {
+///         provides { Store }
+///     }
+/// }
+///
+/// #[builds]
+/// fn settings(app: &mut PluginBuilder, params: StoreParams) -> anyhow::Result<Settings> {
+///     Ok(Settings(Store::open(params.path)?))
+/// }
+/// ```
+///
+/// What it needs from another plugin it is handed in its parameters, and the
+/// application takes apart what it built:
 ///
 /// ```ignore
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
-///     let internal = app.plugin(StorePlugin::for_app(meta, "state"))?;
-///     app.plugin(L10nPlugin::new("en").remembered_in(internal))?;
+///     let Settings(internal) = app.plugin::<Settings>(StoreParams::for_app(&meta, "state"))?;
+///     app.plugin::<L10n<Strings>>(L10nParams::new("en").remembered_in(internal))?;
 ///     ..
 /// }
 /// ```
 ///
-/// Nothing it returns is in the application's scope until the application
+/// Nothing it provides is in the application's scope until the application
 /// [`provide`](FeatureBuilder::provide)s it, so a plugin may be installed more
 /// than once - two stores, say - and the application decides which one its
 /// windows see.
-pub trait Plugin: 'static {
-    /// What diagnostics and devtools call it.
-    const ID: &'static str;
+pub trait Plugin: Sized + 'static {
+    /// What it is built with, by value: its configuration, and what it is
+    /// handed of other plugins. `()` for one built with nothing.
+    type Params;
 
-    /// What every window may read of what it claims, as a feature's
-    /// [`Exports`](crate::feature::Feature::Exports): `()`, or a tuple.
+    /// What every window may read: what `plugin!` lists.
     type Exports: Exported;
 
-    /// What it hands back to the application: `()`, a value, or a tuple.
-    type Provides;
-
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<Self::Provides>;
+    fn build(app: &mut PluginBuilder, params: Self::Params) -> anyhow::Result<Self>;
 }
 
 /// This application's own wiring: a feature installed in the application's

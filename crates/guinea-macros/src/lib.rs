@@ -3,6 +3,7 @@ use syn::{ItemFn, parse_macro_input};
 
 mod actor_dsl;
 mod elm;
+mod builds;
 mod feature_dsl;
 mod given;
 mod handler;
@@ -35,6 +36,51 @@ mod slot;
 #[proc_macro]
 pub fn feature(input: TokenStream) -> TokenStream {
     feature_dsl::feature_impl(input)
+}
+
+/// A plugin's manifest: its name, the reducers it exports to every window,
+/// the feeds it opens and what it provides to the application.
+///
+/// ```ignore
+/// plugin! {
+///     pub L10n<S: Localization> {
+///         exports { Language<S> }
+///     }
+/// }
+///
+/// plugin! {
+///     pub Settings {
+///         provides { Store }
+///     }
+/// }
+/// ```
+///
+/// It makes the plugin's type - one `Bound` per export, one `Feed` per feed,
+/// then each thing provided, in the order listed - which the application
+/// takes apart: `let Settings(store) = app.plugin::<Settings>(params)?`. What
+/// builds it is a [`builds`] function.
+#[proc_macro]
+pub fn plugin(input: TokenStream) -> TokenStream {
+    feature_dsl::plugin_impl(input)
+}
+
+/// The function that builds a plugin: whatever it returns is the plugin, and
+/// its second argument is what it is built with - nothing, when it takes the
+/// builder alone.
+///
+/// ```ignore
+/// #[builds]
+/// fn l10n<S: Localization>(app: &mut PluginBuilder, params: L10nParams<S>) -> anyhow::Result<L10n<S>> {
+///     let language = app.state::<Language<S>>().seed(params.first()).plain();
+///     Ok(L10n(language))
+/// }
+/// ```
+///
+/// A plugin takes no services: what it needs of another plugin is in its
+/// parameters, handed over by the application.
+#[proc_macro_attribute]
+pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    builds::builds_impl(item)
 }
 
 /// The function that installs a feature: whatever it returns is the feature,

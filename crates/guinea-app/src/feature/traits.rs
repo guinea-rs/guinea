@@ -171,8 +171,8 @@ pub trait Feature: Sized + 'static {
     fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 }
 
-/// What `feature!` declares about a feature: what it exports. `#[installs]`
-/// reads a feature's [`Exports`](Feature::Exports) from here.
+/// What `feature!` or `plugin!` declares: what it exports. `#[installs]` and
+/// `#[builds]` read [`Exports`](Feature::Exports) from here.
 pub trait Manifest {
     type Exports: Exported;
 }

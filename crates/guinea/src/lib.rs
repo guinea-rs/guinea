@@ -74,8 +74,8 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Inspect, Mark, Remote, Request, Routable, actor, feature, handler, installs,
-    reducer, slot,
+    Event, Inspect, Mark, Remote, Request, Routable, actor, builds, feature, handler, installs,
+    plugin, reducer, slot,
 };
 
 /// `#[guinea::test]`: one test, run once per seed on a fresh `app::Harness` -
@@ -104,6 +104,6 @@ pub mod prelude {
     pub use guinea_core::inspect::Inspect;
     pub use guinea_core::{Load, Reducer};
     pub use guinea_macros::{
-        Event, Inspect, actor, feature, handler, installs, reducer,
+        Event, Inspect, actor, builds, feature, handler, installs, plugin, reducer,
     };
 }

@@ -47,23 +47,20 @@ thread_local! {
     static LOUD_BUILT: Cell<bool> = const { Cell::new(false) };
 }
 
-/// What the application installs and pages do not read: a single-instance
-/// lock, devtools.
-pub struct Loud;
+plugin! {
+    /// What the application installs and pages do not read: a single-instance
+    /// lock, devtools.
+    pub Loud {}
+}
 
-impl Plugin for Loud {
-    const ID: &'static str = "test.loud";
-    type Exports = ();
-    type Provides = ();
-
-    fn build(self, _app: &mut PluginBuilder) -> anyhow::Result<()> {
-        LOUD_BUILT.set(true);
-        Ok(())
-    }
+#[builds]
+fn loud(_app: &mut PluginBuilder) -> anyhow::Result<Loud> {
+    LOUD_BUILT.set(true);
+    Ok(Loud)
 }
 
 fn app(app: &mut FeatureBuilder) -> anyhow::Result<()> {
-    app.plugin(Loud)?;
+    app.plugin::<Loud>(())?;
     app.install::<Agents>()?;
     Ok(())
 }

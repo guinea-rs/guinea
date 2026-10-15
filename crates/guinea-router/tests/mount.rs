@@ -250,7 +250,7 @@ fn keeping_hidden(parent: Scope) -> Scope {
     drawn(parent, |pass| {
         vec![
             pass.mount::<Shell, _>(&(), |cx| {
-                cx.scope.hold_installed(cx.state::<Hidden>().seed(Hidden(1)).plain());
+                cx.state::<Hidden>().seed(Hidden(1)).plain();
                 Ok(())
             })
             .unwrap(),

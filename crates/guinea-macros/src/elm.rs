@@ -8,8 +8,8 @@
 //! nothing and has no messages of its own still has to say `type Params = ();`
 //! and `type Message = ..;` and write the empty `update` that goes with them.
 //! That is three lines saying nothing, and nothing but a macro can remove
-//! them. The same goes for `type Installs = ();` and an `install` that mounts
-//! the default node and installs nothing.
+//! them. The same goes for an `install` that mounts the default node and
+//! installs nothing.
 //!
 //! Deliberately *only* that. Anything a type can check, a type should check -
 //! a macro that derives a list from a body is a second source of truth that
@@ -55,7 +55,6 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
     };
 
     let has_params = declared_type("Params");
-    let has_installs = declared_type("Installs");
     let has_message = declared_type("Message");
     let has_update = declared_fn("update");
     let has_install = declared_fn("install");
@@ -77,24 +76,15 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
         ));
     }
 
-    if !has_installs {
-        item.items.push(parse_quote!(
-            type Installs = ();
-        ));
-
-        // Only alongside the defaulted list: a segment that named what it
-        // installs and then left `install` out has forgotten to install it,
-        // and the missing trait item says so.
-        if !has_install {
-            item.items.push(parse_quote! {
-                fn install(
-                    _ctx: &#adapter::FeatureInitContext,
-                    _params: &Self::Params,
-                ) -> #gc::__private::anyhow::Result<(Self, ())> {
-                    ::std::result::Result::Ok((::core::default::Default::default(), ()))
-                }
-            });
-        }
+    if !has_install {
+        item.items.push(parse_quote! {
+            fn install(
+                _ctx: &#adapter::FeatureInitContext,
+                _params: &Self::Params,
+            ) -> #gc::__private::anyhow::Result<Self> {
+                ::std::result::Result::Ok(::core::default::Default::default())
+            }
+        });
     }
 
     if model == Model::Elm && !has_message {

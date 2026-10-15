@@ -85,22 +85,6 @@ fn a_feature_whose_install_failed_is_not_listed_as_installed(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 1)]
-fn what_a_listing_says_a_segment_s_own_reducer_exports_is_what_a_page_below_reads(h: &mut Harness) {
-    let listed = guinea::feature::Listed::reducer::<counting::Count>();
-    let listed_below = listed
-        .exports
-        .contains(&guinea::core::feature::Named::of::<counting::Count>());
-
-    h.segment().context().state::<counting::Count>().plain();
-    let read_below = h.child().context().read::<counting::Count>().is_some();
-
-    assert_eq!(
-        listed_below, read_below,
-        "the listing says a page below reads it: {listed_below}; a page below reads it: {read_below}"
-    );
-}
-
-#[guinea::test(iterations = 1)]
 fn what_a_feature_claimed_before_its_install_failed_is_not_claimed(h: &mut Harness) {
     assert!(h.install::<counting::Halfway>(&()).is_err(), "nothing provides Ready yet");
 
@@ -120,20 +104,20 @@ mod boasting {
 
     pub struct Boasting;
 
-    impl Feature for Boasting {
-        type Params = ();
+    impl Plugin for Boasting {
+        const ID: &'static str = "test.boasting";
         type Exports = (counting::Count,);
 
-        fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-            cx.state::<Own>().plain();
-            Ok(Self)
+        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+            app.state::<Own>().plain();
+            Ok(())
         }
     }
 }
 
 #[guinea::test(iterations = 1)]
-fn exporting_what_was_never_claimed_fails_the_install_and_names_the_reducer(h: &mut Harness) {
-    let installed = catch_unwind(AssertUnwindSafe(|| h.install::<boasting::Boasting>(&())))
+fn a_plugin_exporting_what_it_never_claimed_fails_and_names_the_reducer(h: &mut Harness) {
+    let installed = catch_unwind(AssertUnwindSafe(|| h.plugin(boasting::Boasting).map(|_| ())))
         .map_err(said)
         .map(|installed| installed.map_err(|error| format!("{error:#}")));
 
@@ -144,10 +128,10 @@ fn exporting_what_was_never_claimed_fails_the_install_and_names_the_reducer(h: &
 }
 
 #[guinea::test(iterations = 1)]
-fn a_feature_refused_for_what_it_did_not_claim_keeps_nothing_it_did(h: &mut Harness) {
-    let _ = catch_unwind(AssertUnwindSafe(|| h.install::<boasting::Boasting>(&())));
+fn a_plugin_refused_for_what_it_did_not_claim_keeps_nothing_it_did(h: &mut Harness) {
+    let _ = catch_unwind(AssertUnwindSafe(|| h.plugin(boasting::Boasting).map(|_| ())));
 
-    assert!(!h.segment().context().scope.claims::<boasting::Own>());
+    assert!(!h.application().scope.claims::<boasting::Own>());
 }
 
 thread_local! {

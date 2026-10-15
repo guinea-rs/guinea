@@ -35,10 +35,9 @@ mod twice {
 
     #[page]
     impl Page for TwiceReader {
-        type Installs = Bound<Level>;
-
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Bound<Level>)> {
-            Ok((Self, ctx.state::<Level>().seed(Level(3)).plain()))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.state::<Level>().seed(Level(3)).plain();
+            Ok(Self)
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {

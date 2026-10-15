@@ -103,11 +103,11 @@ pub enum Typing {
 #[page]
 impl Page for SearchPage {
     type Params = ();
-    type Installs = Search;
     type Message = Typing;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Search)> {
-        Ok((Self::default(), ctx.install(&())?))
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        ctx.install::<Search>(&())?;
+        Ok(Self::default())
     }
 
     fn update(&mut self, message: Typing, _cx: &mut UpdateCx<'_, Self>) {
@@ -1059,13 +1059,9 @@ mod navigating {
 
     #[layout]
     impl Layout for Frame {
-        type Installs = frame_clock::FrameClock;
-
-        fn install(
-            ctx: &FeatureInitContext,
-            _params: &(),
-        ) -> anyhow::Result<(Self, frame_clock::FrameClock)> {
-            Ok((Self::default(), ctx.install(&())?))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<frame_clock::FrameClock>(&())?;
+            Ok(Self::default())
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -1104,15 +1100,11 @@ mod navigating {
 
     #[layout]
     impl Layout for Area {
-        type Installs = list_clock::ListClock;
-
-        fn install(
-            ctx: &FeatureInitContext,
-            _params: &(),
-        ) -> anyhow::Result<(Self, list_clock::ListClock)> {
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
             ctx.scope
                 .on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
-            Ok((Self::default(), ctx.install(&())?))
+            ctx.install::<list_clock::ListClock>(&())?;
+            Ok(Self::default())
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -1138,13 +1130,9 @@ mod navigating {
 
     #[page]
     impl Page for Other {
-        type Installs = greeted::Greeted;
-
-        fn install(
-            ctx: &FeatureInitContext,
-            _params: &(),
-        ) -> anyhow::Result<(Self, greeted::Greeted)> {
-            Ok((Self, ctx.install(&())?))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<greeted::Greeted>(&())?;
+            Ok(Self)
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -1173,14 +1161,10 @@ mod navigating {
 
     #[layout]
     impl Layout for KeptArea {
-        type Installs = list_clock::ListClock;
-
-        fn install(
-            ctx: &FeatureInitContext,
-            _params: &(),
-        ) -> anyhow::Result<(Self, list_clock::ListClock)> {
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
             ctx.on_wake(|| KEPT_WAKES.with(|wakes| wakes.set(wakes.get() + 1)));
-            Ok((Self::default(), ctx.install(&())?))
+            ctx.install::<list_clock::ListClock>(&())?;
+            Ok(Self::default())
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

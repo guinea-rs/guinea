@@ -161,8 +161,8 @@ impl Page for TablePage {
     type Params = usize;
     type Message = Tabling;
 
-    fn install(_ctx: &FeatureInitContext, rows: &usize) -> anyhow::Result<(Self, ())> {
-        Ok((Self::with_rows(*rows), ()))
+    fn install(_ctx: &FeatureInitContext, rows: &usize) -> anyhow::Result<Self> {
+        Ok(Self::with_rows(*rows))
     }
 
     fn update(&mut self, message: Tabling, _cx: &mut UpdateCx<'_, Self>) {

@@ -71,11 +71,11 @@ mod whole {
 
     #[page]
     impl Page for CounterPage {
-        type Installs = Counter;
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Counter)> {
-            Ok((Self::default(), ctx.install(&())?))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<Counter>(&())?;
+            Ok(Self::default())
         }
 
         fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -127,7 +127,6 @@ mod whole {
 mod installing {
     //@show a page that installs
     //@hide
-    use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{FeatureInitContext, Install, Page, PageCx, page};
@@ -175,15 +174,11 @@ mod installing {
     #[page]
     impl Page for ProcessesPage {
         type Params = ProcessesParams;
-        type Installs = (Processes, Bound<Selection>);
 
-        fn install(
-            ctx: &FeatureInitContext,
-            params: &ProcessesParams,
-        ) -> anyhow::Result<(Self, Self::Installs)> {
-            let processes = ctx.install::<Processes>(&params.context)?;
-            let selection = ctx.state::<Selection>().plain();
-            Ok((Self, (processes, selection)))
+        fn install(ctx: &FeatureInitContext, params: &ProcessesParams) -> anyhow::Result<Self> {
+            ctx.install::<Processes>(&params.context)?;
+            ctx.state::<Selection>().plain();
+            Ok(Self)
         }
 
         fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -233,8 +228,8 @@ mod keeping_the_capture {
     impl Page for ProcessPage {
         type Params = ProcessParams;
 
-        fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<(Self, ())> {
-            Ok((Self { pid: params.pid }, ()))
+        fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<Self> {
+            Ok(Self { pid: params.pid })
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -295,8 +290,8 @@ mod starting_from_a_setting {
             _ctx: &FeatureInitContext,
             _params: &(),
             saved: Option<SavedWidths>,
-        ) -> anyhow::Result<(Self, ())> {
-            Ok((Self { widths: saved.unwrap_or_default().0 }, ()))
+        ) -> anyhow::Result<Self> {
+            Ok(Self { widths: saved.unwrap_or_default().0 })
         }
 
         fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -417,11 +412,11 @@ mod asking_a_feature {
 
     #[page]
     impl Page for SearchPage {
-        type Installs = Searching;
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Searching)> {
-            Ok((Self::default(), ctx.install(&())?))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<Searching>(&())?;
+            Ok(Self::default())
         }
 
         fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) {
@@ -516,7 +511,6 @@ mod answering_a_widget {
 mod shell {
     //@show a shell
     //@hide
-    use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
@@ -602,15 +596,14 @@ mod shell {
 
     #[layout]
     impl Layout for Shell {
-        /// A flat list: a feature, and a reducer claimed directly. Pages below
-        /// may read `Sidebar`, which `Chrome` exports; `Title` is the shell's
-        /// own.
-        type Installs = (Chrome, Bound<Title>);
         type Message = ShellMsg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
-            let title = ctx.state::<Title>().seed(Title("guinea".into())).plain();
-            Ok((Self, (ctx.install(&())?, title)))
+        /// A feature, and a reducer claimed directly. Pages below may read
+        /// `Sidebar`, which `Chrome` exports; `Title` is the shell's own.
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<Chrome>(&())?;
+            ctx.state::<Title>().seed(Title("guinea".into())).plain();
+            Ok(Self)
         }
 
         fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
@@ -740,13 +733,10 @@ mod per_machine {
     impl Layout for MachineLayout {
         /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
         type Params = String;
-        type Installs = Connection;
 
-        fn install(
-            ctx: &FeatureInitContext,
-            machine: &String,
-        ) -> anyhow::Result<(Self, Connection)> {
-            Ok((Self, ctx.install::<Connection>(machine)?))
+        fn install(ctx: &FeatureInitContext, machine: &String) -> anyhow::Result<Self> {
+            ctx.install::<Connection>(machine)?;
+            Ok(Self)
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -774,7 +764,6 @@ mod per_machine {
 mod layout_installing {
     //@show a layout that installs
     //@hide
-    use guinea_core::feature::Bound;
     use guinea_macros::{feature, installs, reducer};
     use guinea_winui::{Page, PageCx, page};
     use windows_reactor::TextBlock;
@@ -843,21 +832,21 @@ mod layout_installing {
 
     #[layout]
     impl Layout for Shell {
-        type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
-
+        /// `refresh` is a setting the application may `provide`.
         fn install(
             ctx: &FeatureInitContext,
             _params: &(),
             refresh: Option<Refresh>,
-        ) -> anyhow::Result<(Self, Self::Installs)> {
-            // A setting the application may `provide`, and a default when
-            // it does not.
+        ) -> anyhow::Result<Self> {
             let refresh = refresh.unwrap_or_default();
-            let title = ctx
-                .state::<Title>()
-                .seed(Title(format!("every {} ms", refresh.every_ms)));
 
-            Ok((Self, (ctx.install(&())?, ctx.install(&())?, title.plain())))
+            ctx.install::<SidebarFeature>(&())?;
+            ctx.install::<MetricsFeature>(&())?;
+            ctx.state::<Title>()
+                .seed(Title(format!("every {} ms", refresh.every_ms)))
+                .plain();
+
+            Ok(Self)
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {

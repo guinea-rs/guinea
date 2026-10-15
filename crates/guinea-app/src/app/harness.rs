@@ -296,8 +296,7 @@ pub struct Segment<'h> {
 impl<'h> Segment<'h> {
     /// Installs `F` here, for as long as the segment lives.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<()> {
-        let installed = self.cx.install::<F>(params)?;
-        self.cx.scope.hold_installed(installed);
+        self.cx.install::<F>(params)?;
         Ok(())
     }
 

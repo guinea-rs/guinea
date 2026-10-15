@@ -208,7 +208,6 @@ async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_t
     let said = Rc::new(RefCell::new(Vec::new()));
     let scope = ScopeTree::new();
 
-    scope.hold_installed(Says(said.clone(), "installed"));
     let hearing = Says(said.clone(), "hearing");
     scope.hold_hearing(scope.bus().subscribe_fn(move |_: Ping| {
         let _ = &hearing;
@@ -232,7 +231,7 @@ async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_t
 
     assert_eq!(
         *said.borrow(),
-        ["cleanup", "actor", "timer", "watching", "hearing", "installed"]
+        ["cleanup", "actor", "timer", "watching", "hearing"]
     );
 }
 

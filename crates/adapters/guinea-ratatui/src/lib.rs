@@ -74,8 +74,8 @@ pub enum Handled {
 /// Input comes to what was drawn: [`Page::on_key`] and [`Page::on_paste`]
 /// see it first, the layouts above see what it did not take.
 ///
-/// `#[page]` writes what is left out: `Params` and `Installs` as `()`, and
-/// the `install` that starts from `Default`.
+/// `#[page]` writes what is left out: `Params` as `()`, and the `install`
+/// that starts from `Default`.
 pub trait Page: Sized + 'static {
     /// Where `impl Page` was written, for devtools to link to.
     const DECLARED: Option<guinea_core::actor::shape::Declared> = None;
@@ -87,24 +87,13 @@ pub trait Page: Sized + 'static {
     /// other params another page in a scope of its own.
     type Params: PartialEq + Clone + 'static;
 
-    /// What this page installs, and `()` when it installs nothing.
-    ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking.
-    ///
-    /// What is returned is owned by the page's scope, which is what gives a
-    /// feature its own lifetime.
-    type Installs: guinea_app::feature::Lists;
-
     /// Mounts the page: installs what it needs while it is mounted, and
-    /// returns the state it starts with beside its
-    /// [`Installs`](Self::Installs). Runs once per scope, when the scope is
-    /// made.
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    /// returns the state it starts with. Runs once per scope, when the scope
+    /// is made.
+    ///
+    /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
+    /// and goes when the page does.
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     /// Draws the page into the frame it is handed.
     ///
@@ -135,18 +124,12 @@ pub trait Layout: Sized + 'static {
     /// What the layout is mounted with, as a page is: see [`Page::Params`].
     type Params: PartialEq + Clone + 'static;
 
-    /// What this layout installs. See [`Page::Installs`].
-    ///
-    /// For a layout it is also what the pages below share: they come and go,
-    /// and what is installed here stays. Whatever its features list in
-    /// `Exports` those pages may read.
-    type Installs: guinea_app::feature::Lists;
-
     /// See [`Page::install`].
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    ///
+    /// What a layout installs is also what the pages below share: they come
+    /// and go, and it stays. Whatever its features list in `Exports` those
+    /// pages may read.
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>);
 
@@ -199,8 +182,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
         offer: page_offer::<P>,
     });
     guinea_router::mount::written(ctx.scope, P::DECLARED);
-    let (node, installs) = P::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = P::install(ctx, params)?;
     ctx.scope.keep(node);
     Ok(())
 }
@@ -212,8 +194,7 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
         offer: layout_offer::<L>,
     });
     guinea_router::mount::written(ctx.scope, L::DECLARED);
-    let (node, installs) = L::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = L::install(ctx, params)?;
     ctx.scope.keep(node);
     Ok(())
 }

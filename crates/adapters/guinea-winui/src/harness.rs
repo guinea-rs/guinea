@@ -390,8 +390,8 @@ impl<S> Drop for Mounted<'_, S> {
 }
 
 impl<'h, S: Mountable> Mounted<'h, S> {
-    /// Installs `S` into `segment` - what it `Installs`, and the node it
-    /// starts as - and mounts it, the way a layout above it would.
+    /// Installs `S` into `segment` - what its `install` installs, and the node
+    /// it starts as - and mounts it, the way a layout above it would.
     pub fn mount(segment: Segment<'h>, params: S::Params) -> anyhow::Result<Self> {
         Self::mount_with(segment, params, |view| view)
     }

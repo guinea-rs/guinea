@@ -95,9 +95,9 @@ fn list_replaced(update: &Replaced) -> Option<LeafMsg> {
 impl Page for Leaf {
     type Message = LeafMsg;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         ctx.state::<Domain>().seed(Domain(vec![1, 2, 3])).plain();
-        Ok((Self::default(), ()))
+        Ok(Self::default())
     }
 
     fn observes(cx: &Observing<'_, LeafMsg>) {
@@ -213,8 +213,8 @@ impl Page for Numbered {
     type Params = u32;
     type Message = PickHere;
 
-    fn install(_ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<(Self, ())> {
-        Ok((Self { pid: *pid, picked: None }, ()))
+    fn install(_ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<Self> {
+        Ok(Self { pid: *pid, picked: None })
     }
 
     fn update(&mut self, _message: PickHere, _cx: &mut UpdateCx<'_, Self>) {

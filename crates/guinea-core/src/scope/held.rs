@@ -33,8 +33,6 @@ pub(super) enum Taken {
     Hearing(BusSubscription),
     /// A reducer watched.
     Watching(Subscription),
-    /// What a feature installed in it handed back.
-    Installed(Box<dyn Any>),
     Timer(Ticking),
     /// A feed it opened. See [`crate::feed`].
     Feed(Rc<dyn Opened>),
@@ -48,7 +46,6 @@ impl Taken {
             Taken::Actor(actor) => actor.let_go(key),
             Taken::Hearing(hearing) => drop(hearing),
             Taken::Watching(watching) => drop(watching),
-            Taken::Installed(installed) => drop(installed),
             Taken::Timer(ticking) => drop(ticking),
             Taken::Feed(fed) => fed.close(),
             Taken::Cleanup(run) => run(),
@@ -89,12 +86,6 @@ impl Scope {
     /// there.
     pub fn hold_watching(&self, watching: Subscription) {
         self.take(next_key(), Taken::Watching(watching));
-    }
-
-    /// Keeps what a feature's `install` handed back for as long as this scope
-    /// is there.
-    pub fn hold_installed<T: 'static>(&self, installed: T) {
-        self.take(next_key(), Taken::Installed(Box::new(installed)));
     }
 
     /// Runs the timer `ticking` under `key` until this scope goes.

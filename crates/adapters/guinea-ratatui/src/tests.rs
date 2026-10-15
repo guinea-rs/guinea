@@ -53,10 +53,9 @@ struct Shell {
 
 #[layout]
 impl Layout for Shell {
-    type Installs = Sharing;
-
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Sharing)> {
-        Ok((Self::default(), ctx.install(&())?))
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        ctx.install::<Sharing>(&())?;
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, '_, Self>) {
@@ -171,7 +170,7 @@ struct Broken;
 
 #[page]
 impl Page for Broken {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 
@@ -199,10 +198,10 @@ struct Draft {
 
 #[page]
 impl Page for Draft {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         ctx.scope
             .on_leave(|| Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing")));
-        Ok((Self::default(), ()))
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, '_, Self>) {

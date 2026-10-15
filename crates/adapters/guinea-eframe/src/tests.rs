@@ -44,10 +44,9 @@ struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    type Installs = Sharing;
-
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Sharing)> {
-        Ok((Self, ctx.install(&())?))
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        ctx.install::<Sharing>(&())?;
+        Ok(Self)
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
@@ -107,7 +106,7 @@ struct Broken;
 
 #[page]
 impl Page for Broken {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

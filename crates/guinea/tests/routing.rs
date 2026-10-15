@@ -37,10 +37,9 @@ mod provided {
 
     #[page]
     impl Page for NeedsAService {
-        type Installs = Greeted;
-
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Greeted)> {
-            Ok((Self::default(), ctx.install(&())?))
+        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+            ctx.install::<Greeted>(&())?;
+            Ok(Self::default())
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> windows_reactor::View {

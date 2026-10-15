@@ -11,7 +11,6 @@ use guinea::app::Harness;
 use guinea::feature::FeatureInitContext;
 use guinea::winui::harness::Mounted;
 use guinea::winui::*;
-use guinea_core::feature::Bound;
 use guinea_core::scope::Scope;
 use guinea_macros::reducer;
 use windows_reactor::{TextBlock, View};
@@ -64,12 +63,10 @@ struct Process {
 #[page]
 impl Page for Process {
     type Params = u32;
-    type Installs = Bound<Load>;
-
-    fn install(ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<(Self, Bound<Load>)> {
+    fn install(ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<Self> {
         INSTALLED.set(Some(ctx.scope));
-        let load = ctx.state::<Load>().seed(Load::default()).plain();
-        Ok((Self { pid: *pid }, load))
+        ctx.state::<Load>().seed(Load::default()).plain();
+        Ok(Self { pid: *pid })
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -108,7 +105,7 @@ struct Unreachable;
 
 #[page]
 impl Page for Unreachable {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

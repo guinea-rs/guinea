@@ -126,10 +126,9 @@ struct Processes;
 
 #[page]
 impl Page for Processes {
-    type Installs = Labelling;
-
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Labelling)> {
-        Ok((Self, ctx.install(&())?))
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        ctx.install::<Labelling>(&())?;
+        Ok(Self)
     }
 
     fn bind(&mut self, cx: &BindCx<Self>) {
@@ -151,7 +150,7 @@ struct Broken;
 
 #[page]
 impl Page for Broken {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 }
@@ -162,10 +161,10 @@ struct Draft;
 
 #[page]
 impl Page for Draft {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         ctx.scope
             .on_leave(|| Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing")));
-        Ok((Self, ()))
+        Ok(Self)
     }
 }
 
@@ -185,7 +184,7 @@ struct Unreachable;
 
 #[layout]
 impl Layout for Unreachable {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, ())> {
+    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

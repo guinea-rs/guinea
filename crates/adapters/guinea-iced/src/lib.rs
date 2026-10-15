@@ -113,26 +113,16 @@ pub trait Page: Sized + 'static {
     /// and this one travels inside it.
     type Message: Send + 'static;
 
-    /// What this page installs, and `()` when it installs nothing.
-    ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking. `#[page]` fills in both this and the
-    /// empty `install` when a page installs nothing.
-    ///
-    /// What is returned is owned by the page's scope, which is what gives a
-    /// feature its own lifetime.
-    type Installs: guinea_app::feature::Lists;
-
     /// Mounts the page: installs what it needs while it is mounted, and
-    /// returns the node it starts as beside its [`Installs`](Self::Installs).
+    /// returns the node it starts as. `#[page]` writes one that starts from
+    /// `Default` when it is left out.
+    ///
+    /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
+    /// and goes when the page does.
     ///
     /// Runs once per scope, when the scope is made. A page woken from sleep
     /// is not mounted again.
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     /// Which reducers this page translates, and into what.
     fn observes(_cx: &Observing<'_, Self::Message>) {}
@@ -172,18 +162,12 @@ pub trait Layout: Sized + 'static {
 
     type Message: Send + 'static;
 
-    /// What this layout installs. See [`Page::Installs`].
-    ///
-    /// For a layout it is also what the nodes below share: they come and go,
-    /// and what is installed here stays. Whatever its features list in
-    /// `Exports` those nodes may read.
-    type Installs: guinea_app::feature::Lists;
-
     /// Mounts the layout. See [`Page::install`].
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    ///
+    /// What a layout installs is also what the nodes below share: they come
+    /// and go, and it stays. Whatever its features list in `Exports` those
+    /// nodes may read.
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     fn observes(_cx: &Observing<'_, Self::Message>) {}
 
@@ -579,8 +563,7 @@ fn stage_node<Node: 'static>(ctx: &FeatureInitContext, node: Node, leaving: fn(&
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(page_view::<P>));
     guinea_router::mount::written(ctx.scope, P::DECLARED);
-    let (node, installs) = P::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = P::install(ctx, params)?;
     stage_node(ctx, node, P::leaving);
     P::observes(&Observing::new(ctx, deliver_page::<P>));
     Ok(())
@@ -590,8 +573,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(layout_view::<L>));
     guinea_router::mount::written(ctx.scope, L::DECLARED);
-    let (node, installs) = L::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = L::install(ctx, params)?;
     stage_node(ctx, node, L::leaving);
     L::observes(&Observing::new(ctx, deliver_layout::<L>));
     Ok(())

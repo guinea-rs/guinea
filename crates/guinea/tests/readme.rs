@@ -56,10 +56,9 @@ pub struct Home;
 
 #[page]
 impl Page for Home {
-    type Installs = Counter;
-
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Counter)> {
-        Ok((Self::default(), ctx.install(&())?))
+    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        ctx.install::<Counter>(&())?;
+        Ok(Self::default())
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {

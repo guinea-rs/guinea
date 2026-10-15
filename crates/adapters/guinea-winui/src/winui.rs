@@ -38,9 +38,9 @@ use windows_reactor::{
 /// Each part has one job:
 ///
 /// - [`install`](Page::install) mounts the page: it sets up what the page
-///   needs while it is mounted - the features listed in
-///   [`Installs`](Page::Installs) - and returns the node it starts as. Both
-///   live in the page's scope and go when the page is left.
+///   needs while it is mounted - the features it installs with
+///   `ctx.install::<F>(..)` - and returns the node it starts as. Both live in
+///   the page's scope and go when the page is left.
 /// - [`update`](Page::update) is the only place the page's own state changes,
 ///   one [`Message`](Page::Message) at a time.
 /// - [`view`](Page::view) draws that state. It reads what features publish
@@ -49,8 +49,8 @@ use windows_reactor::{
 ///   `emit` on the dispatch it was handed.
 ///
 /// `#[page]` writes what a page leaves out: `Params = ()` for a page that
-/// captures nothing, `Installs = ()` with an `install` that mounts the
-/// `Default` node and installs nothing, and a
+/// captures nothing, an `install` that mounts the `Default` node and installs
+/// nothing, and a
 /// `Message` nobody can send with its empty `update`. That `install` is the
 /// only thing that asks for `Default`: a page that writes its own is made
 /// there, and need not have one. The smallest page is a view:
@@ -123,11 +123,11 @@ use windows_reactor::{
 ///
 /// #[page]
 /// impl Page for CounterPage {
-///     type Installs = Counter;
 ///     type Message = Msg;
 ///
-///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Counter)> {
-///         Ok((Self::default(), ctx.install(&())?))
+///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+///         ctx.install::<Counter>(&())?;
+///         Ok(Self::default())
 ///     }
 ///
 ///     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -189,21 +189,6 @@ pub trait Page: Sized + 'static {
     /// need and for what the node keeps.
     type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs, and `()` when it installs nothing.
-    ///
-    /// The list is not written beside the body - it *is* the body's
-    /// obligation: `install` returns it, so a feature that stops being
-    /// installed stops type-checking.
-    ///
-    /// What is returned is owned by the segment's scope, which is what gives a
-    /// feature its own lifetime.
-    ///
-    /// One feature, a reducer claimed directly as `Bound<R>`, or a flat tuple
-    /// of up to twelve of either. It is also what the page may read: what it
-    /// installed itself, and what a segment above listed in `Exports`. See
-    /// [`install`](Self::install) for an example.
-    type Installs: guinea_app::feature::Lists;
-
     /// This page's own events. An enum, and nobody else's business.
     ///
     /// Made from a widget's event by [`PageCx::on`], and handled in
@@ -213,11 +198,12 @@ pub trait Page: Sized + 'static {
     type Message: 'static;
 
     /// Mounts the page: installs what it needs while it is mounted, and
-    /// returns the node it starts as beside its [`Installs`](Self::Installs).
+    /// returns the node it starts as.
     ///
     /// Runs once per scope, when the scope is made, and in it: what it
     /// installs goes when the page is left, and the node lives as long as the
-    /// scope. A page woken from sleep is not mounted again. Everything an
+    /// scope. The page reads what it installed itself, and what a segment
+    /// above lists in `Exports`. A page woken from sleep is not mounted again. Everything an
     /// effect needs exactly once per mount belongs here - a first `Refresh`
     /// emitted to a feature, say - and so does anything the node starts from.
     ///
@@ -268,15 +254,11 @@ pub trait Page: Sized + 'static {
     /// #[page]
     /// impl Page for ProcessesPage {
     ///     type Params = ProcessesParams;
-    ///     type Installs = (Processes, Bound<Selection>);
     ///
-    ///     fn install(
-    ///         ctx: &FeatureInitContext,
-    ///         params: &ProcessesParams,
-    ///     ) -> anyhow::Result<(Self, Self::Installs)> {
-    ///         let processes = ctx.install::<Processes>(&params.context)?;
-    ///         let selection = ctx.state::<Selection>().plain();
-    ///         Ok((Self, (processes, selection)))
+    ///     fn install(ctx: &FeatureInitContext, params: &ProcessesParams) -> anyhow::Result<Self> {
+    ///         ctx.install::<Processes>(&params.context)?;
+    ///         ctx.state::<Selection>().plain();
+    ///         Ok(Self)
     ///     }
     ///
     ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -308,8 +290,8 @@ pub trait Page: Sized + 'static {
     /// impl Page for ProcessPage {
     ///     type Params = ProcessParams;
     ///
-    ///     fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<(Self, ())> {
-    ///         Ok((Self { pid: params.pid }, ()))
+    ///     fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<Self> {
+    ///         Ok(Self { pid: params.pid })
     ///     }
     ///
     ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -358,8 +340,8 @@ pub trait Page: Sized + 'static {
     ///         _ctx: &FeatureInitContext,
     ///         _params: &(),
     ///         saved: Option<SavedWidths>,
-    ///     ) -> anyhow::Result<(Self, ())> {
-    ///         Ok((Self { widths: saved.unwrap_or_default().0 }, ()))
+    ///     ) -> anyhow::Result<Self> {
+    ///         Ok(Self { widths: saved.unwrap_or_default().0 })
     ///     }
     ///
     ///     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
@@ -381,10 +363,7 @@ pub trait Page: Sized + 'static {
     /// }
     /// ```
     /// <!-- /shown -->
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     /// Asked before this page is left, and answered from its own state.
     ///
@@ -488,11 +467,11 @@ pub trait Page: Sized + 'static {
     ///
     /// #[page]
     /// impl Page for SearchPage {
-    ///     type Installs = Searching;
     ///     type Message = Msg;
     ///
-    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Searching)> {
-    ///         Ok((Self::default(), ctx.install(&())?))
+    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    ///         ctx.install::<Searching>(&())?;
+    ///         Ok(Self::default())
     ///     }
     ///
     ///     fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) {
@@ -667,15 +646,14 @@ pub trait Page: Sized + 'static {
 ///
 /// #[layout]
 /// impl Layout for Shell {
-///     /// A flat list: a feature, and a reducer claimed directly. Pages below
-///     /// may read `Sidebar`, which `Chrome` exports; `Title` is the shell's
-///     /// own.
-///     type Installs = (Chrome, Bound<Title>);
 ///     type Message = ShellMsg;
 ///
-///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<(Self, Self::Installs)> {
-///         let title = ctx.state::<Title>().seed(Title("guinea".into())).plain();
-///         Ok((Self, (ctx.install(&())?, title)))
+///     /// A feature, and a reducer claimed directly. Pages below may read
+///     /// `Sidebar`, which `Chrome` exports; `Title` is the shell's own.
+///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+///         ctx.install::<Chrome>(&())?;
+///         ctx.state::<Title>().seed(Title("guinea".into())).plain();
+///         Ok(Self)
 ///     }
 ///
 ///     fn update(&mut self, message: ShellMsg, cx: &mut UpdateCx<'_, Self>) {
@@ -745,13 +723,10 @@ pub trait Layout: Sized + 'static {
     /// impl Layout for MachineLayout {
     ///     /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
     ///     type Params = String;
-    ///     type Installs = Connection;
     ///
-    ///     fn install(
-    ///         ctx: &FeatureInitContext,
-    ///         machine: &String,
-    ///     ) -> anyhow::Result<(Self, Connection)> {
-    ///         Ok((Self, ctx.install::<Connection>(machine)?))
+    ///     fn install(ctx: &FeatureInitContext, machine: &String) -> anyhow::Result<Self> {
+    ///         ctx.install::<Connection>(machine)?;
+    ///         Ok(Self)
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -762,20 +737,16 @@ pub trait Layout: Sized + 'static {
     /// <!-- /shown -->
     type Params: PartialEq + Clone + 'static;
 
-    /// What this segment installs. See [`Page::Installs`].
-    ///
-    /// For a layout it is also what the pages below share: they come and go,
-    /// and what is installed here stays. Whatever its features list in
-    /// `Exports` those pages may read; a reducer claimed directly as
-    /// `Bound<R>` is the layout's own.
-    type Installs: guinea_app::feature::Lists;
-
     /// This layout's own events. See [`Page::Message`].
     type Message: 'static;
 
     /// Mounts the layout: installs what it, and every page under it, needs
     /// while it is mounted, and returns the node it starts as. See
     /// [`Page::install`].
+    ///
+    /// What it installs is what the pages below share: they come and go, and
+    /// it stays. Whatever its features list in `Exports` those pages may
+    /// read; a reducer it claims directly is its own.
     ///
     /// <!-- shown: a layout that installs -->
     /// ```rust,ignore
@@ -793,21 +764,21 @@ pub trait Layout: Sized + 'static {
     ///
     /// #[layout]
     /// impl Layout for Shell {
-    ///     type Installs = (SidebarFeature, MetricsFeature, Bound<Title>);
-    ///
+    ///     /// `refresh` is a setting the application may `provide`.
     ///     fn install(
     ///         ctx: &FeatureInitContext,
     ///         _params: &(),
     ///         refresh: Option<Refresh>,
-    ///     ) -> anyhow::Result<(Self, Self::Installs)> {
-    ///         // A setting the application may `provide`, and a default when
-    ///         // it does not.
+    ///     ) -> anyhow::Result<Self> {
     ///         let refresh = refresh.unwrap_or_default();
-    ///         let title = ctx
-    ///             .state::<Title>()
-    ///             .seed(Title(format!("every {} ms", refresh.every_ms)));
     ///
-    ///         Ok((Self, (ctx.install(&())?, ctx.install(&())?, title.plain())))
+    ///         ctx.install::<SidebarFeature>(&())?;
+    ///         ctx.install::<MetricsFeature>(&())?;
+    ///         ctx.state::<Title>()
+    ///             .seed(Title(format!("every {} ms", refresh.every_ms)))
+    ///             .plain();
+    ///
+    ///         Ok(Self)
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
@@ -820,10 +791,7 @@ pub trait Layout: Sized + 'static {
     /// Runs when the layout is mounted, which is not every navigation: a
     /// move between two of its pages keeps the node, and what the layout
     /// holds survives it.
-    fn install(
-        ctx: &FeatureInitContext,
-        params: &Self::Params,
-    ) -> anyhow::Result<(Self, Self::Installs)>;
+    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 
     /// Asked before this layout is left. See [`Page::leaving`].
     ///
@@ -972,8 +940,7 @@ fn staged<N: 'static>(scope: Scope) -> Option<Shared<N>> {
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(page_view::<P>));
     guinea_router::mount::written(ctx.scope, P::DECLARED);
-    let (node, installs) = P::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = P::install(ctx, params)?;
     stage_node(ctx, node, P::leaving);
     Ok(())
 }
@@ -1022,8 +989,7 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
     ctx.scope.keep(Draws(layout_view::<L>));
     guinea_router::mount::written(ctx.scope, L::DECLARED);
-    let (node, installs) = L::install(ctx, params)?;
-    ctx.scope.hold_installed(installs);
+    let node = L::install(ctx, params)?;
     stage_node(ctx, node, L::leaving);
     Ok(())
 }

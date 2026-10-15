@@ -172,7 +172,7 @@ fn a_mounted_page_lists_the_state_it_installed() {
     let host = FeatureHost::detached();
     let pass = Pass::begin(host.scope());
     pass.mount::<Page, ()>(&(), |cx| {
-        cx.scope.hold_installed(cx.state::<Counter>().seed(Counter { seen: 3 }).plain());
+        cx.state::<Counter>().seed(Counter { seen: 3 }).plain();
         Ok(())
     })
     .expect("mounted");

@@ -135,8 +135,12 @@ impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
 /// `Bound<R>` comes only from claiming `R`, so a feature cannot export what it
 /// did not claim.
 ///
-/// It is returned rather than dropped so that a segment installing two
-/// features can wire them to each other - which is usually why it installs two.
+/// What it returns is handles and nothing else: its state, actors, timers and
+/// feeds are its scope's, and live as long as the scope does whether the
+/// value is kept or not. It is returned so that a feature installing another
+/// can wire the two together; a page or a layout drops it.
+///
+/// Written by `#[installs]`, not by hand.
 pub trait Feature: Sized + 'static {
     /// What the segment hands it - typically what the route captured.
     type Params: ?Sized;
@@ -150,12 +154,6 @@ pub trait Feature: Sized + 'static {
     const DECLARED: Option<Declared> = None;
 
     fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
-
-    /// What `install` takes and cannot do without. `#[installs]` fills it in,
-    /// for a route tree to be checked against what was provided before it
-    /// is entered.
-    #[doc(hidden)]
-    fn needs(_into: &mut Vec<super::given::Need>) {}
 }
 
 /// What `feature!` declares about a feature: what it exports. `#[installs]`
@@ -170,9 +168,13 @@ impl FeatureInitContext {
     /// Twice for the same feature in one scope is a setup bug rather than
     /// something to merge silently, so it panics, before the body runs.
     ///
-    /// An install that fails, or exports a reducer nothing in it claimed,
-    /// publishes nothing, is not listed, and claims and answers nothing here -
-    /// so `F` may be installed again once what it needed is there.
+    /// An install that fails publishes nothing, is not listed, and claims and
+    /// answers nothing here - so `F` may be installed again once what it
+    /// needed is there.
+    ///
+    /// The feature lives as long as this scope, and the value returned is
+    /// only its handles: a page drops it, a feature installing another may
+    /// wire the two with it.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<F> {
         let who = name::<F>();
         if self.scope.has_feature::<F>() {

@@ -126,7 +126,7 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::
     // may already queue work back to this thread.
     let ui = wakeups::install();
 
-    let runtime = match app.install() {
+    let runtime = match app.start() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

@@ -114,7 +114,7 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::
     };
     let ui = UiLoop::install_waking(repaint.clone());
 
-    let runtime = match app.install() {
+    let runtime = match app.start() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

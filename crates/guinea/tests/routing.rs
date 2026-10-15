@@ -56,10 +56,9 @@ mod provided {
 
     #[test]
     fn a_page_s_feature_takes_what_an_application_plugin_provided() {
-        let runtime = guinea::app::GuineaApp::new()
-            .plugin(GreetingPlugin)
-            .install()
-            .expect("install");
+        let mut app = guinea::app::GuineaApp::new();
+        app.plugin(GreetingPlugin);
+        let runtime = app.start().expect("install");
 
         mount(&FeatureHost::under(&runtime.context()))
             .expect("the page's feature must be handed the service the plugin provided");

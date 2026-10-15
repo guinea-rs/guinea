@@ -30,34 +30,32 @@ fn sweep(this: &mut Housekeeping, _: Sweep) {
     tracing::debug!(sweeps = this.sweeps, "housekeeping sweep");
 }
 
-pub struct Startup;
+feature! {
+    pub Startup {}
+}
 
-impl AppFeature for Startup {
-    type Exports = ();
+#[installs]
+fn startup(app: &mut FeatureBuilder, store: Store) -> anyhow::Result<Startup> {
+    let started = Instant::now();
+    app.provide(StartedAt(started));
 
-    #[given]
-    fn install(self, app: &mut FeatureBuilder, store: Store) -> anyhow::Result<()> {
-        let started = Instant::now();
-        app.provide(StartedAt(started));
+    let launches = store.get::<u64>(LAUNCHES)?.unwrap_or_default() + 1;
+    store.set(LAUNCHES, &launches)?;
+    tracing::info!(launches, "started");
 
-        let launches = store.get::<u64>(LAUNCHES)?.unwrap_or_default() + 1;
-        store.set(LAUNCHES, &launches)?;
-        tracing::info!(launches, "started");
+    let housekeeping = app.spawn(Housekeeping::default());
+    app.every(Duration::from_secs(5), || Sweep, housekeeping)
+        .named("housekeeping");
 
-        let housekeeping = app.spawn(Housekeeping::default());
-        app.every(Duration::from_secs(5), || Sweep, housekeeping)
-            .named("housekeeping");
+    app.subscribe::<ProcessKilled>(|event| {
+        tracing::info!(process = %event.name, "process killed");
+    });
 
-        app.subscribe::<ProcessKilled>(|event| {
-            tracing::info!(process = %event.name, "process killed");
-        });
-
-        app.on_cleanup(move || {
-            let uptime = started.elapsed();
-            tracing::info!(?uptime, "shutdown ran");
-            Ok(())
-        });
-
+    app.on_cleanup(move || {
+        let uptime = started.elapsed();
+        tracing::info!(?uptime, "shutdown ran");
         Ok(())
-    }
+    });
+
+    Ok(Startup)
 }

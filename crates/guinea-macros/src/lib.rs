@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use syn::{ItemFn, parse_macro_input};
 
 mod actor_dsl;
-mod app_dsl;
 mod elm;
 mod feature_dsl;
 mod given;
@@ -38,25 +37,6 @@ pub fn feature(input: TokenStream) -> TokenStream {
     feature_dsl::feature_impl(input)
 }
 
-/// The application's manifest: its name, and the features and plugins whose
-/// exports its pages read.
-///
-/// ```ignore
-/// app! {
-///     pub App {
-///         installs { ActivityFeature, L10nPlugin<Strings>, #[cfg(debug_assertions)] Overlay }
-///     }
-/// }
-/// ```
-///
-/// It makes the application's type - one `Installed` per line, in the order
-/// listed - and the top segment a route tree names with `app = App`. What
-/// installs it is an [`installs`] function taking `&mut FeatureBuilder`.
-#[proc_macro]
-pub fn app(input: TokenStream) -> TokenStream {
-    app_dsl::app_impl(input)
-}
-
 /// The function that installs a feature: whatever it returns is the feature,
 /// what its `Install` carries is what it is installed with, and every
 /// argument after the context is a service the application provided.
@@ -73,14 +53,14 @@ pub fn app(input: TokenStream) -> TokenStream {
 /// when nothing provided `T`. What is missing refuses the install before the
 /// function runs, all of it named at once.
 ///
-/// A function taking `&mut FeatureBuilder` installs the application `app!`
-/// declared instead:
+/// A function taking `&mut FeatureBuilder` installs a feature of the
+/// application, which every window reads from, instead:
 ///
 /// ```ignore
 /// #[installs]
-/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
-///     app.plugin(DevToolsPlugin::new())?;
-///     Ok(App(app.feature(ActivityFeature)?, app.plugin(L10nPlugin::new("en"))?))
+/// fn activity(app: &mut FeatureBuilder, store: Store) -> anyhow::Result<Activity> {
+///     let (activity, _) = app.state::<ActivityState>().driven_by(|push| ActivityActor::new(store, push));
+///     Ok(Activity(activity))
 /// }
 /// ```
 ///
@@ -92,7 +72,7 @@ pub fn installs(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Services as arguments, for a method a trait gives one context: a plugin's
-/// `build` or an application feature's `install`.
+/// `build`.
 ///
 /// ```ignore
 /// impl Plugin for WindowStatePlugin {

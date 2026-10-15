@@ -117,18 +117,16 @@ mod plugins {
         }
     }
 
-    pub struct Quiets;
+    feature! {
+        pub Quiets {}
+    }
 
-    impl AppFeature for Quiets {
-        type Exports = ();
-
-        #[given]
-        fn install(self, app: &mut FeatureBuilder, volume: Option<Volume>) -> anyhow::Result<()> {
-            if volume.is_none() {
-                app.provide(Volume(1));
-            }
-            Ok(())
+    #[installs]
+    fn quiets(app: &mut FeatureBuilder, volume: Option<Volume>) -> anyhow::Result<Quiets> {
+        if volume.is_none() {
+            app.provide(Volume(1));
         }
+        Ok(Quiets)
     }
 }
 
@@ -188,7 +186,10 @@ fn a_plugin_built_before_what_it_takes_is_refused_by_name(h: &mut Harness) {
 fn an_application_feature_takes_what_it_needs_as_arguments(h: &mut Harness) {
     h.provide(Greeting("hi"));
 
-    assert_eq!(installed(h.feature(plugins::Quiets)), Ok(()));
+    let mut app = GuineaApp::new();
+    app.install::<plugins::Quiets>();
+
+    assert_eq!(installed(h.app(app)), Ok(()));
     assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
     assert_eq!(h.state::<Said>().0, "hi at 1");
 }
@@ -235,7 +236,7 @@ fn a_service_that_stays_on_the_ui_thread_is_taken_like_any_other(h: &mut Harness
 #[test]
 fn whoever_holds_the_application_reads_what_was_provided() {
     let mut app = TestApp::new();
-    app.install(plugins::Greets).unwrap();
+    app.plugin(plugins::Greets).unwrap();
 
     assert_eq!(app.service::<Greeting>(), Some(Greeting("hello")));
     assert_eq!(app.service::<Volume>(), None);

@@ -1,8 +1,8 @@
 #![cfg(all(windows, feature = "winui"))]
 
-//! A page that reads from its application, mounted under the harness:
-//! with the application as it is, or with a test's stand-ins for what it
-//! lists and nothing of what it installs besides.
+//! A page that reads from its application, mounted under the harness: with
+//! the application's recipe as it is, or with a test's own recipe that has a
+//! fake where the application has the real thing.
 
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -21,28 +21,26 @@ fn link(this: &mut Link, to: &'static str) {
     this.0 = to;
 }
 
-/// What the application lists: pages read `Link` from it.
-pub struct Agents;
-
-impl AppFeature for Agents {
-    type Exports = (Link,);
-
-    fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-        app.state::<Link>().seed(Link("real")).plain();
-        Ok(())
+feature! {
+    pub Agents {
+        exports { Link }
     }
 }
 
-/// A test's stand-in for `Agents`, exporting what it does.
-pub struct FakeAgents;
+#[installs]
+fn agents(app: &mut FeatureBuilder) -> anyhow::Result<Agents> {
+    Ok(Agents(app.state::<Link>().seed(Link("real")).plain()))
+}
 
-impl AppFeature for FakeAgents {
-    type Exports = (Link,);
-
-    fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-        app.state::<Link>().seed(Link("fake")).plain();
-        Ok(())
+feature! {
+    pub FakeAgents {
+        exports { Link }
     }
+}
+
+#[installs]
+fn fake_agents(app: &mut FeatureBuilder) -> anyhow::Result<FakeAgents> {
+    Ok(FakeAgents(app.state::<Link>().seed(Link("fake")).plain()))
 }
 
 thread_local! {
@@ -63,16 +61,10 @@ impl Plugin for Loud {
     }
 }
 
-app! {
-    pub App {
-        installs { Agents }
-    }
-}
-
-#[installs]
-fn app(app: &mut FeatureBuilder) -> anyhow::Result<App> {
-    app.plugin(Loud)?;
-    Ok(App(app.feature(Agents)?))
+fn recipe() -> GuineaApp {
+    let mut app = GuineaApp::new();
+    app.plugin(Loud).install::<Agents>();
+    app
 }
 
 #[derive(Default)]
@@ -106,7 +98,7 @@ fn shows(h: &Harness, text: &str) -> Result<bool, String> {
 fn a_page_mounts_under_the_application_as_it_is(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
-    let installed = h.install_application::<App>().map(|_| ());
+    let installed = h.app(recipe()).map(|_| ());
     assert!(installed.is_ok(), "{installed:?}");
 
     assert_eq!(shows(h, "link real"), Ok(true));
@@ -114,14 +106,14 @@ fn a_page_mounts_under_the_application_as_it_is(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 2)]
-fn a_page_mounts_under_a_test_standing_in_for_the_application(h: &mut Harness) {
+fn a_page_mounts_under_a_test_s_own_recipe(h: &mut Harness) {
     LOUD_BUILT.set(false);
 
-    let installed = h
-        .install_application_with(|app| Ok(App(app.feature_as(FakeAgents)?)))
-        .map(|_| ());
+    let mut app = GuineaApp::new();
+    app.install::<FakeAgents>();
+    let installed = h.app(app).map(|_| ());
     assert!(installed.is_ok(), "{installed:?}");
 
     assert_eq!(shows(h, "link fake"), Ok(true));
-    assert!(!LOUD_BUILT.get(), "what the application installs besides is left out");
+    assert!(!LOUD_BUILT.get(), "what the test's recipe leaves out is not built");
 }

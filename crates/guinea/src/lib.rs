@@ -74,7 +74,7 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Inspect, Mark, Remote, Request, Routable, actor, app, feature, given, handler, installs,
+    Event, Inspect, Mark, Remote, Request, Routable, actor, feature, given, handler, installs,
     reducer, slot,
 };
 
@@ -93,9 +93,7 @@ pub use guinea_core::__private::anyhow;
 /// A backend's own types - `Page`, `PageCx`, `Layout` - are not here; they
 /// come from the backend's module: `guinea::winui`, `guinea::eframe`.
 pub mod prelude {
-    pub use guinea_app::app::{
-        AppFeature, Application, FeatureBuilder, GuineaApp, Installed, Plugin, PluginBuilder,
-    };
+    pub use guinea_app::app::{AppFeature, FeatureBuilder, GuineaApp, Plugin, PluginBuilder};
     pub use guinea_app::feature::{Feature, FeatureInitContext, Install, ScopeContext};
     pub use guinea_core::timers::{Period, Timer};
     pub use guinea_core::actor::event_bus::{Event, Reply};
@@ -106,6 +104,6 @@ pub mod prelude {
     pub use guinea_core::inspect::Inspect;
     pub use guinea_core::{Load, Reducer};
     pub use guinea_macros::{
-        Event, Inspect, actor, app, feature, given, handler, installs, reducer,
+        Event, Inspect, actor, feature, given, handler, installs, reducer,
     };
 }

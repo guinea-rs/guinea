@@ -1295,19 +1295,26 @@ mod application_exports {
         this.0 = to;
     }
 
-    pub struct Localisation;
-
-    impl AppFeature for Localisation {
-        type Exports = (Language,);
-
-        fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-            let language = app.state::<Language>().seed(Language("en")).plain();
-            app.answers(move |Speak(to)| language.push(to));
-            Ok(())
+    feature! {
+        pub Localisation {
+            exports { Language }
         }
     }
 
+    #[installs]
+    fn localisation(app: &mut FeatureBuilder) -> anyhow::Result<Localisation> {
+        let language = app.state::<Language>().seed(Language("en")).plain();
+        app.answers(move |Speak(to)| language.push(to));
+        Ok(Localisation(language))
+    }
+
     pub struct Speak(&'static str);
+
+    fn localised(h: &mut Harness) {
+        let mut app = GuineaApp::new();
+        app.install::<Localisation>();
+        h.app(app).unwrap();
+    }
 
     #[derive(Default)]
     pub struct Greeting;
@@ -1324,7 +1331,7 @@ mod application_exports {
 
     #[guinea::test(iterations = 2)]
     fn a_page_reads_what_the_application_exports(h: &mut Harness) {
-        h.feature(Localisation).unwrap();
+        localised(h);
 
         let page = Mounted::<Greeting>::mount(h.segment(),()).unwrap();
 
@@ -1354,7 +1361,7 @@ mod application_exports {
 
     #[guinea::test(iterations = 2)]
     fn a_shortcut_written_over_reads_reads_on_a_page(h: &mut Harness) {
-        h.feature(Localisation).unwrap();
+        localised(h);
 
         let page = Mounted::<Polyglot>::mount(h.segment(),()).unwrap();
 
@@ -1380,7 +1387,7 @@ mod application_exports {
 
     #[guinea::test(iterations = 2)]
     fn a_page_asks_what_the_application_exports_without_reading_it(h: &mut Harness) {
-        h.feature(Localisation).unwrap();
+        localised(h);
 
         let mut switcher = Mounted::<Switcher>::mount(h.segment(),()).unwrap();
         switcher.click(Marks::Speak).settle();

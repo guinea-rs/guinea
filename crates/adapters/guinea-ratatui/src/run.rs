@@ -110,7 +110,7 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window) -> anyhow::
     // between frames, and wakes every tick anyway, so nothing has to wake it.
     let ui = UiLoop::install();
 
-    let runtime = match app.install() {
+    let runtime = match app.start() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

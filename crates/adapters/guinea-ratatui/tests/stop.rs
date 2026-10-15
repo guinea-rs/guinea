@@ -37,9 +37,8 @@ impl Plugin for SecondCopy {
 fn a_plugin_that_stops_the_application_ends_run_quietly() {
     let closed = Arc::new(AtomicBool::new(false));
 
-    let app = GuineaApp::new()
-        .plugin(Opened(closed.clone()))
-        .plugin(SecondCopy);
+    let mut app = GuineaApp::new();
+    app.plugin(Opened(closed.clone())).plugin(SecondCopy);
 
     let ran = guinea_ratatui::run(app, |_| -> Window { panic!("nothing is opened after a stop") });
 

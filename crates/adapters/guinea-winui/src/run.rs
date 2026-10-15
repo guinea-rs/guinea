@@ -96,7 +96,7 @@ pub fn run(app: GuineaApp, main: impl FnOnce(&AppRuntime) -> Window + 'static) -
         crate::dispatching::install(proxy.clone());
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
-        let runtime = match app.install() {
+        let runtime = match app.start() {
             Ok(runtime) => runtime,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);

@@ -191,7 +191,7 @@ fn remounter(window: Scope, root: Root) -> Remount {
 ///
 /// A root that fails to mount ends it with why, before the window shows.
 pub fn run<W: ComponentHandle + 'static>(
-    app: GuineaApp,
+    mut app: GuineaApp,
     main: impl FnOnce(&AppRuntime) -> anyhow::Result<Window<W>>,
 ) -> anyhow::Result<()> {
     // Before any actor exists: the first thing a feature does during install
@@ -201,9 +201,9 @@ pub fn run<W: ComponentHandle + 'static>(
     // Provided before the plugins are built, so one that wants to restore a
     // window's geometry finds the service already there.
     let shell = Arc::new(SlintWindows::default());
-    let app = app.provide(WindowService::from_arc(shell.clone()));
+    app.provide(WindowService::from_arc(shell.clone()));
 
-    let runtime = match app.install() {
+    let runtime = match app.start() {
         Ok(runtime) => runtime,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

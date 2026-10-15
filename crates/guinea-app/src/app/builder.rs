@@ -2,12 +2,13 @@ use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 
 use anyhow::Context as _;
+use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
 use guinea_core::scope::{Scope, ScopeTree};
 use guinea_core::short_type_name;
-use crate::feature::ScopeContext;
+use crate::feature::{ScopeContext, settle};
 
-use super::plugin::{AppFeature, ErasedFeature, ErasedPlugin, Identity, Installed, Plugin};
+use super::plugin::{AppFeature, ErasedPlugin, Identity, Plugin};
 use super::registry::{Admission, Plugins, Registry, Unit};
 
 /// What a plugin may do during installation.
@@ -42,19 +43,8 @@ impl PluginBuilder {
         }
     }
 
-    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<Installed<P>> {
-        self.install_plugin(Identity::plugin::<P>(), Box::new(plugin))?;
-        Ok(Installed::new())
-    }
-
-    /// [`FeatureBuilder::feature_as`], for a plugin.
-    pub fn plugin_as<T, P>(&mut self, stand_in: P) -> anyhow::Result<Installed<T>>
-    where
-        T: Plugin,
-        P: Plugin<Exports = T::Exports>,
-    {
-        self.install_plugin(Identity::plugin::<T>(), Box::new(stand_in))?;
-        Ok(Installed::new())
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<()> {
+        self.install_plugin(Identity::plugin::<P>(), Box::new(plugin))
     }
 
     /// Provides `value` as the one `T` of the application: what every install
@@ -134,50 +124,31 @@ impl FeatureBuilder {
         }
     }
 
-    pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<Installed<F>> {
-        self.install_feature(Identity::feature::<F>(), Box::new(feature))?;
-        Ok(Installed::new())
-    }
-
-    /// Installs `stand_in` where the application lists `T`: a test's fake,
-    /// which exports exactly what `T` does, so every page reads the same
-    /// reducers from it.
+    /// Installs `F` in the application's scope, and publishes what it exports
+    /// to every window.
     ///
-    /// It is installed as `T`: the application has `T`, and a plugin or
-    /// feature that installs `T` itself finds it already there. The same
-    /// holds for [`plugin_as`](PluginBuilder::plugin_as).
-    pub fn feature_as<T, F>(&mut self, stand_in: F) -> anyhow::Result<Installed<T>>
-    where
-        T: AppFeature,
-        F: AppFeature<Exports = T::Exports>,
-    {
-        self.install_feature(Identity::feature::<T>(), Box::new(stand_in))?;
-        Ok(Installed::new())
-    }
+    /// The application has one of each feature: a second install of `F` is
+    /// an error naming it. One that fails publishes nothing and keeps nothing
+    /// it set up.
+    pub fn install<F: AppFeature>(&mut self) -> anyhow::Result<F> {
+        let who = name::<F>();
+        anyhow::ensure!(
+            !self.scope.has_feature::<F>(),
+            "`{who}` is already installed in the application - it installs a feature once"
+        );
 
-    fn install_feature(
-        &mut self,
-        identity: Identity,
-        feature: Box<dyn ErasedFeature>,
-    ) -> anyhow::Result<()> {
-        let name = feature.name();
-
-        if (identity.installed)(self.scope) {
-            tracing::warn!(feature = name, "feature installed twice - ignoring the second");
-            return Ok(());
-        }
-
-        self.registry.borrow_mut().enter(Unit::Feature(name));
-        let section = self.scope.open_section(Some(name), None);
+        self.registry.borrow_mut().enter(Unit::Feature(who));
+        let section = self.scope.open_section(Some(who), F::DECLARED);
         let inner = self.inner.cx.in_section(section);
         let outer = std::mem::replace(&mut self.inner.cx, inner);
-        let outcome = feature
-            .install_boxed(self)
-            .and_then(|()| (identity.settle)(self.scope, name))
-            .with_context(|| format!("feature `{name}` failed to install"));
-        self.inner.cx = outer;
 
+        let outcome = F::install(self)
+            .and_then(|installed| settle::<F, F::Exports>(self.scope, who).map(|()| installed))
+            .with_context(|| format!("feature `{who}` failed to install"));
+
+        self.inner.cx = outer;
         self.registry.borrow_mut().leave();
+
         if outcome.is_err() {
             section.withdraw();
         }

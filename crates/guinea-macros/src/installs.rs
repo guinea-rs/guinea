@@ -15,8 +15,9 @@
 //! by clone before the function runs; see `#[given]`. So the macro writes
 //! `impl Feature` from those, and the function stays a function.
 //!
-//! A function whose first argument is `&mut FeatureBuilder` installs the
-//! application `app!` declared, and gets `impl Application` instead.
+//! A function whose first argument is `&mut FeatureBuilder` installs a
+//! feature of the application rather than of a window, and gets
+//! `impl AppFeature` instead.
 //!
 //! Named for what the function does rather than for the trait, because
 //! `#[feature]` is ambiguous with Rust's own `feature` attribute wherever it
@@ -53,23 +54,15 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     let named: Vec<_> = given.iter().map(|ident| quote!(#ident)).collect();
     let types: Vec<&Type> = taken.iter().map(|typed| &*typed.ty).collect();
 
-    if builds_the_application(&function) {
-        let app = crate::paths::app();
-        let taking = crate::given::taking(quote!(&*__builder), &named, &types, quote!(?));
-        return quote! {
-            #function
-
-            impl #app::Application for #installed {
-                fn install(
-                    __builder: &mut #app::FeatureBuilder,
-                ) -> #gc::__private::anyhow::Result<Self> {
-                    #taking
-                    #name(__builder, #(#given),*)
-                }
-            }
-        }
-        .into();
-    }
+    let declared = quote! {
+        const DECLARED: ::core::option::Option<#gc::actor::shape::Declared> =
+            ::core::option::Option::Some(#gc::actor::shape::Declared {
+                file: ::core::file!(),
+                line: ::core::line!(),
+                column: ::core::column!(),
+                crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
+            });
+    };
     let (impl_generics, _, where_clause) = function.sig.generics.split_for_impl();
 
     let turbofish: Vec<_> = function
@@ -89,6 +82,28 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
         quote!(#name::<#(#turbofish),*>)
     };
 
+    if builds_the_application(&function) {
+        let app = crate::paths::app();
+        let taking = crate::given::taking(quote!(&*__guinea_builder), &named, &types, quote!(?));
+        return quote! {
+            #function
+
+            impl #impl_generics #app::AppFeature for #installed #where_clause {
+                type Exports = <#installed as #feature::Manifest>::Exports;
+
+                #declared
+
+                fn install(
+                    __guinea_builder: &mut #app::FeatureBuilder,
+                ) -> #gc::__private::anyhow::Result<Self> {
+                    #taking
+                    #called(__guinea_builder, #(#given),*)
+                }
+            }
+        }
+        .into();
+    }
+
     let (params, cx) = match carried(&function) {
         Some(params) => (
             quote!(#params),
@@ -105,13 +120,7 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
             type Params = #params;
             type Exports = <#installed as #feature::Manifest>::Exports;
 
-            const DECLARED: ::core::option::Option<#gc::actor::shape::Declared> =
-                ::core::option::Option::Some(#gc::actor::shape::Declared {
-                    file: ::core::file!(),
-                    line: ::core::line!(),
-                    column: ::core::column!(),
-                    crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
-                });
+            #declared
 
             fn install(
                 __guinea_cx: &#feature::FeatureInitContext,
@@ -154,7 +163,7 @@ fn carried(function: &ItemFn) -> Option<Type> {
 }
 
 /// Whether the first argument is `&mut FeatureBuilder` - the application's
-/// builder rather than a feature's context.
+/// builder rather than a window feature's context.
 fn builds_the_application(function: &ItemFn) -> bool {
     let Some(FnArg::Typed(first)) = function.sig.inputs.first() else {
         return false;

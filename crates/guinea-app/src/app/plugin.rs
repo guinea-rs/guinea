@@ -1,6 +1,6 @@
 use std::any::TypeId;
-use std::marker::PhantomData;
 
+use guinea_core::actor::shape::Declared;
 use guinea_core::feature::Exported;
 use guinea_core::scope::Scope;
 
@@ -20,39 +20,32 @@ pub trait Plugin: Send + 'static {
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()>;
 }
 
-/// This application's own wiring; sees everything a plugin sees and more.
-pub trait AppFeature: Send + 'static {
-    /// What every window may read of what it claims - see
-    /// [`Plugin::Exports`].
+/// This application's own wiring: a feature installed in the application's
+/// scope, which every window sits under.
+///
+/// Written as a feature in a window is, by `feature!` and `#[installs]`, with
+/// the builder as the context:
+///
+/// ```ignore
+/// feature! {
+///     pub Activity {
+///         exports { ActivityState }
+///     }
+/// }
+///
+/// #[installs]
+/// fn activity(app: &mut FeatureBuilder) -> anyhow::Result<Activity> {
+///     let (state, _) = app.state::<ActivityState>().driven_by(ActivityActor::new);
+///     Ok(Activity(state))
+/// }
+/// ```
+pub trait AppFeature: Sized + 'static {
+    /// What every window may read: what `feature!` lists.
     type Exports: Exported;
 
-    fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()>;
-}
+    /// Where the feature was written. `#[installs]` fills it in.
+    const DECLARED: Option<Declared> = None;
 
-/// Proof that the application installed `T`, handed back by
-/// [`plugin`](PluginBuilder::plugin) and [`feature`](FeatureBuilder::feature).
-///
-/// An [`Application`] returns one per thing it lists, which is what keeps the
-/// list it declares and what it installed from drifting apart.
-pub struct Installed<T>(PhantomData<fn() -> T>);
-
-impl<T> Installed<T> {
-    pub(crate) fn new() -> Self {
-        Self(PhantomData)
-    }
-}
-
-/// The application as one item: what it installs, and the features and
-/// plugins whose exports its pages read.
-///
-/// The root of every route tree that hangs from it with `app(..)`. `app!`
-/// lists what pages read, and `install` returns one [`Installed`] for each, so
-/// the two cannot disagree. What pages do not read - devtools, a store - is
-/// installed in `install` and left out of the list.
-///
-/// Written with `app!` for the type and `#[installs]` for the function, as a
-/// feature is.
-pub trait Application: Sized + Send + 'static {
     fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self>;
 }
 
@@ -78,12 +71,10 @@ impl std::error::Error for Stop {}
 
 pub(crate) type Settle = fn(Scope, &'static str) -> anyhow::Result<()>;
 
-/// What a plugin or an application feature is installed as: itself, or what
-/// it stands in for. Whatever asks for that later finds it already there.
+/// What a plugin is installed as.
 pub(crate) struct Identity {
     pub(crate) id: &'static str,
     pub(crate) concrete: TypeId,
-    pub(crate) installed: fn(Scope) -> bool,
     pub(crate) settle: Settle,
 }
 
@@ -92,23 +83,9 @@ impl Identity {
         Self {
             id: P::ID,
             concrete: TypeId::of::<P>(),
-            installed: installed::<P>,
             settle: settle::<P, P::Exports>,
         }
     }
-
-    pub(crate) fn feature<F: AppFeature>() -> Self {
-        Self {
-            id: std::any::type_name::<F>(),
-            concrete: TypeId::of::<F>(),
-            installed: installed::<F>,
-            settle: settle::<F, F::Exports>,
-        }
-    }
-}
-
-fn installed<U: 'static>(scope: Scope) -> bool {
-    scope.has_feature::<U>()
 }
 
 pub(crate) trait ErasedPlugin: Send {
@@ -123,20 +100,5 @@ impl<P: Plugin> ErasedPlugin for P {
 
     fn build_boxed(self: Box<Self>, app: &mut PluginBuilder) -> anyhow::Result<()> {
         Plugin::build(*self, app)
-    }
-}
-
-pub(crate) trait ErasedFeature: Send {
-    fn name(&self) -> &'static str;
-    fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()>;
-}
-
-impl<F: AppFeature> ErasedFeature for F {
-    fn name(&self) -> &'static str {
-        std::any::type_name::<F>()
-    }
-
-    fn install_boxed(self: Box<Self>, app: &mut FeatureBuilder) -> anyhow::Result<()> {
-        AppFeature::install(*self, app)
     }
 }

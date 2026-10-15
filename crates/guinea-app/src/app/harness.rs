@@ -13,9 +13,10 @@ use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
 
+use super::GuineaApp;
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
-use super::plugin::{AppFeature, Application, Plugin};
+use super::plugin::Plugin;
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -34,13 +35,8 @@ impl TestApp {
         }
     }
 
-    pub fn install<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
         self.builder.plugin(plugin)?;
-        Ok(self)
-    }
-
-    pub fn install_feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<&mut Self> {
-        self.builder.feature(feature)?;
         Ok(self)
     }
 
@@ -130,32 +126,21 @@ impl Harness {
         self.app.scope
     }
 
-    /// Installs `A` into the application around the harness, as
-    /// [`GuineaApp::application`](super::GuineaApp::application) does: a
-    /// route tree that hangs from `app(A)` can be mounted.
-    pub fn install_application<A: Application>(&mut self) -> anyhow::Result<&mut Self> {
-        self.install_application_with(A::install)
-    }
-
-    /// Installs `A` with the test's own function instead of `A`'s, and marks
-    /// it installed. The function returns `A`, so each line `app!` lists is
-    /// installed - the real thing, or a stand-in through
-    /// [`feature_as`](FeatureBuilder::feature_as) and
-    /// [`plugin_as`](super::PluginBuilder::plugin_as) - and what `A` installs besides
-    /// is the test's to leave out.
-    pub fn install_application_with<A: Application>(
-        &mut self,
-        install: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<A>,
-    ) -> anyhow::Result<&mut Self> {
-        install(&mut self.app)?;
-        self.app.scope.mark_feature_installed::<A>();
+    /// Replays `recipe` into the application around the harness, as `run`
+    /// does: what it installs reaches every segment, so replay it before
+    /// whatever reads it.
+    ///
+    /// A test that wants a fake where the application has the real thing
+    /// writes a recipe of its own with the fake in it.
+    pub fn app(&mut self, recipe: GuineaApp) -> anyhow::Result<&mut Self> {
+        recipe.replay(&mut self.app)?;
         Ok(self)
     }
 
     /// Installs a plugin into the application around the harness. What it
     /// provides reaches every segment, so install it before whatever reads it.
     pub fn plugin<P: Plugin>(&mut self, plugin: P) -> anyhow::Result<&mut Self> {
-        self.app.install(plugin)?;
+        self.app.plugin(plugin)?;
         Ok(self)
     }
 
@@ -164,12 +149,6 @@ impl Harness {
     pub fn provide<T: Clone + 'static>(&mut self, value: T) -> &mut Self {
         self.app.provide(value);
         self
-    }
-
-    /// Installs the application's own wiring, as [`plugin`](Self::plugin).
-    pub fn feature<F: AppFeature>(&mut self, feature: F) -> anyhow::Result<&mut Self> {
-        self.app.install_feature(feature)?;
-        Ok(self)
     }
 
     /// Publishes `event` on the application's bus the way it lands on the UI

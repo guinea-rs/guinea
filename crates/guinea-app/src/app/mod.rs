@@ -15,7 +15,7 @@ mod harness;
 
 pub use builder::{FeatureBuilder, PluginBuilder};
 pub use meta::AppMeta;
-pub use plugin::{AppFeature, Application, Installed, Plugin, Stop};
+pub use plugin::{AppFeature, Plugin, Stop};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use acts::{Chain, Shape, Step};
@@ -27,12 +27,21 @@ pub use runtime::AppRuntime;
 type Provision = Box<dyn FnOnce(&mut FeatureBuilder) + Send>;
 type Registration = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<()> + Send>;
 
-/// The application, described before there is a UI thread to build it on.
+/// The application, described before there is a UI thread to build it on: a
+/// recipe the backend adapter's `run` replays once, on the UI thread, in the
+/// order it was written.
 ///
-/// Everything registered here is replayed once by the backend adapter, on the
-/// UI thread, in registration order. Named `GuineaApp` rather than `App`
-/// because every backend has an `App` of its own and the two appear in the
-/// same `main`.
+/// ```ignore
+/// let mut app = GuineaApp::new();
+/// app.meta(app_meta!())
+///     .plugin(DevToolsPlugin::new())
+///     .install::<Activity>();
+///
+/// run(app, |_| Window::of::<Shell>().title("Processes"))
+/// ```
+///
+/// Named `GuineaApp` rather than `App` because every backend has an `App` of
+/// its own and the two appear in the same `main`.
 #[derive(Default)]
 pub struct GuineaApp {
     meta: Option<AppMeta>,
@@ -48,10 +57,10 @@ impl GuineaApp {
     /// Declares who this application is. Provided as a service, so any plugin
     /// can take an `AppMeta` instead of being handed the same strings by hand.
     ///
-    /// Installed before anything else, so where it sits in the chain does not
-    /// matter - an application's identity is not a step in a sequence, and a
-    /// plugin declared above this call still sees it.
-    pub fn meta(mut self, meta: AppMeta) -> Self {
+    /// Installed before anything else, so where it sits in the recipe does
+    /// not matter - an application's identity is not a step in a sequence,
+    /// and a plugin declared above this call still sees it.
+    pub fn meta(&mut self, meta: AppMeta) -> &mut Self {
         self.meta = Some(meta);
         self
     }
@@ -61,41 +70,46 @@ impl GuineaApp {
     /// For a backend adapter with something only it can offer - the windows
     /// its roots live in, say. Installed before any plugin, like
     /// [`meta`](Self::meta) and for the same reason: a plugin requiring it
-    /// must not depend on where this call sat in the chain.
-    pub fn provide<T: Clone + Send + 'static>(mut self, value: T) -> Self {
+    /// must not depend on where this call sat in the recipe.
+    pub fn provide<T: Clone + Send + 'static>(&mut self, value: T) -> &mut Self {
         self.services.push(Box::new(move |app| {
             app.provide(value);
         }));
         self
     }
 
-    pub fn plugin<P: Plugin>(mut self, plugin: P) -> Self {
+    pub fn plugin<P: Plugin>(&mut self, plugin: P) -> &mut Self {
+        self.registrations.push(Box::new(move |app| app.plugin(plugin)));
+        self
+    }
+
+    /// Installs the application's own feature `F` - see
+    /// [`FeatureBuilder::install`].
+    pub fn install<F: AppFeature>(&mut self) -> &mut Self {
         self.registrations
-            .push(Box::new(move |app| app.plugin(plugin).map(|_| ())));
+            .push(Box::new(|app| app.install::<F>().map(drop)));
         self
     }
 
-    pub fn feature<F: AppFeature>(mut self, feature: F) -> Self {
-        self.registrations
-            .push(Box::new(move |app| app.feature(feature).map(|_| ())));
-        self
+    /// Replays the recipe into `builder`: who the application is and the
+    /// services first, then every plugin and feature in the order written.
+    pub(crate) fn replay(self, builder: &mut FeatureBuilder) -> anyhow::Result<()> {
+        if let Some(meta) = self.meta {
+            builder.provide(meta);
+        }
+        for service in self.services {
+            service(builder);
+        }
+
+        for register in self.registrations {
+            register(builder)?;
+        }
+        Ok(())
     }
 
-    /// Installs `A`, the application a route tree hangs from with `app(A)`.
-    pub fn application<A: Application>(mut self) -> Self {
-        self.registrations.push(Box::new(|app| {
-            A::install(app)?;
-            app.scope.mark_feature_installed::<A>();
-            Ok(())
-        }));
-        self
-    }
-
-    /// Replays the recipe: installs every plugin and feature in registration
-    /// order.
-    ///
-    /// For backend adapters, which hold the runtime for as long as the
-    /// application runs and let go of it after their windows.
+    /// Replays the recipe, for a backend adapter's `run`, which holds the
+    /// runtime for as long as the application runs and lets go of it after
+    /// its windows.
     ///
     /// When a plugin or feature fails, or returns [`Stop`], what was installed
     /// before it is torn down here and the error is returned; an adapter
@@ -104,7 +118,8 @@ impl GuineaApp {
     /// Fails, before installing anything, off the UI thread: the application
     /// would live where the dispatcher never runs its work, and every answer
     /// from the background would be lost.
-    pub fn install(self) -> anyhow::Result<AppRuntime> {
+    #[doc(hidden)]
+    pub fn start(self) -> anyhow::Result<AppRuntime> {
         if guinea_core::ui_thread::on_ui_thread() == Some(false) {
             anyhow::bail!(
                 "installed off the UI thread: the dispatcher runs work on another thread, \
@@ -112,27 +127,11 @@ impl GuineaApp {
             );
         }
 
-        // Before anything is built: a feature may spawn an actor while
-        // installing, and that needs a runtime on this thread.
         #[cfg(feature = "own-runtime")]
         runtime_host::ensure_entered()?;
 
         let mut builder = FeatureBuilder::new();
-
-        // First, whatever the order of the calls that built this: a plugin
-        // asking who the application is must not depend on where `meta()` sat
-        // in the chain.
-        if let Some(meta) = self.meta {
-            builder.provide(meta);
-        }
-        for service in self.services {
-            service(&mut builder);
-        }
-
-        for register in self.registrations {
-            register(&mut builder)?;
-        }
-
+        self.replay(&mut builder)?;
         Ok(AppRuntime { builder })
     }
 }

@@ -458,7 +458,7 @@ fn a_page_kept_once_is_asked_again_the_next_time() {
 
 #[test]
 fn a_shortcut_written_over_reads_reads_in_a_view() {
-    let (runtime, ()) = guinea_app::app::start(|app| app.plugin(Showing)).expect("install");
+    let (runtime, ()) = guinea_app::app::start("iced", |app| app.plugin(Showing)).expect("install");
     SEEN.set(None);
 
     let _window = Window::hosted(Place::Reader, FeatureHost::under(&runtime.context()));

@@ -41,7 +41,7 @@ pub mod observability {
     /// What is open now: windows, the application, their actors - read when
     /// asked, not kept.
     pub mod snapshot {
-        pub use guinea_app::observability::{app_actor, app_actors, installed_plugins};
+        pub use guinea_app::observability::{app_actor, app_actors, backend, installed_plugins};
         pub use guinea_router::observability::{
             MountedView, NavigatorView, WindowView, actor, short, window, windows,
         };

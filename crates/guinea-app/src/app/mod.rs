@@ -27,7 +27,8 @@ pub use runtime::AppRuntime;
 /// Builds the application with `app`, for a backend adapter's `run`, once
 /// its UI thread is ready: the application's function installs plugins and
 /// features in the order it is written and returns its window, which the
-/// adapter opens.
+/// adapter opens. `backend` is what devtools call the adapter: `"winui"`,
+/// `"egui"`.
 ///
 /// The adapter holds the runtime for as long as the application runs and lets
 /// go of it after its windows. When `app` fails, or returns [`Stop`], what it
@@ -39,6 +40,7 @@ pub use runtime::AppRuntime;
 /// the background would be lost.
 #[doc(hidden)]
 pub fn start<W>(
+    backend: &'static str,
     app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<W>,
 ) -> anyhow::Result<(AppRuntime, W)> {
     if guinea_core::ui_thread::on_ui_thread() == Some(false) {
@@ -52,6 +54,8 @@ pub fn start<W>(
     runtime_host::ensure_entered()?;
 
     let mut builder = FeatureBuilder::new();
+    builder.__scope().kept::<registry::Backend, _>(|named| named.0 = Some(backend));
+
     let window = app(&mut builder)?;
     Ok((AppRuntime { builder }, window))
 }

@@ -83,7 +83,7 @@ impl Plugin for Tidy {
 #[test]
 fn an_application_goes_when_its_runtime_is_let_go_of() {
     taken();
-    let (runtime, ()) = start(|app| app.plugin(Tidy)).unwrap();
+    let (runtime, ()) = start("test", |app| app.plugin(Tidy)).unwrap();
     assert_eq!(taken(), [""; 0]);
 
     drop(runtime);
@@ -140,6 +140,14 @@ fn every_copy_of_a_plugin_is_listed() {
         crate::observability::installed_plugins(app.scope),
         ["test.settings", "test.settings"]
     );
+}
+
+#[test]
+fn the_backend_that_started_the_application_is_named_for_devtools() {
+    let (runtime, ()) = start("egui", |_| Ok(())).unwrap();
+
+    let app = runtime.context().__scope();
+    assert_eq!(crate::observability::backend(app), Some("egui"));
 }
 
 #[test]
@@ -201,7 +209,7 @@ impl Plugin for GreetingPlugin {
 
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
-    let (runtime, ()) = start(|app| {
+    let (runtime, ()) = start("test", |app| {
         let greeting = app.plugin(GreetingPlugin)?;
         app.provide(greeting);
         Ok(())
@@ -278,7 +286,7 @@ impl Plugin for Broken {
 fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
     taken();
 
-    let error = start(|app| {
+    let error = start("test", |app| {
         app.plugin(Opened)?;
         app.plugin(SecondCopy)?;
         app.install::<Startup>()?;
@@ -295,7 +303,7 @@ fn a_plugin_that_stops_the_application_has_what_came_before_it_torn_down() {
 fn a_plugin_that_fails_has_what_came_before_it_torn_down() {
     taken();
 
-    let error = start(|app| {
+    let error = start("test", |app| {
         app.plugin(Opened)?;
         app.plugin(Broken)
     })
@@ -380,7 +388,7 @@ mod exports {
 
     #[test]
     fn a_window_reads_what_the_installed_application_exports() {
-        let (runtime, ()) = start(localised).expect("install");
+        let (runtime, ()) = start("test", localised).expect("install");
 
         let window = crate::feature::FeatureHost::under(&runtime.context());
 
@@ -389,8 +397,8 @@ mod exports {
 
     #[test]
     fn a_window_sits_under_the_application_it_was_opened_from_not_the_latest_one() {
-        let (english, ()) = start(localised).expect("install");
-        let _german = start(|app| app.plugin(Translations)).expect("install");
+        let (english, ()) = start("test", localised).expect("install");
+        let _german = start("test", |app| app.plugin(Translations)).expect("install");
 
         let window = crate::feature::FeatureHost::under(&english.context());
 
@@ -532,7 +540,7 @@ mod owners {
 
     #[test]
     fn an_application_actor_names_the_feature_that_spawned_it() {
-        let (runtime, ()) = start(housekeeping_app).expect("install");
+        let (runtime, ()) = start("test", housekeeping_app).expect("install");
         let app = runtime.context().scope;
 
         let owner = |name: &str| {

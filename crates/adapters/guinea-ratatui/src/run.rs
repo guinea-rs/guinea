@@ -112,7 +112,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     // between frames, and wakes every tick anyway, so nothing has to wake it.
     let ui = UiLoop::install();
 
-    let (runtime, window) = match start(app) {
+    let (runtime, window) = match start("ratatui", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

@@ -98,7 +98,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'st
         crate::dispatching::install(proxy.clone());
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
-        let (runtime, window) = match start(app) {
+        let (runtime, window) = match start("winui", app) {
             Ok(started) => started,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);

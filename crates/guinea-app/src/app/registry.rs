@@ -31,6 +31,10 @@ impl Plugins {
     }
 }
 
+/// What draws the application, as the backend that started it named itself.
+#[derive(Default)]
+pub(crate) struct Backend(pub(crate) Option<&'static str>);
+
 /// What is being installed right now, outermost first.
 #[derive(Default)]
 pub(crate) struct Registry {

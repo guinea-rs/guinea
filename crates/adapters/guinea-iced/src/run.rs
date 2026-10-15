@@ -129,7 +129,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     // may already queue work back to this thread.
     let ui = wakeups::install();
 
-    let (runtime, window) = match start(app) {
+    let (runtime, window) = match start("iced", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

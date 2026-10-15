@@ -9,7 +9,7 @@ use guinea_core::short_type_name;
 use crate::feature::{ScopeContext, publish, settle};
 
 use super::plugin::{AppFeature, Plugin};
-use super::registry::{Plugins, Registry, Unit};
+use super::registry::{Backend, Plugins, Registry, Unit};
 use super::windows::WindowService;
 
 /// What a plugin may do while it builds.
@@ -41,6 +41,7 @@ impl PluginBuilder {
     pub(crate) fn new() -> Self {
         let tree = ScopeTree::new();
         tree.scope().keep(Plugins::default());
+        tree.scope().keep(Backend::default());
 
         Self {
             cx: ScopeContext::new(tree.scope()),

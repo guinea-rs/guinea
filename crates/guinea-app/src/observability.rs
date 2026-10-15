@@ -4,7 +4,7 @@
 use guinea_core::actor::snapshot::ActorSnapshot;
 use guinea_core::scope::Scope;
 
-use crate::app::registry::Plugins;
+use crate::app::registry::{Backend, Plugins};
 
 /// The plugins the application whose scope is `app` was built with, by id;
 /// none once it is gone.
@@ -15,6 +15,13 @@ use crate::app::registry::Plugins;
 pub fn installed_plugins(app: Scope) -> Vec<&'static str> {
     app.kept::<Plugins, _>(|plugins| plugins.ids())
         .unwrap_or_default()
+}
+
+/// What the application whose scope is `app` draws with - `"winui"`,
+/// `"egui"` - as the backend that started it says; `None` for one no
+/// backend started, as under a test.
+pub fn backend(app: Scope) -> Option<&'static str> {
+    app.kept::<Backend, _>(|backend| backend.0).flatten()
 }
 
 /// Every actor the application whose scope is `app` holds itself, by id.

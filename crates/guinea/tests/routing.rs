@@ -56,7 +56,7 @@ mod provided {
 
     #[test]
     fn a_page_s_feature_takes_what_the_application_provided_from_a_plugin() {
-        let (runtime, ()) = guinea::app::start(|app| {
+        let (runtime, ()) = guinea::app::start("test", |app| {
             let greeting = app.plugin(GreetingPlugin)?;
             app.provide(greeting);
             Ok(())

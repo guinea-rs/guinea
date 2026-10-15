@@ -117,7 +117,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     };
     let ui = UiLoop::install_waking(repaint.clone());
 
-    let (runtime, window) = match start(app) {
+    let (runtime, window) = match start("egui", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),

@@ -217,7 +217,7 @@ pub fn run<W: ComponentHandle + 'static>(
     let shell = Arc::new(SlintWindows::default());
     let windows = WindowService::from_arc(shell.clone());
 
-    let (runtime, window) = match start(|builder| {
+    let (runtime, window) = match start("slint", |builder| {
         builder.provide(windows);
         app(builder)
     }) {

@@ -36,8 +36,9 @@ installed itself, what a layout above it exports, and what the application provi
 anything else is not in reach, and a test sets up exactly that and no more.
 Settings go to [amethystate](https://github.com/guinea-rs/amethystate).
 
-guinea takes its ideas from Kotlin, Swift, gpui and Next.js, and its shape from Rust's
-ownership and types rather than from theirs.
+guinea takes its ideas from Kotlin, Swift, gpui and Next.js. Its ownership is the one
+Leptos and Dioxus arrived at - a tree of scopes owning `Copy` handles - put under
+toolkits that do not have one.
 
 > [!WARNING]
 > **guinea is young, and its API still moves between minor versions.**

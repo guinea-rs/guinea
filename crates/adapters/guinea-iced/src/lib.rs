@@ -63,10 +63,9 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::Reads;
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
-use guinea_router::mount::{Outlet, Pass, binding, navigator};
+use guinea_router::mount::{Outlet, Pass, Reads, binding, navigator};
 
 use envelope::Deliver;
 use nodes::Held;
@@ -295,34 +294,14 @@ impl<P> PageCx<'_, P> {
 }
 
 impl<P> Reads for PageCx<'_, P> {
-    fn read<R>(&mut self) -> Feature<R>
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(self.scope)
-    }
-
-    fn dispatch<R>(&self) -> Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
+    fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 
 impl<L: Layout> Reads for LayoutCx<'_, L> {
-    fn read<R>(&mut self) -> Feature<R>
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(self.scope)
-    }
-
-    fn dispatch<R>(&self) -> Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
+    fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 

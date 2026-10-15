@@ -252,13 +252,13 @@ thread_local! {
 }
 
 /// A plugin's shortcut, written once for every backend.
-trait Sees: guinea_app::feature::Reads {
+trait Sees: guinea_router::mount::Reads {
     fn shown(&mut self) -> u32 {
         self.read::<Shown>().0.0
     }
 }
 
-impl<C: guinea_app::feature::Reads> Sees for C {}
+impl<C: guinea_router::mount::Reads> Sees for C {}
 
 #[derive(Default)]
 struct Reader;

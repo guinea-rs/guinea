@@ -1,10 +1,12 @@
 //! What a scope mounts under it while it draws.
 
 use std::any::{Any, TypeId};
+use std::rc::Rc;
 
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::actor::shape::Declared;
 use guinea_core::binding::ReducerBinding;
+use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
 
 use crate::navigator::{Navigator, Routable};
@@ -245,6 +247,41 @@ pub fn navigator<R: Routable>(scope: Scope) -> Navigator<R> {
             name(scope).map(crate::observability::short).unwrap_or("this view"),
         )
     })
+}
+
+/// A page or a layout being drawn, as far as reading goes - whatever backend
+/// draws it.
+///
+/// What lets a plugin offer one shortcut on every backend. A segment reads
+/// `R` through it and is drawn again when `R` changes: by subscribing, or by
+/// drawing every frame anyway. A backend that builds its view once and binds
+/// it is not one of these - it binds.
+///
+/// What is read is found from the segment's scope by [`binding`]; a backend
+/// says which scope that is, and overrides [`read`](Self::read) only when
+/// reading also subscribes.
+pub trait Reads {
+    /// The scope of the segment being drawn.
+    #[doc(hidden)]
+    fn __scope(&self) -> Scope;
+
+    /// `R` as it is now, and what may be asked of the feature that owns it.
+    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
+    where
+        R: Reducer + PartialEq,
+    {
+        let binding = binding::<R>(self.__scope());
+        (binding.get(), binding.dispatch())
+    }
+
+    /// What may be asked of the feature that owns `R`, without reading it:
+    /// the segment is not drawn again when `R` changes.
+    fn dispatch<R>(&self) -> Dispatch
+    where
+        R: Reducer,
+    {
+        binding::<R>(self.__scope()).dispatch()
+    }
 }
 
 /// The scope that owns `R`, as seen from `scope`, and a binding to its state.

@@ -22,8 +22,8 @@ use guinea_core::guard::Verdict;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
-use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
-use guinea_router::mount::{Outlet, Pass, binding, navigator};
+use guinea_app::feature::{FeatureInitContext, ScopeContext};
+use guinea_router::mount::{Outlet, Pass, Reads, binding, navigator};
 use guinea_router::navigator::{Navigator, Routable};
 use guinea_router::slot::Slot;
 use windows_reactor::{
@@ -1596,18 +1596,15 @@ impl<P: Page> PageCx<'_, '_, P> {
 }
 
 impl<P: Page> Reads for PageCx<'_, '_, P> {
+    fn __scope(&self) -> Scope {
+        self.scope
+    }
+
     fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
     {
         use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
-    }
-
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
     }
 }
 
@@ -1756,18 +1753,15 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
 }
 
 impl<L: Layout> Reads for LayoutCx<'_, '_, L> {
+    fn __scope(&self) -> Scope {
+        self.scope
+    }
+
     fn read<R>(&mut self) -> (Rc<R>, guinea_core::feature::Dispatch)
     where
         R: Reducer + PartialEq,
     {
         use_reducer::<R, _>(self.scope, self.cx, self.subscribed)
-    }
-
-    fn dispatch<R>(&self) -> guinea_core::feature::Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
     }
 }
 

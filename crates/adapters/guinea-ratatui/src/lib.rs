@@ -31,11 +31,10 @@ pub use guinea_router::navigator::{Moved, Navigator, Routable};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_app::feature::Reads;
 use guinea_core::binding::ReducerBinding;
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
-use guinea_router::mount::{Outlet, Pass, binding, navigator};
+use guinea_router::mount::{Outlet, Pass, Reads, binding, navigator};
 use ratatui::Frame;
 use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::Rect;
@@ -427,18 +426,8 @@ impl<'b, P> PageCx<'_, 'b, P> {
 }
 
 impl<P> Reads for PageCx<'_, '_, P> {
-    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(self.scope)
-    }
-
-    fn dispatch<R>(&self) -> Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
+    fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 
@@ -519,18 +508,8 @@ impl<'b, L> LayoutCx<'_, 'b, L> {
 }
 
 impl<L> Reads for LayoutCx<'_, '_, L> {
-    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(self.scope)
-    }
-
-    fn dispatch<R>(&self) -> Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
+    fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 
@@ -579,18 +558,8 @@ impl<S> InputCx<'_, S> {
 }
 
 impl<S> Reads for InputCx<'_, S> {
-    fn read<R>(&mut self) -> (Rc<R>, Dispatch)
-    where
-        R: Reducer + PartialEq,
-    {
-        feature_of::<R>(self.scope)
-    }
-
-    fn dispatch<R>(&self) -> Dispatch
-    where
-        R: Reducer,
-    {
-        binding::<R>(self.scope).dispatch()
+    fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 

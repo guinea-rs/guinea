@@ -1283,7 +1283,7 @@ mod navigating {
 }
 
 mod application_exports {
-    use guinea::feature::Reads;
+    use guinea::mount::Reads;
 
     use super::*;
 

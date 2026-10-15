@@ -177,25 +177,27 @@ pub(crate) struct Shown {
 
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Segment {
+    let scope = ctx.__scope();
+    scope.keep(Segment {
         draw: page_draw::<P>,
         offer: page_offer::<P>,
     });
-    guinea_router::mount::written(ctx.scope, P::DECLARED);
+    guinea_router::mount::written(scope, P::DECLARED);
     let node = P::install(ctx, params)?;
-    ctx.scope.keep(node);
+    scope.keep(node);
     Ok(())
 }
 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Segment {
+    let scope = ctx.__scope();
+    scope.keep(Segment {
         draw: layout_draw::<L>,
         offer: layout_offer::<L>,
     });
-    guinea_router::mount::written(ctx.scope, L::DECLARED);
+    guinea_router::mount::written(scope, L::DECLARED);
     let node = L::install(ctx, params)?;
-    ctx.scope.keep(node);
+    scope.keep(node);
     Ok(())
 }
 

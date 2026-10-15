@@ -162,8 +162,7 @@ struct Draft;
 #[page]
 impl Page for Draft {
     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-        ctx.scope
-            .on_leave(|| Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing")));
+        ctx.on_leave(|| Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing")));
         Ok(Self)
     }
 }

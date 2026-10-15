@@ -125,6 +125,11 @@ impl Harness {
         ScopeContext::clone(&self.app)
     }
 
+    /// The application's scope itself, for a test reading what is in it.
+    pub fn application_scope(&self) -> Scope {
+        self.app.scope
+    }
+
     /// Installs `A` into the application around the harness, as
     /// [`GuineaApp::application`](super::GuineaApp::application) does: a
     /// route tree that hangs from `app(A)` can be mounted.
@@ -294,6 +299,12 @@ pub struct Segment<'h> {
 }
 
 impl<'h> Segment<'h> {
+    /// The scope itself - for a test driving its lifetime or reading what is
+    /// in it, which a feature's context does not offer.
+    pub fn scope(&self) -> Scope {
+        self.cx.scope
+    }
+
     /// Installs `F` here, for as long as the segment lives.
     pub fn install<F: Feature>(&self, params: &F::Params) -> anyhow::Result<()> {
         self.cx.install::<F>(params)?;

@@ -631,7 +631,7 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::actions().contains(&"Rename"), "{:?}", remote::actions());
 
-    let scopes = [h.segment().context().scope];
+    let scopes = [h.segment().scope()];
 
     remote::act_in(&scopes, "Rename", r#""guinea""#).unwrap();
     h.settled();
@@ -656,8 +656,8 @@ fn two_actions_of_one_name_each_reach_the_page_that_answers_it(h: &mut Harness) 
     let page = h.child();
     page.install::<titled::Titling>(&()).unwrap();
 
-    let layout = [h.segment().context().scope];
-    let both = [h.segment().context().scope, page.context().scope];
+    let layout = [h.segment().scope()];
+    let both = [h.segment().scope(), page.scope()];
 
     remote::act_in(&both, "Rename", r#""page""#).unwrap();
     remote::act_in(&layout, "Rename", r#""layout""#).unwrap();
@@ -675,7 +675,7 @@ fn two_actions_of_one_name_in_one_scope_are_told_apart_by_path(h: &mut Harness) 
 
     h.install::<named::Naming>(&()).unwrap();
     h.install::<titled::Titling>(&()).unwrap();
-    let scopes = [h.segment().context().scope];
+    let scopes = [h.segment().scope()];
 
     let refused = remote::act_in(&scopes, "Rename", r#""x""#).unwrap_err();
     assert!(refused.contains("send one by its path"), "{refused}");
@@ -693,7 +693,7 @@ fn an_event_sent_as_json_goes_out_on_the_application_s_bus(h: &mut Harness) {
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::events().contains(&"Renamed"), "{:?}", remote::events());
 
-    remote::publish(h.application().scope, "Renamed", r#""code""#).unwrap();
+    remote::publish(h.application_scope(), "Renamed", r#""code""#).unwrap();
     h.settled();
     assert_eq!(h.state::<named::Name>().0, "code");
 }
@@ -1311,7 +1311,7 @@ fn an_actor_a_feature_s_actor_makes_later_is_the_feature_s(h: &mut Harness) {
     h.install::<hiring::Hiring>(&()).unwrap();
     h.act::<hiring::Staff>(hiring::Hire).settle();
 
-    let actors = h.segment().context().scope.actors_here();
+    let actors = h.segment().scope().actors_here();
     let feature_of = |actor: &str| {
         actors
             .iter()

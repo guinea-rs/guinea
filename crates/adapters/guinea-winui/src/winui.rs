@@ -926,7 +926,7 @@ struct Draws(fn(Scope) -> View);
 /// Kept for as long as the scope is, not taken once: a component the
 /// reconciler drops and makes again in the same scope is the same node.
 fn stage<N: 'static>(ctx: &FeatureInitContext, node: Shared<N>) {
-    ctx.scope.keep(node);
+    ctx.__scope().keep(node);
 }
 
 /// The node installed into `scope`, and `None` once the scope is gone - the
@@ -938,8 +938,9 @@ fn staged<N: 'static>(scope: Scope) -> Option<Shared<N>> {
 
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(page_view::<P>));
-    guinea_router::mount::written(ctx.scope, P::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(page_view::<P>));
+    guinea_router::mount::written(scope, P::DECLARED);
     let node = P::install(ctx, params)?;
     stage_node(ctx, node, P::leaving);
     Ok(())
@@ -987,8 +988,9 @@ fn stage_node<N: 'static>(ctx: &FeatureInitContext, node: N, leaving: fn(&N) -> 
 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(layout_view::<L>));
-    guinea_router::mount::written(ctx.scope, L::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(layout_view::<L>));
+    guinea_router::mount::written(scope, L::DECLARED);
     let node = L::install(ctx, params)?;
     stage_node(ctx, node, L::leaving);
     Ok(())

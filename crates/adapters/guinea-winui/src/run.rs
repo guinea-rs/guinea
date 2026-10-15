@@ -226,7 +226,7 @@ pub(crate) struct Rooted {
 /// The same application, the same window.
 impl PartialEq for Rooted {
     fn eq(&self, other: &Self) -> bool {
-        self.app.scope == other.app.scope && self.window == other.window
+        self.app.__scope() == other.app.__scope() && self.window == other.window
     }
 }
 

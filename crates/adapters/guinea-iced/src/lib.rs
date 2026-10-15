@@ -234,7 +234,7 @@ impl<'a, Message: Send + 'static> Observing<'a, Message> {
     /// The subscription belongs to the node's scope, so the rule dies with
     /// the node that declared it.
     pub fn on<R: Reducer>(&self, translate: fn(&R::Update) -> Option<Message>) {
-        let scope = self.ctx.scope;
+        let scope = self.ctx.__scope();
         let deliver = self.deliver;
         self.ctx.observe::<R>(move |update| {
             if let Some(message) = translate(update) {
@@ -551,7 +551,7 @@ fn stage_node<Node: 'static>(ctx: &FeatureInitContext, node: Node, leaving: fn(&
     });
 
     nodes::stage(
-        ctx.scope,
+        ctx.__scope(),
         Held {
             node: Box::new(node),
             verdict,
@@ -561,8 +561,9 @@ fn stage_node<Node: 'static>(ctx: &FeatureInitContext, node: Node, leaving: fn(&
 
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(page_view::<P>));
-    guinea_router::mount::written(ctx.scope, P::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(page_view::<P>));
+    guinea_router::mount::written(scope, P::DECLARED);
     let node = P::install(ctx, params)?;
     stage_node(ctx, node, P::leaving);
     P::observes(&Observing::new(ctx, deliver_page::<P>));
@@ -571,8 +572,9 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(layout_view::<L>));
-    guinea_router::mount::written(ctx.scope, L::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(layout_view::<L>));
+    guinea_router::mount::written(scope, L::DECLARED);
     let node = L::install(ctx, params)?;
     stage_node(ctx, node, L::leaving);
     L::observes(&Observing::new(ctx, deliver_layout::<L>));

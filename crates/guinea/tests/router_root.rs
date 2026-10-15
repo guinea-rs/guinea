@@ -11,13 +11,13 @@ use guinea::app::Harness;
 use guinea::feature::FeatureInitContext;
 use guinea::winui::harness::Mounted;
 use guinea::winui::*;
-use guinea_core::scope::Scope;
+use guinea_core::feature::Bound;
 use guinea_macros::reducer;
 use windows_reactor::{TextBlock, View};
 
 thread_local! {
     static SHOWN: RefCell<Vec<String>> = RefCell::default();
-    static INSTALLED: Cell<Option<Scope>> = Cell::default();
+    static INSTALLED: Cell<Option<Bound<Load>>> = Cell::default();
     static ASKED: Cell<usize> = Cell::default();
 }
 
@@ -64,8 +64,7 @@ struct Process {
 impl Page for Process {
     type Params = u32;
     fn install(ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<Self> {
-        INSTALLED.set(Some(ctx.scope));
-        ctx.state::<Load>().seed(Load::default()).plain();
+        INSTALLED.set(Some(ctx.state::<Load>().seed(Load::default()).plain()));
         Ok(Self { pid: *pid })
     }
 
@@ -132,7 +131,7 @@ fn the_same_page_with_other_params_is_a_new_node_that_hears_its_own_scope(h: &mu
     assert_eq!(last_shown(), "process 2 at 0%");
 
     let installed = INSTALLED.get().unwrap();
-    installed.push::<Load>(40);
+    installed.push(40);
     app.settle();
     assert_eq!(
         last_shown(),

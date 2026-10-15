@@ -56,11 +56,11 @@ fn installed(result: anyhow::Result<impl Sized>) -> Result<(), String> {
 }
 
 fn sleep(segment: &guinea::app::Segment<'_>) {
-    segment.context().scope.sleep();
+    segment.scope().sleep();
 }
 
 fn wake(segment: &guinea::app::Segment<'_>) {
-    segment.context().scope.wake();
+    segment.scope().wake();
 }
 
 mod scanning {

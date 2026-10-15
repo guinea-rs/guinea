@@ -65,8 +65,7 @@ mod drafting {
 
 fn blocks(segment: &guinea::app::Segment<'_>) -> Vec<bool> {
     segment
-        .context()
-        .scope
+        .scope()
         .leave_guards()
         .iter()
         .map(|guard| !matches!(guard(), Verdict::Allow))
@@ -87,8 +86,7 @@ fn a_page_s_leave_guard_reads_the_draft_the_layout_above_exports(h: &mut Harness
     page.install::<drafting::Editing>(&()).unwrap();
 
     h.segment()
-        .context()
-        .scope
+        .scope()
         .owner_of::<drafting::Draft>()
         .unwrap()
         .push::<drafting::Draft>("typed");
@@ -104,8 +102,7 @@ fn a_page_s_question_on_leaving_reads_the_draft_the_layout_above_exports(h: &mut
     page.install::<drafting::Asking>(&()).unwrap();
 
     h.segment()
-        .context()
-        .scope
+        .scope()
         .owner_of::<drafting::Draft>()
         .unwrap()
         .push::<drafting::Draft>("typed");
@@ -119,5 +116,5 @@ fn a_leave_guard_on_state_nothing_in_reach_holds_lets_the_page_go(h: &mut Harnes
     page.install::<drafting::Editing>(&()).unwrap();
 
     assert_eq!(blocks(&page), [false]);
-    assert!(page.context().scope.owner_of::<drafting::Draft>().is_none());
+    assert!(page.scope().owner_of::<drafting::Draft>().is_none());
 }

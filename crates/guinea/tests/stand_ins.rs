@@ -140,7 +140,7 @@ fn the_application_has_what_a_stand_in_stands_in_for(h: &mut Harness) {
     })
     .unwrap();
 
-    let scope = h.application().scope;
+    let scope = h.application_scope();
     assert!(scope.has_feature::<RealWiring>(), "the application lacks the feature stood in for");
     assert!(scope.has_feature::<Real>(), "the application lacks the plugin stood in for");
 }

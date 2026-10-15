@@ -127,19 +127,21 @@ struct Draws(fn(Scope, &mut egui::Ui));
 
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(page_draw::<P>));
-    guinea_router::mount::written(ctx.scope, P::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(page_draw::<P>));
+    guinea_router::mount::written(scope, P::DECLARED);
     let node = P::install(ctx, params)?;
-    ctx.scope.keep(node);
+    scope.keep(node);
     Ok(())
 }
 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Draws(layout_draw::<L>));
-    guinea_router::mount::written(ctx.scope, L::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Draws(layout_draw::<L>));
+    guinea_router::mount::written(scope, L::DECLARED);
     let node = L::install(ctx, params)?;
-    ctx.scope.keep(node);
+    scope.keep(node);
     Ok(())
 }
 

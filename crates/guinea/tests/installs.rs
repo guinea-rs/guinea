@@ -79,7 +79,7 @@ fn a_feature_whose_install_failed_exports_nothing_to_the_page_below(h: &mut Harn
 fn a_feature_whose_install_failed_is_not_listed_as_installed(h: &mut Harness) {
     assert!(h.install::<counting::Counting>(&()).is_err(), "nothing provides Ready yet");
 
-    let listed = h.segment().context().scope.features();
+    let listed = h.segment().scope().features();
 
     assert!(listed.is_empty(), "devtools list {listed:?}");
 }
@@ -88,7 +88,7 @@ fn a_feature_whose_install_failed_is_not_listed_as_installed(h: &mut Harness) {
 fn what_a_feature_claimed_before_its_install_failed_is_not_claimed(h: &mut Harness) {
     assert!(h.install::<counting::Halfway>(&()).is_err(), "nothing provides Ready yet");
 
-    assert!(!h.segment().context().scope.claims::<counting::Count>());
+    assert!(!h.segment().scope().claims::<counting::Count>());
 }
 
 mod boasting {
@@ -131,7 +131,7 @@ fn a_plugin_exporting_what_it_never_claimed_fails_and_names_the_reducer(h: &mut 
 fn a_plugin_refused_for_what_it_did_not_claim_keeps_nothing_it_did(h: &mut Harness) {
     let _ = catch_unwind(AssertUnwindSafe(|| h.plugin(boasting::Boasting).map(|_| ())));
 
-    assert!(!h.application().scope.claims::<boasting::Own>());
+    assert!(!h.application_scope().claims::<boasting::Own>());
 }
 
 thread_local! {

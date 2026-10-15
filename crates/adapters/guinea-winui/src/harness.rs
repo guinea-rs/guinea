@@ -405,9 +405,9 @@ impl<'h, S: Mountable> Mounted<'h, S> {
         wrap: impl FnOnce(View) -> View,
     ) -> anyhow::Result<Self> {
         let cx = segment.context();
-        guinea_router::mount::root::<S>(cx.scope);
+        guinea_router::mount::root::<S>(cx.__scope());
         S::install(cx, &params)?;
-        let view = crate::winui::drawn(cx.scope);
+        let view = crate::winui::drawn(cx.__scope());
 
         let owner = next_owner();
         let host = host(owner, component::<Shown>(ROOT, wrap(view)))
@@ -440,7 +440,7 @@ impl<'h, S: Mountable> Mounted<'h, S> {
     /// layout's outlet draws from. It moves as the application's would, and
     /// [`navigator`](Self::navigator) says where it went.
     pub fn mount_at<R: Routable>(segment: Segment<'h>, params: S::Params, route: R) -> anyhow::Result<Self> {
-        let navigator = Navigator::open(segment.context().scope, route);
+        let navigator = Navigator::open(segment.context().__scope(), route);
 
         let mut mounted = Self::mount(segment, params)?;
         mounted.navigator = Some(Box::new(navigator));

@@ -1101,8 +1101,7 @@ mod navigating {
     #[layout]
     impl Layout for Area {
         fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-            ctx.scope
-                .on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
+            ctx.on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
             ctx.install::<list_clock::ListClock>(&())?;
             Ok(Self::default())
         }

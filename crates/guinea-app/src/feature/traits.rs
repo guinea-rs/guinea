@@ -21,7 +21,7 @@ use guinea_core::scope::{Reducer, Scope, Section};
 /// place in a chain, leaving and waking - is the window context's own.
 #[derive(Clone)]
 pub struct ScopeContext {
-    pub scope: Scope,
+    pub(crate) scope: Scope,
     /// Whose what is registered through this context is: the feature or
     /// plugin installing, or the scope's own. A section of `scope`.
     section: Section,
@@ -47,6 +47,13 @@ impl ScopeContext {
     /// Whose what is registered through this context is.
     pub fn section(&self) -> Section {
         self.section
+    }
+
+    /// The scope itself, for the adapters and the router. A feature reaches
+    /// its scope only through what this context offers.
+    #[doc(hidden)]
+    pub fn __scope(&self) -> Scope {
+        self.scope
     }
 }
 
@@ -203,6 +210,12 @@ impl FeatureInitContext {
     /// a fresh report, resets what counted the gap.
     pub fn on_wake(&self, hook: impl Fn() + 'static) {
         self.scope.on_wake(hook);
+    }
+
+    /// Runs `hook` once, when this scope goes - after what it holds is let
+    /// go of in reverse, at the point it was declared.
+    pub fn on_teardown(&self, hook: impl FnOnce() + 'static) {
+        self.scope.on_teardown(hook);
     }
 
     /// Asked before this segment is torn down by a navigation.

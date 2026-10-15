@@ -503,7 +503,7 @@ fn a_request_whose_answerer_sleeps_says_so_at_once(h: &mut Harness) {
 
     let area = h.child();
     area.install::<answering::Killing>(&()).unwrap();
-    area.context().scope.sleep();
+    area.scope().sleep();
 
     let said = asked(h, 7).expect("an answer, not a wait for the timeout");
     assert!(said.contains("is asleep"), "{said}");
@@ -521,7 +521,7 @@ fn a_request_its_answerer_drops_says_so_at_once(h: &mut Harness) {
 #[guinea::test(iterations = 4)]
 fn a_request_that_waits_on_itself_panics_where_it_closes_the_loop(h: &mut Harness) {
     h.install::<cycle::Looping>(&()).unwrap();
-    let scope = h.segment().context().scope;
+    let scope = h.segment().scope();
 
     guinea::core::executor::spawn(async move {
         let _ = scope.request(cycle::Loop, Duration::from_secs(5)).await;

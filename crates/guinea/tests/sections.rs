@@ -160,7 +160,7 @@ type Whose = (&'static str, &'static str, Option<&'static str>);
 /// What the page runs and whose devtools say it is, as one table: kind,
 /// what, feature.
 fn whose(h: &Harness) -> Vec<Whose> {
-    let scope = h.segment().context().scope;
+    let scope = h.segment().scope();
     let short = |name: &'static str| name.rsplit("::").next().unwrap_or(name);
     let mut held = Vec::new();
 

@@ -151,27 +151,29 @@ struct Component(Rc<dyn Any>);
 
 #[doc(hidden)]
 pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Segment(|_| {}));
-    guinea_router::mount::written(ctx.scope, P::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Segment(|_| {}));
+    guinea_router::mount::written(scope, P::DECLARED);
     let mut page = P::install(ctx, params)?;
     page.bind(&BindCx {
-        scope: ctx.scope,
+        scope,
         segment: PhantomData,
     });
-    ctx.scope.keep(page);
+    scope.keep(page);
     Ok(())
 }
 
 #[doc(hidden)]
 pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -> anyhow::Result<()> {
-    ctx.scope.keep(Segment(layout_mount::<L>));
-    guinea_router::mount::written(ctx.scope, L::DECLARED);
+    let scope = ctx.__scope();
+    scope.keep(Segment(layout_mount::<L>));
+    guinea_router::mount::written(scope, L::DECLARED);
     let mut layout = L::install(ctx, params)?;
     layout.bind(&BindCx {
-        scope: ctx.scope,
+        scope,
         segment: PhantomData,
     });
-    ctx.scope.keep(layout);
+    scope.keep(layout);
     Ok(())
 }
 

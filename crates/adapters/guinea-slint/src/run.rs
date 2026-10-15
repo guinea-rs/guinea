@@ -221,7 +221,7 @@ pub fn run<W: ComponentHandle + 'static>(
 
     let component = window.component.clone_strong();
     let root_id = host.root();
-    shell.attach(root_id, Some(MAIN.to_string()), context.scope, &component);
+    shell.attach(root_id, Some(MAIN.to_string()), context.__scope(), &component);
     restore(&shell, root_id, MAIN, saved);
     let _watching = windows::watch(shell.clone());
 

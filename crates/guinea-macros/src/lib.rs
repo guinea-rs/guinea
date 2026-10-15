@@ -92,7 +92,7 @@ pub fn installs(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Services as arguments, for a method a trait gives one context: a plugin's
-/// `build`, an application feature's `install`, an enter guard's `decide`.
+/// `build` or an application feature's `install`.
 ///
 /// ```ignore
 /// impl Plugin for WindowStatePlugin {
@@ -479,16 +479,12 @@ pub fn request(item: TokenStream) -> TokenStream {
 /// `#[at("/process/:pid")]` gives a variant an address: a `:name` is the
 /// named field of that name, one escaped path segment of a
 /// [`LinkValue`](../guinea_router/link/trait.LinkValue.html) type. Every
-/// linked place, nested levels included, is in `Route::deep_links()`.
+/// linked place, nested levels included, is in `Routable::deep_links()`.
 /// A branch's link is the prefix of the enum it holds, and `"/"` is the place
 /// a level is at when nothing is added. At any one position a literal is
 /// tried before a capture, whatever the order of declaration.
-///
-/// `#[guard(A, B)]` puts enter guards in front of a variant, or in front of
-/// every variant when it is on the enum; a branch passes its guards on to
-/// everything it holds.
-#[proc_macro_derive(Route, attributes(at, guard))]
-pub fn route(item: TokenStream) -> TokenStream {
+#[proc_macro_derive(Routable, attributes(at))]
+pub fn routable(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as syn::DeriveInput);
     route::derive(input)
         .unwrap_or_else(syn::Error::into_compile_error)

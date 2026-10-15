@@ -15,7 +15,7 @@
 //!
 //! `winui` is a default feature and means nothing off Windows.
 
-pub use guinea_router::{enter, link, manifest, mount, navigator, slot};
+pub use guinea_router::{link, manifest, mount, navigator, slot};
 #[doc(hidden)]
 pub use guinea_router::sample;
 
@@ -74,7 +74,7 @@ pub use guinea_core::actor::event_bus::RpcCall as Request;
 pub use guinea_core::mark::Mark;
 pub use guinea_core::inspect::Inspect;
 pub use guinea_macros::{
-    Event, Inspect, Mark, Remote, Request, Route, actor, app, feature, given, handler, installs,
+    Event, Inspect, Mark, Remote, Request, Routable, actor, app, feature, given, handler, installs,
     reducer, slot,
 };
 

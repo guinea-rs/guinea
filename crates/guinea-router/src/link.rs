@@ -96,10 +96,6 @@ pub struct DeepLink {
     pub path: String,
     /// What the captures carry, in the order the path names them.
     pub captures: Vec<Capture>,
-    /// What stands in front of this address, outermost first. External
-    /// activation carries no caller identity, so this is the half of the
-    /// review that matters most.
-    pub guards: Vec<&'static str>,
 }
 
 /// One capture of a [`DeepLink`], and what it carries.

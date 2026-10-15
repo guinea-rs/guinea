@@ -3,16 +3,13 @@ use std::rc::Rc;
 
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::ScopeTree;
-use guinea_router::enter::{Enter, EnterCx, EnterGuard, Stands};
-use guinea_router::navigator::{Level, Moved, Navigator, Route};
+use guinea_router::navigator::{Level, Moved, Navigator, Routable};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Top {
     Processes(Processes),
     Services,
     Logs,
-    Admin,
-    Vault,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,51 +18,17 @@ enum Processes {
     Settings,
 }
 
-struct Refuses;
-
-impl Enter for Refuses {
-    fn decide(_cx: &EnterCx<'_>) -> Verdict {
-        Verdict::Block
-    }
-}
-
-thread_local! {
-    static AT_THE_VAULT: RefCell<Option<Decision>> = const { RefCell::new(None) };
-}
-
-/// Asks before letting anyone in, and leaves its decision where a test can
-/// answer it.
-struct AsksFirst;
-
-impl Enter for AsksFirst {
-    fn decide(_cx: &EnterCx<'_>) -> Verdict {
-        let decision = Decision::new();
-        AT_THE_VAULT.set(Some(decision.clone()));
-        Verdict::Ask(Ask::new("Unlock?", "Unlock", "Leave"), decision)
-    }
-}
-
-impl Route for Top {
+impl Routable for Top {
     fn name(&self) -> &'static str {
         match self {
             Top::Processes(_) => "Processes",
             Top::Services => "Services",
             Top::Logs => "Logs",
-            Top::Admin => "Admin",
-            Top::Vault => "Vault",
         }
     }
 
     fn stays(&self, to: &Self) -> bool {
         matches!((self, to), (Top::Processes(_), Top::Processes(_))) || self == to
-    }
-
-    fn guards(&self) -> Vec<&'static dyn EnterGuard> {
-        match self {
-            Top::Admin => vec![&Stands::<Refuses>(std::marker::PhantomData)],
-            Top::Vault => vec![&Stands::<AsksFirst>(std::marker::PhantomData)],
-            _ => Vec::new(),
-        }
     }
 
     fn levels() -> Vec<Level<Self>> {
@@ -79,7 +42,7 @@ impl Route for Top {
     }
 }
 
-impl Route for Processes {
+impl Routable for Processes {
     fn name(&self) -> &'static str {
         match self {
             Processes::List => "List",
@@ -133,15 +96,6 @@ fn a_nested_level_goes_somewhere_within_its_own_variant() {
 }
 
 #[test]
-fn an_enter_guard_that_refuses_leaves_it_where_it_was() {
-    let (_tree, navigator) = opened();
-
-    assert!(matches!(navigator.to(Top::Admin), Moved::Blocked));
-    assert_eq!(navigator.current(), Some(Top::Processes(Processes::List)));
-    assert!(!navigator.back(), "the refused place is not in history");
-}
-
-#[test]
 fn only_an_outlet_whose_level_changes_has_its_child_asked_whether_it_may_go() {
     let (tree, navigator) = opened();
     let asked = Rc::new(RefCell::new(Vec::new()));
@@ -192,11 +146,15 @@ fn a_later_navigation_drops_the_question_an_earlier_one_was_waiting_on() {
     let page = shell.child();
     let decision = guinea_core::guard::Decision::new();
     let asking = decision.clone();
-    page.on_leave(move || Verdict::Ask(Ask::new("Discard?", "Discard", "Stay"), asking.clone()));
+    let asked = Cell::new(false);
+    page.on_leave(move || match asked.replace(true) {
+        false => Verdict::Ask(Ask::new("Discard?", "Discard", "Stay"), asking.clone()),
+        true => Verdict::Block,
+    });
     navigator.rendered(shell, page, &Top::Processes(Processes::List));
 
     assert!(matches!(navigator.to(Top::Services), Moved::Deferred));
-    assert!(matches!(navigator.to(Top::Admin), Moved::Blocked));
+    assert!(matches!(navigator.to(Top::Logs), Moved::Blocked));
     assert_eq!(navigator.pending(), None);
 
     decision.allow();
@@ -284,16 +242,22 @@ fn a_handler_goes_where_it_was_made_for_each_time_it_is_called() {
 }
 
 #[test]
-fn an_enter_guard_may_ask_and_the_navigation_waits_for_the_answer() {
-    let (_tree, navigator) = opened();
+fn a_guard_may_settle_its_own_question_later_and_the_navigation_waits_for_it() {
+    let (tree, navigator) = opened();
+    let shell = tree.scope().child();
+    let page = shell.child();
+    let decision = Decision::new();
+    let asking = decision.clone();
+    page.on_leave(move || Verdict::Ask(Ask::new("Discard?", "Discard", "Stay"), asking.clone()));
+    navigator.rendered(shell, page, &Top::Processes(Processes::List));
 
-    assert!(matches!(navigator.to(Top::Vault), Moved::Deferred));
-    assert_eq!(navigator.pending().map(|ask| ask.text), Some("Unlock?".into()));
+    assert!(matches!(navigator.to(Top::Services), Moved::Deferred));
+    assert_eq!(navigator.pending().map(|ask| ask.text), Some("Discard?".into()));
     assert_eq!(navigator.current(), Some(Top::Processes(Processes::List)));
 
-    AT_THE_VAULT.take().into_iter().for_each(|decision| decision.allow());
+    decision.allow();
 
-    assert_eq!(navigator.current(), Some(Top::Vault));
+    assert_eq!(navigator.current(), Some(Top::Services));
     assert_eq!(navigator.pending(), None);
 }
 

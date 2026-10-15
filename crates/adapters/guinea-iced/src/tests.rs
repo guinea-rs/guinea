@@ -11,7 +11,7 @@ use guinea_macros::reducer;
 
 use crate::run::{Root, frame};
 use crate::{
-    Ask, Element, Envelope, Layout, LayoutCx, Navigator, Nodes, Observing, Page, PageCx, Route, UpdateCx,
+    Ask, Element, Envelope, Layout, LayoutCx, Navigator, Nodes, Observing, Page, PageCx, Routable, UpdateCx,
     Verdict, deliver_layout, deliver_page, envelope, layout, page,
 };
 
@@ -28,7 +28,7 @@ fn domain(this: &mut Domain, update: Replaced) {
     this.0 = update.0;
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
     Leaf,
     Counter,

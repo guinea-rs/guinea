@@ -41,9 +41,9 @@ pub use run::{MAIN, Opened, Window, run};
 /// that name it, and a page should not have to import it just for that.
 pub use guinea_app::feature::{FeatureInitContext, Install};
 /// Writes down what a page or a layout left out. See [`Page`].
-pub use guinea_macros::{Route, slint_layout as layout, slint_page as page};
+pub use guinea_macros::{Routable, slint_layout as layout, slint_page as page};
 /// Where a window is, and how to move it.
-pub use guinea_router::navigator::{Moved, Navigator, Route};
+pub use guinea_router::navigator::{Moved, Navigator, Routable};
 
 use std::any::Any;
 use std::marker::PhantomData;
@@ -59,7 +59,7 @@ use guinea_router::mount::{Pass, binding, navigator};
 ///
 /// [`show`](Self::show) runs after every move the window made, and
 /// [`listen`](Self::listen) once, when the window opens.
-pub trait Shows<W>: Route {
+pub trait Shows<W>: Routable {
     /// Puts where `nav` is on the window's `Navigator` global: the branch,
     /// that place's parameters, whether there is a back and a forward, the
     /// question a guard is waiting on, and why the last move failed.
@@ -283,7 +283,7 @@ impl<S> BindCx<S> {
     }
 
     /// The navigator over `R` nearest above.
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 
@@ -356,7 +356,7 @@ pub struct LayoutCx<'a, L> {
 
 impl<L> LayoutCx<'_, L> {
     /// The navigator over `R` nearest above this layout.
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 
@@ -393,7 +393,7 @@ impl<L> LayoutCx<'_, L> {
     /// that fails to mount puts the navigator back where it was, keeps what
     /// stood here before, and leaves why on the navigator's
     /// [`failure`](Navigator::failure) - which the window's global shows.
-    pub fn outlet<R: Route>(&mut self, nav: &Navigator<R>, mount: impl FnOnce(&R, &mut Self) -> Child) {
+    pub fn outlet<R: Routable>(&mut self, nav: &Navigator<R>, mount: impl FnOnce(&R, &mut Self) -> Child) {
         let pass = self.pass.clone();
         let _ = pass.outlet(nav, |here| mount(here, self).mounted);
     }

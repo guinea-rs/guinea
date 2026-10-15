@@ -37,14 +37,14 @@ pub(crate) fn emit(source: &str, adapter: &str) -> anyhow::Result<Generated> {
         .items
         .iter()
         .filter_map(|item| match item {
-            Item::Enum(declared) if derives_route(declared) => Some((declared.ident.to_string(), declared)),
+            Item::Enum(declared) if derives_routable(declared) => Some((declared.ident.to_string(), declared)),
             _ => None,
         })
         .collect();
 
     let root = routes
         .get("Route")
-        .ok_or_else(|| anyhow!("no `#[derive(Route)] enum Route` in it"))?;
+        .ok_or_else(|| anyhow!("no `#[derive(Routable)] enum Route` in it"))?;
 
     let mut leaves = Vec::new();
     collect(root, &routes, &[], &mut leaves)?;
@@ -56,7 +56,7 @@ pub(crate) fn emit(source: &str, adapter: &str) -> anyhow::Result<Generated> {
     })
 }
 
-fn derives_route(declared: &ItemEnum) -> bool {
+fn derives_routable(declared: &ItemEnum) -> bool {
     declared.attrs.iter().any(|attr| {
         attr.path().is_ident("derive")
             && attr
@@ -64,7 +64,7 @@ fn derives_route(declared: &ItemEnum) -> bool {
                 .is_ok_and(|derived| {
                     derived
                         .iter()
-                        .any(|path| path.segments.last().is_some_and(|last| last.ident == "Route"))
+                        .any(|path| path.segments.last().is_some_and(|last| last.ident == "Routable"))
                 })
     })
 }
@@ -102,7 +102,7 @@ fn collect(
                 let found = nested.as_ref().and_then(|nested| routes.get(&nested.to_string()));
                 let Some(found) = found else {
                     return Err(anyhow!(
-                        "`{}` nests `{}`, which is not a `#[derive(Route)]` enum in this file",
+                        "`{}` nests `{}`, which is not a `#[derive(Routable)]` enum in this file",
                         shown(&path),
                         unnamed.unnamed[0].ty.to_token_stream()
                     ));
@@ -389,9 +389,9 @@ mod tests {
     use super::*;
 
     const ROUTES: &str = r#"
-        use guinea::slint::Route;
+        use guinea::slint::Routable;
 
-        #[derive(Clone, PartialEq, Debug, Route)]
+        #[derive(Clone, PartialEq, Debug, Routable)]
         pub enum Route {
             Home,
             #[at("/hosts/:name")]
@@ -399,7 +399,7 @@ mod tests {
             Processes(ProcessesRoute),
         }
 
-        #[derive(Clone, PartialEq, Debug, Route)]
+        #[derive(Clone, PartialEq, Debug, Routable)]
         pub enum ProcessesRoute {
             List,
             One { pid: u32, load: f64, live: bool },
@@ -464,7 +464,7 @@ mod tests {
     #[test]
     fn a_parameter_the_global_cannot_carry_is_refused_by_name() {
         let error = emit(
-            "#[derive(Route)] enum Route { Process { pid: Pid } }",
+            "#[derive(Routable)] enum Route { Process { pid: Pid } }",
             "::guinea::slint",
         )
         .err()
@@ -481,20 +481,20 @@ mod tests {
 
     #[test]
     fn a_nested_route_that_is_not_in_the_file_is_refused_by_name() {
-        let error = emit("#[derive(Route)] enum Route { Settings(SettingsRoute) }", "::guinea::slint")
+        let error = emit("#[derive(Routable)] enum Route { Settings(SettingsRoute) }", "::guinea::slint")
             .err()
             .map(|error| error.to_string());
 
         assert_eq!(
             error.as_deref(),
-            Some("`Route::Settings` nests `SettingsRoute`, which is not a `#[derive(Route)]` enum in this file")
+            Some("`Route::Settings` nests `SettingsRoute`, which is not a `#[derive(Routable)]` enum in this file")
         );
     }
 
     #[test]
     fn two_places_with_one_name_are_refused() {
         let error = emit(
-            "#[derive(Route)] enum Route { AB, A(Inner) } #[derive(Route)] enum Inner { B }",
+            "#[derive(Routable)] enum Route { AB, A(Inner) } #[derive(Routable)] enum Inner { B }",
             "::guinea::slint",
         )
         .err()
@@ -512,6 +512,6 @@ mod tests {
             .err()
             .map(|error| error.to_string());
 
-        assert_eq!(error.as_deref(), Some("no `#[derive(Route)] enum Route` in it"));
+        assert_eq!(error.as_deref(), Some("no `#[derive(Routable)] enum Route` in it"));
     }
 }

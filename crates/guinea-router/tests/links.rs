@@ -1,9 +1,9 @@
 //! An address and the route it came from: what `link` writes, `parse` reads
 //! back as the same route.
 
-use guinea_router::navigator::Route as _;
+use guinea_router::navigator::Routable as _;
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Place {
     #[at("/files")]
     Files,

@@ -45,7 +45,7 @@
 //!
 //! # What it expects
 //!
-//! - `<root>/routes.rs` declares `#[derive(Route)] enum Route`, and the route
+//! - `<root>/routes.rs` declares `#[derive(Routable)] enum Route`, and the route
 //!   enums it nests, in the same file;
 //! - `<root>/app.slint` is the window;
 //! - every parameter is a `String`, a `bool`, an integer or a float - what a

@@ -2,12 +2,11 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
-use syn::{Data, Fields, Ident, LitStr, Path, Token, Type};
+use syn::{Data, Fields, Ident, LitStr, Type};
 
 struct Variant {
     ident: Ident,
     shape: Shape,
-    guards: Vec<Path>,
     at: Option<Pattern>,
 }
 
@@ -84,7 +83,6 @@ impl Pattern {
 
 pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
     let navigator = crate::paths::router("navigator");
-    let enter = crate::paths::router("enter");
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
@@ -92,7 +90,6 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
         return Err(syn::Error::new(name.span(), "a route is an enum, a variant per place"));
     };
 
-    let outer = guards_of(&input.attrs)?;
     if at_of(&input.attrs)?.is_some() {
         return Err(syn::Error::new(name.span(), "`#[at]` goes on a variant, not on the enum"));
     }
@@ -116,22 +113,6 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
 
     let stays = branches.iter().map(|(ident, _)| quote!((Self::#ident(_), Self::#ident(_)) => true,));
 
-    let stand = |guard: &Path| quote!(&#enter::Stands::<#guard>(::core::marker::PhantomData) as &'static dyn #enter::EnterGuard);
-    let outer_guards = outer.iter().map(stand);
-    let variant_guards = variants.iter().map(|variant| {
-        let ident = &variant.ident;
-        let own = variant.guards.iter().map(stand);
-        let nested = match &variant.shape {
-            Shape::Branch(_) => quote!(guards.extend(nested.guards());),
-            _ => quote!(),
-        };
-        let binding = match &variant.shape {
-            Shape::Branch(_) => quote!(Self::#ident(nested)),
-            _ => quote!(Self::#ident { .. }),
-        };
-        quote!(#binding => { #(guards.push(#own);)* #nested })
-    });
-
     let levels = branches.iter().map(|(ident, nested)| {
         quote! {
             levels.extend(#navigator::Level::<Self>::nested::<#nested>(
@@ -149,7 +130,7 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
             Shape::Unit => quote!(samples.push(::core::result::Result::Ok(Self::#ident));),
             Shape::Branch(nested) => quote! {
                 samples.extend(
-                    <#nested as #navigator::Route>::samples()
+                    <#nested as #navigator::Routable>::samples()
                         .into_iter()
                         .map(|nested| nested.map(Self::#ident)),
                 );
@@ -175,20 +156,15 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
     let writes = variants.iter().map(|variant| write(&link, variant));
 
     let tree = name.to_string();
-    let named = |guard: &Path| quote!(#enter::EnterGuard::name(&#enter::Stands::<#guard>(::core::marker::PhantomData)));
-    let outer_names: Vec<TokenStream> = outer.iter().map(named).collect();
     let deep_links = variants.iter().filter_map(|variant| {
         let pattern = variant.at.as_ref()?;
         let ident = &variant.ident;
         let route = ident.to_string();
         let path = pattern.text();
-        let guards = outer_names.iter().cloned().chain(variant.guards.iter().map(named));
 
         Some(match &variant.shape {
             Shape::Branch(nested) => quote! {
-                for nested in <#nested as #navigator::Route>::deep_links() {
-                    let mut guards: ::std::vec::Vec<&'static str> = ::std::vec![#(#guards),*];
-                    guards.extend(nested.guards);
+                for nested in <#nested as #navigator::Routable>::deep_links() {
                     let path = match (#path, nested.path.as_str()) {
                         ("/", path) => ::std::string::String::from(path),
                         (prefix, "/") => ::std::string::String::from(prefix),
@@ -199,7 +175,6 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                         route: ::std::format!("{}::{}", #route, nested.route),
                         path,
                         captures: nested.captures,
-                        guards,
                     });
                 }
             },
@@ -220,7 +195,6 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                         route: ::std::string::String::from(#route),
                         path: ::std::string::String::from(#path),
                         captures: ::std::vec![#(#captures),*],
-                        guards: ::std::vec![#(#guards),*],
                     });
                 }
             }
@@ -232,7 +206,7 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
     let reads = ordered.into_iter().map(|variant| read(&navigator, &link, variant));
 
     Ok(quote! {
-        impl #impl_generics #navigator::Route for #name #ty_generics #where_clause {
+        impl #impl_generics #navigator::Routable for #name #ty_generics #where_clause {
             fn name(&self) -> &'static str {
                 match self {
                     #(#names,)*
@@ -245,16 +219,6 @@ pub fn derive(input: syn::DeriveInput) -> syn::Result<TokenStream> {
                     #(#stays)*
                     _ => self == to,
                 }
-            }
-
-            fn guards(&self) -> ::std::vec::Vec<&'static dyn #enter::EnterGuard> {
-                let mut guards: ::std::vec::Vec<&'static dyn #enter::EnterGuard> = ::std::vec![#(#outer_guards),*];
-
-                match self {
-                    #(#variant_guards)*
-                }
-
-                guards
             }
 
             fn levels() -> ::std::vec::Vec<#navigator::Level<Self>> {
@@ -315,14 +279,13 @@ fn variant(variant: &syn::Variant) -> syn::Result<Variant> {
         ),
     };
 
-    let guards = guards_of(&variant.attrs)?;
     let at = at_of(&variant.attrs)?;
 
     if let Some(pattern) = &at {
         check_captures(&ident, &shape, pattern)?;
     }
 
-    Ok(Variant { ident, shape, guards, at })
+    Ok(Variant { ident, shape, at })
 }
 
 fn check_captures(ident: &Ident, shape: &Shape, pattern: &Pattern) -> syn::Result<()> {
@@ -441,7 +404,7 @@ fn read(navigator: &TokenStream, link: &TokenStream, variant: &Variant) -> Token
         Shape::Branch(nested) => (
             quote!(segments.len() >= #count),
             quote! {{
-                let (nested, below) = <#nested as #navigator::Route>::read(&segments[#count..])?;
+                let (nested, below) = <#nested as #navigator::Routable>::read(&segments[#count..])?;
                 let mut order = ::std::vec![#(#order),*];
                 order.extend(below);
                 (Self::#ident(nested), order)
@@ -472,20 +435,6 @@ fn read(navigator: &TokenStream, link: &TokenStream, variant: &Variant) -> Token
             }
         }
     }
-}
-
-fn guards_of(attrs: &[syn::Attribute]) -> syn::Result<Vec<Path>> {
-    let mut guards = Vec::new();
-
-    for attr in attrs.iter().filter(|attr| attr.path().is_ident("guard")) {
-        let listed = attr.parse_args_with(syn::punctuated::Punctuated::<Path, Token![,]>::parse_terminated)?;
-        if listed.is_empty() {
-            return Err(syn::Error::new(attr.span(), "`#[guard(..)]` names the guard types: `#[guard(Signed)]`"));
-        }
-        guards.extend(listed);
-    }
-
-    Ok(guards)
 }
 
 fn at_of(attrs: &[syn::Attribute]) -> syn::Result<Option<Pattern>> {

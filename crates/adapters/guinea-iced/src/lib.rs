@@ -54,9 +54,9 @@ pub use guinea_core::guard::{Ask, Verdict};
 /// that name it, and a node should not have to import it just for that.
 pub use guinea_app::feature::{FeatureInitContext, Install};
 /// Writes down the associated types a node left out. See [`Page`].
-pub use guinea_macros::{Route, iced_layout as layout, iced_page as page};
+pub use guinea_macros::{Routable, iced_layout as layout, iced_page as page};
 /// Where a window is, and how to move it.
-pub use guinea_router::navigator::{Moved, Navigator, Route};
+pub use guinea_router::navigator::{Moved, Navigator, Routable};
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -305,7 +305,7 @@ impl<P> PageCx<'_, P> {
     ///
     /// Panics when none was opened above: a page that navigates where nothing
     /// navigates is a wiring mistake.
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 }
@@ -399,7 +399,7 @@ impl<'a, L: Layout> LayoutCx<'a, L> {
     /// puts the navigator back where it was, keeps what stood here before,
     /// and leaves why on the navigator's
     /// [`failure`](guinea_router::navigator::Navigator::failure).
-    pub fn outlet<R: Route>(
+    pub fn outlet<R: Routable>(
         &mut self,
         nav: &Navigator<R>,
         draw: impl FnOnce(&R, &mut Self) -> Child<'a>,
@@ -413,7 +413,7 @@ impl<'a, L: Layout> LayoutCx<'a, L> {
     }
 
     /// See [`PageCx::navigate`].
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 }
@@ -497,7 +497,7 @@ impl<S> UpdateCx<'_, S> {
     }
 
     /// See [`PageCx::navigate`].
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 }

@@ -23,9 +23,9 @@ pub use run::{MAIN, Window, run};
 /// that name it, and a page should not have to import it just for that.
 pub use guinea_app::feature::{FeatureInitContext, Install};
 /// Writes down what a page or a layout left out. See [`Page`].
-pub use guinea_macros::{Route, eframe_layout as layout, eframe_page as page};
+pub use guinea_macros::{Routable, eframe_layout as layout, eframe_page as page};
 /// Where a window is, and how to move it.
-pub use guinea_router::navigator::{Moved, Navigator, Route};
+pub use guinea_router::navigator::{Moved, Navigator, Routable};
 
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -306,7 +306,7 @@ impl<P> PageCx<'_, P> {
     ///
     /// A move made while drawing is drawn in the next frame: this one
     /// finishes with what it drew.
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 }
@@ -357,7 +357,7 @@ impl<L> LayoutCx<'_, L> {
     }
 
     /// See [`PageCx::navigate`].
-    pub fn navigate<R: Route>(&self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&self) -> Navigator<R> {
         navigator::<R>(self.scope)
     }
 
@@ -386,7 +386,7 @@ impl<L> LayoutCx<'_, L> {
     /// that fails to mount puts the navigator back where it was, keeps what
     /// stood here before, and leaves why on the navigator's
     /// [`failure`](Navigator::failure).
-    pub fn outlet<R: Route>(&mut self, nav: &Navigator<R>, draw: impl FnOnce(&R, &mut Self) -> Child) -> Node {
+    pub fn outlet<R: Routable>(&mut self, nav: &Navigator<R>, draw: impl FnOnce(&R, &mut Self) -> Child) -> Node {
         let pass = self.pass.clone();
         match pass.outlet(nav, |here| draw(here, self).mounted) {
             Outlet::Here(scope) | Outlet::Held(scope) => drawn(scope),

@@ -165,7 +165,7 @@ fn a_root_mounted_on_its_own_is_named_and_names_the_chain_below_it() {
     assert_eq!(chain, [std::any::type_name::<Details>(), std::any::type_name::<Listing>()]);
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Place {
     Listing,
     Details,

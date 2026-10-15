@@ -24,7 +24,7 @@ use guinea_core::trace::Cause;
 
 use guinea_app::feature::{FeatureInitContext, Reads, ScopeContext};
 use guinea_router::mount::{Outlet, Pass, binding, navigator};
-use guinea_router::navigator::{Navigator, Route};
+use guinea_router::navigator::{Navigator, Routable};
 use guinea_router::slot::Slot;
 use windows_reactor::{
     Border, Callback, Component, ComponentContext, Grid, TextBlock, View, ViewContext,
@@ -585,12 +585,12 @@ pub trait Page: Sized + 'static {
 /// <!-- shown: a shell -->
 /// ```rust,ignore
 /// use guinea_winui::{
-///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page,
+///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
 /// };
 /// use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 ///
 /// /// Where the shell can be.
-/// #[derive(Clone, PartialEq, Debug, Route)]
+/// #[derive(Clone, PartialEq, Debug, Routable)]
 /// pub enum Place {
 ///     Home,
 ///     About,
@@ -890,10 +890,10 @@ pub trait Layout: Sized + 'static {
     ///
     /// <!-- shown: a tab strip -->
     /// ```rust,ignore
-    /// use guinea_winui::{Layout, LayoutCx, Route, layout};
+    /// use guinea_winui::{Layout, LayoutCx, Routable, layout};
     /// use windows_reactor::{StackPanel, TextBlock, View};
     ///
-    /// #[derive(Clone, PartialEq, Debug, Route)]
+    /// #[derive(Clone, PartialEq, Debug, Routable)]
     /// pub enum Tab {
     ///     Processes,
     ///     Services,
@@ -1506,7 +1506,7 @@ where
 ///
 /// Once per navigator per render: `subscribed` lists what this render already
 /// watches, beside the reducers it reads.
-fn watching<R: Route, C: Refreshable>(
+fn watching<R: Routable, C: Refreshable>(
     nav: &Navigator<R>,
     scope: Scope,
     cx: &mut ViewContext<C>,
@@ -1587,7 +1587,7 @@ impl<P: Page> PageCx<'_, '_, P> {
     ///
     /// Panics when none was opened above: a page that navigates where nothing
     /// navigates is a wiring mistake.
-    pub fn navigate<R: Route>(&mut self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&mut self) -> Navigator<R> {
         let nav = navigator::<R>(self.scope);
         watching(&nav, self.scope, self.cx, self.subscribed);
         nav
@@ -1715,7 +1715,7 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     /// puts the navigator back where it was, keeps what stood here before,
     /// and leaves why on the navigator's
     /// [`failure`](guinea_router::navigator::Navigator::failure).
-    pub fn outlet<R: Route>(
+    pub fn outlet<R: Routable>(
         &mut self,
         nav: &Navigator<R>,
         draw: impl FnOnce(&R, &mut Self) -> Child,
@@ -1745,7 +1745,7 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     }
 
     /// See [`PageCx::navigate`].
-    pub fn navigate<R: Route>(&mut self) -> Navigator<R> {
+    pub fn navigate<R: Routable>(&mut self) -> Navigator<R> {
         let nav = navigator::<R>(self.scope);
         watching(&nav, self.scope, self.cx, self.subscribed);
         nav

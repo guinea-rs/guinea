@@ -30,7 +30,7 @@ use guinea_app::app::{Act, Harness, Segment};
 use guinea_core::feature::Dispatch;
 use guinea_core::mark::Mark;
 use guinea_core::scope::{Reducer, Scope};
-use guinea_router::navigator::{Navigator, Route};
+use guinea_router::navigator::{Navigator, Routable};
 use windows_reactor::{
     Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
     EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
@@ -100,7 +100,7 @@ thread_local! {
 
 /// The scope and the navigator a window's root opened, kept for
 /// [`Mounted::routed`].
-pub(crate) fn remember_window<R: Route>(window: Scope, navigator: &Navigator<R>) {
+pub(crate) fn remember_window<R: Routable>(window: Scope, navigator: &Navigator<R>) {
     WINDOW.with(|kept| *kept.borrow_mut() = Some((window, Box::new(navigator.clone()))));
 }
 
@@ -439,7 +439,7 @@ impl<'h, S: Mountable> Mounted<'h, S> {
     /// in `segment` first: what `cx.navigate::<R>()` finds, and what a
     /// layout's outlet draws from. It moves as the application's would, and
     /// [`navigator`](Self::navigator) says where it went.
-    pub fn mount_at<R: Route>(segment: Segment<'h>, params: S::Params, route: R) -> anyhow::Result<Self> {
+    pub fn mount_at<R: Routable>(segment: Segment<'h>, params: S::Params, route: R) -> anyhow::Result<Self> {
         let navigator = Navigator::open(segment.context().scope, route);
 
         let mut mounted = Self::mount(segment, params)?;
@@ -469,7 +469,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// The navigator over `R` it was mounted with. Panics when it was not
     /// mounted [at a route](Self::mount_at) of type `R`, or as a window
     /// [over one](Mounted::routed).
-    pub fn navigator<R: Route>(&self) -> Navigator<R> {
+    pub fn navigator<R: Routable>(&self) -> Navigator<R> {
         self.navigator
             .as_ref()
             .and_then(|navigator| navigator.downcast_ref::<Navigator<R>>())
@@ -1457,7 +1457,7 @@ impl Mounted<'_, ()> {
     pub fn each_route<L, R>(harness: &Harness) -> anyhow::Result<()>
     where
         L: Mountable<Params = ()>,
-        R: Route,
+        R: Routable,
     {
         let mut failed = Vec::new();
 
@@ -1508,7 +1508,7 @@ fn said(panic: &(dyn Any + Send)) -> String {
         .unwrap_or_else(|| "a panic that said nothing in text".to_string())
 }
 
-impl<'h, R: Route> Mounted<'h, R> {
+impl<'h, R: Routable> Mounted<'h, R> {
     /// A window of `L` at `initial`, mounted the way the application opens
     /// one: a navigator over `R` of its own, and `L` mounted under it.
     ///

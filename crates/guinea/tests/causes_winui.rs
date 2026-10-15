@@ -8,7 +8,7 @@ use guinea::app::Harness;
 use guinea::prelude::*;
 use guinea::observability::trace::Point;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Navigator, Page, PageCx, Route, layout, page};
+use guinea::winui::{Layout, LayoutCx, Navigator, Page, PageCx, Routable, layout, page};
 use windows_reactor::{Button, StackPanel, TextBlock, View};
 
 #[guinea::slot]
@@ -105,7 +105,7 @@ fn linking(cx: &FeatureInitContext) -> anyhow::Result<Linking> {
     Ok(Linking(link))
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Place {
     Processes,
     Services,

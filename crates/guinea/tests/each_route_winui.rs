@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use guinea::app::Harness;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Routable, layout, page};
 use windows_reactor::{StackPanel, TextBlock, View};
 
 #[guinea::slot]
@@ -25,13 +25,13 @@ fn missing(this: &mut Missing, to: u32) {
 #[derive(PartialEq, Debug)]
 pub struct Handle;
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Checked {
     Shell(InShell),
     Lost,
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum InShell {
     Good,
     Bad,
@@ -141,7 +141,7 @@ fn every_place_is_mounted_and_every_failure_is_told_at_once(h: &mut Harness) {
 mod clean {
     use super::*;
 
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum Clean {
         Fine,
         Counted { pid: u32 },

@@ -1,25 +1,7 @@
-use guinea_core::guard::Verdict;
 use guinea_core::scope::ScopeTree;
-use guinea_router::enter::{Enter, EnterCx};
-use guinea_router::navigator::{Navigator, Route};
+use guinea_router::navigator::{Navigator, Routable};
 
-struct Signed;
-struct Admin;
-
-impl Enter for Signed {
-    fn decide(_cx: &EnterCx<'_>) -> Verdict {
-        Verdict::Allow
-    }
-}
-
-impl Enter for Admin {
-    fn decide(_cx: &EnterCx<'_>) -> Verdict {
-        Verdict::Block
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
-#[guard(Signed)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Top {
     #[at("/processes")]
     Processes(Processes),
@@ -27,13 +9,12 @@ enum Top {
     Process { pid: u32 },
     #[at("/process/new")]
     NewProcess,
-    #[guard(Admin)]
     #[at("/admin")]
     Admin(Settings),
     Unlinked,
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Processes {
     #[at("/")]
     List,
@@ -41,14 +22,10 @@ enum Processes {
     Settings,
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Settings {
     #[at("/")]
     General,
-}
-
-fn guards(route: &Top) -> Vec<&'static str> {
-    route.guards().iter().map(|guard| guard.name()).collect()
 }
 
 #[test]
@@ -60,12 +37,6 @@ fn a_variant_is_named_and_a_branch_stays_while_only_its_level_below_moves() {
     assert!(!Top::Processes(Processes::List).stays(&Top::NewProcess));
     assert!(!Top::Process { pid: 4 }.stays(&Top::Process { pid: 5 }), "a leaf with other params is left");
     assert!(Top::Process { pid: 4 }.stays(&Top::Process { pid: 4 }));
-}
-
-#[test]
-fn guards_cascade_from_the_enum_down_through_a_branch() {
-    assert_eq!(guards(&Top::NewProcess), ["Signed"]);
-    assert_eq!(guards(&Top::Admin(Settings::General)), ["Signed", "Admin"]);
 }
 
 #[test]
@@ -105,7 +76,7 @@ fn what_no_link_reaches_is_not_read() {
 #[derive(Clone, Debug, PartialEq)]
 struct Unmade;
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Odd {
     Made { count: u32 },
     Unmade { what: Unmade },
@@ -129,7 +100,7 @@ fn every_place_is_sampled_with_default_fields_and_one_without_is_named() {
     assert_eq!(Odd::samples(), [Ok(Odd::Made { count: 0 }), Err("Unmade")]);
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Named {
     #[at("/:who/processes")]
     Processes { who: String },
@@ -144,7 +115,7 @@ fn a_capture_that_looks_like_a_path_stays_one_segment() {
     assert_eq!(Named::parse(&link), Some(route));
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Either {
     #[at("/:id")]
     ById { id: u32 },
@@ -152,7 +123,7 @@ enum Either {
     Named(Names),
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Names {
     #[at("/:who")]
     Who { who: String },
@@ -167,7 +138,7 @@ fn a_capture_that_does_not_read_falls_through_to_the_next_place() {
     );
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Shadow {
     #[at("/:name")]
     Host { name: String },
@@ -175,7 +146,7 @@ enum Shadow {
     Fixed(Fixed),
 }
 
-#[derive(Clone, Debug, PartialEq, guinea_macros::Route)]
+#[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
 enum Fixed {
     #[at("/settings")]
     Settings,
@@ -188,9 +159,9 @@ fn a_literal_a_level_down_wins_over_a_capture_above() {
 }
 
 #[test]
-fn the_deep_links_are_every_linked_place_with_what_it_captures_and_what_guards_it() {
+fn the_deep_links_are_every_linked_place_with_what_it_captures() {
     let links = Top::deep_links();
-    let shown: Vec<(&str, String, String, Vec<&str>, Vec<&str>)> = links
+    let shown: Vec<(&str, String, String, Vec<&str>)> = links
         .iter()
         .map(|link| {
             (
@@ -198,7 +169,6 @@ fn the_deep_links_are_every_linked_place_with_what_it_captures_and_what_guards_i
                 link.route.clone(),
                 link.path.clone(),
                 link.captures.iter().map(|capture| capture.ty).collect(),
-                link.guards.clone(),
             )
         })
         .collect();
@@ -206,11 +176,11 @@ fn the_deep_links_are_every_linked_place_with_what_it_captures_and_what_guards_i
     assert_eq!(
         shown,
         [
-            ("Top", "Processes::List".into(), "/processes".into(), vec![], vec!["Signed"]),
-            ("Top", "Processes::Settings".into(), "/processes/settings".into(), vec![], vec!["Signed"]),
-            ("Top", "Process".into(), "/process/:pid".into(), vec!["u32"], vec!["Signed"]),
-            ("Top", "NewProcess".into(), "/process/new".into(), vec![], vec!["Signed"]),
-            ("Top", "Admin::General".into(), "/admin".into(), vec![], vec!["Signed", "Admin"]),
+            ("Top", "Processes::List".into(), "/processes".into(), vec![]),
+            ("Top", "Processes::Settings".into(), "/processes/settings".into(), vec![]),
+            ("Top", "Process".into(), "/process/:pid".into(), vec!["u32"]),
+            ("Top", "NewProcess".into(), "/process/new".into(), vec![]),
+            ("Top", "Admin::General".into(), "/admin".into(), vec![]),
         ]
     );
     assert_eq!(links[2].captures[0].name, "pid");

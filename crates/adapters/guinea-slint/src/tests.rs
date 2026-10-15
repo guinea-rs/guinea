@@ -9,7 +9,7 @@ use guinea_macros::{feature, installs, reducer};
 use slint::ComponentHandle;
 
 use crate::run::Opened;
-use crate::{Ask, BindCx, Layout, LayoutCx, Page, Route, Shows, Window, layout, page};
+use crate::{Ask, BindCx, Layout, LayoutCx, Page, Routable, Shows, Window, layout, page};
 
 slint::slint! {
     export enum RouteId { processes, remembering, other, broken, draft, nested }
@@ -34,7 +34,7 @@ slint::slint! {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
     Processes,
     Remembering,

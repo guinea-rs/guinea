@@ -207,8 +207,7 @@ impl FeatureInitContext {
     ///
     /// Declared here, on the way in, because on the way out the scope exists
     /// and the guard can read its own state - which is what "unsaved changes"
-    /// is. Entering is the asymmetric case: there is nothing to read yet, so
-    /// an enter guard belongs in the route declaration instead.
+    /// is.
     pub fn on_leave(&self, guard: impl Fn() -> Verdict + 'static) {
         self.scope.on_leave(guard);
     }

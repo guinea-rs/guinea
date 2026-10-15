@@ -9,7 +9,7 @@ use guinea::app::Harness;
 use guinea::core::actor::event_bus::Event;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page};
 use windows_reactor::{TextBlock, View};
 
 thread_local! {
@@ -69,7 +69,7 @@ fn ping(this: &mut Listener, _: Ping) {
     this.push.send(Pinged);
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Place {
     Listening,
     Menu,

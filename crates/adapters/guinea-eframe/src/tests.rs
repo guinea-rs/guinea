@@ -8,9 +8,9 @@ use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
 
 use crate::run::{Root, frame};
-use crate::{Layout, LayoutCx, Navigator, Page, PageCx, Route, layout, page};
+use crate::{Layout, LayoutCx, Navigator, Page, PageCx, Routable, layout, page};
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
     Counting,
     Remembering,

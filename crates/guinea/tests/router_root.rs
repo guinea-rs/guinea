@@ -8,7 +8,6 @@
 use std::cell::{Cell, RefCell};
 
 use guinea::app::Harness;
-use guinea::enter::{Enter, EnterCx};
 use guinea::feature::FeatureInitContext;
 use guinea::winui::harness::Mounted;
 use guinea::winui::*;
@@ -20,7 +19,7 @@ use windows_reactor::{TextBlock, View};
 thread_local! {
     static SHOWN: RefCell<Vec<String>> = RefCell::default();
     static INSTALLED: Cell<Option<Scope>> = Cell::default();
-    static ENTERED: Cell<usize> = Cell::default();
+    static ASKED: Cell<usize> = Cell::default();
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -33,21 +32,11 @@ fn load(this: &mut Load, percent: u32) {
     this.percent = percent;
 }
 
-struct Counted;
-
-impl Enter for Counted {
-    fn decide(_cx: &EnterCx<'_>) -> Verdict {
-        ENTERED.with(|entered| entered.set(entered.get() + 1));
-        Verdict::Allow
-    }
-}
-
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
     Process { pid: u32 },
     Editor,
-    #[guard(Counted)]
-    Guarded,
+    Viewer,
     Unreachable,
 }
 
@@ -61,7 +50,7 @@ impl Layout for Shell {
         cx.outlet(&nav, |place, cx| match place {
             Place::Process { pid } => cx.mount::<Process>(pid),
             Place::Editor => cx.mount::<Editor>(&()),
-            Place::Guarded => cx.mount::<Guarded>(&()),
+            Place::Viewer => cx.mount::<Viewer>(&()),
             Place::Unreachable => cx.mount::<Unreachable>(&()),
         })
     }
@@ -95,6 +84,7 @@ struct Editor;
 #[page]
 impl Page for Editor {
     fn leaving(&self) -> Verdict {
+        ASKED.with(|asked| asked.set(asked.get() + 1));
         Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep"))
     }
 
@@ -104,12 +94,12 @@ impl Page for Editor {
 }
 
 #[derive(Default)]
-struct Guarded;
+struct Viewer;
 
 #[page]
-impl Page for Guarded {
+impl Page for Viewer {
     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
-        shown("guarded".to_string())
+        shown("viewer".to_string())
     }
 }
 
@@ -159,7 +149,7 @@ fn a_page_that_minds_being_left_asks_and_the_answer_decides(h: &mut Harness) {
     let mut app = Mounted::routed::<Shell>(h, Place::Editor).unwrap();
     assert_eq!(app.question(), None);
 
-    app.navigate(Place::Guarded);
+    app.navigate(Place::Viewer);
     assert_eq!(app.question().as_deref(), Some("Discard the draft?"), "the question is on screen");
     assert_eq!(last_shown(), "editor");
 
@@ -167,25 +157,25 @@ fn a_page_that_minds_being_left_asks_and_the_answer_decides(h: &mut Harness) {
     assert_eq!(app.question(), None);
     assert_eq!(app.route(), Place::Editor, "kept");
 
-    app.navigate(Place::Guarded);
+    app.navigate(Place::Viewer);
     assert!(app.question().is_some(), "asked again, with a question of its own");
 
     app.answer(true);
     assert_eq!(app.question(), None);
-    assert_eq!(last_shown(), "guarded", "discarded, and gone");
+    assert_eq!(last_shown(), "viewer", "discarded, and gone");
 }
 
 #[guinea::test]
 fn a_navigation_asks_its_guards_once(h: &mut Harness) {
     let mut app = Mounted::routed::<Shell>(h, Place::Editor).unwrap();
 
-    ENTERED.with(|entered| entered.set(0));
-    app.navigate(Place::Guarded);
+    ASKED.with(|asked| asked.set(0));
+    app.navigate(Place::Viewer);
     app.answer(true);
 
-    assert_eq!(last_shown(), "guarded");
+    assert_eq!(last_shown(), "viewer");
     assert_eq!(
-        ENTERED.with(Cell::get),
+        ASKED.with(Cell::get),
         1,
         "the answer lets the navigation that asked go on; it does not navigate there again"
     );

@@ -763,7 +763,7 @@ fn a_page_keeps_the_segment_it_was_mounted_into(h: &mut Harness) {
 
 mod routed {
     use super::*;
-    use guinea::winui::{Layout, LayoutCx, Route, layout};
+    use guinea::winui::{Layout, LayoutCx, Routable, layout};
     use std::rc::Rc;
 
     use windows_reactor::{NavigationView, NavigationViewItem, keyed};
@@ -788,7 +788,7 @@ mod routed {
         }
     }
 
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum TabRoute {
         One,
         Two,
@@ -859,7 +859,7 @@ mod routed {
 
     /// A navigation pane: a menu item, a footer item, and the outlet as its
     /// content.
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum PaneRoute {
         Home,
         Settings,
@@ -920,7 +920,7 @@ mod navigating {
     use std::time::Duration;
 
     use super::*;
-    use guinea::winui::{Ask, Layout, LayoutCx, Route, Verdict, layout};
+    use guinea::winui::{Ask, Layout, LayoutCx, Routable, Verdict, layout};
 
     thread_local! {
         static AREAS_GONE: Cell<usize> = const { Cell::new(0) };
@@ -1049,7 +1049,7 @@ mod navigating {
     #[derive(Default)]
     pub struct Frame;
 
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum AppRoute {
         List,
         KeptList,
@@ -1476,7 +1476,7 @@ mod two_of_a_kind {
         assert_eq!((shown(&first), shown(&second)), (Some("tally 1"), Some("tally 0")));
     }
 
-    #[derive(Clone, PartialEq, Debug, guinea::winui::Route)]
+    #[derive(Clone, PartialEq, Debug, guinea::winui::Routable)]
     pub enum Where {
         Here,
         There,

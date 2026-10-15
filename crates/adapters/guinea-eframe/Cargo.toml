@@ -11,7 +11,7 @@ repository.workspace = true
 guinea-core.workspace = true
 guinea-app.workspace = true
 guinea-router.workspace = true
-# For `#[page]`/`#[layout]` and `#[derive(Route)]`, re-exported from here so
+# For `#[page]`/`#[layout]` and `#[derive(Routable)]`, re-exported from here so
 # an application imports them beside the traits they belong to.
 guinea-macros.workspace = true
 anyhow.workspace = true

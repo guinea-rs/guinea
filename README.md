@@ -18,7 +18,7 @@ makes the opinion cheap to follow.
 
 ### Features
 
-- **Typed routes** - the route is your own enum, one level per layout, with `#[derive(Route)]`; navigation takes a value, not a path. Paths exist only where a deep link needs one, and the derive checks every field survives the round trip
+- **Typed routes** - the route is your own enum, one level per layout, with `#[derive(Routable)]`; navigation takes a value, not a path. Paths exist only where a deep link needs one, and the derive checks every field survives the round trip
 - **Scoped lifetimes** - a feature lives exactly as long as the page or layout that installed it: its actors, timers and subscriptions end when the user leaves
 - **Reads that say where they missed** - a page reads what it installed itself and what a layout above it exports; a read that reaches nothing fails the first render naming the chain it walked, and a test that mounts every place finds it first
 - **The toolkit's own model on the page, actors in the domain** - on WinUI and iced a page is an Elm node with messages and one `update`, on egui and ratatui it draws itself every frame, on Slint the view is the `.slint` file and Rust wires it; the domain behind any of them answers actions through actors, and pushes state back through reducers

@@ -24,8 +24,8 @@ mod winui;
 
 pub use guinea_app::feature::{FeatureInitContext, Install};
 pub use guinea_core::guard::{Ask, Verdict};
-pub use guinea_macros::{Route, winui_layout as layout, winui_page as page};
-pub use guinea_router::navigator::{Moved, Navigator, Route};
+pub use guinea_macros::{Routable, winui_layout as layout, winui_page as page};
+pub use guinea_router::navigator::{Moved, Navigator, Routable};
 pub use mark::MarkExt;
 pub use run::{MAIN, Window, run, window};
 pub use winui::*;

@@ -7,7 +7,7 @@ use guinea_core::actor::shape::Declared;
 use guinea_core::binding::ReducerBinding;
 use guinea_core::scope::{Reducer, Scope};
 
-use crate::navigator::{Navigator, Route};
+use crate::navigator::{Navigator, Routable};
 
 /// One drawing of a parent: every child it mounts during the pass is looked
 /// up by its type and its params, made the first time, and kept from one
@@ -159,7 +159,7 @@ impl Pass {
     /// before it moves on. One that fails to mount puts the navigator back
     /// where it was, with why as its [`failure`](Navigator::failure), and
     /// what stood here before stands through this pass.
-    pub fn outlet<R: Route>(
+    pub fn outlet<R: Routable>(
         &self,
         nav: &Navigator<R>,
         draw: impl FnOnce(&R) -> anyhow::Result<Scope>,
@@ -236,7 +236,7 @@ pub fn mounted(parent: Scope) -> Vec<(Scope, &'static str)> {
 /// The navigator over `R` nearest above `scope`, or a panic naming what was
 /// looked for: a view that navigates where none was opened is a wiring
 /// mistake.
-pub fn navigator<R: Route>(scope: Scope) -> Navigator<R> {
+pub fn navigator<R: Routable>(scope: Scope) -> Navigator<R> {
     Navigator::find(scope).unwrap_or_else(|| {
         panic!(
             "no navigator over `{}` above `{}`: open one where the window starts, \

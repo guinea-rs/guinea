@@ -10,7 +10,7 @@
 //! Generated **after** compilation rather than in a build script. A build
 //! script runs before `rustc` and can only re-parse the source, which means a
 //! second reading to disagree with the first; here the tree is the real one,
-//! already type-checked, reached through [`Route::deep_links`](crate::navigator::Route::deep_links).
+//! already type-checked, reached through [`Routable::deep_links`](crate::navigator::Routable::deep_links).
 //!
 //! The shape of the check is a golden file: [`check`] renders the manifest and
 //! compares it with what is committed, failing when they differ.
@@ -68,15 +68,6 @@ pub fn render(scheme: &str, trees: &[&[DeepLink]]) -> String {
                 quoted(capture.name),
                 quoted(capture.ty)
             );
-        }
-        out.push_str("]\n");
-
-        out.push_str("guards = [");
-        for (at, guard) in link.guards.iter().enumerate() {
-            if at > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&quoted(guard));
         }
         out.push_str("]\n\n");
     }
@@ -200,7 +191,6 @@ mod tests {
                 name: "context",
                 ty: "String",
             }],
-            guards: vec![],
         }
     }
 
@@ -213,7 +203,6 @@ mod tests {
                 name: "context",
                 ty: "String",
             }],
-            guards: vec!["Session"],
         }
     }
 
@@ -224,7 +213,6 @@ mod tests {
         assert!(rendered.contains("scheme = \"guinea-processes\""));
         assert!(rendered.contains("path = \"/:context/processes\""));
         assert!(rendered.contains("{ name = \"context\", type = \"String\" }"));
-        assert!(rendered.contains("guards = [\"Session\"]"));
     }
 
     #[test]
@@ -251,17 +239,6 @@ mod tests {
 
         assert!(difference.contains("- captures = [{ name = \"context\", type = \"String\" }]"));
         assert!(difference.contains("+ captures = [{ name = \"context\", type = \"u32\" }]"));
-    }
-
-    #[test]
-    fn a_guard_appearing_is_a_change() {
-        let guarded = DeepLink {
-            guards: vec!["Session"],
-            ..processes()
-        };
-
-        let difference = difference(&render("app", &[&[processes()]]), &render("app", &[&[guarded]]));
-        assert!(difference.contains("+ guards = [\"Session\"]"), "{difference}");
     }
 
     #[test]

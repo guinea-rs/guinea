@@ -10,10 +10,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use guinea::app::Harness;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page};
 use windows_reactor::{Button, StackPanel, TextBlock, View};
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Place {
     Processes,
     Services,
@@ -22,7 +22,7 @@ pub enum Place {
     Area(InArea),
 }
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum InArea {
     Deep,
     Plain,

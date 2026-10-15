@@ -12,7 +12,7 @@ use guinea_router::mount::{self, Pass};
 use guinea_router::navigator::Navigator;
 use guinea_router::observability;
 
-#[derive(Clone, PartialEq, Debug, guinea_macros::Route)]
+#[derive(Clone, PartialEq, Debug, guinea_macros::Routable)]
 enum Place {
     Home,
     Host { name: String },

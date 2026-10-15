@@ -5,10 +5,10 @@
 
 use guinea::app::Harness;
 use guinea::winui::harness::Mounted;
-use guinea::winui::{Layout, LayoutCx, Page, PageCx, Route, layout, page};
+use guinea::winui::{Layout, LayoutCx, Page, PageCx, Routable, layout, page};
 use windows_reactor::{StackPanel, TextBlock, View};
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Menu {
     Processes,
     Services,

@@ -520,12 +520,12 @@ mod shell {
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
-        FeatureInitContext, Layout, LayoutCx, Page, PageCx, Route, UpdateCx, layout, page,
+        FeatureInitContext, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
     };
     use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 
     /// Where the shell can be.
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum Place {
         Home,
         About,
@@ -883,14 +883,14 @@ mod layout_installing {
 mod minding_the_layout {
     //@show a layout that minds being left
     //@hide
-    use guinea_winui::{Page, PageCx, Route, page};
+    use guinea_winui::{Page, PageCx, Routable, page};
     use windows_reactor::TextBlock;
     //@unhide
     use guinea_winui::{Ask, Layout, LayoutCx, Verdict, layout};
     use windows_reactor::View;
     //@hide
 
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum Step {
         Name,
         Disk,
@@ -947,10 +947,10 @@ mod tab_strip {
     //@hide
     use guinea_winui::{Page, PageCx, page};
     //@unhide
-    use guinea_winui::{Layout, LayoutCx, Route, layout};
+    use guinea_winui::{Layout, LayoutCx, Routable, layout};
     use windows_reactor::{StackPanel, TextBlock, View};
 
-    #[derive(Clone, PartialEq, Debug, Route)]
+    #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum Tab {
         Processes,
         Services,

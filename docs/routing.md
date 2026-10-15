@@ -57,7 +57,7 @@ routes! {
 
         page(Secrets) { context: String, token: ~Session }
 
-        layout(AdminArea) guard(RequiresAdmin) {
+        layout(AdminArea) {
             page(Audit) { }
         }
 
@@ -80,10 +80,9 @@ may read from above is checked against one answer, and a second place with
 other ancestors would compile against the first and find nothing in the second.
 The macro refuses such a tree.
 
-Each pair of parentheses holds one thing: `page(T)`, `layout(T)`, `guard(G)`,
-`link("...")`. A page's address follows it as `link`, never inside it, and two
-guards are two `guard(..)`s. Anything more in the parentheses is an error, not
-something quietly dropped.
+Each pair of parentheses holds one thing: `page(T)`, `layout(T)`,
+`link("...")`. A page's address follows it as `link`, never inside it.
+Anything more in the parentheses is an error, not something quietly dropped.
 
 `page(T) { .. }` is a leaf, and its fields are the route's parameters. They
 reach `install` typed. The body is optional.
@@ -122,7 +121,6 @@ every route argument. Ours appears only where the feature is used.
 
 > Cascade what tightens. Do not cascade what opens.
 
-- `guard` tightens - it cascades, declared once for an area.
 - `restorable` demands proof from the compiler - it cascades, and failures land
   on the offending field.
 - `link` opens an external entry point - it is flat and explicit, never
@@ -146,14 +144,6 @@ layout(TabsLayout) {
     page(Processes) { context: String }
 }
 ```
-
-Opting out of an inherited guard must name it - `!guard(RequiresAdmin)`, never
-a bare negation - so removing protection reads as removing protection.
-
-Guards are told apart by their whole type as written. `HasRole<Admin>` and
-`HasRole<Guest>` are two guards, so `!guard(HasRole<Guest>)` does not open an
-area that `HasRole<Admin>` closes; `auth::Session` and `legacy::Session` are two
-guards as well. An opt-out spells the guard the way the layout above it did.
 
 ## Identity and payload
 
@@ -242,21 +232,16 @@ corrupts history, and both mobile ecosystems and the web reached that
 conclusion independently; the one implementation that got it right is Prism's
 `IConfirmNavigationRequest`, a genuinely cancellable step with a continuation.
 
-**Entering and leaving are not symmetric, and the asymmetry decides where each
-is declared.** On leaving, the scope exists, so the guard can read its own
-reducer state - that is the whole point of "unsaved changes". On entering, the
-scope does not exist yet, because the guard must answer before anything is
-installed. So leave guards register during `install`, and enter guards live in
-the route declaration.
+A guard stands on the way out. The scope being left exists, so the guard can
+read its own reducer state - that is the whole point of "unsaved changes" - and
+so leave guards register during `install`.
 
 Navigation therefore splits into two phases: **decide**, which mutates nothing,
 and **commit**, which is today's `install_from` unchanged. Guards run in the
 first. Nothing may be torn down or installed until every guard has answered -
 otherwise a superseded navigation leaves a half-built tree.
 
-Order mirrors the two directions: leaving runs innermost first, because the leaf
-holds the unsaved form; entering runs outermost first, because an area's
-authorisation should refuse before an inner page considers anything.
+Leaving runs innermost first, because the leaf holds the unsaved form.
 
 ### Optionally async, without taxing the common case
 
@@ -347,8 +332,7 @@ Checks the macro can make, because the tree is static:
 - matching is built as a prefix tree with literals tried before captures, so a
   failed decode means "this branch did not match" rather than "matching is
   over";
-- `link` on a layout, `~` on a route that reaches outside, and a `!guard` naming
-  a guard that was never inherited are all errors.
+- `link` on a layout and `~` on a route that reaches outside are errors.
 
 ## The deep-link manifest
 
@@ -373,11 +357,9 @@ the form, the committed manifest guards compatibility, and the installer
 registers the schemes with the OS. Registration is a fact about the
 application, so it belongs with the rest of them in `guinea-meta`.
 
-The surface should list guards alongside links: what is reachable from outside
-and what stands in front of it is one review, not two. External activation
-carries no caller identity - Microsoft's own URI documentation says any process
-including malware can launch a scheme - so a new external entry must be
-readable as an added line in a diff.
+External activation carries no caller identity - Microsoft's own URI
+documentation says any process including malware can launch a scheme - so a new
+external entry must be readable as an added line in a diff.
 
 ## Rejected, and why
 

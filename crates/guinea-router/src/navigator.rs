@@ -2,7 +2,7 @@
 //!
 //! A route is a plain enum, nested one level per layout:
 //! `Route::Processes(ProcessesRoute)`. The navigator holds where the window
-//! is at the outermost level, with its history and its guards, in the scope it
+//! is at the outermost level, with its history, in the scope it
 //! was opened in; a layout lower down asks for its own level -
 //! `Navigator::<ProcessesRoute>::find` - and gets the same navigator seen from
 //! there, never naming the enum around it.
@@ -10,7 +10,7 @@
 //! Nothing here installs or draws. A layout's outlet mounts what the route
 //! says and tells the navigator what it rendered, which is how the navigator
 //! knows whom to ask before leaving: only an outlet whose level changes - not
-//! one whose variant [`stays`](Route::stays) - has its child asked.
+//! one whose variant [`stays`](Routable::stays) - has its child asked.
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
@@ -20,14 +20,13 @@ use std::rc::{Rc, Weak};
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::Scope;
 
-use crate::enter::{EnterCx, EnterGuard};
 use crate::observability::NavigatorView;
 
 /// A place the application can be: an enum, a variant per place, and a
 /// variant holding another route for each layout below.
 ///
 /// `Debug` is how devtools write where a window is.
-pub trait Route: Clone + PartialEq + std::fmt::Debug + 'static {
+pub trait Routable: Clone + PartialEq + std::fmt::Debug + 'static {
     /// The variant, for a log line and for devtools.
     fn name(&self) -> &'static str;
 
@@ -36,11 +35,6 @@ pub trait Route: Clone + PartialEq + std::fmt::Debug + 'static {
     /// changes.
     fn stays(&self, to: &Self) -> bool {
         self == to
-    }
-
-    /// What stands in front of this place, outermost first.
-    fn guards(&self) -> Vec<&'static dyn EnterGuard> {
-        Vec::new()
     }
 
     /// Every route type nested in this one, at any depth.
@@ -109,9 +103,9 @@ pub struct Level<R> {
     stays: fn(&dyn Any, &dyn Any) -> bool,
 }
 
-impl<R: Route> Level<R> {
+impl<R: Routable> Level<R> {
     /// `T` nested in `R` through one variant, and everything nested in `T`.
-    pub fn nested<T: Route>(project: fn(&R) -> Option<&T>, wrap: fn(T) -> R) -> Vec<Level<R>> {
+    pub fn nested<T: Routable>(project: fn(&R) -> Option<&T>, wrap: fn(T) -> R) -> Vec<Level<R>> {
         let mut levels = vec![Level {
             of: TypeId::of::<T>(),
             project: Rc::new(move |route: &R| project(route).map(|nested| nested as &dyn Any)),
@@ -133,7 +127,7 @@ impl<R: Route> Level<R> {
     }
 }
 
-fn stays<T: Route>(from: &dyn Any, to: &dyn Any) -> bool {
+fn stays<T: Routable>(from: &dyn Any, to: &dyn Any) -> bool {
     match (from.downcast_ref::<T>(), to.downcast_ref::<T>()) {
         (Some(from), Some(to)) => from.stays(to),
         _ => false,
@@ -196,7 +190,7 @@ impl Drop for Watching {
 #[derive(Default)]
 struct Held(Vec<Rc<dyn Navigates>>);
 
-impl<T: Route> Navigator<T> {
+impl<T: Routable> Navigator<T> {
     /// A navigator over `T` held by `scope`, starting at `start` - or the one
     /// `scope` already holds, which keeps where it is.
     pub fn open(scope: Scope, start: T) -> Self {
@@ -341,7 +335,7 @@ pub trait Asking {
     fn watch(&self, heard: Box<dyn Fn()>) -> Watching;
 }
 
-impl<T: Route> Asking for Navigator<T> {
+impl<T: Routable> Asking for Navigator<T> {
     fn pending(&self) -> Option<Ask> {
         Navigator::pending(self)
     }
@@ -398,7 +392,7 @@ pub(crate) fn views(scope: Scope) -> Vec<NavigatorView> {
         .unwrap_or_default()
 }
 
-struct Root<R: Route> {
+struct Root<R: Routable> {
     window: Scope,
     levels: Vec<Level<R>>,
     state: RefCell<State<R>>,
@@ -440,7 +434,7 @@ struct Undo<R> {
     forward: Vec<R>,
 }
 
-impl<R: Route> Root<R> {
+impl<R: Routable> Root<R> {
     fn project<'r>(&self, level: TypeId, route: &'r R) -> Option<&'r dyn Any> {
         if level == TypeId::of::<R>() {
             return Some(route);
@@ -486,12 +480,7 @@ impl<R: Route> Root<R> {
             to: to.name().to_string(),
         });
 
-        let verdict = match self.may_enter(&to) {
-            Verdict::Allow => self.may_leave(&to),
-            refused => refused,
-        };
-
-        match verdict {
+        match self.may_leave(&to) {
             Verdict::Allow => {
                 self.commit(to, step);
                 Moved::Done
@@ -540,19 +529,6 @@ impl<R: Route> Root<R> {
 
     fn supersede(&self) -> bool {
         self.state.borrow_mut().pending.take().is_some()
-    }
-
-    fn may_enter(&self, to: &R) -> Verdict {
-        for guard in to.guards() {
-            match guard.decide(&EnterCx::new(self.window, to.name())) {
-                Verdict::Allow => {}
-                refused => {
-                    tracing::debug!(guard = guard.name(), route = to.name(), "a guard refused a navigation");
-                    return refused;
-                }
-            }
-        }
-        Verdict::Allow
     }
 
     fn may_leave(&self, to: &R) -> Verdict {
@@ -631,7 +607,7 @@ impl<R: Route> Root<R> {
     }
 }
 
-impl<R: Route> Navigates for Root<R> {
+impl<R: Routable> Navigates for Root<R> {
     fn serves(&self, level: TypeId) -> bool {
         level == TypeId::of::<R>() || self.levels.iter().any(|nested| nested.of == level)
     }

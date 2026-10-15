@@ -13,7 +13,7 @@ use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
 use guinea_router::mount::Pass;
-use guinea_router::navigator::{Asking, Navigator, Route, Watching};
+use guinea_router::navigator::{Asking, Navigator, Routable, Watching};
 
 use crate::{Mountable, drawn, failed};
 
@@ -59,7 +59,7 @@ impl Window {
     /// Starts the window at `route`, with a navigator of its own over `R`:
     /// what the layouts in it find with `cx.navigate::<R>()`, and whose
     /// guards' questions the window puts up as a dialog.
-    pub fn at<R: Route>(mut self, route: R) -> Self {
+    pub fn at<R: Routable>(mut self, route: R) -> Self {
         self.start = Some(Box::new(move |window| Rc::new(Navigator::open(window, route)) as Rc<dyn Asking>));
         self
     }

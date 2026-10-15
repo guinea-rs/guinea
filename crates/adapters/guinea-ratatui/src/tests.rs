@@ -13,9 +13,9 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, backend::TestBackend};
 
 use crate::run::{Root, frame, hear, open};
-use crate::{Handled, InputCx, Layout, LayoutCx, Navigator, Page, PageCx, Route, closed, layout, offer, page};
+use crate::{Handled, InputCx, Layout, LayoutCx, Navigator, Page, PageCx, Routable, closed, layout, offer, page};
 
-#[derive(Clone, PartialEq, Debug, Route)]
+#[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
     Processes,
     Remembering,

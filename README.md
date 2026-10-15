@@ -36,6 +36,10 @@ installed itself, what a layout above it exports, and what the application provi
 anything else is not in reach, and a test sets up exactly that and no more.
 Settings go to [amethystate](https://github.com/guinea-rs/amethystate).
 
+What an application needs besides its pages - a settings store, the window's geometry
+remembered, localisation, a single instance, devtools - comes as
+[plugins](https://github.com/guinea-rs/guinea-plugins).
+
 guinea takes its ideas from Kotlin, Swift, gpui and Next.js. Its ownership is the one
 Leptos and Dioxus arrived at - a tree of scopes owning `Copy` handles - put under
 toolkits that do not have one.
@@ -44,82 +48,3 @@ toolkits that do not have one.
 > **guinea is young, and its API still moves between minor versions.**
 > WinUI is the backend a real application ([uniproc](https://github.com/uniproc-dev/uniproc)) runs on every day; the other four
 > run the same example application and are tested, but nobody depends on them yet.
-
-<!-- shown: counter -->
-```rust
-use guinea::prelude::*;
-use guinea::winui::{Page, PageCx, Window, page, run};
-use guinea::winui::reactor::{Button, StackPanel, TextBlock, View};
-
-/// The state.
-#[derive(Default, Clone, PartialEq, Debug)]
-pub struct Count(pub u32);
-
-/// How it changes.
-#[reducer]
-fn count(this: &mut Count, by: u32) {
-    this.0 += by;
-}
-
-/// What the UI asks for.
-pub struct Add(pub u32);
-
-/// The domain: answers `Add`, and pushes the new state.
-#[derive(Debug)]
-pub struct Counting {
-    push: Push<Count>,
-}
-
-actor! {
-    Counting {
-        handlers { Add }
-    }
-}
-
-#[handler]
-fn add(this: &mut Counting, Add(by): Add) {
-    this.push.send(by);
-}
-
-// What the feature publishes to the pages that install it, or sit below.
-feature! {
-    pub Counter {
-        exports { Count }
-    }
-}
-
-#[installs]
-fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
-    let (count, _) = cx.state::<Count>().driven_by(|push| Counting { push });
-    Ok(Counter(count))
-}
-
-#[derive(Default)]
-pub struct Home;
-
-#[page]
-impl Page for Home {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-        ctx.install::<Counter>(&())?;
-        Ok(Self::default())
-    }
-
-    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let (count, dispatch) = cx.read::<Count>();
-
-        StackPanel::new()
-            .children((
-                TextBlock::new().text(count.0.to_string()),
-                Button::new()
-                    .on_click(move || dispatch.emit(Add(1)))
-                    .content(TextBlock::new().text("Add")),
-            ))
-            .into()
-    }
-}
-
-fn main() -> anyhow::Result<()> {
-    run(|_| Ok(Window::of::<Home>().title("Counter")))
-}
-```
-<!-- /shown -->

@@ -3,12 +3,12 @@
 //!
 //! - what happened, and why: [`trace`](crate::trace), with
 //!   [`mark_anywhere`] for something off the UI thread;
-//! - what came or went: [`changes`];
+//! - what is in the application and what moves in it: [`observer`];
 //! - what a backend or a plugin knows about itself: [`panels`];
 //! - the application's own `tracing` events: [`layer`].
 
-pub mod changes;
 mod log_layer;
+pub mod observer;
 pub mod panels;
 
 use crate::trace::{self, Point};
@@ -135,7 +135,7 @@ pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::changes::{Change, changed};
+    use super::observer::{Event, tell};
     use super::panels::{Panel, contribute, contribute_to_app, for_app, for_root};
 
     fn test_panel() -> Option<Panel> {
@@ -195,11 +195,12 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_built_for_a_change_nobody_watches() {
+    fn nothing_is_built_for_what_moved_where_nobody_watches() {
+        let tree = crate::scope::ScopeTree::new();
         let built = std::cell::Cell::new(false);
-        changed(|| {
+        tell(tree.scope(), || {
             built.set(true);
-            Change::SourceOpened { id: 0 }
+            Event::SourceClosed { id: 0 }
         });
 
         assert!(!built.get());

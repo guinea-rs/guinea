@@ -16,7 +16,7 @@ pub struct ActorSnapshot {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Owner {
     /// The scope that owns it.
-    pub scope: Option<crate::scope::Scope>,
+    pub scope: Option<crate::scope::ScopeId>,
     /// The feature that created it.
     pub feature: Option<&'static str>,
     /// The reducer it drives, when it was created with `driven_by`.

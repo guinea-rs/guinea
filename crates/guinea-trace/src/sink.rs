@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use tracing::Level;
 use tracing::level_filters::LevelFilter;
@@ -122,6 +122,20 @@ fn elsewhere() -> &'static Mutex<Queue> {
     ELSEWHERE.get_or_init(Mutex::default)
 }
 
+type Ring = Arc<dyn Fn() + Send + Sync>;
+
+fn ring() -> &'static Mutex<Option<Ring>> {
+    static RING: OnceLock<Mutex<Option<Ring>>> = OnceLock::new();
+    RING.get_or_init(Mutex::default)
+}
+
+/// Calls `ring`, from the thread that recorded it, whenever a record lands
+/// in what [`take_elsewhere`] takes and found it empty; `None` stops it.
+#[doc(hidden)]
+pub fn ring_on_elsewhere(rung: Option<Ring>) {
+    *ring().lock().unwrap_or_else(PoisonError::into_inner) = rung;
+}
+
 fn keep_elsewhere(trace: Trace) {
     let mut queue = elsewhere().lock().unwrap_or_else(PoisonError::into_inner);
 
@@ -129,7 +143,17 @@ fn keep_elsewhere(trace: Trace) {
         queue.records.pop_front();
         queue.dropped += 1;
     }
+    let was_empty = queue.records.is_empty();
     queue.records.push_back((thread_id(), trace));
+    drop(queue);
+
+    if !was_empty {
+        return;
+    }
+    let rung = ring().lock().unwrap_or_else(PoisonError::into_inner).clone();
+    if let Some(rung) = rung {
+        rung();
+    }
 }
 
 /// What other threads recorded since the last take.

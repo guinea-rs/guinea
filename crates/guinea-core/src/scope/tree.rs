@@ -118,7 +118,7 @@ impl Tree {
     /// children before their parent and the newest child first, and hands
     /// back what they held in that order. `None` when `node` is no longer in
     /// the tree.
-    pub(super) fn detach(&mut self, node: NodeKey) -> Option<Vec<Rc<ScopeData>>> {
+    pub(super) fn detach(&mut self, node: NodeKey) -> Option<Vec<(NodeKey, Rc<ScopeData>)>> {
         if let Some(parent) = self.nodes.get(node)?.parent {
             self.nodes[parent].children.retain(|child| *child != node);
         }
@@ -128,8 +128,7 @@ impl Tree {
 
         let detached = order
             .into_iter()
-            .filter_map(|node| self.nodes.remove(node))
-            .map(|node| node.data)
+            .filter_map(|key| self.nodes.remove(key).map(|node| (key, node.data)))
             .collect();
         Some(detached)
     }
@@ -139,6 +138,15 @@ impl Tree {
             self.collect(*child, order);
         }
         order.push(node);
+    }
+
+    /// `node` and everything under it, each before its children and the
+    /// oldest child first, with what each sits under.
+    pub(super) fn collect_down(&self, node: NodeKey, order: &mut Vec<(NodeKey, Option<NodeKey>)>) {
+        order.push((node, self.nodes[node].parent));
+        for child in &self.nodes[node].children {
+            self.collect_down(*child, order);
+        }
     }
 }
 

@@ -42,9 +42,9 @@ pub(super) enum Taken {
 }
 
 impl Taken {
-    fn let_go(self, key: usize) {
+    fn let_go(self, key: usize, by: Scope) {
         match self {
-            Taken::Actor(actor) => actor.let_go(key),
+            Taken::Actor(actor) => actor.let_go(key, by),
             Taken::Hearing(hearing) => drop(hearing),
             Taken::Watching(watching) => drop(watching),
             Taken::Source(pouring) => drop(pouring),
@@ -57,11 +57,11 @@ impl Taken {
 impl Held {
     /// Lets go of everything, the last taken first: what came later may rest
     /// on what came before it.
-    pub(super) fn let_go(&self) {
+    pub(super) fn let_go(&self, by: Scope) {
         loop {
             let last = self.0.borrow_mut().pop_last();
             let Some((key, taken)) = last else { break };
-            taken.let_go(key);
+            taken.let_go(key, by);
         }
     }
 }
@@ -74,7 +74,7 @@ impl Scope {
             Some(data) => {
                 data.held.0.borrow_mut().insert(key, taken);
             }
-            None => taken.let_go(key),
+            None => taken.let_go(key, *self),
         }
     }
 
@@ -135,7 +135,7 @@ impl Scope {
         drop(data);
 
         if let Some(taken) = taken {
-            taken.let_go(key);
+            taken.let_go(key, *self);
         }
     }
 

@@ -11,6 +11,7 @@ repository.workspace = true
 guinea-core.workspace = true
 guinea-app.workspace = true
 anyhow.workspace = true
+inventory.workspace = true
 tracing.workspace = true
 
 [lints]

@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 guinea-core.workspace = true
+inventory.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 tokio.workspace = true

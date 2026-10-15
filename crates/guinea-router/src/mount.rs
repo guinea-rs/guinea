@@ -7,6 +7,7 @@ use guinea_app::feature::FeatureInitContext;
 use guinea_core::actor::shape::Declared;
 use guinea_core::binding::ReducerBinding;
 use guinea_core::feature::Dispatch;
+use guinea_core::observability::observer::{self, Event};
 use guinea_core::scope::{Reducer, Scope};
 
 use crate::navigator::{Navigator, Routable};
@@ -111,7 +112,7 @@ impl Pass {
         }
 
         let scope = self.parent.child();
-        root::<S>(scope);
+        scope.keep(Named(std::any::type_name::<S>()));
         let cx = FeatureInitContext {
             scope_cx: guinea_app::feature::ScopeContext::new(scope),
             cursor: 0,
@@ -121,6 +122,7 @@ impl Pass {
             let name = crate::observability::short(std::any::type_name::<S>());
             return Err(error.context(format!("{name} did not mount")));
         }
+        told_mounted(scope);
 
         self.parent.kept::<Mounts, _>(|mounts| {
             mounts.children.push(Child {
@@ -341,6 +343,32 @@ fn unreached<R: 'static>(scope: Scope) -> String {
 /// installs on its own.
 pub fn root<S: 'static>(scope: Scope) {
     scope.keep(Named(std::any::type_name::<S>()));
+    told_mounted(scope);
+}
+
+/// Tells the tool watching that `scope` is mounted, as what and where it was
+/// written.
+fn told_mounted(scope: Scope) {
+    let Some(name) = name(scope) else {
+        return;
+    };
+    observer::tell(scope, || Event::Mounted {
+        scope: scope.id(),
+        name,
+        written: written_at(scope),
+    });
+}
+
+/// What a tool that starts watching is told of what `scope` was mounted as,
+/// when it was.
+pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
+    if let Some(name) = name(scope) {
+        events.push(Event::Mounted {
+            scope: scope.id(),
+            name,
+            written: written_at(scope),
+        });
+    }
 }
 
 /// Where what is mounted into `scope` was written, for devtools to link to.

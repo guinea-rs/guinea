@@ -37,17 +37,6 @@ fn every(tree: &ScopeTree, ms: u64) -> (Source, Arc<AtomicUsize>) {
     counting(tree, Duration::from_millis(ms))
 }
 
-fn watched(run: impl FnOnce()) -> Vec<Change> {
-    let seen = Rc::new(RefCell::new(Vec::new()));
-    let sink = seen.clone();
-    changes::watch(move |change| sink.borrow_mut().push(change.clone()));
-
-    run();
-    changes::stop_watching();
-
-    seen.take()
-}
-
 /// A stream fed by hand, from any thread.
 #[derive(Clone, Default)]
 struct Pipe(Arc<Mutex<(VecDeque<u32>, Option<Waker>, bool)>>);
@@ -103,39 +92,6 @@ fn piped(tree: &ScopeTree) -> (Pipe, Rc<RefCell<Vec<u32>>>) {
         .pour(pipe.clone(), move |item| into.borrow_mut().push(item));
 
     (pipe, heard)
-}
-
-#[test]
-fn devtools_hear_when_a_source_opens_and_when_it_closes() {
-    let _clock = clock();
-    let tree = ScopeTree::new();
-    let mut id = None;
-
-    let seen = watched(|| {
-        let (source, _) = every(&tree, 30);
-        id = source.id();
-        tree.remove();
-    });
-
-    let id = id.expect("open");
-    assert_eq!(seen, [Change::SourceOpened { id }, Change::SourceClosed { id }]);
-}
-
-#[test]
-fn an_untraced_source_leaves_devtools_at_once_and_ends_unheard() {
-    let _clock = clock();
-    let tree = ScopeTree::new();
-    let mut id = None;
-
-    let seen = watched(|| {
-        let (source, _) = every(&tree, 30);
-        id = source.id();
-        let _source = source.untraced();
-        tree.remove();
-    });
-
-    let id = id.expect("open");
-    assert_eq!(seen, [Change::SourceOpened { id }, Change::SourceClosed { id }]);
 }
 
 #[test]
@@ -491,11 +447,9 @@ fn an_open_source_says_where_it_was_opened_whom_it_pours_into_and_what_it_is_cal
     let tree = ScopeTree::new();
     let page = tree.child();
     let (source, _) = every(&tree, 1_000);
-    let (hidden, _) = every(&tree, 1_000);
     let below = page.section().repeat(Duration::from_millis(1_000), || {});
 
     let source = source.named("sweep");
-    let hidden = hidden.untraced().id();
 
     let id = source.id().expect("open");
     let listed = tree.scope().sources();
@@ -503,8 +457,7 @@ fn an_open_source_says_where_it_was_opened_whom_it_pours_into_and_what_it_is_cal
     assert_eq!(info.name, Some("sweep"));
     assert!(info.place.file().ends_with("tests.rs"));
     assert_eq!((info.to, info.output), ("fn", "()"));
-    assert_eq!(info.scope, tree.scope());
-    assert!(listed.iter().all(|info| Some(info.id) != hidden));
+    assert_eq!(info.scope, tree.scope().id());
     assert!(listed.iter().any(|info| Some(info.id) == below.id()), "a source below is listed too");
     assert!(tree.scope().sources_here().iter().all(|info| Some(info.id) != below.id()));
 

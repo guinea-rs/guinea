@@ -405,9 +405,7 @@ impl<A: 'static> Addr<A> {
     fn handled(&self, handle: impl FnOnce(&mut A)) {
         handle(&mut self.0.state.borrow_mut());
 
-        crate::observability::changes::changed(|| {
-            crate::observability::changes::Change::ActorHandled { id: self.0.id }
-        });
+        crate::observability::observer::handled(self.0.home.scope(), self.0.id);
     }
 
     /// Handles what was queued while the actor was busy, until the queue is

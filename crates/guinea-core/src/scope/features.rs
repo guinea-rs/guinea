@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::actor::shape::Declared;
+use crate::observability::observer::{self, Event};
 
 use super::Scope;
 
@@ -156,9 +157,22 @@ impl Section {
             return;
         };
 
-        if let Some(section) = data.features.sections.borrow_mut().get_mut(self.index) {
-            section.withdrawn = true;
-            section.answers.clear();
+        let withdrawn = data
+            .features
+            .sections
+            .borrow_mut()
+            .get_mut(self.index)
+            .and_then(|section| {
+                let named = section.name.filter(|_| !section.withdrawn);
+                section.withdrawn = true;
+                section.answers.clear();
+                named
+            });
+        if let Some(name) = withdrawn {
+            observer::tell(self.scope, || Event::Withdrawn {
+                scope: self.scope.id(),
+                name,
+            });
         }
 
         data.features
@@ -177,10 +191,17 @@ impl Section {
     pub fn note_listener(&self, event: &'static str, actor: Option<&'static str>) {
         let data = self.scope.alive("noting a listener");
         let feature = data.features.section_name(self.index);
-        data.features.listeners.borrow_mut().push(Listener {
+        let listener = Listener {
             event,
             actor,
             feature,
+        };
+        data.features.listeners.borrow_mut().push(listener.clone());
+        drop(data);
+
+        observer::tell(self.scope, || Event::Listened {
+            scope: self.scope.id(),
+            listener,
         });
     }
 }
@@ -205,10 +226,19 @@ impl Scope {
             answers: HashMap::new(),
             withdrawn: false,
         });
+        let index = sections.len() - 1;
+        drop(sections);
 
+        if let Some(name) = name {
+            observer::tell(*self, || Event::Installed {
+                scope: self.id(),
+                name,
+                declared,
+            });
+        }
         Section {
             scope: *self,
-            index: sections.len() - 1,
+            index,
         }
     }
 

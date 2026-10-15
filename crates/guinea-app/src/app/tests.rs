@@ -135,17 +135,9 @@ fn every_copy_of_a_plugin_is_listed() {
     let _ = app.plugin::<Settings>("state");
 
     assert_eq!(
-        crate::observability::installed_plugins(app.scope),
-        [name::<Settings>(), name::<Settings>()]
+        app.scope.kept::<super::registry::Plugins, _>(|plugins| plugins.ids()),
+        Some(vec![name::<Settings>(), name::<Settings>()])
     );
-}
-
-#[test]
-fn the_backend_that_started_the_application_is_named_for_devtools() {
-    let (runtime, ()) = start("egui", |_| Ok(())).unwrap();
-
-    let app = runtime.context().__scope();
-    assert_eq!(crate::observability::backend(app), Some("egui"));
 }
 
 #[test]
@@ -462,12 +454,17 @@ mod exports {
     }
 }
 
-mod owners {
-    use guinea_core::actor::shape::name;
-    use guinea_macros::{actor, builds, feature, handler, installs, plugin};
+mod observed {
+    use std::sync::{Mutex, MutexGuard, PoisonError};
 
-    use crate::observability::{app_actors, installed_plugins};
+    use guinea_core::actor::shape::name;
+    use guinea_core::observability::observer::{Event, Watching};
+    use guinea_core::observability::panels::{self, Panel};
+    use guinea_macros::{actor, builds, feature, handler, installs, plugin, reducer};
+
     use super::{FeatureBuilder, PluginBuilder, start};
+    use crate::app::{AppRuntime, Observed, roots};
+    use crate::feature::FeatureHost;
 
     pub struct Sweep;
 
@@ -521,39 +518,192 @@ mod owners {
         Ok(Tools)
     }
 
-    #[test]
-    fn an_application_actor_names_the_feature_that_spawned_it() {
-        let (runtime, ()) = start("test", housekeeping_app).expect("install");
-        let app = runtime.context().__scope();
+    plugin! {
+        Watches {
+            provides { Observed }
+        }
+    }
 
-        let owner = |name: &str| {
-            app_actors(app)
-                .into_iter()
-                .find(|actor| actor.type_name.ends_with(name))
-                .map(|actor| actor.owner.feature)
+    #[builds]
+    fn watches(app: &mut PluginBuilder) -> anyhow::Result<Watches> {
+        Ok(Watches(app.observed()))
+    }
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Count(u32);
+
+    #[reducer]
+    fn count(this: &mut Count, by: u32) {
+        this.0 += by;
+    }
+
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// An application and the tool watching it. One tool watches the
+    /// process, so the tests that watch take turns.
+    struct Watched {
+        watching: Watching,
+        observed: Observed,
+        runtime: AppRuntime,
+        _turn: MutexGuard<'static, ()>,
+    }
+
+    fn watched(backend: &'static str, app: fn(&mut FeatureBuilder) -> anyhow::Result<()>) -> Watched {
+        let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+        let (runtime, observed) = start(backend, |builder| {
+            app(builder)?;
+            let Watches(observed) = builder.plugin::<Watches>(())?;
+            Ok(observed)
+        })
+        .expect("install");
+        let watching = observed.watch(|| {}).expect("nothing else watches");
+
+        Watched {
+            watching,
+            observed,
+            runtime,
+            _turn: turn,
+        }
+    }
+
+    #[test]
+    fn a_tool_is_told_what_draws_the_application_and_what_it_was_built_with() {
+        let watched = watched("egui", housekeeping_app);
+
+        let events = watched.watching.take().events;
+
+        let built: Vec<&Event> = events
+            .iter()
+            .filter(|event| matches!(event, Event::Backend { .. } | Event::Plugin { .. }))
+            .collect();
+        assert_eq!(
+            built,
+            [
+                &Event::Backend { name: "egui" },
+                &Event::Plugin { name: name::<Tools>() },
+                &Event::Plugin { name: name::<Watches>() },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_application_actor_is_told_with_the_feature_that_spawned_it_and_read_when_asked() {
+        let watched = watched("test", housekeeping_app);
+
+        let events = watched.watching.take().events;
+
+        let added = |named: &str| {
+            events.iter().find_map(|event| match event {
+                Event::ActorAdded { id, type_name, owner } if type_name.ends_with(named) => {
+                    Some((*id, owner.feature))
+                }
+                _ => None,
+            })
         };
-        assert_eq!(owner("Sweeper"), Some(Some(name::<Housekeeping>())));
-        assert_eq!(owner("Loose"), Some(None), "a plugin is not a feature");
+        let read = added("Sweeper")
+            .and_then(|(id, _)| watched.observed.actor(id))
+            .map(|actor| actor.type_name);
+        assert_eq!(
+            (added("Sweeper").map(|(_, feature)| feature), added("Loose").map(|(_, feature)| feature)),
+            (Some(Some(name::<Housekeeping>())), Some(None)),
+            "a plugin is not a feature"
+        );
+        assert!(read.is_some_and(|read| read.ends_with("Sweeper")), "{read:?}");
     }
 
     #[test]
-    fn what_an_application_was_built_with_is_read_from_its_scope() {
-        let mut harness = crate::app::Harness::new(0);
-        harness.app(housekeeping_app).unwrap();
-        let app = harness.application_scope();
+    fn a_state_is_read_when_the_tool_asks() {
+        let watched = watched("test", |app| {
+            app.state::<Count>().seed(Count(3)).plain();
+            Ok(())
+        });
+        watched.watching.take();
+        let app = watched.runtime.context().__scope().id();
 
-        assert_eq!(installed_plugins(app), [name::<Tools>()]);
-        assert_eq!(app_actors(app).len(), 2);
+        let read = watched
+            .observed
+            .state(app, std::any::type_name::<Count>())
+            .map(|state| state.state.preview);
+
+        assert_eq!(read.as_deref(), Some("Count(3)"));
     }
 
     #[test]
-    fn two_applications_on_one_thread_are_read_apart() {
-        let mut first = crate::app::Harness::new(0);
-        first.app(housekeeping_app).unwrap();
-        let second = crate::app::Harness::new(0);
+    fn a_root_that_opens_is_named_and_closes_is_told() {
+        let watched = watched("test", |_| Ok(()));
+        watched.watching.take();
 
-        assert_eq!(installed_plugins(first.application_scope()), [name::<Tools>()]);
-        assert_eq!(installed_plugins(second.application_scope()), [""; 0]);
+        let window = FeatureHost::under(&watched.runtime.context());
+        roots::set_label(window.scope(), "main");
+        let (root, scope) = (window.root().get(), window.scope().id());
+        drop(window);
+
+        let events = watched.watching.take().events;
+        let rooted: Vec<&Event> = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    Event::RootOpened { .. } | Event::Labelled { .. } | Event::RootClosed { .. }
+                )
+            })
+            .collect();
+        assert_eq!(
+            rooted,
+            [
+                &Event::RootOpened { root, scope },
+                &Event::Labelled { root, label: "main".into() },
+                &Event::RootClosed { root },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_that_starts_watching_is_told_the_roots_open_and_their_names() {
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+        let (runtime, observed) = start("test", |app| {
+            let Watches(observed) = app.plugin::<Watches>(())?;
+            Ok(observed)
+        })
+        .expect("install");
+        let window = FeatureHost::under(&runtime.context());
+        roots::set_label(window.scope(), "main");
+
+        let watching = observed.watch(|| {}).expect("nothing else watches");
+        let events = watching.take().events;
+
+        let root = window.root().get();
+        assert!(
+            events.contains(&Event::RootOpened { root, scope: window.scope().id() })
+                && events.contains(&Event::Labelled { root, label: "main".into() }),
+            "{events:#?}"
+        );
+    }
+
+    #[test]
+    fn what_another_application_on_the_thread_does_is_not_told() {
+        let watched = watched("test", |_| Ok(()));
+        watched.watching.take();
+
+        let (_other, ()) = start("test", housekeeping_app).expect("install");
+
+        assert_eq!(watched.watching.take().events, []);
+    }
+
+    #[test]
+    fn what_the_backend_offers_for_the_application_is_read_when_asked() {
+        let watched = watched("test", |_| Ok(()));
+        let _offered = panels::contribute_to_app(|| {
+            Some(Panel {
+                id: "backend",
+                title: "Backend",
+                nodes: Vec::new(),
+            })
+        });
+
+        let ids: Vec<&str> = watched.observed.panels(None).iter().map(|panel| panel.id).collect();
+
+        assert_eq!(ids, ["backend"]);
     }
 }
 

@@ -1,5 +1,6 @@
 mod builder;
 mod meta;
+mod observed;
 #[cfg(feature = "own-runtime")]
 mod runtime_host;
 mod plugin;
@@ -15,6 +16,7 @@ mod harness;
 
 pub use builder::{FeatureBuilder, PluginBuilder};
 pub use meta::AppMeta;
+pub use observed::Observed;
 pub use plugin::{AppFeature, Plugin, Stop};
 
 #[cfg(any(test, feature = "test-utils"))]

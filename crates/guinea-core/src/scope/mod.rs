@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::actor::event_bus::EventBus;
+use crate::observability::observer::{self, Event};
 
 mod actors;
 mod features;
@@ -51,7 +52,58 @@ impl std::fmt::Debug for Scope {
     }
 }
 
+/// A scope as a tool names it: what tells it apart from every other scope of
+/// its tree, and nothing that reaches it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ScopeId(u64);
+
+impl ScopeId {
+    /// The number behind the id, for something outside the process to name it.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
 impl Scope {
+    /// How a tool names this scope.
+    pub fn id(&self) -> ScopeId {
+        use slotmap::Key;
+        ScopeId(self.node.data().as_ffi())
+    }
+
+    /// The scope `id` names in this scope's tree, while it is there.
+    #[doc(hidden)]
+    pub fn named_by(&self, id: ScopeId) -> Option<Scope> {
+        let named = self.named(slotmap::KeyData::from_ffi(id.0).into());
+        named.is_alive().then_some(named)
+    }
+
+    /// Whether `other` is in this scope's tree.
+    pub(crate) fn shares_tree(&self, other: &Scope) -> bool {
+        self.tree == other.tree
+    }
+
+    /// The scope at the top of this one's tree, while the tree is there.
+    pub(crate) fn root(&self) -> Option<Scope> {
+        self.read(|tree| self.named(tree.root))
+    }
+
+    /// This scope and every scope under it, each before the ones under it and
+    /// the oldest child first, with the scope it sits under.
+    pub(crate) fn family(&self) -> Vec<(Scope, Option<Scope>)> {
+        self.read(|tree| {
+            let mut order = Vec::new();
+            if self.node_in(tree).is_some() {
+                tree.collect_down(self.node, &mut order);
+            }
+            order
+                .into_iter()
+                .map(|(node, parent)| (self.named(node), parent.map(|parent| self.named(parent))))
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
     /// A new scope under this one, removed when this one is.
     pub fn child(&self) -> Scope {
         let tree =
@@ -62,11 +114,17 @@ impl Scope {
             "a child for {self:?}, which was removed"
         );
         let node = tree.child_of(self.node);
+        drop(tree);
 
-        Scope {
+        let child = Scope {
             tree: self.tree,
             node,
-        }
+        };
+        observer::tell(child, || Event::ScopeOpened {
+            scope: child.id(),
+            parent: Some(self.id()),
+        });
+        child
     }
 
     /// Removes this scope and every scope under it, now: children before
@@ -84,8 +142,10 @@ impl Scope {
         let Some(detached) = detached else {
             return;
         };
-        for data in detached {
-            data.held.let_go();
+        for (node, data) in detached {
+            let gone = self.named(node);
+            data.held.let_go(gone);
+            observer::tell(gone, || Event::ScopeClosed { scope: gone.id() });
         }
     }
 

@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::actor::shape::Declared;
 use crate::inspect::{Inspector, Node, Open};
+use crate::observability::observer;
 
 use super::Scope;
 
@@ -239,7 +240,32 @@ impl Scope {
 
     /// `R`'s state here, created from `R::default()` on first read.
     pub fn state<R: Reducer>(&self) -> Rc<Slot<R>> {
-        self.alive("reading a reducer").state.slot::<R>()
+        let (slot, made) = self.alive("reading a reducer").state.slot::<R>();
+        if made {
+            self.moved::<R>();
+        }
+        slot
+    }
+
+    fn moved<R: Reducer>(&self) {
+        observer::moved(*self, std::any::type_name::<R>());
+    }
+
+    /// The reducers this scope holds whose type it has seen, told again to a
+    /// tool that starts watching.
+    pub(crate) fn held_states(&self) -> Vec<&'static str> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+        let cells = data.state.cells.borrow();
+        let kinds = data.state.kinds.borrow();
+
+        let mut held: Vec<&'static str> = cells
+            .keys()
+            .filter_map(|type_id| Some(kinds.get(type_id)?.name))
+            .collect();
+        held.sort_unstable();
+        held
     }
 
     pub fn peek<R: Reducer>(&self) -> Option<Rc<Slot<R>>> {
@@ -267,6 +293,9 @@ impl Scope {
             .borrow_mut()
             .insert(TypeId::of::<R>(), Cell::holding(Rc::new(Slot::new(Rc::new(state)))));
         drop(replaced);
+        drop(data);
+
+        self.moved::<R>();
     }
 
     /// Applies `msg` to `F`'s state now, and marks the cell so its listeners
@@ -281,7 +310,7 @@ impl Scope {
             .state
             .is_observed(TypeId::of::<R>())
             .then(|| Box::new(update.clone()) as Box<dyn Any>);
-        let state = data.state.slot::<R>();
+        let (state, _) = data.state.slot::<R>();
         drop(data);
 
         {
@@ -289,6 +318,7 @@ impl Scope {
             Rc::make_mut(&mut state).reduce(update);
         }
 
+        self.moved::<R>();
         crate::notify::mark(*self, TypeId::of::<R>(), carried);
     }
 
@@ -398,13 +428,21 @@ impl Scope {
     pub fn restore_states(&self, states: HashMap<TypeId, Rc<dyn Any>>) {
         let data = self.alive("restoring state");
         let mut replaced = Vec::new();
+        let mut restored = Vec::new();
         {
             let mut cells = data.state.cells.borrow_mut();
+            let kinds = data.state.kinds.borrow();
             for (type_id, state) in states {
+                restored.extend(kinds.get(&type_id).map(|kind| kind.name));
                 replaced.extend(cells.insert(type_id, Cell::holding(state)));
             }
         }
         drop(replaced);
+        drop(data);
+
+        for reducer in restored {
+            observer::moved(*self, reducer);
+        }
     }
 }
 
@@ -416,14 +454,18 @@ impl States {
             .or_insert_with(Kind::of::<R>);
     }
 
-    fn slot<R: Reducer>(&self) -> Rc<Slot<R>> {
+    /// `R`'s cell, and whether it was made just now.
+    fn slot<R: Reducer>(&self) -> (Rc<Slot<R>>, bool) {
         self.note_kind::<R>();
         let mut cells = self.cells.borrow_mut();
+        let made = !cells.contains_key(&TypeId::of::<R>());
         let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
-        cell.state
+        let slot = cell
+            .state
             .clone()
             .downcast::<Slot<R>>()
-            .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R")
+            .expect("Scope cell type mismatch for this TypeId - unreachable, keyed by R");
+        (slot, made)
     }
 
     fn unlisten(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Fn()>>> {

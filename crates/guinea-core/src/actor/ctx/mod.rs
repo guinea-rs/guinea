@@ -103,31 +103,6 @@ mod tests {
         assert_eq!(&*log.borrow(), &["first", "second"]);
     }
 
-    #[test]
-    fn a_watcher_hears_which_actor_handled_a_message() {
-        use crate::observability::changes::{self, Change};
-
-        let home = TestHome::new();
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        changes::watch(move |change| {
-            if let Change::ActorHandled { id } = change {
-                sink.borrow_mut().push(*id);
-            }
-        });
-
-        let addr = Addr::new(
-            Chain {
-                log: Rc::new(RefCell::new(Vec::new())),
-            },
-            &home,
-        );
-        addr.send(First);
-        changes::stop_watching();
-
-        let id = addr.id();
-        assert_eq!(*seen.borrow(), [id, id], "First, then the Second it sent");
-    }
 
     #[test]
     fn a_chain_of_sends_is_traced_back_to_the_action_that_started_it() {

@@ -28,8 +28,8 @@ use futures_core::Stream;
 use parking_lot::Mutex;
 
 use crate::actor::{Cancel, Receives};
-use crate::observability::changes::{self, Change};
-use crate::scope::{Awake, Scope, Section, next_key};
+use crate::observability::observer::{self, Event};
+use crate::scope::{Awake, Scope, ScopeId, Section, next_key};
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 use crate::ui_thread::invoke_on_ui;
@@ -264,7 +264,7 @@ impl Stream for Ticks {
 }
 
 /// What is known about an open source.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SourceInfo {
     pub id: u64,
     pub name: Option<&'static str>,
@@ -273,7 +273,7 @@ pub struct SourceInfo {
     /// The feature that opened it.
     pub feature: Option<&'static str>,
     /// The scope that holds it.
-    pub scope: Scope,
+    pub scope: ScopeId,
     /// Who its items go to: an actor's name, or `fn`.
     pub to: &'static str,
     /// What its items come as.
@@ -282,7 +282,7 @@ pub struct SourceInfo {
 
 struct Entry {
     info: SourceInfo,
-    traced: Arc<AtomicBool>,
+    scope: Scope,
     cancel: Cancel,
     /// An `Rc<dyn Fn(T)>`, for the `T` the source pours.
     receive: Box<dyn Any>,
@@ -305,15 +305,13 @@ pub(crate) struct Pouring(Rc<RefCell<Entry>>);
 
 impl Drop for Pouring {
     fn drop(&mut self) {
-        let (id, traced) = {
+        let (id, scope) = {
             let entry = self.0.borrow();
             entry.cancel.cancel();
-            (entry.info.id, entry.traced.load(Ordering::SeqCst))
+            (entry.info.id, entry.scope)
         };
 
-        if traced {
-            changes::changed(|| Change::SourceClosed { id });
-        }
+        observer::tell(scope, || Event::SourceClosed { id });
     }
 }
 
@@ -322,12 +320,8 @@ impl Pouring {
         self.0.clone()
     }
 
-    fn info(&self) -> Option<SourceInfo> {
-        let entry = self.0.borrow();
-        entry
-            .traced
-            .load(Ordering::SeqCst)
-            .then(|| entry.info.clone())
+    fn info(&self) -> SourceInfo {
+        self.0.borrow().info.clone()
     }
 }
 
@@ -344,26 +338,13 @@ impl Source {
     /// What devtools call it, instead of where it was opened.
     pub fn named(self, name: &'static str) -> Self {
         if let Some(entry) = self.entry.upgrade() {
-            entry.borrow_mut().info.name = Some(name);
+            let (id, scope) = {
+                let mut entry = entry.borrow_mut();
+                entry.info.name = Some(name);
+                (entry.info.id, entry.scope)
+            };
+            observer::tell(scope, || Event::SourceNamed { id, name });
         }
-        self
-    }
-
-    /// Leaves no trace and does not show up in devtools: for tooling that
-    /// watches the application and must not be seen in what it watches.
-    pub fn untraced(self) -> Self {
-        let Some(entry) = self.entry.upgrade() else {
-            return self;
-        };
-
-        let (id, was_traced) = {
-            let entry = entry.borrow();
-            (entry.info.id, entry.traced.swap(false, Ordering::SeqCst))
-        };
-        if was_traced {
-            changes::changed(|| Change::SourceClosed { id });
-        }
-
         self
     }
 
@@ -414,7 +395,6 @@ where
 
     let scope = section.scope();
     let key = next_key();
-    let traced = Arc::new(AtomicBool::new(true));
 
     let entry = Rc::new(RefCell::new(Entry {
         info: SourceInfo {
@@ -422,11 +402,11 @@ where
             name: None,
             place,
             feature: section.feature(),
-            scope,
+            scope: scope.id(),
             to,
             output,
         },
-        traced: traced.clone(),
+        scope,
         cancel: cancel.clone(),
         receive: Box::new(receive),
         held: None,
@@ -435,15 +415,15 @@ where
     let handle = Source {
         entry: Rc::downgrade(&entry),
     };
+    let told = entry.clone();
     scope.hold_source(key, Pouring(entry));
-    changes::changed(|| Change::SourceOpened { id: key as u64 });
+    observer::tell(scope, || Event::SourceOpened(told.borrow().info.clone()));
 
     let feed = Feed {
         source: key as u64,
         to,
         output,
         started: Instant::now(),
-        traced,
     };
     let opened = trace::mark(|| Point::Source {
         source: feed.source,
@@ -473,36 +453,23 @@ struct Feed {
     to: &'static str,
     output: &'static str,
     started: Instant,
-    traced: Arc<AtomicBool>,
 }
 
 impl Feed {
-    fn traced(&self) -> bool {
-        self.traced.load(Ordering::SeqCst)
-    }
-
     /// Opens a pull of the source: what the stream does until it has its next
     /// item, runs dry or is dropped is recorded under it.
-    fn pull(&self) -> Option<Pulling> {
-        if !self.traced() {
-            return None;
-        }
-
+    fn pull(&self) -> Pulling {
         let id = trace::reserve();
         let (source, to, output) = (self.source, self.to, self.output);
         crate::observability::begin_anywhere(id, None, move || Point::Pull { source, to, output });
 
-        Some(Pulling {
+        Pulling {
             id,
             started: Instant::now(),
-        })
+        }
     }
 
     fn closed(&self, opened: Cause, gone: bool) {
-        if !self.traced() {
-            return;
-        }
-
         let point = Point::Closed {
             source: self.source,
             to: self.to,
@@ -552,7 +519,7 @@ async fn pour<S, T>(
             let pulling = feed.pull();
 
             std::future::poll_fn(|cx| {
-                let _pulling = trace::resume(pulling.as_ref().map(|pulling| pulling.id));
+                let _pulling = trace::resume(Some(pulling.id));
                 source.as_mut().poll_next(cx)
             })
             .await
@@ -651,17 +618,17 @@ fn deliver<T: 'static>(entry: &Rc<RefCell<Entry>>, item: T) {
             .expect("a source pours what its receiver takes")
             .clone();
         let info = &entry.info;
-        let arrived = entry.traced.load(Ordering::SeqCst).then(|| Point::Arrived {
+        let arrived = Point::Arrived {
             source: info.id,
             name: info.name,
             to: info.to,
             output: info.output,
-        });
+        };
         (receive, arrived)
     };
 
     let _root = trace::resume(None);
-    let _arrived = arrived.map(|point| trace::enter(move || point));
+    let _arrived = trace::enter(move || arrived);
     receive(item);
 }
 
@@ -759,7 +726,7 @@ impl Scope {
     pub fn sources(&self) -> Vec<SourceInfo> {
         let mut sources = Vec::new();
         for scope in self.subtree() {
-            scope.each_source(|pouring| sources.extend(pouring.info()));
+            scope.each_source(|pouring| sources.push(pouring.info()));
         }
 
         sources.sort_by_key(|source| source.id);
@@ -770,7 +737,7 @@ impl Scope {
     /// scopes under it.
     pub fn sources_here(&self) -> Vec<SourceInfo> {
         let mut sources = Vec::new();
-        self.each_source(|pouring| sources.extend(pouring.info()));
+        self.each_source(|pouring| sources.push(pouring.info()));
         sources
     }
 }

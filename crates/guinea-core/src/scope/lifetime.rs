@@ -9,6 +9,7 @@ use std::task::{Context, Poll, Waker};
 use parking_lot::Mutex;
 
 use super::Scope;
+use crate::observability::observer::{self, Event};
 
 /// What a scope asks before it goes, and whether it is awake meanwhile.
 #[derive(Default)]
@@ -126,6 +127,9 @@ impl Scope {
     /// of them removes the scope or wakes it.
     pub fn sleep(&self) {
         let data = self.alive("putting to sleep");
+        if !data.lifetime.asleep.is_asleep() {
+            observer::tell(*self, || Event::Slept { scope: self.id() });
+        }
         data.lifetime.asleep.set(true);
 
         let hooks = data.lifetime.sleep_hooks.borrow().clone();
@@ -143,6 +147,9 @@ impl Scope {
     /// asked - until one of them removes the scope or puts it back to sleep.
     pub fn wake(&self) {
         let data = self.alive("waking");
+        if data.lifetime.asleep.is_asleep() {
+            observer::tell(*self, || Event::Woke { scope: self.id() });
+        }
         data.lifetime.asleep.set(false);
 
         let hooks = data.lifetime.wake_hooks.borrow().clone();

@@ -26,7 +26,7 @@ pub use json::{Json, json};
 pub use point::Point;
 pub use sink::{
     ELSEWHERE_LIMIT, Elsewhere, is_observed, is_observed_anywhere, is_point_target,
-    is_recorded_anywhere, observe, stop_observing, take_elsewhere, thread_id,
+    is_recorded_anywhere, observe, ring_on_elsewhere, stop_observing, take_elsewhere, thread_id,
 };
 
 use std::cell::Cell;
@@ -505,4 +505,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_record_made_elsewhere_rings_once_until_it_is_taken() {
+        let rung = std::sync::Arc::new(AtomicU64::new(0));
+        let counted = rung.clone();
+        ring_on_elsewhere(Some(std::sync::Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        })));
+        observe(|_| {});
+        take_elsewhere();
+
+        let elsewhere = || {
+            std::thread::spawn(|| {
+                mark(|| Point::Push { reducer: "Elsewhere" });
+            })
+            .join()
+            .expect("marking thread")
+        };
+        elsewhere();
+        elsewhere();
+        let before_the_take = rung.load(Ordering::SeqCst);
+        take_elsewhere();
+        elsewhere();
+
+        stop_observing();
+        ring_on_elsewhere(None);
+        assert_eq!((before_the_take, rung.load(Ordering::SeqCst)), (1, 2));
+    }
 }

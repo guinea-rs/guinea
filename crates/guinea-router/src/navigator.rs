@@ -20,7 +20,7 @@ use std::rc::{Rc, Weak};
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::Scope;
 
-use crate::observability::NavigatorView;
+use guinea_core::observability::observer::{self, Event, Navigation};
 
 /// A place the application can be: an enum, a variant per place, and a
 /// variant holding another route for each layout below.
@@ -219,6 +219,10 @@ impl<T: Routable> Navigator<T> {
             scope.keep(Held::default());
         }
         scope.kept::<Held, _>(|held| held.0.push(root.clone()));
+        observer::tell(scope, || Event::Navigated {
+            scope: scope.id(),
+            navigation: root.navigation(),
+        });
 
         Self::over(root)
     }
@@ -379,17 +383,22 @@ trait Navigates {
     fn failure(&self) -> Option<String>;
     fn watch(&self, heard: Rc<dyn Fn()>) -> u64;
     fn unwatch(&self, id: u64);
-    fn view(&self) -> NavigatorView;
+    fn navigation(&self) -> Navigation;
 }
 
-/// The navigators `scope` opened, as devtools read them.
-pub(crate) fn views(scope: Scope) -> Vec<NavigatorView> {
+/// What a tool that starts watching is told of the navigators `scope`
+/// opened.
+pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
     if !scope.keeps::<Held>() {
-        return Vec::new();
+        return;
     }
-    scope
-        .kept::<Held, _>(|held| held.0.iter().map(|root| root.view()).collect())
-        .unwrap_or_default()
+    let navigations = scope
+        .kept::<Held, _>(|held| held.0.iter().map(|root| root.navigation()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    events.extend(navigations.into_iter().map(|navigation| Event::Navigated {
+        scope: scope.id(),
+        navigation,
+    }));
 }
 
 struct Root<R: Routable> {
@@ -595,6 +604,11 @@ impl<R: Routable> Root<R> {
     }
 
     fn moved(&self) {
+        observer::tell(self.window, || Event::Navigated {
+            scope: self.window.id(),
+            navigation: self.navigation(),
+        });
+
         let watchers: Vec<Rc<dyn Fn()>> = self
             .watchers
             .borrow()
@@ -709,10 +723,10 @@ impl<R: Routable> Navigates for Root<R> {
         self.watchers.borrow_mut().retain(|(watching, _)| *watching != id);
     }
 
-    fn view(&self) -> NavigatorView {
+    fn navigation(&self) -> Navigation {
         let state = self.state.borrow();
-        NavigatorView {
-            scope: self.window,
+        Navigation {
+            routes: std::any::type_name::<R>(),
             route: format!("{:?}", state.current),
             back: state.back.len(),
             forward: state.forward.len(),

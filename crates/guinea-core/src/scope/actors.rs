@@ -5,7 +5,7 @@ use crate::actor::snapshot::{ActorSnapshot, Owner};
 use crate::actor::shape::Shape;
 use crate::actor::traits::ManagedActor;
 use crate::inspect::{Node, Open};
-use crate::observability::changes::{self, Change};
+use crate::observability::observer::{self, Event};
 
 use super::{Scope, Section};
 use super::held::Taken;
@@ -30,11 +30,11 @@ struct Listing {
 impl HeldActor {
     /// Disposes it, and tells devtools it is gone when they were told it
     /// came.
-    pub(super) fn let_go(self, id: usize) {
+    pub(super) fn let_go(self, id: usize, by: Scope) {
         (self.dispose)(&*self.addr);
 
         if self.listing.is_some() {
-            changes::changed(|| Change::ActorRemoved { id });
+            observer::tell(by, || Event::ActorRemoved { id });
         }
     }
 
@@ -175,7 +175,7 @@ impl Section {
         let id = addr.id();
         let type_name = crate::short_type_name::<A>();
         let owner = Owner {
-            scope: Some(self.scope()),
+            scope: Some(self.scope().id()),
             feature: self.feature(),
             drives,
         };
@@ -192,10 +192,37 @@ impl Section {
             return;
         }
 
-        changes::changed(|| Change::ActorAdded {
+        observer::tell(self.scope(), || Event::ActorAdded {
             id,
             type_name,
             owner,
         });
+    }
+}
+
+impl Scope {
+    /// What devtools were told of each actor this scope holds itself, oldest
+    /// first: told again to a tool that starts watching.
+    pub(crate) fn listed_actors(&self) -> Vec<Event> {
+        let Some(data) = self.data() else {
+            return Vec::new();
+        };
+
+        data.held
+            .0
+            .borrow()
+            .iter()
+            .filter_map(|(id, taken)| match taken {
+                Taken::Actor(HeldActor {
+                    listing: Some(listing),
+                    ..
+                }) => Some(Event::ActorAdded {
+                    id: *id,
+                    type_name: listing.type_name,
+                    owner: listing.owner,
+                }),
+                _ => None,
+            })
+            .collect()
     }
 }

@@ -2287,6 +2287,7 @@ dependencies = [
  "anyhow",
  "guinea-core",
  "guinea-macros",
+ "inventory",
  "serde",
  "tokio",
  "tracing",
@@ -2401,6 +2402,7 @@ dependencies = [
  "guinea-app",
  "guinea-core",
  "guinea-macros",
+ "inventory",
  "tracing",
 ]
 

@@ -3,7 +3,7 @@ use crate::actor::event_bus::subscribe::{
     AnswerFn, BusSubscription, FnSubscriber, Letter, Subscriber, SubscriptionId, UntypedSubscriber,
 };
 use crate::actor::traits::Handler;
-use crate::observability::changes::{self, Change};
+use crate::observability::observer;
 use crate::scope::Scope;
 use crate::short_type_name;
 use crate::trace::{self, Point};
@@ -360,10 +360,6 @@ impl EventBus {
         listed
     }
 
-    fn changed(&self) {
-        changes::changed(|| Change::Subscriptions);
-    }
-
     fn next_id(&self) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
@@ -377,6 +373,7 @@ impl EventBus {
             event,
         };
 
+        let told = (subscriber.event(), subscriber.heard_by(), subscriber.answerer().is_some());
         if let Some(answerer) = subscriber.answerer() {
             let mut answerers = self.answerers.borrow_mut();
             if let Some((_, already)) = answerers.get(&event) {
@@ -396,7 +393,13 @@ impl EventBus {
             let list = subscribers.entry(event).or_insert_with(|| Rc::from([]));
             *list = list.iter().cloned().chain([Rc::from(subscriber)]).collect();
         }
-        self.changed();
+        let (named, by, answers) = told;
+        observer::tell_bus(self, || observer::Event::Subscribed {
+            seq: id.seq,
+            event: named,
+            by,
+            answers,
+        });
 
         BusSubscription {
             bus: Rc::downgrade(self),
@@ -450,7 +453,33 @@ impl EventBus {
         if let Some(count) = self.counts.borrow_mut().get_mut(&id.event) {
             *count = count.saturating_sub(removed);
         }
-        self.changed();
+        observer::tell_bus(self, || observer::Event::Unsubscribed { seq: id.seq });
+    }
+
+    /// Everyone on this bus, told again to a tool that starts watching, in
+    /// the order they joined.
+    pub(crate) fn subscribed(&self) -> Vec<observer::Event> {
+        let answerers = self.answerers.borrow();
+        let subscribers = self.subscribers.borrow();
+
+        let mut told: Vec<(u64, observer::Event)> = subscribers
+            .iter()
+            .flat_map(|(event, list)| {
+                let answering = answerers.get(event).map(|(seq, _)| *seq);
+                list.iter().map(move |sub| {
+                    let seq = sub.seq();
+                    let joined = observer::Event::Subscribed {
+                        seq,
+                        event: sub.event(),
+                        by: sub.heard_by(),
+                        answers: answering == Some(seq),
+                    };
+                    (seq, joined)
+                })
+            })
+            .collect();
+        told.sort_unstable_by_key(|(seq, _)| *seq);
+        told.into_iter().map(|(_, joined)| joined).collect()
     }
 }
 
@@ -516,28 +545,6 @@ mod tests {
         bus.publish(Copied(copies.clone()));
 
         assert_eq!(copies.load(std::sync::atomic::Ordering::Relaxed), 2);
-    }
-
-    #[test]
-    fn a_bus_tells_a_watcher_when_what_is_subscribed_to_it_changes() {
-        let bus = Rc::new(EventBus::new());
-        let seen = Rc::new(RefCell::new(Vec::new()));
-
-        let sink = seen.clone();
-        let reading = bus.clone();
-        changes::watch(move |change| {
-            sink.borrow_mut().push((change.clone(), reading.subscriptions().len()));
-        });
-
-        let sub = bus.subscribe_fn(|_: Ping| {});
-        drop(sub);
-        changes::stop_watching();
-
-        assert_eq!(
-            *seen.borrow(),
-            [(Change::Subscriptions, 1), (Change::Subscriptions, 0)],
-            "told after the change, with the bus free to read"
-        );
     }
 
     #[test]

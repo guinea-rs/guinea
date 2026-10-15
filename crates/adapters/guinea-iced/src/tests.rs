@@ -332,18 +332,23 @@ impl Window {
 
 #[test]
 fn what_is_mounted_says_where_it_was_written() {
+    use guinea_core::observability::observer::{self, Event};
+
     let window = Window::at(Place::Leaf);
-    let root = guinea_app::app::roots::of(window.host.scope()).map(|root| root.get());
+    let watching = observer::watch(window.host.scope(), || {}).expect("nothing else watches");
 
-    let written: Option<Vec<&str>> = root.and_then(guinea_router::observability::window).map(|view| {
-        view.mounted
-            .iter()
-            .filter(|mounted| mounted.written.is_some_and(|at| at.file.ends_with("tests.rs")))
-            .map(|mounted| mounted.name)
-            .collect()
-    });
+    let events = watching.take().events;
 
-    assert_eq!(written, Some(vec!["Shell", "Leaf"]));
+    let written: Vec<&str> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Mounted { name, written: Some(at), .. } if at.file.ends_with("tests.rs") => {
+                Some(guinea_router::observability::short(name))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(written, ["Shell", "Leaf"]);
 }
 
 #[test]

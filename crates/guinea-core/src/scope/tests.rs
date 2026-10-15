@@ -2,7 +2,6 @@ use super::*;
 use std::cell::RefCell;
 
 use crate::actor::Addr;
-use crate::actor::snapshot::Owner;
 
 #[derive(Default, Clone, PartialEq, Debug)]
 struct Counter {
@@ -173,22 +172,13 @@ fn removing_a_scope_tears_down_what_is_under_it_first() {
 
 #[test]
 fn a_scope_lets_go_of_what_it_holds_in_the_reverse_of_the_order_it_took_it_whatever_it_is() {
-    use crate::observability::changes::{self, Change};
-
     let said = Rc::new(RefCell::new(Vec::new()));
     let scope = ScopeTree::new();
     scope.on_teardown(says(&said, "store"));
-    let _actor = Addr::new(Ticker(0), &home(scope.scope()));
+    drop(Addr::new(Leaving::saying(&said, "actor"), &home(scope.scope())));
     scope.on_teardown(says(&said, "reading the store"));
 
-    let heard = said.clone();
-    changes::watch(move |change| {
-        if let Change::ActorRemoved { .. } = change {
-            heard.borrow_mut().push("actor");
-        }
-    });
     scope.remove();
-    changes::stop_watching();
 
     assert_eq!(*said.borrow(), ["reading the store", "actor", "store"]);
 }
@@ -201,10 +191,39 @@ impl Drop for Says {
     }
 }
 
+/// An actor that says so when it goes.
+struct Leaving {
+    _says: Says,
+}
+
+impl Leaving {
+    fn saying(said: &Said, name: &'static str) -> Self {
+        Self {
+            _says: Says(said.clone(), name),
+        }
+    }
+}
+
+impl std::fmt::Debug for Leaving {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Leaving")
+    }
+}
+
+guinea_macros::actor! {
+    Leaving {
+        handlers {
+            Tick
+        }
+    }
+}
+
+impl crate::actor::Handler<Tick> for Leaving {
+    fn handle(&mut self, _: Tick, _cx: crate::actor::Cx<Self, Tick>) {}
+}
+
 #[tokio::test]
 async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_took_them() {
-    use crate::observability::changes::{self, Change};
-
     let said = Rc::new(RefCell::new(Vec::new()));
     let scope = ScopeTree::new();
 
@@ -216,18 +235,20 @@ async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_t
     scope.hold_watching(scope.subscribe::<Counter>(move || {
         let _ = &watching;
     }));
-    scope.section().repeat(std::time::Duration::from_secs(60), || {});
-    let _actor = Addr::new(Ticker(0), &home(scope.scope()));
+    let timer = Rc::new(RefCell::new(None::<crate::sources::Source>));
+    let after_the_timer = said.clone();
+    let gone = timer.clone();
+    scope.on_teardown(move || {
+        let closed = gone.borrow().as_ref().is_some_and(|timer| timer.id().is_none());
+        after_the_timer
+            .borrow_mut()
+            .push(if closed { "timer" } else { "timer still open" });
+    });
+    timer.replace(Some(scope.section().repeat(std::time::Duration::from_secs(60), || {})));
+    drop(Addr::new(Leaving::saying(&said, "actor"), &home(scope.scope())));
     scope.on_teardown(says(&said, "cleanup"));
 
-    let heard = said.clone();
-    changes::watch(move |change| match change {
-        Change::ActorRemoved { .. } => heard.borrow_mut().push("actor"),
-        Change::SourceClosed { .. } => heard.borrow_mut().push("timer"),
-        _ => {}
-    });
     scope.remove();
-    changes::stop_watching();
 
     assert_eq!(
         *said.borrow(),
@@ -420,48 +441,6 @@ impl crate::actor::Handler<Tick> for Ticker {
 
 fn home(scope: Scope) -> crate::actor::Home {
     crate::actor::Home::new(scope)
-}
-
-fn watched(run: impl FnOnce()) -> Vec<crate::observability::changes::Change> {
-    let seen = Rc::new(RefCell::new(Vec::new()));
-    let sink = seen.clone();
-    crate::observability::changes::watch(move |change| sink.borrow_mut().push(change.clone()));
-
-    run();
-    crate::observability::changes::stop_watching();
-
-    seen.take()
-}
-
-#[test]
-fn devtools_hear_an_actor_a_scope_holds_come_and_go_and_whose_it_is() {
-    use crate::observability::changes::Change;
-
-    let window = ScopeTree::new();
-    let page = window.child();
-    let clock = page.open_section(Some("app::Clock"), None);
-    let mut id = 0;
-
-    let seen = watched(|| {
-        id = Addr::listed(Ticker(0), &crate::actor::Home::in_section(clock), Some("Time")).id();
-        window.remove();
-    });
-
-    assert_eq!(
-        seen,
-        [
-            Change::ActorAdded {
-                id,
-                type_name: crate::short_type_name::<Ticker>(),
-                owner: Owner {
-                    scope: Some(page),
-                    feature: Some("app::Clock"),
-                    drives: Some("Time"),
-                },
-            },
-            Change::ActorRemoved { id },
-        ]
-    );
 }
 
 #[test]

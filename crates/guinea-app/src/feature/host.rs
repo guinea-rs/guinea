@@ -101,9 +101,6 @@ impl FeatureHost {
 mod tests {
     use super::*;
     use guinea_core::actor::{Cx, Handler};
-    use guinea_core::observability::changes::{self, Change};
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     #[derive(Debug)]
     struct Counter;
@@ -129,26 +126,27 @@ mod tests {
     #[test]
     fn an_actor_added_under_a_host_is_in_its_root() {
         let host = FeatureHost::detached();
-        let root = Some(host.root());
 
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        changes::watch(move |change| {
-            if let Change::ActorAdded { owner, .. } = change {
-                sink.borrow_mut().push(owner.scope.and_then(crate::app::roots::of));
-            }
-        });
-
-        let scope = host
+        let _scope = host
             .install(|ctx| {
                 ctx.spawn(Counter);
                 ctx.subscribe(|_: Ping| {});
                 Ok(())
             })
             .expect("installed");
-        drop(scope);
-        changes::stop_watching();
 
-        assert_eq!(seen.take(), [root]);
+        let rooted: Vec<Option<RootId>> = host
+            .scope()
+            .actors()
+            .into_iter()
+            .map(|actor| {
+                actor
+                    .owner
+                    .scope
+                    .and_then(|id| host.scope().named_by(id))
+                    .and_then(roots::of)
+            })
+            .collect();
+        assert_eq!(rooted, [Some(host.root())]);
     }
 }

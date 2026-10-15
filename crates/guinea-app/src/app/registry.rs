@@ -1,3 +1,4 @@
+use guinea_core::observability::observer::{self, Event};
 use guinea_core::scope::Scope;
 
 #[derive(Clone, Copy)]
@@ -28,6 +29,7 @@ impl Plugins {
     /// Notes a copy of `id` as installed in `app`.
     pub(crate) fn mark(app: Scope, id: &'static str) {
         app.kept::<Plugins, _>(|plugins| plugins.0.push(id));
+        observer::tell(app, || Event::Plugin { name: id });
     }
 }
 

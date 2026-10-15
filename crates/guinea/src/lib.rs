@@ -19,33 +19,27 @@ pub use guinea_router::{link, manifest, mount, navigator, slot};
 #[doc(hidden)]
 pub use guinea_router::sample;
 
-/// Watching a running application from outside it: what devtools, a test or
-/// a logger read, and what a plugin offers them.
+/// Watching a running application from outside it: what devtools read, and
+/// what a plugin offers them.
 ///
+/// - [`Observed`](observability::Observed) - the one door: the application's
+///   tree and everything that moves in it, a [`Batch`](observability::Batch)
+///   at a time, and its values read when asked;
 /// - [`trace`](observability::trace) - what happened, and what caused it;
-/// - [`changes`](observability::changes) - what came or went;
 /// - [`panels`](observability::panels) - what a backend or a plugin knows
 ///   about itself;
-/// - [`snapshot`](observability::snapshot) - what is open now, read when
-///   asked;
-/// - [`act`](observability::act) - sending an action from outside;
 /// - [`layer`](observability::layer) - the application's own `tracing`
 ///   events, into the trace.
 pub mod observability {
-    pub use guinea_core::observability::{
-        LogLayer, Rendering, changes, is_observed, layer, mark_anywhere, panels,
+    pub use guinea_app::app::Observed;
+    pub use guinea_core::observability::observer::{
+        AlreadyWatched, Batch, Event, Navigation, Watching,
     };
+    pub use guinea_core::observability::{
+        LogLayer, Rendering, is_observed, layer, mark_anywhere, panels,
+    };
+    pub use guinea_core::scope::ScopeId;
     pub use guinea_core::trace;
-    pub use guinea_router::observability::act;
-
-    /// What is open now: windows, the application, their actors - read when
-    /// asked, not kept.
-    pub mod snapshot {
-        pub use guinea_app::observability::{app_actor, app_actors, backend, installed_plugins};
-        pub use guinea_router::observability::{
-            MountedView, NavigatorView, WindowView, actor, short, window, windows,
-        };
-    }
 }
 
 #[cfg(all(feature = "winui", target_os = "windows"))]

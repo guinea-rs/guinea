@@ -9,4 +9,3 @@ extern crate self as guinea_app;
 
 pub mod app;
 pub mod feature;
-pub mod observability;

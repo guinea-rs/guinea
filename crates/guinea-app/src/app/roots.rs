@@ -24,7 +24,7 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use guinea_core::observability::changes::{self, Change};
+use guinea_core::observability::observer::{self, Event};
 use guinea_core::scope::Scope;
 
 /// Names one root for as long as it is open.
@@ -50,6 +50,8 @@ impl std::fmt::Display for RootId {
 /// What a root's own scope keeps: which root it is, and what it is called.
 struct Root {
     id: RootId,
+    /// Its own scope, which keeps it.
+    scope: Scope,
     label: Option<String>,
 }
 
@@ -61,7 +63,7 @@ impl Drop for Root {
     fn drop(&mut self) {
         let id = self.id;
         let _ = OPEN.try_with(|open| open.borrow_mut().retain(|(open, _)| *open != id));
-        changes::changed(|| Change::RootClosed { root: id.0 });
+        observer::tell(self.scope, || Event::RootClosed { root: id.0 });
         tracing::debug!(%id, "root closed");
     }
 }
@@ -72,11 +74,36 @@ pub(crate) fn open(window: Scope) -> RootId {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
-    window.keep(Root { id, label: None });
+    window.keep(Root {
+        id,
+        scope: window,
+        label: None,
+    });
     OPEN.with(|open| open.borrow_mut().push((id, window)));
-    changes::changed(|| Change::RootOpened { root: id.0 });
+    observer::tell(window, || Event::RootOpened {
+        root: id.0,
+        scope: window.id(),
+    });
     tracing::debug!(%id, "root opened");
     id
+}
+
+/// What a tool that starts watching is told of the root opened on `scope`,
+/// if one was.
+pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
+    if !scope.keeps::<Root>() {
+        return;
+    }
+    let told = scope.kept::<Root, _>(|root| (root.id.0, root.label.clone()));
+    let Some((root, label)) = told else {
+        return;
+    };
+
+    events.push(Event::RootOpened {
+        root,
+        scope: scope.id(),
+    });
+    events.extend(label.map(|label| Event::Labelled { root, label }));
 }
 
 /// Every root open on this thread, in the order they opened, each with its
@@ -119,7 +146,14 @@ pub fn set_label(scope: Scope, label: impl Into<String>) {
     };
 
     let label = label.into();
-    own.kept::<Root, _>(|root| root.label = Some(label));
+    let told = label.clone();
+    let root = own.kept::<Root, _>(|root| {
+        root.label = Some(label);
+        root.id.0
+    });
+    if let Some(root) = root {
+        observer::tell(own, || Event::Labelled { root, label: told });
+    }
 }
 
 #[cfg(test)]
@@ -184,30 +218,6 @@ mod tests {
         window.remove();
 
         assert!(!opened().iter().any(|(root, _)| *root == id));
-    }
-
-    #[test]
-    fn a_tool_is_told_when_a_root_opens_and_when_it_goes() {
-        use guinea_core::observability::changes::{self, Change};
-        use std::cell::RefCell;
-        use std::rc::Rc;
-
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
-
-        let app = ScopeTree::new();
-        let window = app.child();
-        let id = open(window);
-        window.remove();
-        changes::stop_watching();
-
-        let roots: Vec<Change> = seen
-            .take()
-            .into_iter()
-            .filter(|change| matches!(change, Change::RootOpened { .. } | Change::RootClosed { .. }))
-            .collect();
-        assert_eq!(roots, [Change::RootOpened { root: id.get() }, Change::RootClosed { root: id.get() }]);
     }
 
     #[test]

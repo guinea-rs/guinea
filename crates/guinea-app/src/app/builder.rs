@@ -8,6 +8,7 @@ use guinea_core::scope::ScopeTree;
 use guinea_core::short_type_name;
 use crate::feature::{ScopeContext, publish, settle};
 
+use super::observed::Observed;
 use super::plugin::{AppFeature, Plugin};
 use super::registry::{Backend, Plugins, Registry, Unit};
 use super::windows::WindowService;
@@ -70,6 +71,11 @@ impl PluginBuilder {
     /// [`ScopeContext::spawn`].
     pub fn spawn<A: ManagedActor + 'static>(&self, actor: A) -> Addr<A> {
         self.cx.spawn(actor)
+    }
+
+    /// The application, for the one tool that watches it.
+    pub fn observed(&self) -> Observed {
+        Observed::of(self.tree.scope())
     }
 }
 

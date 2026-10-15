@@ -1,16 +1,15 @@
-//! What devtools read of an open window: what is mounted in it, where its
-//! navigators are, and who hears its bus.
+//! What the tool watching an application is told of its windows: what is
+//! mounted in each, under what, where it was written, and where its
+//! navigators are.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use guinea_app::feature::FeatureHost;
 use guinea_core::actor::shape::Declared;
-use guinea_core::observability::changes::{self, Change};
+use guinea_core::observability::observer::{self, Event, Navigation, Watching};
 use guinea_core::scope::Scope;
 use guinea_router::mount::{self, Pass};
 use guinea_router::navigator::Navigator;
-use guinea_router::observability;
 
 #[derive(Clone, PartialEq, Debug, guinea_macros::Routable)]
 enum Place {
@@ -29,212 +28,161 @@ fn mount<S: 'static>(parent: Scope) -> Scope {
     mounted.expect("mounted")
 }
 
-fn root(host: &FeatureHost) -> u64 {
-    guinea_app::app::roots::of(host.scope()).expect("a window is a root").get()
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// The window and the tool watching its tree. One tool watches the process,
+/// so the tests that watch take turns.
+struct Watched {
+    watching: Watching,
+    host: FeatureHost,
+    _turn: MutexGuard<'static, ()>,
 }
 
-#[test]
-fn a_window_lists_what_is_mounted_in_it_each_under_what_mounted_it() {
-    let host = FeatureHost::detached();
-    let shell = mount::<Shell>(host.scope());
-    mount::<Page>(shell);
-
-    let view = observability::window(root(&host));
-
-    let mounted: Vec<(&str, usize)> = view
-        .map(|view| view.mounted.iter().map(|mounted| (mounted.name, mounted.depth)).collect())
-        .unwrap_or_default();
-    assert_eq!(mounted, [("Shell", 0), ("Page", 1)]);
+fn watched(host: FeatureHost) -> Watched {
+    let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let watching = observer::watch(host.scope(), || {}).expect("nothing else watches");
+    Watched {
+        watching,
+        host,
+        _turn: turn,
+    }
 }
 
-#[test]
-fn a_page_kept_asleep_is_listed_asleep() {
-    let host = FeatureHost::detached();
-
-    let pass = Pass::begin(host.scope());
-    let kept = pass.mount::<Page, ()>(&(), |_| Ok(())).expect("mounted");
-    pass.keep(kept);
-    pass.end();
-    let pass = Pass::begin(host.scope());
-    pass.mount::<Other, ()>(&(), |_| Ok(())).expect("mounted");
-    pass.end();
-
-    let view = observability::window(root(&host));
-
-    let awake: Vec<(&str, bool)> = view
-        .map(|view| view.mounted.iter().map(|mounted| (mounted.name, mounted.awake)).collect())
-        .unwrap_or_default();
-    assert_eq!(awake, [("Page", false), ("Other", true)]);
-}
-
-#[test]
-fn a_window_lists_where_its_navigator_is() {
-    let host = FeatureHost::detached();
-    let nav = Navigator::open(host.scope(), Place::Home);
-    let _moved = nav.to(Place::Host { name: "db-01".into() });
-
-    let view = observability::window(root(&host));
-
-    let navigators: Vec<(String, usize, usize)> = view
-        .map(|view| {
-            view.navigators
-                .into_iter()
-                .map(|nav| (nav.route, nav.back, nav.forward))
-                .collect()
+fn mounted(events: &[Event]) -> Vec<(&'static str, Option<u32>)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Mounted { name, written, .. } => Some((*name, written.map(|written| written.line))),
+            _ => None,
         })
-        .unwrap_or_default();
-    assert_eq!(navigators, [("Host { name: \"db-01\" }".to_string(), 1, 0)]);
+        .collect()
+}
+
+#[test]
+fn what_is_mounted_in_a_window_is_told_under_what_mounted_it() {
+    let watched = watched(FeatureHost::detached());
+    watched.watching.take();
+
+    let shell = mount::<Shell>(watched.host.scope());
+    let page = mount::<Page>(shell);
+
+    let events = watched.watching.take().events;
+    assert_eq!(
+        events,
+        [
+            Event::ScopeOpened { scope: shell.id(), parent: Some(watched.host.scope().id()) },
+            Event::Mounted { scope: shell.id(), name: std::any::type_name::<Shell>(), written: None },
+            Event::ScopeOpened { scope: page.id(), parent: Some(shell.id()) },
+            Event::Mounted { scope: page.id(), name: std::any::type_name::<Page>(), written: None },
+        ]
+    );
+}
+
+#[test]
+fn a_page_that_did_not_mount_is_not_told_mounted() {
+    let watched = watched(FeatureHost::detached());
+    watched.watching.take();
+
+    let pass = Pass::begin(watched.host.scope());
+    let refused = pass.mount::<Page, ()>(&(), |_| Err(anyhow::anyhow!("no")));
+    pass.end();
+
+    assert!(refused.is_err());
+    assert_eq!(mounted(&watched.watching.take().events), []);
 }
 
 #[test]
 fn a_mounted_page_says_where_it_was_written() {
-    let host = FeatureHost::detached();
-    let page = mount::<Page>(host.scope());
+    let watched = watched(FeatureHost::detached());
+    watched.watching.take();
     let here = Declared {
         file: file!(),
         line: line!(),
         column: column!(),
         crate_dir: env!("CARGO_MANIFEST_DIR"),
     };
-    mount::written(page, Some(here));
 
-    let view = observability::window(root(&host));
-
-    let written = view.and_then(|view| view.mounted.first().and_then(|mounted| mounted.written));
-    assert_eq!(written.map(|written| written.line), Some(here.line));
-}
-
-#[test]
-fn every_open_window_is_listed_and_one_that_closed_is_not() {
-    let first = FeatureHost::detached();
-    let second = FeatureHost::detached();
-    let (first_root, second_root) = (root(&first), root(&second));
-
-    let listed: Vec<u64> = observability::windows().iter().map(|view| view.root.get()).collect();
-    assert!(listed.contains(&first_root) && listed.contains(&second_root), "{listed:?}");
-
-    drop(first);
-
-    assert!(observability::window(first_root).is_none());
-    assert!(observability::window(second_root).is_some());
-}
-
-#[test]
-fn a_tool_is_told_when_a_window_opens_and_closes() {
-    let seen = Rc::new(RefCell::new(Vec::new()));
-    let sink = seen.clone();
-    changes::watch(move |change| sink.borrow_mut().push(change.clone()));
-
-    let host = FeatureHost::detached();
-    let root = root(&host);
-    drop(host);
-    changes::stop_watching();
-
-    let windows: Vec<Change> = seen
-        .take()
-        .into_iter()
-        .filter(|change| matches!(change, Change::RootOpened { .. } | Change::RootClosed { .. }))
-        .collect();
-    assert_eq!(windows, [Change::RootOpened { root }, Change::RootClosed { root }]);
-}
-
-#[derive(Default, Clone, Debug)]
-struct Counter {
-    seen: u32,
-}
-
-#[guinea_macros::reducer]
-fn counter(this: &mut Counter, seen: u32) {
-    this.seen = seen;
-}
-
-#[derive(Debug)]
-struct Clock(u32);
-
-struct Wind;
-
-guinea_macros::actor! {
-    Clock {
-        handlers {
-            Wind
-        }
-    }
-}
-
-impl guinea_core::actor::Handler<Wind> for Clock {
-    fn handle(&mut self, _: Wind, _cx: guinea_core::actor::Cx<Self, Wind>) {
-        self.0 += 1;
-    }
-}
-
-#[test]
-fn a_mounted_page_lists_the_state_it_installed() {
-    let host = FeatureHost::detached();
-    let pass = Pass::begin(host.scope());
+    let pass = Pass::begin(watched.host.scope());
     pass.mount::<Page, ()>(&(), |cx| {
-        cx.state::<Counter>().seed(Counter { seen: 3 }).plain();
+        mount::written(cx.__scope(), Some(here));
         Ok(())
     })
     .expect("mounted");
     pass.end();
 
-    let view = observability::window(root(&host));
-
-    let states: Vec<(String, String)> = view
-        .into_iter()
-        .flat_map(|view| view.mounted)
-        .flat_map(|mounted| mounted.states)
-        .map(|state| (state.type_name.to_string(), state.state.preview))
-        .collect();
-    assert_eq!(states.len(), 1, "{states:?}");
-    assert!(states[0].0.ends_with("Counter") && states[0].1.contains("seen: 3"), "{states:?}");
+    assert_eq!(
+        mounted(&watched.watching.take().events),
+        [(std::any::type_name::<Page>(), Some(here.line))]
+    );
 }
 
 #[test]
-fn one_actor_of_one_window_is_read_by_its_id() {
-    let host = FeatureHost::detached();
-    let pass = Pass::begin(host.scope());
-    pass.mount::<Shell, ()>(&(), |cx| {
-        cx.spawn(Clock(0));
-        Ok(())
-    })
-    .expect("mounted");
+fn a_page_kept_asleep_is_told_asleep() {
+    let watched = watched(FeatureHost::detached());
+    let pass = Pass::begin(watched.host.scope());
+    let kept = pass.mount::<Page, ()>(&(), |_| Ok(())).expect("mounted");
+    pass.keep(kept);
     pass.end();
-    let root = root(&host);
+    watched.watching.take();
 
-    let listed = observability::window(root)
-        .and_then(|view| view.actors.into_iter().find(|actor| actor.type_name.ends_with("Clock")))
-        .map(|actor| actor.id);
-    let read = listed.and_then(|id| observability::actor(root, id)).map(|actor| actor.id);
+    let pass = Pass::begin(watched.host.scope());
+    pass.mount::<Other, ()>(&(), |_| Ok(())).expect("mounted");
+    pass.end();
 
-    assert!(listed.is_some(), "the clock was spawned");
-    assert_eq!(read, listed);
-    assert!(observability::actor(root, usize::MAX).is_none());
+    let events = watched.watching.take().events;
+    assert!(events.contains(&Event::Slept { scope: kept.id() }), "{events:#?}");
 }
 
-#[derive(Clone, Debug, guinea_macros::Event)]
-struct Resized;
+#[test]
+fn a_navigator_is_told_where_it_opened_and_where_it_moved() {
+    let watched = watched(FeatureHost::detached());
+    watched.watching.take();
+
+    let nav = Navigator::open(watched.host.scope(), Place::Home);
+    let _moved = nav.to(Place::Host { name: "db-01".into() });
+
+    let scope = watched.host.scope().id();
+    let at = |route: &str, back| Event::Navigated {
+        scope,
+        navigation: Navigation {
+            routes: std::any::type_name::<Place>(),
+            route: route.into(),
+            back,
+            forward: 0,
+            pending: None,
+            failure: None,
+        },
+    };
+    assert_eq!(
+        watched.watching.take().events,
+        [at("Home", 0), at("Host { name: \"db-01\" }", 1)]
+    );
+}
 
 #[test]
-fn a_window_says_who_hears_the_bus_of_its_tree() {
+fn a_tool_that_starts_watching_is_told_what_is_mounted_and_where_the_navigators_are() {
     let host = FeatureHost::detached();
-    let subscribed_at = line!() + 1;
-    let _hears = host.scope().bus().subscribe_fn(|_: Resized| {});
+    let shell = mount::<Shell>(host.scope());
+    let nav = Navigator::open(host.scope(), Place::Home);
+    let _moved = nav.to(Place::Host { name: "db-01".into() });
 
-    let listening = observability::window(root(&host)).map(|view| view.bus).unwrap_or_default();
+    let watched = watched(host);
+    let events = watched.watching.take().events;
 
-    let places: Option<Vec<(&str, u32)>> = listening
-        .iter()
-        .find(|listening| listening.event.ends_with("Resized"))
-        .map(|listening| {
-            listening
-                .listeners
-                .iter()
-                .filter_map(|listener| match listener.by {
-                    guinea_core::actor::event_bus::HeardBy::Callback(at) => Some((at.file(), at.line())),
-                    _ => None,
-                })
-                .collect()
-        });
-    assert_eq!(places, Some(vec![(file!(), subscribed_at)]), "{listening:#?}");
+    let navigated = events.iter().find_map(|event| match event {
+        Event::Navigated { navigation, .. } => Some(navigation.route.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        (mounted(&events), navigated),
+        (
+            vec![(std::any::type_name::<Shell>(), None)],
+            Some("Host { name: \"db-01\" }".to_string())
+        ),
+        "{events:#?}"
+    );
+    assert!(events.contains(&Event::ScopeOpened {
+        scope: shell.id(),
+        parent: Some(watched.host.scope().id())
+    }));
 }

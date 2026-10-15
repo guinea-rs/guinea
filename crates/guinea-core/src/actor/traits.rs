@@ -38,6 +38,11 @@ pub trait ManagedActor: Sized + 'static {
 /// handles it.
 pub trait Receives<M>: 'static {
     fn receive(&self, message: M);
+
+    /// What devtools call it: an actor's name, or `fn`.
+    fn name(&self) -> &'static str {
+        "fn"
+    }
 }
 
 impl<M, F: Fn(M) + 'static> Receives<M> for F {
@@ -49,6 +54,10 @@ impl<M, F: Fn(M) + 'static> Receives<M> for F {
 impl<M: 'static, A: Handler<M>> Receives<M> for Addr<A> {
     fn receive(&self, message: M) {
         self.send(message)
+    }
+
+    fn name(&self) -> &'static str {
+        crate::short_type_name::<A>()
     }
 }
 

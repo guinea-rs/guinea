@@ -12,7 +12,8 @@ pub use ctx::*;
 pub use envelope::*;
 pub use traits::*;
 
-/// What [`Cx::spawn_source`] takes: the `Stream` of `futures` and
+/// What [`Task::pour`](ctx::Task::pour) and [`Section::pour`](crate::scope::Section::pour)
+/// take: the `Stream` of `futures` and
 /// `tokio-stream`, named here so a source can be written without either.
 pub use futures_core::Stream;
 

@@ -170,8 +170,8 @@ fn whose(h: &Harness) -> Vec<Whose> {
     for actor in scope.actors_here() {
         held.push(("actor", short(actor.type_name), actor.owner.feature));
     }
-    for timer in scope.timers_here() {
-        held.push(("timer", "repeat", timer.feature));
+    for source in scope.sources_here() {
+        held.push(("source", source.output, source.feature));
     }
 
     held.sort();
@@ -204,8 +204,8 @@ fn what_two_features_in_one_page_set_up_is_listed_as_each_one_s(h: &mut Harness)
             ("actor", "Hand", clock),
             ("listens", "Tick", clock),
             ("listens", "Tick", weather),
-            ("timer", "repeat", clock),
-            ("timer", "repeat", weather),
+            ("source", "()", clock),
+            ("source", "()", weather),
         ]
     );
 }
@@ -223,8 +223,8 @@ fn a_feature_that_installs_another_sets_up_the_rest_as_its_own(h: &mut Harness) 
             ("actor", "Pin", dashboard),
             ("listens", "Tick", clock),
             ("listens", "Tick", dashboard),
-            ("timer", "repeat", clock),
-            ("timer", "repeat", dashboard),
+            ("source", "()", clock),
+            ("source", "()", dashboard),
         ]
     );
 }

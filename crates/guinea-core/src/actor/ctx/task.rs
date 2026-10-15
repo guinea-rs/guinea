@@ -19,9 +19,13 @@
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::panic::Location;
+use std::rc::Rc;
 use std::time::Instant;
 
+use futures_core::Stream;
+
 use super::Cx;
+use crate::sources::{self, Opening};
 use crate::actor::ManagedActor;
 use crate::actor::addr::{Addr, Reach};
 use crate::actor::cancel::{Cancel, Reason};
@@ -486,6 +490,143 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
         self.reply(Location::caller(), work, Ends::Itself);
     }
 
+    /// Feeds this actor what `source` yields, each item as `into(item)`,
+    /// until it runs dry: a watch, a subscription, a pipe that pushes. Work
+    /// that answers many times.
+    ///
+    /// The actor's scope holds the source, as it holds a timer - which is a
+    /// source of [`Ticks`](crate::sources::Ticks) - so it is listed with the
+    /// scope's, is not pulled while the scope sleeps, and ends when the actor
+    /// goes. Under a policy the whole source is one piece of the lane's
+    /// work: `latest` replaces an older source with the new one.
+    ///
+    /// The handler that opens it is done once it is open, and each item
+    /// arrives as a root of its own. What the stream does to make an item is
+    /// recorded under a [`Point::Pull`] of the source, a root as well.
+    ///
+    /// Declared as `task` in `actor!`, like any other work that answers later.
+    ///
+    /// ```
+    /// use std::cell::RefCell;
+    /// use std::pin::Pin;
+    /// use std::rc::Rc;
+    /// use std::task::{Context, Poll};
+    /// use std::time::Duration;
+    ///
+    /// use guinea_core::actor::{Addr, Cx, Handler, Home, Stream};
+    /// use guinea_core::scope::ScopeTree;
+    /// use guinea_core::ui_thread::UiLoop;
+    ///
+    /// struct Countdown(u32);
+    ///
+    /// impl Stream for Countdown {
+    ///     type Item = u32;
+    ///
+    ///     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<u32>> {
+    ///         if self.0 == 0 {
+    ///             return Poll::Ready(None);
+    ///         }
+    ///         self.0 -= 1;
+    ///         Poll::Ready(Some(self.0 + 1))
+    ///     }
+    /// }
+    ///
+    /// #[derive(Debug)]
+    /// struct Launch(Rc<RefCell<Vec<u32>>>);
+    ///
+    /// struct Start;
+    ///
+    /// struct Tick(u32);
+    ///
+    /// guinea_macros::actor! {
+    ///     Launch {
+    ///         handlers {
+    ///             Start => { task Tick }
+    ///             Tick
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Start> for Launch {
+    ///     fn handle(&mut self, _: Start, cx: Cx<Self, Start>) {
+    ///         cx.task().pour(Countdown(3), Tick);
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Tick> for Launch {
+    ///     fn handle(&mut self, Tick(n): Tick, _cx: Cx<Self, Tick>) {
+    ///         self.0.borrow_mut().push(n);
+    ///     }
+    /// }
+    ///
+    /// let ui = UiLoop::install();
+    /// let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// let _entered = runtime.enter();
+    ///
+    /// let tree = ScopeTree::new();
+    /// let heard = Rc::new(RefCell::new(Vec::new()));
+    /// let launch = Addr::new(Launch(heard.clone()), &Home::new(tree.scope()));
+    ///
+    /// launch.send(Start);
+    /// assert!(heard.borrow().is_empty(), "the source is not drained by the send");
+    ///
+    /// assert!(ui.run_until(|| heard.borrow().len() == 3, Duration::from_secs(5)));
+    /// assert_eq!(*heard.borrow(), [3, 2, 1]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// When the lane was given another policy before.
+    #[track_caller]
+    pub fn pour<S, Out, F>(self, source: S, into: F)
+    where
+        S: Stream + Send + 'static,
+        Out: Send + 'static,
+        F: FnMut(S::Item) -> Out + Send + 'static,
+        A: Handler<Out> + ManagedActor,
+        A::Flow: Allows<M, Out>,
+    {
+        let at = Location::caller();
+        let addr = &self.cx.addr;
+        let reach = addr.reach();
+        let section = addr.home().section();
+        let lane = self.lane.unwrap_or(LaneId::of::<Out>());
+
+        let spawning = Spawning {
+            lane: Some(lane),
+            key: self.key,
+            kind: P::KIND,
+            at,
+        };
+        launch(addr, spawning, short_type_name::<Out>(), move |traced| -> Start {
+            Box::new(move |ticket: Ticket| {
+                let running = ticket.cancel.child();
+
+                let pouring = running.clone();
+                let receive = Rc::new(move |out: Out| {
+                    if pouring.is_cancelled() {
+                        return;
+                    }
+                    if let Some(addr) = reach.addr() {
+                        addr.send(out);
+                    }
+                });
+
+                let opening = Opening {
+                    place: at,
+                    to: short_type_name::<A>(),
+                    output: short_type_name::<Out>(),
+                    cancel: running,
+                    receive,
+                    closed: Some(Box::new(move || poured(reach, ticket))),
+                };
+                sources::open(section, source, into, opening);
+
+                traced.end(traced.settled());
+            })
+        });
+    }
+
     fn reply<Out, Fut, F>(self, at: &'static Location<'static>, work: F, ends: Ends)
     where
         Out: Send + 'static,
@@ -825,6 +966,15 @@ where
         };
         traced.end(ended);
     });
+}
+
+/// A source's run ended, on the UI thread: its lane takes work again. The
+/// trace already said the work was done when the source opened, and the
+/// source says how it ended.
+fn poured<A: 'static>(reach: Reach<A>, ticket: Ticket) {
+    if let Some(addr) = reach.addr() {
+        addr.finish(&ticket);
+    }
 }
 
 /// Held while a run's work is polled: when the work panics, it frees the

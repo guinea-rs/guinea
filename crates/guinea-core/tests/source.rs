@@ -42,7 +42,7 @@ guinea_macros::actor! {
 
 impl Handler<Open> for Puller {
     fn handle(&mut self, Open(source): Open, cx: Cx<Self, Open>) {
-        cx.spawn_source(source, |()| Pulled);
+        cx.task().pour(source, |()| Pulled);
     }
 }
 

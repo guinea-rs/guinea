@@ -10,7 +10,6 @@ use std::marker::PhantomData;
 mod async_ctx;
 #[cfg(test)]
 mod chain;
-mod source;
 pub mod task;
 
 pub use async_ctx::AsyncContext;

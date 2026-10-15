@@ -199,7 +199,7 @@ mod tests {
         let built = std::cell::Cell::new(false);
         changed(|| {
             built.set(true);
-            Change::TimerStarted { id: 0 }
+            Change::SourceOpened { id: 0 }
         });
 
         assert!(!built.get());

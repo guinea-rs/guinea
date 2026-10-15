@@ -92,10 +92,6 @@ impl<A: 'static> Reach<A> {
         self.scope.held::<A>(self.id)
     }
 
-    pub(crate) fn id(&self) -> usize {
-        self.id
-    }
-
     pub(crate) fn scope(&self) -> Scope {
         self.scope
     }

@@ -2,7 +2,8 @@ use std::panic::Location;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use guinea_core::timers::{Period, Timer};
+use guinea_core::actor::Stream;
+use guinea_core::sources::{Period, Source};
 use guinea_core::actor::shape::{Declared, name};
 use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
 use guinea_core::actor::event_bus::subscribe::Event;
@@ -407,21 +408,35 @@ impl ScopeContext {
         Addr::new(actor, &Home::in_section(self.section))
     }
 
+    /// Hands `to` every item `source` yields, for as long as this scope lives
+    /// and while it is awake: `to` is an actor that handles it, or a function
+    /// that takes it. See [`guinea_core::sources`].
+    #[track_caller]
+    pub fn pour<S>(&self, source: S, to: impl Receives<S::Item>) -> Source
+    where
+        S: Stream + Send + 'static,
+        S::Item: Send + 'static,
+    {
+        self.section.pour(source, to)
+    }
+
     /// Hands `to` a `message()` every `period`, for as long as this scope
-    /// lives: `to` is an actor that handles it, or a function that takes it.
+    /// lives and while it is awake: `to` is an actor that handles it, or a
+    /// function that takes it.
     #[track_caller]
     pub fn every<M: 'static>(
         &self,
         period: impl Into<Period>,
         message: impl Fn() -> M + 'static,
         to: impl Receives<M>,
-    ) -> Timer {
-        self.section.repeat(period, move || to.receive(message()))
+    ) -> Source {
+        self.section.every(period, message, to)
     }
 
-    /// Runs `run` every `period`, for as long as this scope lives.
+    /// Runs `run` every `period`, for as long as this scope lives and while
+    /// it is awake.
     #[track_caller]
-    pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Timer {
+    pub fn repeat(&self, period: impl Into<Period>, run: impl FnMut() + 'static) -> Source {
         self.section.repeat(period, run)
     }
 }

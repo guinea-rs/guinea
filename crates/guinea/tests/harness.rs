@@ -996,7 +996,7 @@ mod watching {
     #[handler]
     fn watch(_this: &mut Watcher, Watch(changes): Watch, cx: Cx) {
         let changes = changes.lock().unwrap().take().expect("a watch is opened once");
-        cx.spawn_source(changes, Changed);
+        cx.task().pour(changes, Changed);
     }
 
     #[handler]

@@ -1,4 +1,4 @@
-//! What a tool lists came or went: actors, timers, subscriptions, roots.
+//! What a tool lists came or went: actors, sources, subscriptions, roots.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -22,11 +22,11 @@ pub enum Change {
     /// An actor handled a message, so its state may read differently now.
     /// Where it lives is what [`Change::ActorAdded`] said.
     ActorHandled { id: usize },
-    /// A timer a tool may see started; its id is the one the running timers
-    /// list it under.
-    TimerStarted { id: u64 },
-    /// A timer stopped, or stopped being one a tool may see.
-    TimerStopped { id: u64 },
+    /// A source a tool may see opened - a timer is one; its id is the one
+    /// its scope lists it under.
+    SourceOpened { id: u64 },
+    /// A source closed, or stopped being one a tool may see.
+    SourceClosed { id: u64 },
     /// Something subscribed to a bus, or stopped being.
     Subscriptions,
     /// A root - a window's tree - opened.

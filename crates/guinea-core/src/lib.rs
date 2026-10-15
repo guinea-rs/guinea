@@ -14,7 +14,7 @@ pub mod notify;
 pub mod observability;
 pub mod scope;
 pub mod semantics;
-pub mod timers;
+pub mod sources;
 pub mod trace;
 mod type_name;
 pub mod ui_thread;

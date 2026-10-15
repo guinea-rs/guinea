@@ -264,53 +264,51 @@ fn write(record: &Record) {
             output = %output
         ),
         Point::Source {
-            actor,
-            actor_id,
+            source,
+            to,
             output,
+            file,
+            line,
         } => point!(
             "guinea::source",
             record,
-            actor = %actor,
-            actor_id,
-            output = %output
+            source,
+            to = %to,
+            output = %output,
+            file = *file,
+            line = *line
         ),
         Point::Arrived {
-            actor,
-            actor_id,
-            output,
             source,
+            name,
+            to,
+            output,
         } => point!(
             "guinea::arrived",
             record,
-            actor = %actor,
-            actor_id,
-            output = %output,
-            source
-        ),
-        Point::Pull {
-            actor,
-            actor_id,
-            output,
             source,
-        } => point!(
+            name = *name,
+            to = %to,
+            output = %output
+        ),
+        Point::Pull { source, to, output } => point!(
             "guinea::pull",
             record,
-            actor = %actor,
-            actor_id,
-            output = %output,
-            source
+            source,
+            to = %to,
+            output = %output
         ),
         Point::Closed {
-            actor,
-            actor_id,
+            source,
+            to,
             output,
             took_us,
             gone,
         } => point!(
             "guinea::closed",
             record,
-            actor = %actor,
-            actor_id,
+            source,
+            to = %to,
             output = %output,
             took_us,
             gone
@@ -321,12 +319,6 @@ fn write(record: &Record) {
         Point::Deliver { event } => point!("guinea::deliver", record, event = %event),
         Point::Push { reducer } => point!("guinea::push", record, reducer = %reducer),
         Point::Navigate { root, to } => point!("guinea::navigate", record, root = %root, to = %to),
-        Point::Tick {
-            timer,
-            name,
-            file,
-            line,
-        } => point!("guinea::tick", record, timer, name = *name, file = *file, line = *line),
         Point::Render { segment, took_us } => {
             point!("guinea::render", record, segment = %segment, took_us)
         }

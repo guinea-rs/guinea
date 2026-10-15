@@ -223,7 +223,7 @@ async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_t
     let heard = said.clone();
     changes::watch(move |change| match change {
         Change::ActorRemoved { .. } => heard.borrow_mut().push("actor"),
-        Change::TimerStopped { .. } => heard.borrow_mut().push("timer"),
+        Change::SourceClosed { .. } => heard.borrow_mut().push("timer"),
         _ => {}
     });
     scope.remove();

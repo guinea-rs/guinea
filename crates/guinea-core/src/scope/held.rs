@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::actor::event_bus::subscribe::BusSubscription;
 use crate::feed::Opened;
-use crate::timers::Ticking;
+use crate::sources::Pouring;
 
 use super::Scope;
 use super::actors::HeldActor;
@@ -33,7 +33,8 @@ pub(super) enum Taken {
     Hearing(BusSubscription),
     /// A reducer watched.
     Watching(Subscription),
-    Timer(Ticking),
+    /// A source it pours. See [`crate::sources`].
+    Source(Pouring),
     /// A feed it opened. See [`crate::feed`].
     Feed(Rc<dyn Opened>),
     /// Run when it goes.
@@ -46,7 +47,7 @@ impl Taken {
             Taken::Actor(actor) => actor.let_go(key),
             Taken::Hearing(hearing) => drop(hearing),
             Taken::Watching(watching) => drop(watching),
-            Taken::Timer(ticking) => drop(ticking),
+            Taken::Source(pouring) => drop(pouring),
             Taken::Feed(fed) => fed.close(),
             Taken::Cleanup(run) => run(),
         }
@@ -88,38 +89,53 @@ impl Scope {
         self.take(next_key(), Taken::Watching(watching));
     }
 
-    /// Runs the timer `ticking` under `key` until this scope goes.
+    /// Pours the source `pouring` under `key` until this scope goes, or the
+    /// source ends.
     ///
     /// # Panics
     ///
     /// When this scope is already gone.
-    pub(crate) fn hold_timer(&self, key: usize, ticking: Ticking) {
-        self.alive("starting a timer");
-        self.take(key, Taken::Timer(ticking));
+    pub(crate) fn hold_source(&self, key: usize, pouring: Pouring) {
+        self.alive("opening a source");
+        self.take(key, Taken::Source(pouring));
     }
 
-    /// Reads the timer this scope holds under `key`, with the table borrowed
-    /// only for as long as `read` takes.
-    pub(crate) fn held_timer<R>(&self, key: usize, read: impl FnOnce(&Ticking) -> R) -> Option<R> {
+    /// Reads the source this scope holds under `key`, with the table
+    /// borrowed only for as long as `read` takes.
+    pub(crate) fn held_source<R>(&self, key: usize, read: impl FnOnce(&Pouring) -> R) -> Option<R> {
         let data = self.data()?;
         let held = data.held.0.borrow();
 
         match held.get(&key)? {
-            Taken::Timer(ticking) => Some(read(ticking)),
+            Taken::Source(pouring) => Some(read(pouring)),
             _ => None,
         }
     }
 
-    /// Reads every timer this scope holds itself, oldest first.
-    pub(crate) fn each_timer(&self, mut read: impl FnMut(&Ticking)) {
+    /// Reads every source this scope holds itself, oldest first.
+    pub(crate) fn each_source(&self, mut read: impl FnMut(&Pouring)) {
         let Some(data) = self.data() else {
             return;
         };
 
         for taken in data.held.0.borrow().values() {
-            if let Taken::Timer(ticking) = taken {
-                read(ticking);
+            if let Taken::Source(pouring) = taken {
+                read(pouring);
             }
+        }
+    }
+
+    /// Lets go of what this scope holds under `key`, if it still holds it.
+    pub(crate) fn let_go_of(&self, key: usize) {
+        let Some(data) = self.data() else {
+            return;
+        };
+
+        let taken = data.held.0.borrow_mut().remove(&key);
+        drop(data);
+
+        if let Some(taken) = taken {
+            taken.let_go(key);
         }
     }
 

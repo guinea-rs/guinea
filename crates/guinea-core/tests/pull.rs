@@ -54,7 +54,7 @@ guinea_macros::actor! {
 
 impl Handler<Open> for Maker {
     fn handle(&mut self, Open(source): Open, cx: Cx<Self, Open>) {
-        cx.spawn_source(source, |_| Made);
+        cx.task().pour(source, |_| Made);
     }
 }
 
@@ -110,7 +110,10 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
     let at = |id: Cause| heard.iter().find(|one| one.id == id);
     let source = heard
         .iter()
-        .find(|one| matches!(one.point, Point::Source { .. }))
+        .find_map(|one| match one.point {
+            Point::Source { source, .. } => Some(source),
+            _ => None,
+        })
         .expect("the source was opened");
     let making = heard
         .iter()
@@ -127,7 +130,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
                     parent: None,
                     point: Point::Pull { source: pulled, .. },
                     ..
-                }) if *pulled == source.id.get()
+                }) if *pulled == source
             ),
             "making an item is under a pull of its source, which is a root:\n{heard:#?}"
         );

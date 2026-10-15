@@ -64,7 +64,7 @@ pub use guinea_eframe as eframe;
 pub use guinea_iced as iced;
 
 pub use guinea_app::{app, app_meta, feature};
-pub use guinea_core::timers;
+pub use guinea_core::sources;
 
 pub use guinea_core as core;
 pub use guinea_meta as meta;
@@ -95,7 +95,7 @@ pub use guinea_core::__private::anyhow;
 pub mod prelude {
     pub use guinea_app::app::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
     pub use guinea_app::feature::{Feature, FeatureInitContext, Install, ScopeContext};
-    pub use guinea_core::timers::{Period, Timer};
+    pub use guinea_core::sources::{Period, Source, Ticks};
     pub use guinea_core::actor::event_bus::{Event, Reply};
     pub use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Receives};
     pub use guinea_core::feature::{Bound, Dispatch, Push};

@@ -59,38 +59,40 @@ pub enum Point {
         actor_id: u64,
         output: &'static str,
     },
-    /// An actor opened a source whose items will come to it as `output`.
-    /// Recorded under what opened it, which is done with it once it is open:
-    /// the items are not its work.
+    /// A source was opened, whose items will come to `to` - an actor, or `fn`
+    /// - as `output`; a timer is one. Recorded under what opened it, which is
+    /// done with it once it is open: the items are not its work. `source` is
+    /// its id, as the scope that holds it lists it, and `file` and `line` say
+    /// where it was opened.
     Source {
-        actor: &'static str,
-        actor_id: u64,
+        source: u64,
+        to: &'static str,
         output: &'static str,
+        file: &'static str,
+        line: u32,
     },
-    /// An item came from a source, as `output`. A root, as a timer's tick
-    /// is; `source` is the id of the [`Point::Source`] it came from.
+    /// An item came from the source `source`, as `output`, with the name the
+    /// source was given, if any. A root of its own.
     Arrived {
-        actor: &'static str,
-        actor_id: u64,
-        output: &'static str,
         source: u64,
+        name: Option<&'static str>,
+        to: &'static str,
+        output: &'static str,
     },
-    /// A source is making its next item, which will come as `output`: what
-    /// its stream does meanwhile is recorded under this. A root, as
-    /// [`Point::Arrived`] is; `source` is the id of the [`Point::Source`].
-    /// Open from when the source is asked for the item until it has it, runs
-    /// dry or is dropped.
+    /// The source `source` is making its next item, which will come as
+    /// `output`: what its stream does meanwhile is recorded under this. A
+    /// root, as [`Point::Arrived`] is. Open from when the source is asked for
+    /// the item until it has it, runs dry or is dropped.
     Pull {
-        actor: &'static str,
-        actor_id: u64,
-        output: &'static str,
         source: u64,
+        to: &'static str,
+        output: &'static str,
     },
-    /// A source ended: it ran dry, or `gone` - the actor that opened it is
-    /// gone and the source was dropped where it last awaited.
+    /// The source `source` ended: it ran dry, or `gone` - what held it is
+    /// gone, or it was replaced, and it was dropped where it last awaited.
     Closed {
-        actor: &'static str,
-        actor_id: u64,
+        source: u64,
+        to: &'static str,
         output: &'static str,
         took_us: u64,
         gone: bool,
@@ -106,15 +108,6 @@ pub enum Point {
     Push { reducer: &'static str },
     /// A router moved.
     Navigate { root: String, to: String },
-    /// A timer fired; `timer` is its id, as the application's timers list
-    /// it. The rest says whose it is, so the record reads on its own once the
-    /// timer is gone: the name it was given, if any, and where it was set up.
-    Tick {
-        timer: u64,
-        name: Option<&'static str>,
-        file: &'static str,
-        line: u32,
-    },
     /// A page or layout drew itself, and how long that took. Recorded while
     /// devtools watch, for a draw that took `GUINEA_TRACE_RENDER_MS` or
     /// longer, 2 unless set; for every draw under a test.
@@ -179,7 +172,6 @@ impl Point {
             Point::Deliver { .. } => "deliver",
             Point::Push { .. } => "push",
             Point::Navigate { .. } => "navigate",
-            Point::Tick { .. } => "tick",
             Point::Render { .. } => "render",
             Point::Log { .. } => "log",
             Point::Span { .. } => "span",
@@ -228,38 +220,42 @@ impl fmt::Display for Point {
             Point::Skipped { actor, output, .. } => {
                 write!(f, "{actor} was busy: work for {output} turned away")
             }
-            Point::Source { actor, output, .. } => write!(f, "{actor} opens a source of {output}"),
-            Point::Arrived { actor, output, .. } => write!(f, "{output} arrives at {actor}"),
-            Point::Pull { actor, output, .. } => {
-                write!(f, "{actor}'s source makes the next {output}")
+            Point::Source { to, output, .. } => write!(f, "a source of {output} opens for {to}"),
+            Point::Arrived {
+                name: Some(name),
+                output,
+                to,
+                ..
+            } => write!(f, "{name}: {output} arrives at {to}"),
+            Point::Arrived { output, to, .. } => write!(f, "{output} arrives at {to}"),
+            Point::Pull { source, output, .. } => {
+                write!(f, "source #{source} makes the next {output}")
             }
             Point::Closed {
-                actor,
+                to,
                 output,
                 took_us,
                 gone: true,
                 ..
             } => write!(
                 f,
-                "{actor} is gone: its source of {output} closed after {:.1} ms",
+                "{to}'s source of {output} dropped after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
             Point::Closed {
-                actor,
+                to,
                 output,
                 took_us,
                 ..
             } => write!(
                 f,
-                "{actor}'s source of {output} ran dry after {:.1} ms",
+                "{to}'s source of {output} ran dry after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
             Point::Publish { event, subscribers } => write!(f, "publish {event} to {subscribers}"),
             Point::Deliver { event } => write!(f, "deliver {event}"),
             Point::Push { reducer } => write!(f, "push into {reducer}"),
             Point::Navigate { root, to } => write!(f, "{root} navigates to {to}"),
-            Point::Tick { name: Some(name), .. } => write!(f, "timer {name}"),
-            Point::Tick { timer, .. } => write!(f, "timer #{timer}"),
             Point::Render { segment, took_us } => {
                 write!(f, "{segment} drew itself in {:.1} ms", *took_us as f64 / 1000.0)
             }

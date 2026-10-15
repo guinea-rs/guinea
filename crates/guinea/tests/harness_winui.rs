@@ -1266,8 +1266,8 @@ mod navigating {
 
         app.navigate(AppRoute::KeptList);
         assert!(
-            app.find_text("kept ticks: 1").is_some(),
-            "the area kept its state, and its clock did not tick while it slept:\n{:#?}",
+            app.find_text("kept ticks: 2").is_some(),
+            "the area kept its state, and the three ticks its clock slept through came as one:\n{:#?}",
             app.tree()
         );
         assert_eq!(KEPT_WAKES.with(Cell::get), 1, "woken once, on the way back");
@@ -1275,7 +1275,7 @@ mod navigating {
         h.advance(Duration::from_secs(1));
         app.settle();
         assert!(
-            app.find_text("kept ticks: 2").is_some(),
+            app.find_text("kept ticks: 3").is_some(),
             "awake, the clock ticks again:\n{:#?}",
             app.tree()
         );

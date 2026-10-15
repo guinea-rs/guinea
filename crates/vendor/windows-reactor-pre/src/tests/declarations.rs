@@ -1,6 +1,76 @@
 use super::*;
 
 #[test]
+fn calendar_date_properties_order_update_and_clear() {
+    let min = DateTime::from_unix_secs(1_700_000_000);
+    let max = DateTime::from_unix_secs(1_800_000_000);
+    let date = DateTime::from_unix_secs(1_750_000_000);
+    let mut runtime = Runtime::new(RecordingAdapter::default());
+    runtime
+        .update(
+            CalendarDatePicker::new()
+                .date(date)
+                .max_date(max)
+                .min_date(min),
+        )
+        .unwrap();
+    let root = runtime.graph().root().unwrap();
+    assert_eq!(
+        runtime.graph().properties(root).unwrap(),
+        [
+            Property {
+                id: PropertyId::MinDate,
+                value: PropertyValue::DateTime(min),
+            },
+            Property {
+                id: PropertyId::MaxDate,
+                value: PropertyValue::DateTime(max),
+            },
+            Property {
+                id: PropertyId::Date,
+                value: PropertyValue::OptionalDateTime(Some(date)),
+            },
+        ]
+    );
+    assert!(
+        runtime
+            .update(
+                CalendarDatePicker::new()
+                    .min_date(min)
+                    .max_date(max)
+                    .date(Some(date))
+            )
+            .unwrap()
+            .is_empty()
+    );
+    let mutations = runtime
+        .update(CalendarDatePicker::new().date(None))
+        .unwrap();
+    assert!(matches!(
+        mutations.as_slice(),
+        [Mutation::SetProperties { object, set, clear }]
+            if *object == root
+                && set.as_ref() == [Property {
+                    id: PropertyId::Date,
+                    value: PropertyValue::OptionalDateTime(None),
+                }]
+                && clear.as_ref() == [PropertyId::MinDate, PropertyId::MaxDate]
+    ));
+    let mutations = runtime.update(CalendarDatePicker::new()).unwrap();
+    assert!(matches!(
+        mutations.as_slice(),
+        [Mutation::SetProperties { object, set, clear }]
+            if *object == root && set.is_empty() && clear.as_ref() == [PropertyId::Date]
+    ));
+    assert!(
+        runtime
+            .update(CalendarDatePicker::new())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn navigation_view_flags_set_update_and_clear_independently() {
     let mut runtime = Runtime::new(RecordingAdapter::default());
     let view = NavigationView::new()
@@ -454,6 +524,49 @@ fn text_box_appearance_records_set_and_clear() {
 }
 
 #[test]
+fn text_box_read_only_and_alignment_update_and_clear() {
+    let view = || {
+        TextBox::new("Text")
+            .is_read_only(true)
+            .text_alignment(TextAlignment::Center)
+    };
+    let mut runtime = Runtime::new(RecordingAdapter::default());
+    runtime.update(view()).unwrap();
+    let object = runtime.graph().root().unwrap();
+    assert!(runtime.update(view()).unwrap().is_empty());
+
+    let mutations = runtime
+        .update(
+            TextBox::new("Text")
+                .is_read_only(false)
+                .text_alignment(TextAlignment::Right),
+        )
+        .unwrap();
+    assert!(matches!(
+        mutations.as_slice(),
+        [Mutation::SetProperties { object: target, set, clear }]
+            if *target == object && clear.is_empty() && set.as_ref() == [
+                Property {
+                    id: PropertyId::IsReadOnly,
+                    value: PropertyValue::Bool(false),
+                },
+                Property {
+                    id: PropertyId::TextAlignment,
+                    value: TextAlignment::Right.property_value(),
+                },
+            ]
+    ));
+    let mutations = runtime.update(TextBox::new("Text")).unwrap();
+    assert!(matches!(
+        mutations.as_slice(),
+        [Mutation::SetProperties { object: target, set, clear }]
+            if *target == object && set.is_empty()
+                && clear.as_ref() == [PropertyId::IsReadOnly, PropertyId::TextAlignment]
+    ));
+    assert!(runtime.update(TextBox::new("Text")).unwrap().is_empty());
+}
+
+#[test]
 fn shared_value_validation_rejects_invalid_inputs() {
     assert!(HyperlinkButton::new().navigate_uri("not a uri").is_err());
     assert!(BitmapIcon::new().uri_source("").is_err());
@@ -682,6 +795,31 @@ fn button_content_and_click_use_generated_contracts() {
     ));
     assert_eq!(runtime.dispatch_native_events().unwrap(), 1);
     assert_eq!(calls.get(), 1);
+}
+
+#[test]
+fn svg_sources_preserve_format_and_byte_value_identity() {
+    let bytes = EncodedImage::from_static(b"<svg/>");
+    let svg = ImageSource::svg(bytes.clone());
+    assert_ne!(svg, ImageSource::encoded(bytes.clone()));
+    assert_eq!(svg, ImageSource::svg(EncodedImage::new(b"<svg/>".to_vec())));
+    assert_eq!(Icon::image_svg(bytes.clone()), Icon::image(svg.clone()));
+    let views: [View; 2] = [
+        Image::new().source_svg(bytes.clone()).into(),
+        ImageIcon::new().source_svg(bytes).into(),
+    ];
+    for view in views {
+        let mut runtime = Runtime::new(RecordingAdapter::default());
+        runtime.update(view).unwrap();
+        assert_eq!(
+            runtime
+                .graph()
+                .properties(runtime.graph().root().unwrap())
+                .unwrap()[0]
+                .value,
+            PropertyValue::ImageSource(svg.clone())
+        );
+    }
 }
 
 #[test]

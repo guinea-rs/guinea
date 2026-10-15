@@ -999,7 +999,7 @@ impl WinUiAdapter {
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
         let flyout = menu
-            ._flyout
+            .flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?;
@@ -1016,7 +1016,7 @@ impl WinUiAdapter {
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
         Ok(menu
-            ._flyout
+            .flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?
@@ -1028,7 +1028,7 @@ impl WinUiAdapter {
             .menus
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?;
-        menu._flyout
+        menu.flyout
             .as_ref()
             .ok_or(WinUiError::InvalidObject(target))?
             .cast::<native::IFlyoutBase>()?
@@ -1041,7 +1041,7 @@ impl WinUiAdapter {
             .command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            ._native
+            .native
             .cast::<native::IFlyoutBase>()?;
         let target = self
             .ui_element(target)?
@@ -1055,7 +1055,7 @@ impl WinUiAdapter {
             .command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            ._native
+            .native
             .cast::<native::IFlyoutBase>()?
             .IsOpen()?)
     }
@@ -1064,7 +1064,7 @@ impl WinUiAdapter {
         self.command_bar_flyouts
             .get(&target)
             .ok_or(WinUiError::InvalidObject(target))?
-            ._native
+            .native
             .cast::<native::IFlyoutBase>()?
             .Hide()?;
         Ok(())
@@ -1402,6 +1402,41 @@ impl WinUiAdapter {
             value.value.Text()?,
             value.value.SelectionStart()?,
             value.value.SelectionLength()?,
+        ))
+    }
+
+    pub fn text_box_character_rect(
+        &self,
+        object: ObjectId,
+        index: i32,
+        trailing: bool,
+    ) -> Result<[f32; 4], WinUiError> {
+        let Some(Handle::TextBox(value)) = self.handles.get(&object) else {
+            return Err(WinUiError::InvalidObject(object));
+        };
+        let rect = value.value.GetRectFromCharacterIndex(index, trailing)?;
+        Ok([rect.x, rect.y, rect.width, rect.height])
+    }
+
+    pub fn text_box_editing_state(
+        &self,
+        object: ObjectId,
+    ) -> Result<(bool, TextAlignment, String), WinUiError> {
+        let Some(Handle::TextBox(value)) = self.handles.get(&object) else {
+            return Err(WinUiError::InvalidObject(object));
+        };
+        let alignment = match value.value.TextAlignment()? {
+            native::TextAlignment::Center => TextAlignment::Center,
+            native::TextAlignment::Left => TextAlignment::Left,
+            native::TextAlignment::Right => TextAlignment::Right,
+            native::TextAlignment::Justify => TextAlignment::Justify,
+            native::TextAlignment::DetectFromContent => TextAlignment::DetectFromContent,
+            _ => return Err(WinUiError::StateMismatch(object)),
+        };
+        Ok((
+            value.value.IsReadOnly()?,
+            alignment,
+            value.value.SelectedText()?,
         ))
     }
 

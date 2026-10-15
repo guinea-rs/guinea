@@ -49,12 +49,13 @@ guinea = { path = "crates/guinea", version = "0.29.0" }
 inventory = "0.3"
 
 # --- UI Stack (windows-reactor) ---
-# windows-rs at e978672b0 has the reactor guinea is written against, and
-# crates.io does not: its windows-reactor 0.100.0 is older. The reactor and the
-# canvas at that rev are published from crates/vendor as `-pre` crates, under
+# windows-rs at c493286 has the reactor guinea is written against, and
+# crates.io does not: its windows-reactor 0.100.0 is older. The reactor at that
+# rev, and the canvas and window at e978672b0, which it has not changed since,
+# are published from crates/vendor as `-pre` crates, under
 # their own lib names, on the rest of the windows-rs 0.100 family from
 # crates.io - so guinea-winui can be published too.
-windows-reactor = { package = "windows-reactor-pre", version = "0.104.0", path = "crates/vendor/windows-reactor-pre" }
+windows-reactor = { package = "windows-reactor-pre", version = "0.104.1", path = "crates/vendor/windows-reactor-pre" }
 windows-core = "0.100.0"
 
 # --- UI Stack (the other backends) ---

@@ -7720,7 +7720,7 @@ dependencies = [
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.104.0"
+version = "0.104.1"
 dependencies = [
  "windows-collections 0.100.0",
  "windows-core 0.100.0",

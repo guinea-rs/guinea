@@ -1,10 +1,10 @@
 [package]
 name = "windows-reactor-pre"
-version = "0.104.0"
+version = "0.104.1"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
-description = "windows-reactor from microsoft/windows-rs at e978672b0, published for guinea until windows-rs releases it"
+description = "windows-reactor from microsoft/windows-rs at c493286, published for guinea until windows-rs releases it"
 repository = "https://github.com/guinea-rs/guinea"
 categories = ["os::windows-apis"]
 readme = "readme.md"

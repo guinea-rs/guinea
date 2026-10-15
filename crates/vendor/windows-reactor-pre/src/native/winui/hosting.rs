@@ -541,7 +541,17 @@ impl WinUiAdapter {
         revision: u64,
     ) -> Result<(), WinUiError> {
         let kind = self.kind(target)?;
+        if let Some(menu) = menu
+            && let Some(current) = self.menus.get_mut(&target)
+            && current.revision == revision
+        {
+            current.menu.clone_from(menu);
+            return Ok(());
+        }
         if let Some(previous) = self.menus.remove(&target) {
+            if let Some(flyout) = &previous.flyout {
+                flyout.cast::<native::IFlyoutBase>()?.Hide()?;
+            }
             match kind {
                 ObjectType::Button | ObjectType::DropDownButton => self
                     .ui_element(target)?
@@ -553,7 +563,18 @@ impl WinUiAdapter {
                     else {
                         return Err(WinUiError::InvalidObject(target));
                     };
-                    item.Items()?.Clear()?;
+                    let peer = native::FrameworkElementAutomationPeer::CreatePeerForElement(item)?;
+                    let provider = peer
+                        .GetPattern(native::PatternInterface::ExpandCollapse)?
+                        .cast::<native::IExpandCollapseProvider>()?;
+                    if provider.ExpandCollapseState()? == native::ExpandCollapseState::Expanded {
+                        provider.Collapse()?;
+                    }
+                    // WinUI's MenuBarItem mirrors item removals, but ignores vector resets.
+                    let items = item.Items()?;
+                    while items.Size()? != 0 {
+                        items.RemoveAtEnd()?;
+                    }
                 }
                 _ => return Err(WinUiError::InvalidObject(target)),
             }
@@ -602,7 +623,7 @@ impl WinUiAdapter {
             NativeMenu {
                 menu: menu.clone(),
                 revision,
-                _flyout: flyout,
+                flyout,
                 _revokers: revokers,
             },
         );
@@ -618,10 +639,19 @@ impl WinUiAdapter {
         if self.kind(target)? != ObjectType::Button {
             return Err(WinUiError::InvalidObject(target));
         }
-        if self.command_bar_flyouts.remove(&target).is_some() {
+        if let Some(flyout) = flyout
+            && let Some(current) = self.command_bar_flyouts.get_mut(&target)
+            && current.revision == revision
+        {
+            current.flyout.clone_from(flyout);
+            return Ok(());
+        }
+        if let Some(previous) = self.command_bar_flyouts.remove(&target) {
+            previous.native.cast::<native::IFlyoutBase>()?.Hide()?;
             self.ui_element(target)?
                 .cast::<native::IButton>()?
                 .SetFlyout(None::<&native::FlyoutBase>)?;
+            self.released_images.extend(previous.images);
         }
         let Some(flyout) = flyout else {
             return Ok(());
@@ -630,20 +660,21 @@ impl WinUiAdapter {
         let primary = native.PrimaryCommands()?;
         let secondary = native.SecondaryCommands()?;
         let mut revokers = Vec::new();
+        let mut images = Vec::new();
         for command in flyout.primary.iter() {
-            primary.Append(&build_command_bar_element(
+            primary.Append(&self.build_command_bar_element(
                 command,
                 &mut revokers,
-                &self.event_queue,
+                &mut images,
                 target,
                 revision,
             )?)?;
         }
         for command in flyout.secondary.iter() {
-            secondary.Append(&build_command_bar_element(
+            secondary.Append(&self.build_command_bar_element(
                 command,
                 &mut revokers,
-                &self.event_queue,
+                &mut images,
                 target,
                 revision,
             )?)?;
@@ -656,11 +687,55 @@ impl WinUiAdapter {
             NativeCommandBarFlyout {
                 flyout: flyout.clone(),
                 revision,
-                _native: native,
+                native,
                 _revokers: revokers,
+                images,
             },
         );
         Ok(())
+    }
+
+    fn build_command_bar_element(
+        &mut self,
+        command: &CommandBarCommand,
+        revokers: &mut Vec<windows_core::EventRevoker>,
+        images: &mut Vec<Rc<NativeImageSource>>,
+        target: ObjectId,
+        revision: u64,
+    ) -> Result<native::ICommandBarElement, WinUiError> {
+        match command {
+            CommandBarCommand::Button {
+                key,
+                label,
+                icon,
+                enabled,
+            } => {
+                let button = native::AppBarButton::new()?;
+                button.SetLabel(label)?;
+                button.cast::<native::IControl>()?.SetIsEnabled(*enabled)?;
+                if let Some(icon) = icon {
+                    let image = self.shared_icon_image(icon)?;
+                    button.SetIcon(&icon_element(icon, image.as_ref().map(|image| &image.value))?)?;
+                    images.extend(image);
+                }
+                let clicked_key = key.clone();
+                let clicked_queue = Rc::clone(&self.event_queue);
+                revokers.push(button.cast::<native::IButtonBase>()?.Click(move |_, _| {
+                    clicked_queue.queue(
+                        None,
+                        Some(QueuedEvent {
+                            object: target,
+                            event: EventId::CommandInvoked,
+                            revision,
+                            payload: EventPayload::Key(clicked_key.clone()),
+                        }),
+                    );
+                    Self::schedule_event_wake(&clicked_queue);
+                })?);
+                Ok(button.cast()?)
+            }
+            CommandBarCommand::Separator { .. } => Ok(native::AppBarSeparator::new()?.cast()?),
+        }
     }
 
     fn set_content_dialog(

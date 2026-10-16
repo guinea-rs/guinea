@@ -8,7 +8,12 @@ use crate::scope::{Reducer, Scope, Section};
 pub struct Push<R: Reducer> {
     scope: Scope,
     reducer: std::marker::PhantomData<R>,
+    ui_thread: UiThread,
 }
+
+/// Keeps a handle on the thread its scope lives on: neither `Send` nor
+/// `Sync`.
+type UiThread = std::marker::PhantomData<*const ()>;
 
 impl<R: Reducer> Clone for Push<R> {
     fn clone(&self) -> Self {
@@ -46,6 +51,7 @@ impl<R: Reducer> Push<R> {
         Self {
             scope,
             reducer: std::marker::PhantomData,
+            ui_thread: std::marker::PhantomData,
         }
     }
 
@@ -93,6 +99,7 @@ pub struct Dispatch {
     ///
     /// `None` only for [`Dispatch::nowhere`].
     at: Option<Section>,
+    ui_thread: UiThread,
 }
 
 impl Dispatch {
@@ -104,12 +111,18 @@ impl Dispatch {
     /// A dispatcher that asks nobody, for a view drawn without a domain - a
     /// benchmark, a preview. What is emitted to it is dropped.
     pub fn nowhere() -> Self {
-        Self { at: None }
+        Self {
+            at: None,
+            ui_thread: std::marker::PhantomData,
+        }
     }
 
     /// A named section - what a feature is handed for what it claimed.
     pub(crate) fn in_section(section: Section) -> Self {
-        Self { at: Some(section) }
+        Self {
+            at: Some(section),
+            ui_thread: std::marker::PhantomData,
+        }
     }
 
     /// Hands the action to whatever answers it in that feature.
@@ -169,6 +182,22 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
+    trait Stays {
+        fn is_send(&self) -> bool {
+            false
+        }
+    }
+
+    impl<T> Stays for Probe<T> {}
+
+    #[allow(dead_code)]
+    impl<T: Send> Probe<T> {
+        fn is_send(&self) -> bool {
+            true
+        }
+    }
+
     #[derive(Clone, Default, Debug)]
     struct Count(u32);
 
@@ -185,6 +214,17 @@ mod tests {
     #[test]
     fn a_dispatcher_is_handed_on_by_copy() {
         assert!(Probe::<Dispatch>(PhantomData).is_copy());
+    }
+
+    #[test]
+    fn a_push_and_a_dispatcher_stay_on_the_thread_their_scope_lives_on() {
+        assert_eq!(
+            (
+                Probe::<Push<Count>>(PhantomData).is_send(),
+                Probe::<Dispatch>(PhantomData).is_send()
+            ),
+            (false, false)
+        );
     }
 
     #[test]

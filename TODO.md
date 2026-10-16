@@ -192,6 +192,52 @@ so the window-state plugin does nothing there.
 - Off Windows, guinea-slint knows no work areas and applies geometry as it
   comes.
 
+## Versions: a plugin should not break on a guinea it does not use
+
+Where to cut is not clear yet; nothing here is decided. Replaces the lockstep
+version agreed on 2026-10-15 once it is.
+
+### Each crate its own version
+
+Drop `version` from `[workspace.package]`; every crate carries its own, all
+starting from the same number. `cargo semver-checks` per crate in CI says
+which ones need a minor bump; an `xtask release` lists the crates changed since
+the last release, proposes their bumps and raises the requirement in their
+dependents (not release-plz: it wants conventional commits). With it: `links`
+on guinea-core, so two cores in one tree do not build, and macro paths that
+prefer `[dependencies]` over dev-dependencies.
+
+On its own this saves no plugin. When the core breaks, every crate that
+re-exports its types breaks with it, guinea-app included, and a plugin on
+guinea-app breaks anyway. Separate versions only say which crate broke; they
+help a plugin as far as it depends on crates that do not drag the core along.
+
+### A layer the plugins stand on
+
+What the plugins take from guinea, counted on 2026-10-16 (on 0.29):
+
+- l10n 9 paths, store 7, window-state 5, single-instance 5: `Plugin` and its
+  builder, `Scope`, `Reducer`, `Dispatch`, the window types (`Geometry`,
+  `SavedGeometry`, `WindowChanged`), `roots::label`, `AppMeta`, `Stop`, the
+  observability panels, `trace::Point`, and the harness in their tests.
+- widgets: only `guinea_mark::Mark` - a small crate that rarely changes, which
+  is what the layer should look like.
+- devtools: 30, all of them the core's insides (actor registry, shape, remote,
+  panels, trace). A tool tied to the core, not a plugin; its stable layer is
+  `devtools-protocol`, not guinea's API.
+
+Two halves to the plugins' contract:
+
+- Data: window geometry, a root's label, `AppMeta`, panels, trace points. These
+  can go into small crates with their own versions, as `guinea-mark` did, and
+  stop moving with the core.
+- Behaviour: `Plugin`, the builder, installing features, reducers, `Dispatch`.
+  This is the feature and actor model itself, and while the review rewrites
+  it no layer makes a plugin stable. Moving the vocabulary down, Essenty-style
+  (the traits in a bottom crate, the core implementing them), takes `Feature`
+  along and half the core's public surface after it. Design it after the
+  review, once the model holds still.
+
 ## Examples
 
 ### A todo app with everything in it

@@ -67,6 +67,10 @@ impl<R: Reducer> Push<R> {
         });
         self.scope.push::<R>(update);
     }
+
+    pub(crate) fn scope(&self) -> Scope {
+        self.scope
+    }
 }
 
 /// What the UI may ask of the features a segment can reach.

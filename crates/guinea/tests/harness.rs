@@ -57,18 +57,13 @@ mod naive {
 
     actor! {
         Searcher {
-            handlers { Query => { task Found }, Found }
+            handlers { Query }
         }
     }
 
     #[handler]
-    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
-        cx.task().spawn(search(text));
-    }
-
-    #[handler]
-    fn found(this: &mut Searcher, found: Found) {
-        this.push.send(found);
+    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
+        cx.task().pushing(this.push).spawn(search(text));
     }
 
     feature! {
@@ -151,18 +146,13 @@ mod by_policy {
 
     actor! {
         Searcher {
-            handlers { Query => { task Found }, Found }
+            handlers { Query }
         }
     }
 
     #[handler]
-    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
-        cx.task().latest().spawn(search(text));
-    }
-
-    #[handler]
-    fn found(this: &mut Searcher, found: Found) {
-        this.push.send(found);
+    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
+        cx.task().latest().pushing(this.push).spawn(search(text));
     }
 
     feature! {
@@ -202,6 +192,20 @@ fn in_every_order_the_latest_query_wins(h: &mut Harness) {
     assert_eq!(results.query, "guinea");
     assert_eq!(results.found, ["guinea", "guinea-app"]);
     assert_eq!(h.stuck(), 0);
+}
+
+#[guinea::test(iterations = 50)]
+fn a_query_whose_work_pushes_is_settled_once_the_push_is_in(h: &mut Harness) {
+    h.install::<by_policy::Search>(&()).unwrap();
+
+    let asked = h.act::<Results>(Query("gu".into()));
+    asked.settle();
+    assert_eq!(h.state::<Results>().query, "gu");
+
+    let chain = asked.chain();
+    assert!(chain.handled::<Query>(), "{chain:#?}");
+    assert!(chain.pushed::<Results>(), "{chain:#?}");
+    assert!(!chain.cancelled(), "{chain:#?}");
 }
 
 #[guinea::test(iterations = 200)]

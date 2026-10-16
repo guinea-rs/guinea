@@ -2,7 +2,9 @@
 //! older work of the same kind is still in flight.
 //!
 //! `cx.task()` starts it. By default every piece runs on its own and answers
-//! when it is done, in whatever order that is. A policy puts it in a lane -
+//! when it is done, in whatever order that is: to its actor as a message, or
+//! under [`pushing`](Task::pushing) straight into a reducer. A policy puts it
+//! in a lane -
 //! one per actor and type of answer, or per `.lane::<K>()` - and says what a
 //! new piece does to the lane while it is busy:
 //!
@@ -17,6 +19,7 @@
 //! to spawn panics, naming both.
 
 use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::rc::Rc;
@@ -31,6 +34,8 @@ use crate::actor::addr::{Addr, Reach};
 use crate::actor::cancel::{Cancel, Reason};
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
+use crate::feature::Push;
+use crate::scope::{Reducer, Scope};
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 use crate::ui_thread::{invoke_on_ui, try_invoke_on_ui};
@@ -48,6 +53,13 @@ pub struct Exhaust;
 pub struct Reply;
 /// The work answers no one.
 pub struct Detached;
+/// What the work returns goes into a reducer, made an update by `F` on the
+/// UI thread. See [`Task::pushing`].
+pub struct Pushing<S, F> {
+    scope: Scope,
+    map: F,
+    reducer: PhantomData<fn() -> S>,
+}
 
 mod sealed {
     pub trait Sealed {}
@@ -118,7 +130,8 @@ pub struct Task<'cx, A: 'static, M, P = Parallel, R = Reply> {
     cx: &'cx Cx<A, M>,
     lane: Option<LaneId>,
     key: Option<Box<dyn LaneKey>>,
-    how: PhantomData<fn() -> (P, R)>,
+    to: R,
+    how: PhantomData<fn() -> P>,
 }
 
 impl<A: 'static, M> Cx<A, M> {
@@ -195,17 +208,29 @@ impl<A: 'static, M> Cx<A, M> {
             cx: self,
             lane: None,
             key: None,
+            to: Reply,
             how: PhantomData,
         }
     }
 }
 
 impl<'cx, A: 'static, M, P, R> Task<'cx, A, M, P, R> {
-    fn with<Q, S>(self) -> Task<'cx, A, M, Q, S> {
+    fn with<Q>(self) -> Task<'cx, A, M, Q, R> {
         Task {
             cx: self.cx,
             lane: self.lane,
             key: self.key,
+            to: self.to,
+            how: PhantomData,
+        }
+    }
+
+    fn to<T>(self, to: T) -> Task<'cx, A, M, P, T> {
+        Task {
+            cx: self.cx,
+            lane: self.lane,
+            key: self.key,
+            to,
             how: PhantomData,
         }
     }
@@ -403,8 +428,166 @@ impl<'cx, A: 'static, M, P> Task<'cx, A, M, P, Reply> {
     /// Work that answers no one. Under a policy it needs a
     /// [`lane`](Task::lane): what it returns cannot name one.
     pub fn detached(self) -> Task<'cx, A, M, P, Detached> {
-        self.with()
+        self.to(Detached)
     }
+
+    /// Work whose answer is an update to `S`: pushed as `push` would push
+    /// it, on the UI thread, with no message and no handler between. Its
+    /// lane, policy and end are what [`spawn`](Task::spawn) would give it.
+    ///
+    /// ```
+    /// # use std::time::Duration;
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::feature::Push;
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    ///
+    /// #[derive(Clone, Default)]
+    /// struct Forecast(Option<&'static str>);
+    ///
+    /// #[guinea_macros::reducer]
+    /// fn forecast(this: &mut Forecast, sky: &'static str) {
+    ///     this.0 = Some(sky);
+    /// }
+    ///
+    /// struct Weather(Push<Forecast>);
+    ///
+    /// struct Fetch(&'static str);
+    ///
+    /// guinea_macros::actor! {
+    ///     Weather {
+    ///         handlers { Fetch }
+    ///     }
+    /// }
+    ///
+    /// impl Handler<Fetch> for Weather {
+    ///     fn handle(&mut self, Fetch(city): Fetch, cx: Cx<Self, Fetch>) {
+    ///         cx.task().latest().pushing(self.0).spawn(async move {
+    ///             if city == "Oslo" { "snow" } else { "sun" }
+    ///         });
+    ///     }
+    /// }
+    /// # let ui = UiLoop::install();
+    /// # let runtime = tokio::runtime::Runtime::new().unwrap();
+    /// # let _entered = runtime.enter();
+    /// # let tree = ScopeTree::new();
+    /// # let sky = || tree.scope().state::<Forecast>().borrow().0;
+    ///
+    /// let weather = Addr::new(Weather(Push::new(tree.scope())), &Home::new(tree.scope()));
+    /// weather.send(Fetch("Oslo"));
+    /// # assert!(ui.run_until(|| sky().is_some(), Duration::from_secs(5)));
+    ///
+    /// assert_eq!(sky(), Some("snow"));
+    /// ```
+    pub fn pushing<S: Reducer>(
+        self,
+        push: Push<S>,
+    ) -> Task<'cx, A, M, P, Pushing<S, fn(S::Update) -> S::Update>> {
+        self.pushing_with(push, std::convert::identity as fn(S::Update) -> S::Update)
+    }
+
+    /// [`pushing`](Task::pushing), with the answer made an update by `map`
+    /// on the UI thread: for an update that cannot cross threads, made from
+    /// one that can. `map` runs on the UI thread, so it stays cheap.
+    pub fn pushing_with<S: Reducer, F>(self, push: Push<S>, map: F) -> Task<'cx, A, M, P, Pushing<S, F>> {
+        self.to(Pushing {
+            scope: push.scope(),
+            map,
+            reducer: PhantomData,
+        })
+    }
+}
+
+impl<'cx, A: 'static, M, P: Policy, S: Reducer, F> Task<'cx, A, M, P, Pushing<S, F>> {
+    /// [`Task::spawn`], pushing what `fut` returns.
+    ///
+    /// # Panics
+    ///
+    /// When the lane was given another policy before.
+    #[track_caller]
+    pub fn spawn<Out, Fut>(self, fut: Fut)
+    where
+        Out: Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        F: FnOnce(Out) -> S::Update + Send + 'static,
+    {
+        self.push(Location::caller(), move |_| fut, Ends::Dropped);
+    }
+
+    /// [`Task::spawn_with`], pushing what the work returns.
+    ///
+    /// # Panics
+    ///
+    /// When the lane was given another policy before.
+    #[track_caller]
+    pub fn spawn_with<Out, Fut, W>(self, work: W)
+    where
+        Out: Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        W: FnOnce(Cancel) -> Fut + 'static,
+        F: FnOnce(Out) -> S::Update + Send + 'static,
+    {
+        self.push(Location::caller(), work, Ends::Itself);
+    }
+
+    /// [`Task::pour`], pushing each item as `into(item)` makes it.
+    ///
+    /// # Panics
+    ///
+    /// When the lane was given another policy before.
+    #[track_caller]
+    pub fn pour<Src, Out, I>(self, source: Src, into: I)
+    where
+        Src: Stream + Send + 'static,
+        Out: Send + 'static,
+        I: FnMut(Src::Item) -> Out + Send + 'static,
+        F: FnMut(Out) -> S::Update + 'static,
+    {
+        let at = Location::caller();
+        let (task, Pushing { scope, map, .. }) = self.split();
+        let map = RefCell::new(map);
+
+        task.pouring(at, source, into, move |_: &Addr<A>, out: Out| {
+            if !scope.is_alive() {
+                dropped::<S>();
+                return;
+            }
+
+            let update = (map.borrow_mut())(out);
+            Push::<S>::new(scope).send(update);
+        });
+    }
+
+    fn push<Out, Fut, W>(self, at: &'static Location<'static>, work: W, ends: Ends)
+    where
+        Out: Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        W: FnOnce(Cancel) -> Fut + 'static,
+        F: FnOnce(Out) -> S::Update + Send + 'static,
+    {
+        let (task, Pushing { scope, map, .. }) = self.split();
+
+        task.answering(at, work, ends, move |_: &Addr<A>, out: Out, traced: Traced| {
+            if !scope.is_alive() {
+                dropped::<S>();
+                traced.end(traced.cancelled());
+                return;
+            }
+
+            let _settled = trace::resume(Some(traced.settle()));
+            Push::<S>::new(scope).send(map(out));
+        });
+    }
+}
+
+/// A push from work whose scope went while it ran: the work could not have
+/// known, so it is said and dropped rather than panicked over.
+fn dropped<S: 'static>() {
+    tracing::warn!(
+        reducer = short_type_name::<S>(),
+        "background work answered after the scope it pushes into was removed; dropped"
+    );
 }
 
 impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
@@ -593,6 +776,73 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
         A::Flow: Allows<M, Out>,
     {
         let at = Location::caller();
+
+        self.pouring(at, source, into, |addr: &Addr<A>, out: Out| addr.send(out));
+    }
+
+    fn reply<Out, Fut, F>(self, at: &'static Location<'static>, work: F, ends: Ends)
+    where
+        Out: Send + 'static,
+        A: Handler<Out> + ManagedActor,
+        Fut: Future<Output = Out> + Send + 'static,
+        F: FnOnce(Cancel) -> Fut + 'static,
+    {
+        self.answering(at, work, ends, |addr: &Addr<A>, out: Out, traced: Traced| {
+            addr.send_under(out, Some(traced.settle()));
+        });
+    }
+}
+
+impl<'cx, A: 'static, M, P: Policy, R> Task<'cx, A, M, P, R> {
+    fn split(self) -> (Task<'cx, A, M, P, ()>, R) {
+        let Task {
+            cx,
+            lane,
+            key,
+            to,
+            how,
+        } = self;
+
+        (Task { cx, lane, key, to: (), how }, to)
+    }
+
+    /// Starts `work` in its lane, and hands what it returns to `deliver` on
+    /// the UI thread - once its actor is still there and its run is still
+    /// the lane's.
+    fn answering<Out, Fut, W, D>(self, at: &'static Location<'static>, work: W, ends: Ends, deliver: D)
+    where
+        Out: Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        W: FnOnce(Cancel) -> Fut + 'static,
+        D: FnOnce(&Addr<A>, Out, Traced) + Send + 'static,
+    {
+        let addr = &self.cx.addr;
+        let reach = addr.reach();
+        let lane = self.lane.unwrap_or(LaneId::of::<Out>());
+
+        let spawning = Spawning {
+            lane: Some(lane),
+            key: self.key,
+            kind: P::KIND,
+            at,
+        };
+        launch(addr, spawning, short_type_name::<Out>(), move |traced| -> Start {
+            Box::new(move |ticket: Ticket| {
+                let fut = work(ticket.cancel.clone());
+                crate::executor::spawn(run_reply(reach, traced, ticket, fut, ends, deliver));
+            })
+        });
+    }
+
+    /// Opens `source` in its lane, and hands each item `into` makes of it to
+    /// `deliver` on the UI thread while the actor is there.
+    fn pouring<Src, Out, I, D>(self, at: &'static Location<'static>, source: Src, into: I, deliver: D)
+    where
+        Src: Stream + Send + 'static,
+        Out: Send + 'static,
+        I: FnMut(Src::Item) -> Out + Send + 'static,
+        D: Fn(&Addr<A>, Out) + 'static,
+    {
         let addr = &self.cx.addr;
         let reach = addr.reach();
         let section = addr.home().section();
@@ -614,7 +864,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
                         return;
                     }
                     if let Some(addr) = reach.addr() {
-                        addr.send(out);
+                        deliver(&addr, out);
                     }
                 });
 
@@ -629,31 +879,6 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
                 sources::open(section, source, into, opening);
 
                 traced.end(traced.settled());
-            })
-        });
-    }
-
-    fn reply<Out, Fut, F>(self, at: &'static Location<'static>, work: F, ends: Ends)
-    where
-        Out: Send + 'static,
-        A: Handler<Out> + ManagedActor,
-        Fut: Future<Output = Out> + Send + 'static,
-        F: FnOnce(Cancel) -> Fut + 'static,
-    {
-        let addr = &self.cx.addr;
-        let reach = addr.reach();
-        let lane = self.lane.unwrap_or(LaneId::of::<Out>());
-
-        let spawning = Spawning {
-            lane: Some(lane),
-            key: self.key,
-            kind: P::KIND,
-            at,
-        };
-        launch(addr, spawning, short_type_name::<Out>(), move |traced| -> Start {
-            Box::new(move |ticket: Ticket| {
-                let fut = work(ticket.cancel.clone());
-                crate::executor::spawn(run_reply(reach, traced, ticket, fut, ends));
             })
         });
     }
@@ -792,6 +1017,12 @@ impl Traced {
         }
     }
 
+    /// Records that the work answered, under its spawn, here on the UI
+    /// thread: what the answer does is caused by this.
+    fn settle(&self) -> Cause {
+        trace::mark_under(Some(self.spawned), || self.settled())
+    }
+
     /// Records how the work ended, under its spawn, here on the UI thread.
     fn end(&self, point: Point) {
         trace::mark_under(Some(self.spawned), || point);
@@ -910,11 +1141,18 @@ fn launch<A: 'static>(
     }
 }
 
-async fn run_reply<A, Out, Fut>(reach: Reach<A>, traced: Traced, ticket: Ticket, fut: Fut, ends: Ends)
-where
-    A: Handler<Out>,
+async fn run_reply<A, Out, Fut, D>(
+    reach: Reach<A>,
+    traced: Traced,
+    ticket: Ticket,
+    fut: Fut,
+    ends: Ends,
+    deliver: D,
+) where
+    A: 'static,
     Out: Send + 'static,
     Fut: Future<Output = Out>,
+    D: FnOnce(&Addr<A>, Out, Traced) + Send + 'static,
 {
     let unwinding = Unwinding::arm(reach, traced, &ticket);
     let running = trace::within(Some(traced.spawned), fut);
@@ -940,8 +1178,7 @@ where
             return;
         }
 
-        let settled = trace::mark_under(Some(traced.spawned), || traced.settled());
-        addr.send_under(result, Some(settled));
+        deliver(&addr, result, traced);
     });
 }
 

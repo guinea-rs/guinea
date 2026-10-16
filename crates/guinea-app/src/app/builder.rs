@@ -6,6 +6,7 @@ use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
 use guinea_core::__private::short_type_name;
 use guinea_core::scope::ScopeTree;
+use guinea_core::trace;
 use crate::feature::{ScopeContext, publish, settle};
 
 use super::observed::Observed;
@@ -27,6 +28,9 @@ pub struct PluginBuilder {
     /// then what the application set up, the last first.
     tree: ScopeTree,
     registry: RefCell<Registry>,
+    /// What this thread records goes into the application's trace while
+    /// nothing nearer is current, until after the tree is torn down.
+    _recorded: trace::ThreadDefault,
 }
 
 /// The application being built: what [`run`](crate) hands the application's
@@ -43,11 +47,15 @@ impl PluginBuilder {
         let tree = ScopeTree::new();
         tree.scope().keep(Plugins::default());
         tree.scope().keep(Backend::default());
+        let recorded = trace::thread_default(
+            &trace::sink_of(tree.scope()).expect("a tree just made is there"),
+        );
 
         Self {
             cx: ScopeContext::new(tree.scope()),
             tree,
             registry: RefCell::default(),
+            _recorded: recorded,
         }
     }
 

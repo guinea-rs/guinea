@@ -818,6 +818,7 @@ impl<'cx, A: 'static, M, P: Policy, R> Task<'cx, A, M, P, R> {
     {
         let addr = &self.cx.addr;
         let reach = addr.reach();
+        let sink = addr.sink().clone();
         let lane = self.lane.unwrap_or(LaneId::of::<Out>());
 
         let spawning = Spawning {
@@ -829,7 +830,7 @@ impl<'cx, A: 'static, M, P: Policy, R> Task<'cx, A, M, P, R> {
         launch(addr, spawning, short_type_name::<Out>(), move |traced| -> Start {
             Box::new(move |ticket: Ticket| {
                 let fut = work(ticket.cancel.clone());
-                crate::executor::spawn(run_reply(reach, traced, ticket, fut, ends, deliver));
+                crate::executor::spawn(sink.within(run_reply(reach, traced, ticket, fut, ends, deliver)));
             })
         });
     }
@@ -929,6 +930,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
 
         let addr = &self.cx.addr;
         let reach = addr.reach();
+        let sink = addr.sink().clone();
 
         let spawning = Spawning {
             lane: self.lane,
@@ -939,7 +941,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
         launch(addr, spawning, "()", move |traced| -> Start {
             Box::new(move |ticket: Ticket| {
                 let fut = work(ticket.cancel.clone());
-                crate::executor::spawn(run_detached(reach, traced, ticket, fut, ends));
+                crate::executor::spawn(sink.within(run_detached(reach, traced, ticket, fut, ends)));
             })
         });
     }
@@ -1103,6 +1105,7 @@ fn launch<A: 'static>(
         kind,
         at,
     } = spawning;
+    let _recording = trace::record_into(addr.sink());
 
     if let Some(lane) = lane {
         addr.lanes()
@@ -1167,7 +1170,9 @@ async fn run_reply<A, Out, Fut, D>(
         }
     };
 
+    let carried = trace::carry();
     invoke_on_ui(move || {
+        let _carried = carried.resume();
         let Some(addr) = reach.addr() else {
             traced.end(traced.cancelled());
             return;
@@ -1202,7 +1207,9 @@ where
         return;
     }
 
+    let carried = trace::carry();
     invoke_on_ui(move || {
+        let _carried = carried.resume();
         let ended = match reach.addr().is_some_and(|addr| addr.finish(&ticket)) {
             true => traced.settled(),
             false => ticket.cut(&traced),
@@ -1253,7 +1260,9 @@ impl<A: 'static> Drop for Unwinding<A> {
         );
 
         let (reach, traced, ticket) = (self.reach, self.traced, self.ticket.clone());
+        let carried = trace::carry();
         let posted = try_invoke_on_ui(move || {
+            let _carried = carried.resume();
             traced.end(traced.cancelled());
 
             if let Some(addr) = reach.addr() {

@@ -116,7 +116,7 @@ fn an_item_says_which_source_it_came_from() {
     let tree = ScopeTree::new();
     let seen = Rc::new(RefCell::new(Vec::new()));
     let heard = seen.clone();
-    let observing = crate::trace::observe(move |trace| {
+    let observing = crate::trace::sink_of(tree.scope()).expect("the tree is there").observe(move |trace| {
         let record = match trace {
             crate::trace::Trace::Begin(record) | crate::trace::Trace::Mark(record) => record,
             _ => return,

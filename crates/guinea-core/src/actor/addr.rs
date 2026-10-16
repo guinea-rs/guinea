@@ -10,7 +10,7 @@ use crate::actor::ManagedActor;
 use crate::inspect::{Node, Open};
 use crate::scope::{Scope, Section};
 use crate::short_type_name;
-use crate::trace::{self, Cause, Point};
+use crate::trace::{self, Cause, Point, Sink};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -18,7 +18,7 @@ use std::rc::{Rc, Weak};
 
 
 /// Where an actor is made: the section of the scope that owns it, and the bus
-/// of its tree.
+/// and the trace of its tree.
 ///
 /// What an actor makes lives where it does, so a feature's actor making
 /// another one after the feature installed still makes it the feature's.
@@ -26,6 +26,7 @@ use std::rc::{Rc, Weak};
 pub struct Home {
     section: Section,
     bus: Weak<EventBus>,
+    sink: Sink,
 }
 
 impl Home {
@@ -41,14 +42,16 @@ impl Home {
     /// When its scope is already gone.
     pub fn in_section(section: Section) -> Self {
         let scope = section.scope();
-        let bus = scope
+        let (bus, sink) = scope
             .tree_bus()
+            .zip(scope.tree_sink())
             .filter(|_| scope.is_alive())
             .unwrap_or_else(|| panic!("a home in {scope:?}, which was removed"));
 
         Self {
             section,
             bus: Rc::downgrade(&bus),
+            sink,
         }
     }
 
@@ -68,6 +71,11 @@ impl Home {
     /// The section what is made here belongs to.
     pub(crate) fn section(&self) -> Section {
         self.section
+    }
+
+    /// Where what is made here records what it does: its tree's trace.
+    pub(crate) fn sink(&self) -> &Sink {
+        &self.sink
     }
 }
 
@@ -370,6 +378,11 @@ impl<A: 'static> Addr<A> {
         self.0.home.bus.upgrade()
     }
 
+    /// Where what it does is recorded: its tree's trace.
+    pub(crate) fn sink(&self) -> &Sink {
+        self.0.home.sink()
+    }
+
     /// Whether the scope it lives in is asleep, or gone: what a bus carries
     /// is not for it.
     pub(crate) fn is_asleep(&self) -> bool {
@@ -398,6 +411,7 @@ impl<A: 'static> Addr<A> {
         }
         self.0.is_processing.set(true);
         let _turn = Turn(&self.0);
+        let _recording = trace::record_into(&self.0.home.sink);
 
         crate::notify::turn(|| {
             self.handled(|actor| envelope::deliver(actor, self, msg, cause));
@@ -408,7 +422,9 @@ impl<A: 'static> Addr<A> {
     fn handled(&self, handle: impl FnOnce(&mut A)) {
         handle(&mut self.0.state.borrow_mut());
 
-        crate::observability::observer::handled(self.0.home.scope(), self.0.id);
+        if self.0.home.sink.is_observed() {
+            crate::observability::observer::handled(self.0.home.scope(), self.0.id);
+        }
     }
 
     /// Handles what was queued while the actor was busy, until the queue is

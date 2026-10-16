@@ -46,17 +46,17 @@ fn a_lane_whose_work_panicked_takes_work_again() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _entered = runtime.enter();
 
+    let tree = ScopeTree::new();
     let ends = Rc::new(RefCell::new(Vec::new()));
-    let sink = ends.clone();
-    let _observing = trace::observe(move |trace| {
+    let noted = ends.clone();
+    let _observing = trace::sink_of(tree.scope()).expect("the tree is there").observe(move |trace| {
         if let Trace::Mark(record) = trace
             && ["settled", "cancelled"].contains(&record.point.kind())
         {
-            sink.borrow_mut().push(record.point.kind());
+            noted.borrow_mut().push(record.point.kind());
         }
     });
 
-    let tree = ScopeTree::new();
     let saved = Rc::new(RefCell::new(Vec::new()));
     let saver = Addr::new(Saver(saved.clone()), &Home::new(tree.scope()));
 

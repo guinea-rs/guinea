@@ -79,11 +79,6 @@ impl Scope {
         named.is_alive().then_some(named)
     }
 
-    /// Whether `other` is in this scope's tree.
-    pub(crate) fn shares_tree(&self, other: &Scope) -> bool {
-        self.tree == other.tree
-    }
-
     /// The scope at the top of this one's tree, while the tree is there.
     pub(crate) fn root(&self) -> Option<Scope> {
         self.read(|tree| self.named(tree.root))
@@ -233,5 +228,10 @@ impl Scope {
     /// this scope still is.
     pub(crate) fn tree_bus(&self) -> Option<Rc<EventBus>> {
         self.read(|tree| tree.bus.clone())
+    }
+
+    /// The trace sink of this scope's tree while the tree is there.
+    pub(crate) fn tree_sink(&self) -> Option<crate::trace::Sink> {
+        self.read(|tree| tree.trace.clone())
     }
 }

@@ -11,8 +11,9 @@
 //! wherever work crosses a queue or a thread: an actor's mailbox, a background
 //! task, a hop back onto the UI thread. [`Cause`] is `Copy + Send` for that.
 //!
-//! Records go to the observers on the thread that produced them (devtools),
-//! and to `tracing` as one event each: the target names the kind of point,
+//! Records go into the [`Sink`] of the tree they were made for, which its
+//! observers (devtools, a test) hear, and to `tracing` as one event each:
+//! the target names the kind of point,
 //! `guinea::send`, and the fields carry `id`, `parent` and what the point
 //! holds. `guinea::tick=off` silences one kind; `guinea::send=debug` writes
 //! that kind alone. [`json`] writes them, and the application's own events
@@ -25,8 +26,9 @@ mod sink;
 pub use json::{Json, json};
 pub use point::Point;
 pub use sink::{
-    ELSEWHERE_LIMIT, Elsewhere, Observing, is_observed, is_observed_anywhere, is_point_target,
-    is_recorded_anywhere, observe, ring_on_elsewhere, take_elsewhere, thread_id,
+    ELSEWHERE_LIMIT, Elsewhere, Observing, Recording, Sink, ThreadDefault, current_sink,
+    is_heard_here, is_observed, is_point_target, is_recorded, record_into, thread_default,
+    thread_id,
 };
 
 use std::cell::Cell;
@@ -131,7 +133,7 @@ pub fn mark(point: impl FnOnce() -> Point) -> Cause {
 /// thread and brought its cause along.
 pub fn mark_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Cause {
     let id = Cause::next();
-    if is_recorded_anywhere() {
+    if is_recorded() {
         observed(|| {
             sink::emit(Trace::Mark(Record {
                 id,
@@ -154,7 +156,7 @@ pub fn enter(point: impl FnOnce() -> Point) -> Entered {
 pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Entered {
     let id = Cause::next();
 
-    let begun = is_recorded_anywhere().then(|| {
+    let begun = is_recorded().then(|| {
         let begun = Begun {
             started: now(),
             // What observing had cost before this point opened. Whatever is
@@ -189,7 +191,7 @@ pub fn reserve() -> Cause {
 /// without making it current: it is current wherever it is [`resume`]d, and
 /// closes at [`end`].
 pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point) {
-    if is_recorded_anywhere() {
+    if is_recorded() {
         observed(|| {
             sink::emit(Trace::Begin(Record {
                 id,
@@ -203,7 +205,7 @@ pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point)
 
 /// Closes a point [`begin_as`] opened, saying what it took.
 pub fn end(id: Cause, took: Duration) {
-    if is_recorded_anywhere() {
+    if is_recorded() {
         observed(|| sink::emit(Trace::End { id, took }));
     }
 }
@@ -213,21 +215,30 @@ pub fn end(id: Cause, took: Duration) {
 pub fn resume(cause: Option<Cause>) -> Resumed {
     Resumed {
         previous: CURRENT.with(|current| current.replace(cause)),
+        _sink: None,
     }
 }
 
-/// Runs `future` with `cause` current on whichever thread polls it.
+/// Runs `future` with `cause` current on whichever thread polls it, recording
+/// into the sink current where it was made.
 ///
 /// A guard held across `.await` would stay on the thread the task started on;
-/// this sets the cause for each poll instead.
+/// this sets them for each poll instead.
 pub fn within<F: Future>(cause: Option<Cause>, future: F) -> Within<F> {
-    Within { cause, future }
+    Within {
+        carried: Carried {
+            cause,
+            sink: current_sink(),
+        },
+        future,
+    }
 }
 
 pin_project_lite::pin_project! {
-    /// A future with a cause current while it is polled; see [`within`].
+    /// A future with a cause and a sink current while it is polled; see
+    /// [`within`].
     pub struct Within<F> {
-        cause: Option<Cause>,
+        carried: Carried,
         #[pin]
         future: F,
     }
@@ -241,8 +252,53 @@ impl<F: Future> Future for Within<F> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<F::Output> {
         let this = self.project();
-        let _resumed = resume(*this.cause);
+        let _carried = this.carried.resume();
         this.future.poll(cx)
+    }
+}
+
+impl Sink {
+    /// Runs `future` recording into this sink, on whichever thread polls it:
+    /// for work started for a tree and run off its thread.
+    pub fn within<F: Future>(&self, future: F) -> Within<F> {
+        Within {
+            carried: Carried {
+                cause: None,
+                sink: Some(self.clone()),
+            },
+            future,
+        }
+    }
+}
+
+/// What is current here, taken along by work that crosses a queue or a
+/// thread: the point that causes what it does, and the sink it records into.
+#[derive(Clone, Debug, Default)]
+pub struct Carried {
+    cause: Option<Cause>,
+    sink: Option<Sink>,
+}
+
+/// What is current on this thread, to [`resume`](Carried::resume) where the
+/// work lands.
+pub fn carry() -> Carried {
+    Carried {
+        cause: current(),
+        sink: current_sink(),
+    }
+}
+
+impl Carried {
+    pub fn cause(&self) -> Option<Cause> {
+        self.cause
+    }
+
+    /// Makes what was carried current here until the guard drops.
+    pub fn resume(&self) -> Resumed {
+        Resumed {
+            previous: CURRENT.with(|current| current.replace(self.cause)),
+            _sink: Some(sink::recording(self.sink.clone())),
+        }
     }
 }
 
@@ -272,7 +328,7 @@ impl Drop for Entered {
         CURRENT.with(|current| current.set(self.previous));
 
         if let Some(begun) = self.begun
-            && is_recorded_anywhere()
+            && is_recorded()
         {
             // Everything observing cost while this point was open comes off
             // what the point is said to have taken. It stays on the running
@@ -289,6 +345,7 @@ impl Drop for Entered {
 #[must_use = "the cause stops being current when this is dropped"]
 pub struct Resumed {
     previous: Option<Cause>,
+    _sink: Option<Recording>,
 }
 
 impl Drop for Resumed {
@@ -303,11 +360,25 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    fn collect() -> (Rc<RefCell<Vec<Trace>>>, Observing) {
+    /// A sink of its own, observed and recorded into while this lives.
+    struct Observed {
+        _observing: Observing,
+        _recording: Recording,
+    }
+
+    fn observed_by(observer: impl Fn(&Trace) + 'static) -> Observed {
+        let sink = Sink::new();
+        Observed {
+            _observing: sink.observe(observer),
+            _recording: record_into(&sink),
+        }
+    }
+
+    fn collect() -> (Rc<RefCell<Vec<Trace>>>, Observed) {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        let observing = observe(move |trace| sink.borrow_mut().push(trace.clone()));
-        (seen, observing)
+        let noted = seen.clone();
+        let observed = observed_by(move |trace| noted.borrow_mut().push(trace.clone()));
+        (seen, observed)
     }
 
     /// Every trace, as its kind, its id and its parent, in the order it was
@@ -369,11 +440,11 @@ mod tests {
     #[test]
     fn what_a_point_took_leaves_out_what_watching_it_cost() {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        let observing = observe(move |trace| {
+        let noted = seen.clone();
+        let observing = observed_by(move |trace| {
             // An observer that takes its time, so the cost is unmistakable.
             std::thread::sleep(std::time::Duration::from_millis(2));
-            sink.borrow_mut().push(trace.clone());
+            noted.borrow_mut().push(trace.clone());
         });
 
         let action = enter(|| Point::Action { message: "Save" });
@@ -413,10 +484,10 @@ mod tests {
     #[test]
     fn what_a_point_took_leaves_out_recording_its_own_beginning() {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        let observing = observe(move |trace| {
+        let noted = seen.clone();
+        let observing = observed_by(move |trace| {
             std::thread::sleep(std::time::Duration::from_millis(10));
-            sink.borrow_mut().push(trace.clone());
+            noted.borrow_mut().push(trace.clone());
         });
 
         let action = enter(|| Point::Action { message: "Save" });
@@ -507,16 +578,18 @@ mod tests {
 
     #[test]
     fn a_record_made_elsewhere_rings_once_until_it_is_taken() {
+        let sink = Sink::new();
         let rung = std::sync::Arc::new(AtomicU64::new(0));
         let counted = rung.clone();
-        ring_on_elsewhere(Some(std::sync::Arc::new(move || {
+        sink.ring_on_elsewhere(Some(std::sync::Arc::new(move || {
             counted.fetch_add(1, Ordering::SeqCst);
         })));
-        let observing = observe(|_| {});
-        take_elsewhere();
+        let observing = sink.observe(|_| {});
 
         let elsewhere = || {
-            std::thread::spawn(|| {
+            let sink = sink.clone();
+            std::thread::spawn(move || {
+                let _recording = record_into(&sink);
                 mark(|| Point::Push { reducer: "Elsewhere" });
             })
             .join()
@@ -525,11 +598,10 @@ mod tests {
         elsewhere();
         elsewhere();
         let before_the_take = rung.load(Ordering::SeqCst);
-        take_elsewhere();
+        sink.take_elsewhere();
         elsewhere();
 
         drop(observing);
-        ring_on_elsewhere(None);
         assert_eq!((before_the_take, rung.load(Ordering::SeqCst)), (1, 2));
     }
 }

@@ -1,17 +1,19 @@
 //! What an action set off, as the trace tells it: the harness listens to every
-//! point on its thread and can say, for any one of them, whether everything it
-//! caused has finished, and what that was.
+//! point its application records and can say, for any one of them, whether
+//! everything it caused has finished, and what that was.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use guinea_core::__private::{EveryRender, record_every_render, short_type_name};
+use guinea_core::scope::Scope;
 use guinea_core::trace::{self, Cause, Point, Trace};
 
-/// Every point recorded on this thread while it is held.
+/// Every point recorded into an application's trace while it is held.
 pub(crate) struct Recorder {
     log: Rc<RefCell<Log>>,
+    sink: trace::Sink,
     _every_render: EveryRender,
     _hearing: trace::Observing,
 }
@@ -67,17 +69,25 @@ impl Log {
 }
 
 impl Recorder {
-    pub(crate) fn start() -> Self {
+    pub(crate) fn start(app: Scope) -> Self {
         let log = Rc::new(RefCell::new(Log::default()));
+        let sink = trace::sink_of(app).expect("the application being recorded is there");
 
         let hearing = log.clone();
-        let hearing = trace::observe(move |trace| hearing.borrow_mut().hear(trace));
+        let hearing = sink.observe(move |trace| hearing.borrow_mut().hear(trace));
 
         Self {
             log,
+            sink,
             _every_render: record_every_render(),
             _hearing: hearing,
         }
+    }
+
+    /// Where what the application does goes, for an action the harness
+    /// makes outside any of its actors.
+    pub(crate) fn sink(&self) -> &trace::Sink {
+        &self.sink
     }
 
     pub(crate) fn heard(&self) -> usize {

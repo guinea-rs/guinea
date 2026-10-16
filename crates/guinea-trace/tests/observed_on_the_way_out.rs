@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::panic::catch_unwind;
 use std::sync::Mutex;
 
-use guinea_trace::{is_observed, observe};
+use guinea_trace::{Sink, is_observed, record_into};
 
 static ASKED: Mutex<Option<Result<bool, String>>> = Mutex::new(None);
 
@@ -33,7 +33,9 @@ thread_local! {
 fn a_local_that_outlives_the_observer_still_asks_whether_it_is_observed() {
     std::thread::spawn(|| {
         OUTLIVES_THE_OBSERVER.with(|local| *local.borrow_mut() = Some(AsksOnTheWayOut));
-        std::mem::forget(observe(|_| {}));
+        let sink = Sink::new();
+        std::mem::forget(sink.observe(|_| {}));
+        std::mem::forget(record_into(&sink));
     })
     .join()
     .unwrap();

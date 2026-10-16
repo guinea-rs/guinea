@@ -73,7 +73,7 @@ pub struct Rendering {
 
 impl Rendering {
     pub fn of(segment: &'static str) -> Option<Rendering> {
-        trace::is_observed_anywhere().then(|| Rendering {
+        trace::is_observed().then(|| Rendering {
             segment,
             started: std::time::Instant::now(),
         })
@@ -94,17 +94,18 @@ impl Drop for Rendering {
 
 /// Marks `point` under what is running now, from any thread.
 ///
-/// On the thread devtools watch, it is marked at once. Anywhere else it is
+/// Where its tree is watched from, it is marked at once. Anywhere else it is
 /// marked there when the UI thread next runs, under the cause that was current
 /// here, so a write from background work still leads back to what started it.
 pub fn mark_anywhere(point: impl FnOnce() -> Point + Send + 'static) {
-    if trace::is_observed() || !trace::is_observed_anywhere() {
+    if trace::is_heard_here() || !trace::is_observed() {
         trace::mark(point);
         return;
     }
-    let cause = trace::current();
+    let carried = trace::carry();
     let marked = try_invoke_on_ui(move || {
-        trace::mark_under(cause, point);
+        let _carried = carried.resume();
+        trace::mark(point);
     });
     if let Err(unsent) = marked {
         unsent();
@@ -118,11 +119,15 @@ pub(crate) fn begin_anywhere(
     parent: Option<trace::Cause>,
     point: impl FnOnce() -> Point + Send + 'static,
 ) {
-    if trace::is_observed() || !trace::is_observed_anywhere() {
+    if trace::is_heard_here() || !trace::is_observed() {
         trace::begin_as(id, parent, point);
         return;
     }
-    let begun = try_invoke_on_ui(move || trace::begin_as(id, parent, point));
+    let carried = trace::carry();
+    let begun = try_invoke_on_ui(move || {
+        let _carried = carried.resume();
+        trace::begin_as(id, parent, point);
+    });
     if let Err(unsent) = begun {
         unsent();
     }
@@ -130,11 +135,15 @@ pub(crate) fn begin_anywhere(
 
 /// Closes, from any thread, what [`begin_anywhere`] opened.
 pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
-    if trace::is_observed() || !trace::is_observed_anywhere() {
+    if trace::is_heard_here() || !trace::is_observed() {
         trace::end(id, took);
         return;
     }
-    let ended = try_invoke_on_ui(move || trace::end(id, took));
+    let carried = trace::carry();
+    let ended = try_invoke_on_ui(move || {
+        let _carried = carried.resume();
+        trace::end(id, took);
+    });
     if let Err(unsent) = ended {
         unsent();
     }
@@ -174,16 +183,19 @@ mod tests {
         use super::*;
 
         let ui = crate::ui_thread::UiLoop::install();
+        let sink = trace::Sink::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        let observing = trace::observe(move |record| {
+        let noted = seen.clone();
+        let observing = sink.observe(move |record| {
             if let trace::Trace::Mark(record) = record {
-                sink.borrow_mut().push((record.parent, record.point.kind()));
+                noted.borrow_mut().push((record.parent, record.point.kind()));
             }
         });
+        let _recording = trace::record_into(&sink);
 
         let action = trace::mark(|| Point::Action { message: "Save" });
         std::thread::spawn(move || {
+            let _recording = trace::record_into(&sink);
             let _resumed = trace::resume(Some(action));
             mark_anywhere(|| Point::Plugin {
                 kind: "written",

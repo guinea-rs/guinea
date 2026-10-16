@@ -31,7 +31,7 @@ use crate::actor::{Cancel, Receives};
 use crate::observability::observer::{self, Event};
 use crate::scope::{Awake, Scope, ScopeId, Section, next_key};
 use crate::short_type_name;
-use crate::trace::{self, Cause, Point};
+use crate::trace::{self, Cause, Point, Sink};
 use crate::ui_thread::invoke_on_ui;
 
 /// How long between ticks: a [`Duration`], or what a changing value says.
@@ -283,6 +283,8 @@ pub struct SourceInfo {
 struct Entry {
     info: SourceInfo,
     scope: Scope,
+    /// Where what arrives is recorded: the trace of the scope's tree.
+    sink: Sink,
     cancel: Cancel,
     /// An `Rc<dyn Fn(T)>`, for the `T` the source pours.
     receive: Box<dyn Any>,
@@ -395,6 +397,7 @@ where
 
     let scope = section.scope();
     let key = next_key();
+    let sink = scope.tree_sink().unwrap_or_default();
 
     let entry = Rc::new(RefCell::new(Entry {
         info: SourceInfo {
@@ -407,6 +410,7 @@ where
             output,
         },
         scope,
+        sink: sink.clone(),
         cancel: cancel.clone(),
         receive: Box::new(receive),
         held: None,
@@ -425,6 +429,7 @@ where
         output,
         started: Instant::now(),
     };
+    let _recording = trace::record_into(&sink);
     let opened = trace::mark(|| Point::Source {
         source: feed.source,
         to,
@@ -434,14 +439,14 @@ where
     });
 
     let awake = scope.awake();
-    crate::executor::spawn(async move {
+    crate::executor::spawn(sink.within(async move {
         let pouring = trace::within(None, pour(scope, key, source, into, awake, feed.clone()));
         let ran_dry = cancel.guard(pouring).await.is_some();
         let gone = !ran_dry || cancel.is_cancelled();
 
         feed.closed(opened, gone);
         invoke_on_ui(move || close::<T>(scope, key, Closing { gone, closed }));
-    });
+    }));
 
     handle
 }
@@ -610,7 +615,7 @@ fn release<T: Send + 'static>(scope: Scope, key: usize) {
 }
 
 fn deliver<T: 'static>(entry: &Rc<RefCell<Entry>>, item: T) {
-    let (receive, arrived) = {
+    let (receive, arrived, recording) = {
         let entry = entry.borrow();
         let receive = entry
             .receive
@@ -624,9 +629,10 @@ fn deliver<T: 'static>(entry: &Rc<RefCell<Entry>>, item: T) {
             to: info.to,
             output: info.output,
         };
-        (receive, arrived)
+        (receive, arrived, trace::record_into(&entry.sink))
     };
 
+    let _recording = recording;
     let _root = trace::resume(None);
     let _arrived = trace::enter(move || arrived);
     receive(item);

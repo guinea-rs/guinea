@@ -119,13 +119,13 @@ pub struct Describer(pub fn(Scope, &mut Vec<Event>));
 
 inventory::collect!(Describer);
 
-/// A tool already watches this thread.
+/// A tool already watches this tree, or the tree is gone.
 #[derive(Debug)]
 pub struct AlreadyWatched;
 
 impl std::fmt::Display for AlreadyWatched {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("something already watches the application on this thread - one tool at a time")
+        f.write_str("something already watches this application's tree - one tool at a time")
     }
 }
 
@@ -134,11 +134,11 @@ impl std::error::Error for AlreadyWatched {}
 /// The watch [`watch`] started; dropping it ends the watch.
 pub struct Watching {
     observer: Rc<Observer>,
+    sink: trace::Sink,
     _traced: trace::Observing,
 }
 
-struct Observer {
-    root: Scope,
+pub(crate) struct Observer {
     bus: Weak<EventBus>,
     /// This thread, as the trace names it.
     thread: u32,
@@ -173,15 +173,9 @@ impl Bell {
     }
 }
 
-static WATCHED: AtomicBool = AtomicBool::new(false);
-
-thread_local! {
-    static OBSERVER: RefCell<Option<Rc<Observer>>> = const { RefCell::new(None) };
-}
-
 /// Watches the tree `scope` is in: the first [`Watching::take`] hands over
 /// the tree as it is, each one after it what moved since. One tool watches
-/// the process at a time.
+/// a tree at a time.
 ///
 /// `woken` is called once whenever something moves and nothing has been
 /// taken since the last call - from the thread it moved on, in the middle
@@ -192,7 +186,8 @@ pub fn watch(
     woken: impl Fn() + Send + Sync + 'static,
 ) -> Result<Watching, AlreadyWatched> {
     let root = scope.root().filter(|root| root.is_alive()).ok_or(AlreadyWatched)?;
-    if WATCHED.swap(true, Ordering::AcqRel) {
+    let (bus, sink) = root.tree_bus().zip(root.tree_sink()).ok_or(AlreadyWatched)?;
+    if bus.watcher.borrow().is_some() {
         return Err(AlreadyWatched);
     }
 
@@ -201,8 +196,7 @@ pub fn watch(
         ring: Box::new(woken),
     });
     let observer = Rc::new(Observer {
-        root,
-        bus: Rc::downgrade(&root.bus()),
+        bus: Rc::downgrade(&bus),
         thread: trace::thread_id(),
         bell: bell.clone(),
         buffer: RefCell::new(Buffer {
@@ -211,18 +205,19 @@ pub fn watch(
         }),
     });
 
-    OBSERVER.with(|slot| slot.replace(Some(observer.clone())));
+    bus.watcher.replace(Some(observer.clone()));
     let traced = Rc::downgrade(&observer);
-    let traced = trace::observe(move |record| {
+    let traced = sink.observe(move |record| {
         if let Some(observer) = traced.upgrade() {
             observer.traced(record);
         }
     });
-    trace::ring_on_elsewhere(Some(Arc::new(move || bell.ring())));
+    sink.ring_on_elsewhere(Some(Arc::new(move || bell.ring())));
     observer.bell.ring();
 
     Ok(Watching {
         observer,
+        sink,
         _traced: traced,
     })
 }
@@ -247,7 +242,7 @@ impl Watching {
         let mut dropped = std::mem::take(&mut buffer.dropped);
         drop(buffer);
 
-        let elsewhere = trace::take_elsewhere();
+        let elsewhere = self.sink.take_elsewhere();
         trace.extend(elsewhere.records);
         dropped += elsewhere.dropped;
 
@@ -261,9 +256,14 @@ impl Watching {
 
 impl Drop for Watching {
     fn drop(&mut self) {
-        trace::ring_on_elsewhere(None);
-        let _ = OBSERVER.try_with(|slot| slot.take());
-        WATCHED.store(false, Ordering::Release);
+        self.sink.ring_on_elsewhere(None);
+
+        if let Some(bus) = self.observer.bus.upgrade() {
+            let mut watcher = bus.watcher.borrow_mut();
+            if watcher.as_ref().is_some_and(|watcher| Rc::ptr_eq(watcher, &self.observer)) {
+                *watcher = None;
+            }
+        }
     }
 }
 
@@ -340,15 +340,7 @@ fn replay(root: Scope) -> Vec<Event> {
 }
 
 fn watching(scope: Scope) -> Option<Rc<Observer>> {
-    OBSERVER
-        .try_with(|slot| {
-            slot.borrow()
-                .as_ref()
-                .filter(|observer| observer.root.shares_tree(&scope))
-                .cloned()
-        })
-        .ok()
-        .flatten()
+    scope.tree_bus().and_then(|bus| bus.watcher.borrow().clone())
 }
 
 /// Tells the tool watching `scope`'s tree, if one does; `event` is not built
@@ -361,15 +353,7 @@ pub fn tell(scope: Scope, event: impl FnOnce() -> Event) {
 
 /// Tells the tool watching the tree whose bus is `bus`, if one does.
 pub(crate) fn tell_bus(bus: &EventBus, event: impl FnOnce() -> Event) {
-    let observer = OBSERVER
-        .try_with(|slot| {
-            slot.borrow()
-                .as_ref()
-                .filter(|observer| std::ptr::eq(observer.bus.as_ptr(), bus))
-                .cloned()
-        })
-        .ok()
-        .flatten();
+    let observer = bus.watcher.borrow().clone();
 
     if let Some(observer) = observer {
         observer.note(event());

@@ -148,6 +148,7 @@ impl Dispatch {
 
         match section.answerer::<M>() {
             Some(answer) => {
+                let _recording = scope.tree_sink().map(|sink| crate::trace::record_into(&sink));
                 let _action = crate::trace::enter(|| crate::trace::Point::Action {
                     message: crate::short_type_name::<M>(),
                 });

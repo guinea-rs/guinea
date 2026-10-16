@@ -80,9 +80,10 @@ struct Heard {
 fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
     set_ui_dispatcher(Nowhere);
 
+    let tree = ScopeTree::new();
     let heard = Rc::new(RefCell::new(Vec::<Heard>::new()));
     let hearing = heard.clone();
-    let observing = trace::observe(move |record| {
+    let observing = trace::sink_of(tree.scope()).expect("the tree is there").observe(move |record| {
         if let Trace::Begin(record) | Trace::Mark(record) = record {
             hearing.borrow_mut().push(Heard {
                 id: record.id,
@@ -97,7 +98,6 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        let tree = ScopeTree::new();
         let addr = Addr::new(Maker, &Home::new(tree.scope()));
         addr.send(Open(Making { left: 2 }));
 

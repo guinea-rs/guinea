@@ -455,8 +455,6 @@ mod exports {
 }
 
 mod observed {
-    use std::sync::{Mutex, MutexGuard, PoisonError};
-
     use guinea_core::actor::In;
     use guinea_core::actor::shape::name;
     use guinea_core::observability::{Event, Watching};
@@ -538,19 +536,14 @@ mod observed {
         this.0 += by;
     }
 
-    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-    /// An application and the tool watching it. One tool watches the
-    /// process, so the tests that watch take turns.
+    /// An application and the tool watching it.
     struct Watched {
         watching: Watching,
         observed: Observed,
         runtime: AppRuntime,
-        _turn: MutexGuard<'static, ()>,
     }
 
     fn watched(backend: &'static str, app: fn(&mut FeatureBuilder) -> anyhow::Result<()>) -> Watched {
-        let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
         let (runtime, observed) = start(backend, |builder| {
             app(builder)?;
             let Watches(observed) = builder.plugin::<Watches>(())?;
@@ -563,7 +556,6 @@ mod observed {
             watching,
             observed,
             runtime,
-            _turn: turn,
         }
     }
 
@@ -661,7 +653,6 @@ mod observed {
 
     #[test]
     fn a_tool_that_starts_watching_is_told_the_roots_open_and_their_names() {
-        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
         let (runtime, observed) = start("test", |app| {
             let Watches(observed) = app.plugin::<Watches>(())?;
             Ok(observed)
@@ -709,10 +700,44 @@ mod observed {
 }
 
 mod renders {
-    use guinea_core::observability::Rendering;
-    use guinea_core::trace::Point;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
-    use crate::app::Harness;
+    use guinea_core::observability::Rendering;
+    use guinea_core::trace::{self, Point, Trace};
+
+    use crate::app::{Harness, TestApp};
+
+    #[test]
+    fn what_a_thread_records_outside_any_actor_goes_to_the_application_it_runs() {
+        let app = TestApp::new();
+        let other = TestApp::new();
+        let heard = |app: &TestApp| {
+            let seen = Rc::new(RefCell::new(Vec::new()));
+            let noted = seen.clone();
+            let observing = trace::sink_of(app.scope).expect("the application is there").observe(
+                move |trace| {
+                    if let Trace::Mark(record) = trace {
+                        noted.borrow_mut().push(record.id);
+                    }
+                },
+            );
+            (seen, observing)
+        };
+        let (app_seen, _app) = heard(&app);
+        let (other_seen, _other) = heard(&other);
+
+        let marked = trace::mark(|| Point::Plugin {
+            kind: "outside",
+            fields: Vec::new(),
+        });
+
+        assert_eq!(
+            (app_seen.borrow().clone(), other_seen.borrow().clone()),
+            (vec![], vec![marked]),
+            "the newest application on the thread takes what nothing nearer claims"
+        );
+    }
 
     #[test]
     fn a_harness_hears_every_render_however_quick() {

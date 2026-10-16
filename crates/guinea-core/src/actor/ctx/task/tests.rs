@@ -69,12 +69,12 @@ impl Bench {
         let addr = Addr::new(Searcher { found: found.clone() }, &home);
 
         let ends = Rc::new(RefCell::new(Vec::new()));
-        let sink = ends.clone();
-        let observing = trace::observe(move |trace| {
+        let noted = ends.clone();
+        let observing = home.sink().observe(move |trace| {
             if let Trace::Mark(record) = trace
                 && ENDS.contains(&record.point.kind())
             {
-                sink.borrow_mut().push(record.point.kind());
+                noted.borrow_mut().push(record.point.kind());
             }
         });
 
@@ -252,10 +252,10 @@ fn a_push_from_a_task_is_caused_by_the_task_settling() {
     let scope = bench.home.tree.scope();
 
     let marks = Rc::new(RefCell::new(Vec::new()));
-    let sink = marks.clone();
-    let observing = trace::observe(move |trace| {
+    let noted = marks.clone();
+    let observing = bench.home.sink().observe(move |trace| {
         if let Trace::Mark(record) = trace {
-            sink.borrow_mut().push((record.point.kind(), record.id, record.parent));
+            noted.borrow_mut().push((record.point.kind(), record.id, record.parent));
         }
     });
 

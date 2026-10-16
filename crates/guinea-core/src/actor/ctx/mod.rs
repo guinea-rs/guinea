@@ -118,12 +118,13 @@ mod tests {
 
         let home = TestHome::new();
         let seen = Rc::new(RefCell::new(Vec::<Record>::new()));
-        let sink = seen.clone();
-        let observing = trace::observe(move |trace| {
+        let noted = seen.clone();
+        let observing = home.sink().observe(move |trace| {
             if let Trace::Begin(record) | Trace::Mark(record) = trace {
-                sink.borrow_mut().push(record.clone());
+                noted.borrow_mut().push(record.clone());
             }
         });
+        let _recording = trace::record_into(home.sink());
 
         let addr = Addr::new(
             Chain {

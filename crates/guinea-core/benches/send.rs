@@ -80,7 +80,7 @@ fn send(c: &mut Criterion) {
     every_size!(burst, &mut group, &addr);
     group.finish();
 
-    let observing = trace::observe(|_| {});
+    let observing = trace::sink_of(tree.scope()).expect("the tree is there").observe(|_| {});
     let mut group = c.benchmark_group("observed");
     every_size!(one, &mut group, &addr);
     group.finish();

@@ -11,6 +11,7 @@ use super::lifetime::Lifetime;
 use super::services::Services;
 use super::state::States;
 use crate::actor::event_bus::EventBus;
+use crate::trace::Sink;
 
 new_key_type! {
     /// Where a scope sits in its tree. A removed scope's key finds nothing,
@@ -45,14 +46,16 @@ pub(super) struct ScopeData {
     pub(super) held: Held,
 }
 
-/// Every scope in one [`ScopeTree`], which sits under which, and the bus they
-/// share.
+/// Every scope in one [`ScopeTree`], which sits under which, and the bus and
+/// the trace they share.
 pub(super) struct Tree {
     pub(super) nodes: SlotMap<NodeKey, Node>,
     /// The scope every other one sits under: the application's, where there
     /// is one.
     pub(super) root: NodeKey,
     pub(super) bus: Rc<EventBus>,
+    /// Where what happens in the tree is recorded, for whoever observes it.
+    pub(super) trace: Sink,
 }
 
 impl Node {
@@ -103,6 +106,7 @@ impl Tree {
             nodes,
             root,
             bus: Rc::new(EventBus::new()),
+            trace: Sink::new(),
         };
         (tree, root)
     }

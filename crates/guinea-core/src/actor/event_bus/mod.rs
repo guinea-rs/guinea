@@ -93,6 +93,8 @@ pub struct EventBus {
     /// The one subscriber that answers each request type, by its `seq`.
     answerers: RefCell<HashMap<TypeId, (u64, &'static str)>>,
     next_id: Cell<u64>,
+    /// The tool watching the tree this is the bus of, if one does.
+    pub(crate) watcher: RefCell<Option<Rc<observer::Observer>>>,
 }
 
 /// Whether a request published now would be answered.
@@ -130,6 +132,7 @@ impl EventBus {
             counts: RefCell::new(HashMap::new()),
             answerers: RefCell::new(HashMap::new()),
             next_id: Cell::new(0),
+            watcher: RefCell::new(None),
         }
     }
 
@@ -489,9 +492,9 @@ impl Scope {
     /// thread this runs on: on the UI thread, where the bus lives, with its
     /// cause, and not at all once the tree is gone.
     pub fn publish<M: Event>(self, msg: M) {
-        let cause = trace::current();
+        let carried = trace::carry();
         invoke_on_ui(move || {
-            let _resumed = trace::resume(cause);
+            let _carried = carried.resume();
             if let Some(bus) = self.tree_bus() {
                 bus.publish(msg);
             }

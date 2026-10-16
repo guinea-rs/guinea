@@ -1,5 +1,5 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::*;
 use crate::actor::event_bus::HeardBy;
@@ -40,33 +40,8 @@ struct Ping;
 
 impl crate::actor::event_bus::Event for Ping {}
 
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-/// One tool watches the process, so the tests that watch take turns.
-fn turn() -> MutexGuard<'static, ()> {
-    ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-struct Watched {
-    watching: Watching,
-    _turn: MutexGuard<'static, ()>,
-}
-
-impl std::ops::Deref for Watched {
-    type Target = Watching;
-
-    fn deref(&self) -> &Watching {
-        &self.watching
-    }
-}
-
-fn watching(scope: Scope) -> Watched {
-    let turn = turn();
-    let watching = watch(scope, || {}).expect("nothing else watches");
-    Watched {
-        watching,
-        _turn: turn,
-    }
+fn watching(scope: Scope) -> Watching {
+    watch(scope, || {}).expect("nothing else watches")
 }
 
 fn counted() -> &'static str {
@@ -317,22 +292,42 @@ fn another_tree_on_the_thread_is_not_told() {
 }
 
 #[test]
-fn one_tool_watches_at_a_time() {
-    let _turn = turn();
+fn one_tool_watches_a_tree_at_a_time_and_another_tree_apart() {
     let tree = ScopeTree::new();
     let other = ScopeTree::new();
 
     let first = watch(tree.scope(), || {}).expect("nothing else watches");
-    let refused = watch(other.scope(), || {}).is_err();
+    let refused = watch(tree.child(), || {}).is_err();
+    let apart = watch(other.scope(), || {}).is_ok();
     drop(first);
-    let again = watch(other.scope(), || {}).is_ok();
+    let again = watch(tree.scope(), || {}).is_ok();
 
-    assert_eq!((refused, again), (true, true));
+    assert_eq!((refused, apart, again), (true, true, true));
+}
+
+#[test]
+fn what_an_actor_does_is_heard_by_the_tool_watching_its_tree_alone() {
+    let tree = ScopeTree::new();
+    let other = ScopeTree::new();
+    let watched = watching(tree.scope());
+    watched.take();
+
+    let here = Addr::new(Ticker(0), &Home::new(tree.scope()));
+    let there = Addr::new(Ticker(0), &Home::new(other.scope()));
+    there.send(Tick);
+    here.send(Tick);
+
+    let handled = watched
+        .take()
+        .trace
+        .iter()
+        .filter(|(_, record)| matches!(record, Trace::Begin(record) if matches!(record.point, Point::Handle { .. })))
+        .count();
+    assert_eq!(handled, 1);
 }
 
 #[test]
 fn a_tool_is_woken_once_when_something_moves_after_it_took() {
-    let _turn = turn();
     let tree = ScopeTree::new();
     let woken = Arc::new(AtomicUsize::new(0));
     let counting = woken.clone();
@@ -354,12 +349,16 @@ fn what_is_traced_here_and_on_other_threads_comes_in_the_batch() {
     let tree = ScopeTree::new();
     let watched = watching(tree.scope());
     watched.take();
+    let sink = trace::sink_of(tree.scope()).expect("the tree is there");
+    let _recording = trace::record_into(&sink);
 
     let here = trace::mark(|| Point::Push { reducer: "Here" });
-    let (there_thread, there) =
-        std::thread::spawn(|| (trace::thread_id(), trace::mark(|| Point::Push { reducer: "There" })))
-            .join()
-            .expect("marking thread");
+    let (there_thread, there) = std::thread::spawn(move || {
+        let _recording = trace::record_into(&sink);
+        (trace::thread_id(), trace::mark(|| Point::Push { reducer: "There" }))
+    })
+    .join()
+    .expect("marking thread");
 
     let batch = watched.take();
     let made_on = |cause| {
@@ -376,12 +375,11 @@ fn what_is_traced_here_and_on_other_threads_comes_in_the_batch() {
 
 #[test]
 fn a_watch_that_ended_hears_nothing_and_lets_another_start() {
-    let _turn = turn();
     let tree = ScopeTree::new();
     let watching = watch(tree.scope(), || {}).expect("nothing else watches");
     drop(watching);
 
-    let observed = trace::is_observed();
+    let observed = trace::sink_of(tree.scope()).is_some_and(|sink| sink.is_observed());
     let again = watch(tree.scope(), || {}).map(|watching| watching.take().events.len());
 
     assert_eq!((observed, again.ok()), (false, Some(1)));

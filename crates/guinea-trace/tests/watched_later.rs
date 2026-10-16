@@ -1,18 +1,17 @@
-//! Alone in its binary: a thread observing anywhere in the process makes
-//! every thread record, and this needs nobody to be watching at first.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_trace::{Cause, Point, Trace, enter, mark, observe};
+use guinea_trace::{Cause, Point, Sink, Trace, enter, mark, record_into};
 
 #[test]
 fn a_point_opened_while_nobody_watched_does_not_end_for_whoever_watches_later() {
+    let sink = Sink::new();
+    let _recording = record_into(&sink);
     let action = enter(|| Point::Action { message: "Save" });
 
     let seen = Rc::new(RefCell::new(Vec::new()));
-    let sink = seen.clone();
-    let observing = observe(move |trace| sink.borrow_mut().push(trace.clone()));
+    let noted = seen.clone();
+    let observing = sink.observe(move |trace| noted.borrow_mut().push(trace.clone()));
 
     let pushed = mark(|| Point::Push { reducer: "Metrics" });
     let action_id = action.id();

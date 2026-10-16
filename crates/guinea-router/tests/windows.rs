@@ -2,8 +2,6 @@
 //! mounted in each, under what, where it was written, and where its
 //! navigators are.
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
-
 use guinea_app::feature::FeatureHost;
 use guinea_core::actor::shape::Declared;
 use guinea_core::__private::observer;
@@ -29,24 +27,15 @@ fn mount<S: 'static>(parent: Scope) -> Scope {
     mounted.expect("mounted")
 }
 
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-/// The window and the tool watching its tree. One tool watches the process,
-/// so the tests that watch take turns.
+/// The window and the tool watching its tree.
 struct Watched {
     watching: Watching,
     host: FeatureHost,
-    _turn: MutexGuard<'static, ()>,
 }
 
 fn watched(host: FeatureHost) -> Watched {
-    let turn = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
     let watching = observer::watch(host.scope(), || {}).expect("nothing else watches");
-    Watched {
-        watching,
-        host,
-        _turn: turn,
-    }
+    Watched { watching, host }
 }
 
 fn mounted(events: &[Event]) -> Vec<(&'static str, Option<u32>)> {

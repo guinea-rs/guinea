@@ -99,8 +99,8 @@ impl Harness {
         Self {
             segment,
             _window: window,
+            recorder: Recorder::start(app.scope),
             app,
-            recorder: Recorder::start(),
             executor,
         }
     }
@@ -165,6 +165,7 @@ impl Harness {
         let from = self.recorder.heard();
 
         {
+            let _recording = trace::record_into(self.recorder.sink());
             let _action = trace::enter(|| Point::Action { message: name });
             done();
         }

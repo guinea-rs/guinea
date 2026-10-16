@@ -152,6 +152,7 @@ pub fn emit_json<M: DeserializeOwned + 'static>(
         Err(error) => return Some(Err(format!("{}: {error}", short_type_name::<M>()))),
     };
 
+    let _recording = scope.tree_sink().map(|sink| trace::record_into(&sink));
     let entered = trace::enter(|| Point::Action {
         message: short_type_name::<M>(),
     });
@@ -167,6 +168,7 @@ pub fn publish_json<M: Event + DeserializeOwned>(scope: Scope, json: &str) -> Re
     let event: M = serde_json::from_str(json)
         .map_err(|error| format!("{}: {error}", short_type_name::<M>()))?;
 
+    let _recording = scope.tree_sink().map(|sink| trace::record_into(&sink));
     let entered = trace::enter(|| Point::Action {
         message: short_type_name::<M>(),
     });

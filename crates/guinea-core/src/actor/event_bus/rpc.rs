@@ -306,9 +306,9 @@ impl Scope {
             },
         };
 
-        let cause = trace::current();
+        let carried = trace::carry();
         invoke_on_ui(move || {
-            let _resumed = trace::resume(cause);
+            let _carried = carried.resume();
 
             let unanswered = match self.tree_bus() {
                 None => "the tree it was asked in is gone".to_string(),

@@ -84,7 +84,7 @@ where
         cx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let meta = attrs.metadata();
-        if !self.wants(meta) || !trace::is_recorded_anywhere() {
+        if !self.wants(meta) || !trace::is_recorded() {
             return;
         }
         let Some(span) = cx.span(id) else {
@@ -165,7 +165,7 @@ where
 
     fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
         let meta = event.metadata();
-        if !self.wants(meta) || !trace::is_observed_anywhere() || LOGGING.get() {
+        if !self.wants(meta) || !trace::is_observed() || LOGGING.get() {
             return;
         }
 
@@ -230,13 +230,28 @@ mod tests {
 
     use super::*;
 
+    /// A sink of its own, heard by `observer` and recorded into while this
+    /// lives.
+    struct Observed {
+        _observing: trace::Observing,
+        _recording: trace::Recording,
+    }
+
+    fn observe(observer: impl Fn(&trace::Trace) + 'static) -> Observed {
+        let sink = trace::Sink::new();
+        Observed {
+            _observing: sink.observe(observer),
+            _recording: trace::record_into(&sink),
+        }
+    }
+
     #[test]
     fn an_ordinary_event_is_traced_under_what_caused_it() {
         use tracing_subscriber::layer::SubscriberExt;
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        let observing = trace::observe(move |record| {
+        let observing = observe(move |record| {
             if let trace::Trace::Mark(record) = record
                 && let Point::Log { text, .. } = &record.point
             {
@@ -265,7 +280,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        let observing = trace::observe(move |record| {
+        let observing = observe(move |record| {
             if let trace::Trace::Mark(record) = record
                 && let Point::Log {
                     file, line, module, ..
@@ -291,7 +306,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        let observing = trace::observe(move |trace| sink.borrow_mut().push(trace.clone()));
+        let observing = observe(move |trace| sink.borrow_mut().push(trace.clone()));
 
         let subscriber = tracing_subscriber::registry().with(layer());
         let action = trace::mark(|| Point::Action { message: "Refresh" });
@@ -348,7 +363,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        let observing = trace::observe(move |trace| {
+        let observing = observe(move |trace| {
             if let trace::Trace::Begin(record) = trace
                 && let Point::Span { name, level, .. } = &record.point
             {
@@ -375,7 +390,7 @@ mod tests {
 
         let took = Rc::new(RefCell::new(Vec::new()));
         let sink = took.clone();
-        let observing = trace::observe(move |trace| {
+        let observing = observe(move |trace| {
             if let trace::Trace::End { took, .. } = trace {
                 sink.borrow_mut().push(*took);
             }
@@ -405,7 +420,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(0));
         let sink = seen.clone();
-        let observing = trace::observe(move |_| *sink.borrow_mut() += 1);
+        let observing = observe(move |_| *sink.borrow_mut() += 1);
 
         let subscriber = tracing_subscriber::registry().with(layer());
         tracing::subscriber::with_default(subscriber, || {

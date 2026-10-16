@@ -1,6 +1,3 @@
-//! Alone in its binary: an observer anywhere in the process would make every
-//! point recorded regardless of the filter.
-
 use std::sync::{Arc, Mutex};
 
 use guinea_trace::{Point, mark};

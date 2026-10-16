@@ -1,6 +1,4 @@
-use guinea_trace::{
-    Cause, Point, Trace, enter, mark, observe, resume, take_elsewhere, thread_id,
-};
+use guinea_trace::{Cause, Point, Sink, Trace, enter, mark, record_into, resume, thread_id};
 
 /// Every record taken from the other threads, as the thread, its kind, its
 /// id and its parent: compared whole, so a record the test did not make
@@ -18,12 +16,16 @@ fn order(records: &[(u32, Trace)]) -> Vec<(u32, &'static str, Cause, Option<Caus
 
 #[test]
 fn a_cause_carried_to_another_thread_is_the_parent_of_what_is_recorded_there() {
-    let observing = observe(|_| {});
+    let sink = Sink::new();
+    let observing = sink.observe(|_| {});
+    let _recording = record_into(&sink);
 
     let action = enter(|| Point::Action { message: "Kill" });
     let cause = action.id();
 
+    let worker_sink = sink.clone();
     let (worker, bare, resumed) = std::thread::spawn(move || {
+        let _recording = record_into(&worker_sink);
         let bare = mark(|| Point::Push { reducer: "Metrics" });
         let resumed = {
             let _resumed = resume(Some(cause));
@@ -35,7 +37,7 @@ fn a_cause_carried_to_another_thread_is_the_parent_of_what_is_recorded_there() {
     .unwrap();
 
     drop(action);
-    let elsewhere = take_elsewhere();
+    let elsewhere = sink.take_elsewhere();
     drop(observing);
 
     assert_eq!(

@@ -6,7 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use guinea::app::Harness;
-use guinea::core::notify;
+use guinea_core::notify;
 use guinea::prelude::*;
 
 #[derive(Debug, PartialEq)]

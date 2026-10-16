@@ -6,7 +6,7 @@
 use std::cell::Cell;
 
 use guinea::app::Harness;
-use guinea::core::actor::event_bus::Event;
+use guinea::actor::event_bus::Event;
 use guinea::prelude::*;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page};

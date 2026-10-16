@@ -4,9 +4,9 @@
 
 use std::time::Duration;
 
-use guinea::core::__private::tokio;
-use guinea::core::scope::ScopeTree;
-use guinea::core::ui_thread::UiLoop;
+use guinea_core::__private::tokio;
+use guinea_core::scope::ScopeTree;
+use guinea_core::ui_thread::UiLoop;
 
 #[derive(Clone, Debug, guinea::Request)]
 #[request(reply = Sum)]

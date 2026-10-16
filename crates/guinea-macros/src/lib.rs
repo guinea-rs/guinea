@@ -587,7 +587,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// #[handler]
 /// fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
 ///     cx.task().spawn(async {
-///         guinea::core::executor::random_delay().await;
+///         guinea::executor::random_delay().await;
 ///         Counted(7)
 ///     });
 /// }
@@ -626,7 +626,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// // gone, and sends back to it while it is not.
 /// #[handler]
 /// async fn load(cx: AsyncContext<Loader>, Load(n): Load) {
-///     guinea::core::executor::random_delay().await;
+///     guinea::executor::random_delay().await;
 ///     cx.send(Loaded(n * 2));
 /// }
 ///

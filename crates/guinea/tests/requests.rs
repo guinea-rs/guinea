@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use guinea::app::Harness;
-use guinea::core::actor::event_bus::RpcRequest;
+use guinea::actor::event_bus::RpcRequest;
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -88,7 +88,7 @@ mod answering_later {
         let protected = this.protected.contains(&pid);
 
         Reply::later(async move {
-            guinea::core::executor::yield_now().await;
+            guinea::executor::yield_now().await;
 
             match protected {
                 true => Outcome::Denied,
@@ -253,7 +253,7 @@ mod answering_async {
 
     #[handler]
     async fn kill(_cx: AsyncContext<Processes>, Kill(pid): Kill) -> Outcome {
-        guinea::core::executor::yield_now().await;
+        guinea::executor::yield_now().await;
 
         match pid {
             4 => Outcome::Denied,
@@ -523,7 +523,7 @@ fn a_request_that_waits_on_itself_panics_where_it_closes_the_loop(h: &mut Harnes
     h.install::<cycle::Looping>(&()).unwrap();
     let scope = h.segment().scope();
 
-    guinea::core::executor::spawn(async move {
+    guinea::executor::spawn(async move {
         let _ = scope.request(cycle::Loop, Duration::from_secs(5)).await;
     });
     let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.settled()));

@@ -2,8 +2,8 @@
 //! have any name: nothing the macros write around its call shadows it.
 
 use guinea::app::Harness;
-use guinea::core::actor::ManagedActor;
-use guinea::core::actor::event_bus::RpcRequest;
+use guinea::actor::ManagedActor;
+use guinea::actor::event_bus::RpcRequest;
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]

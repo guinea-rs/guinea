@@ -11,9 +11,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use guinea::app::{Act, Harness};
-use guinea::core::__private::tokio::sync::oneshot;
-use guinea::core::actor::Cancel;
-use guinea::core::actor::task::{Policy, Task};
+use guinea::actor::Cancel;
+use guinea::actor::task::{Policy, Task};
+use guinea_core::__private::tokio::sync::oneshot;
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -500,7 +500,7 @@ fn work_that_listens_for_the_token_is_left_to_wind_itself_down(h: &mut Harness) 
     let work = Work::Itself(Box::new(move |gone: Cancel| {
         Box::pin(async move {
             gone.cancelled().await;
-            guinea::core::executor::yield_now().await;
+            guinea::executor::yield_now().await;
             noted.store(true, Ordering::SeqCst);
             Answer(1)
         })

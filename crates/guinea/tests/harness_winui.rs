@@ -67,7 +67,7 @@ actor! {
 #[handler]
 fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
     cx.task().spawn(async move {
-        guinea::core::executor::random_delay().await;
+        guinea::executor::random_delay().await;
         let found = CATALOGUE.iter().copied().filter(|name| name.contains(text.as_str())).collect();
         Found { query: text, found }
     });

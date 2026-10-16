@@ -71,7 +71,7 @@ fn watches(app: &mut PluginBuilder) -> anyhow::Result<Watches> {
 /// handle a tool watches it through.
 struct Named {
     observed: Observed,
-    page: guinea::core::scope::ScopeGuard,
+    page: guinea_core::scope::ScopeGuard,
     _window: FeatureHost,
     _runtime: AppRuntime,
 }

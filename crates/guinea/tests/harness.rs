@@ -41,7 +41,7 @@ async fn search(text: String) -> Found {
         .filter(|name| name.contains(text.as_str()))
         .collect();
 
-    guinea::core::executor::random_delay().await;
+    guinea::executor::random_delay().await;
 
     Found { query: text, found }
 }
@@ -234,7 +234,7 @@ mod sleepy {
     #[handler]
     fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
         cx.task().spawn(async move {
-            guinea::core::__private::tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            guinea_core::__private::tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             Found { query: text, found: Vec::new() }
         });
     }
@@ -637,7 +637,7 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
     assert!(remote::act_in(&scopes, "Rename", "42").is_err(), "a number is not a name");
     assert!(remote::act_in(&scopes, "Rename", "42").unwrap_err().contains("Rename"));
 
-    let tree = guinea::core::scope::ScopeTree::new();
+    let tree = guinea_core::scope::ScopeTree::new();
     let elsewhere = [tree.scope()];
     let refused = remote::act_in(&elsewhere, "Rename", r#""x""#).unwrap_err();
     assert!(refused.contains("nothing on the open page answers"), "{refused}");
@@ -751,7 +751,7 @@ fn an_actor_hears_the_bus_until_its_page_is_left(h: &mut Harness) {
 
 #[guinea::test(iterations = 1)]
 fn a_callback_a_feature_subscribes_is_listed_where_the_feature_subscribed_it(h: &mut Harness) {
-    use guinea::core::actor::event_bus::HeardBy;
+    use guinea::actor::event_bus::HeardBy;
 
     let page = h.child();
     let subscribed_at = line!() + 1;
@@ -941,8 +941,8 @@ fn leaving_a_page_mid_request_ends_its_work_and_only_its_work(h: &mut Harness) {
 /// and the watch is opened by a click.
 mod watching {
     use super::*;
-    use guinea::core::__private::tokio::sync::mpsc;
-    use guinea::core::actor::Stream;
+    use guinea_core::__private::tokio::sync::mpsc;
+    use guinea::actor::Stream;
     use std::pin::Pin;
     use std::sync::{Arc, Mutex};
     use std::task::{Context, Poll};
@@ -1015,8 +1015,8 @@ mod watching {
 
 #[guinea::test(iterations = 20)]
 fn a_click_that_opens_a_watch_is_done_once_the_watch_is_open(h: &mut Harness) {
-    use guinea::core::__private::tokio::sync::mpsc;
-    use guinea::core::trace::Point;
+    use guinea_core::__private::tokio::sync::mpsc;
+    use guinea::observability::trace::Point;
 
     h.install::<watching::Watching>(&()).unwrap();
     let (other_end, changes) = mpsc::unbounded_channel();
@@ -1047,8 +1047,8 @@ fn a_click_that_opens_a_watch_is_done_once_the_watch_is_open(h: &mut Harness) {
 
 #[guinea::test(iterations = 20)]
 fn leaving_the_page_closes_its_watch(h: &mut Harness) {
-    use guinea::core::__private::tokio::sync::mpsc;
-    use guinea::core::trace::Point;
+    use guinea_core::__private::tokio::sync::mpsc;
+    use guinea::observability::trace::Point;
 
     let page = h.child();
     page.install::<watching::Watching>(&()).unwrap();
@@ -1362,13 +1362,13 @@ fn a_harness_settles_again_after_a_task_panicked(h: &mut Harness) {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    guinea::core::executor::spawn(async { panic!("the task under test blew up") });
+    guinea::executor::spawn(async { panic!("the task under test blew up") });
     let first = catch_unwind(AssertUnwindSafe(|| h.settled())).map_err(said);
     assert!(matches!(&first, Err(said) if said.contains("blew up")), "{first:?}");
 
     let ran = Arc::new(AtomicBool::new(false));
     let marked = ran.clone();
-    guinea::core::executor::spawn(async move { marked.store(true, Ordering::SeqCst) });
+    guinea::executor::spawn(async move { marked.store(true, Ordering::SeqCst) });
     let second = catch_unwind(AssertUnwindSafe(|| h.settled())).map_err(said);
 
     assert_eq!(second, Ok(1), "settling the next task");
@@ -1464,7 +1464,7 @@ fn settling_an_action_that_waits_on_nothing_says_so_beside_an_unrelated_timer(h:
 
 #[guinea::test(iterations = 1)]
 fn a_task_ready_to_run_is_not_stuck(h: &mut Harness) {
-    guinea::core::executor::spawn(async {});
+    guinea::executor::spawn(async {});
 
     assert_eq!(h.stuck(), 0, "a task nothing has polled yet is ready, not waiting");
 }

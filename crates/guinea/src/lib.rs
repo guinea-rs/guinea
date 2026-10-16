@@ -56,10 +56,15 @@ pub use guinea_eframe as eframe;
 pub use guinea_iced as iced;
 
 pub use guinea_app::{app, app_meta, feature};
-pub use guinea_core::sources;
+pub use guinea_core::{actor, executor, guard, sources};
 
-pub use guinea_core as core;
 pub use guinea_meta as meta;
+
+/// What macro output names. Not part of the API.
+#[doc(hidden)]
+pub mod __private {
+    pub use guinea_core as core;
+}
 
 pub use guinea_core::actor::event_bus::Event;
 pub use guinea_core::actor::event_bus::RpcCall as Request;

@@ -40,7 +40,7 @@ fn within(root: &str, path: &str) -> TokenStream {
 }
 
 pub(crate) fn core() -> TokenStream {
-    resolve("guinea-core", "", "core")
+    resolve("guinea-core", "", "__private::core")
 }
 
 pub(crate) fn feature() -> TokenStream {

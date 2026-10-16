@@ -2,7 +2,7 @@
 //! moment of leaving - and declaring one claims or creates nothing.
 
 use guinea::app::Harness;
-use guinea::core::guard::Verdict;
+use guinea::guard::Verdict;
 use guinea::prelude::*;
 
 mod drafting {
@@ -57,7 +57,7 @@ mod drafting {
     fn asking(cx: &FeatureInitContext) -> anyhow::Result<Asking> {
         cx.confirm_leave::<Draft>(
             |draft| draft.dirty,
-            |_| guinea::core::guard::Ask::new("Leave the draft?", "Leave", "Stay"),
+            |_| guinea::guard::Ask::new("Leave the draft?", "Leave", "Stay"),
         );
         Ok(Asking)
     }

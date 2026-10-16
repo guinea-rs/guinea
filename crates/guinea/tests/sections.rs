@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use guinea::app::Harness;
-use guinea::core::actor::shape::name;
+use guinea::actor::shape::name;
 use guinea::prelude::*;
 
 /// Both features answer it, each for its own state.

@@ -5,8 +5,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea::core::scope::ScopeTree;
-use guinea::core::ui_thread::UiLoop;
+use guinea_core::scope::ScopeTree;
+use guinea_core::ui_thread::UiLoop;
 
 #[test]
 fn writes_from_another_thread_reach_the_ui_thread_in_one_hop_and_stop_with_their_scope() {

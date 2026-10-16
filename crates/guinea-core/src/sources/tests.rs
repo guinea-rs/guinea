@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicUsize;
 
 use super::*;
 use crate::actor::addr::{Addr, TestHome};
-use crate::actor::{Cx, Handler};
+use crate::actor::{Cx, Handler, In};
 use crate::executor::seeded::{Installed, install};
 use crate::scope::ScopeTree;
 
@@ -483,12 +483,12 @@ guinea_macros::actor! {
 }
 
 impl Handler<Watch> for Listener {
-    fn handle(&mut self, _: Watch, _cx: Cx<Self, Watch>) {}
+    fn handle(_: In<Self, Watch>) {}
 }
 
 impl Handler<Heard> for Listener {
-    fn handle(&mut self, Heard(which, item): Heard, _cx: Cx<Self, Heard>) {
-        self.heard.borrow_mut().push((which, item));
+    fn handle(In(this, Heard(which, item), _): In<Self, Heard>) {
+        this.heard.borrow_mut().push((which, item));
     }
 }
 

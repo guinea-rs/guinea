@@ -30,7 +30,7 @@ mod message_only {
     }
 
     #[handler]
-    fn add(this: &mut Counting, Add(by): Add) {
+    fn add(In(this, Add(by), _): In<Counting, Add>) {
         this.push.send(by);
     }
     //@show-end
@@ -75,10 +75,9 @@ mod with_cx {
         }
     }
 
-    // `cx` is `Cx<Counting, Refresh>`: the macro writes in what the two
-    // arguments before it already say.
+    // `cx` is `Cx<Counting, Refresh>`: the `In` it came in names both.
     #[handler]
-    fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
+    fn refresh(In(_, _, cx): In<Counting, Refresh>) {
         cx.task().spawn(async {
             guinea::executor::random_delay().await;
             Counted(7)
@@ -86,7 +85,7 @@ mod with_cx {
     }
 
     #[handler]
-    fn counted(this: &mut Counting, Counted(n): Counted) {
+    fn counted(In(this, Counted(n), _): In<Counting, Counted>) {
         this.push.send(n);
     }
     //@show-end
@@ -140,7 +139,7 @@ mod asynchronous {
     }
 
     #[handler]
-    fn loaded(this: &mut Loader, Loaded(n): Loaded) {
+    fn loaded(In(this, Loaded(n), _): In<Loader, Loaded>) {
         this.push.send(n);
     }
     //@show-end

@@ -7,7 +7,7 @@ pub(crate) mod traits;
 
 pub use addr::Addr;
 pub use cancel::{Cancel, Reason};
-pub use ctx::{AsyncContext, Cx, Task, task};
+pub use ctx::{AsyncContext, Cx, In, Task, task};
 pub use traits::{Handler, ManagedActor, Receives};
 
 /// What [`Task::pour`] and a feature's sources take: the `Stream` of

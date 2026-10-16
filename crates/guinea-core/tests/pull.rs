@@ -6,7 +6,7 @@
 
 use futures_core::Stream;
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use guinea_core::trace::{self, Cause, Point, Trace};
@@ -54,13 +54,13 @@ guinea_macros::actor! {
 }
 
 impl Handler<Open> for Maker {
-    fn handle(&mut self, Open(source): Open, cx: Cx<Self, Open>) {
+    fn handle(In(_, Open(source), cx): In<Self, Open>) {
         cx.task().pour(source, |_| Made);
     }
 }
 
 impl Handler<Made> for Maker {
-    fn handle(&mut self, _: Made, _cx: Cx<Self, Made>) {}
+    fn handle(_: In<Self, Made>) {}
 }
 
 struct Nowhere;

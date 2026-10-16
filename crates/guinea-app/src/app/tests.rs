@@ -457,6 +457,7 @@ mod exports {
 mod observed {
     use std::sync::{Mutex, MutexGuard, PoisonError};
 
+    use guinea_core::actor::In;
     use guinea_core::actor::shape::name;
     use guinea_core::observability::{Event, Watching};
     use guinea_core::observability::panels::{self, Panel};
@@ -478,7 +479,7 @@ mod observed {
     }
 
     #[handler]
-    fn sweep(_this: &mut Sweeper, _: Sweep) {}
+    fn sweep(_: In<Sweeper, Sweep>) {}
 
     #[derive(Debug, Default)]
     pub struct Loose;
@@ -490,7 +491,7 @@ mod observed {
     }
 
     #[handler]
-    fn loose(_this: &mut Loose, _: Sweep) {}
+    fn loose(_: In<Loose, Sweep>) {}
 
     feature! {
         Housekeeping {}

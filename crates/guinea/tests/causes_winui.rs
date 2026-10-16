@@ -43,12 +43,12 @@ actor! {
 }
 
 #[handler]
-fn sampled(this: &mut Meter, Sampled(level): Sampled) {
+fn sampled(In(this, Sampled(level), _): In<Meter, Sampled>) {
     this.push.send(level);
 }
 
 #[handler]
-fn reset(this: &mut Meter, _reset: Reset) {
+fn reset(In(this, _, _): In<Meter, Reset>) {
     this.push.send(0);
 }
 
@@ -89,7 +89,7 @@ actor! {
 }
 
 #[handler]
-fn connect(this: &mut Linker, _connect: Connect) {
+fn connect(In(this, _, _): In<Linker, Connect>) {
     this.push.send(true);
 }
 
@@ -236,7 +236,7 @@ actor! {
 }
 
 #[handler]
-fn ticked(this: &mut Ticker, Ticked(ticks): Ticked) {
+fn ticked(In(this, Ticked(ticks), _): In<Ticker, Ticked>) {
     this.push.send(ticks);
 }
 

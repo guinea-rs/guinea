@@ -35,12 +35,12 @@ actor! {
 }
 
 #[handler]
-fn rename(_this: &mut Namer, Rename(name): Rename, cx: Cx) {
+fn rename(In(_, Rename(name), cx): In<Namer, Rename>) {
     cx.publish(Renamed(name));
 }
 
 #[handler]
-fn renamed(this: &mut Namer, renamed: Renamed) {
+fn renamed(In(this, renamed, _): In<Namer, Renamed>) {
     this.push.send(renamed);
 }
 

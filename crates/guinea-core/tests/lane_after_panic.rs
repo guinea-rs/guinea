@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 use guinea_core::trace::{self, Trace};
 use guinea_core::ui_thread::UiLoop;
@@ -24,7 +24,7 @@ guinea_macros::actor! {
 }
 
 impl Handler<Save> for Saver {
-    fn handle(&mut self, Save(n): Save, cx: Cx<Self, Save>) {
+    fn handle(In(_, Save(n), cx): In<Self, Save>) {
         cx.task().exhaust().spawn(async move {
             if n == 0 {
                 panic!("the save failed");
@@ -35,8 +35,8 @@ impl Handler<Save> for Saver {
 }
 
 impl Handler<Saved> for Saver {
-    fn handle(&mut self, Saved(n): Saved, _cx: Cx<Self, Saved>) {
-        self.0.borrow_mut().push(n);
+    fn handle(In(this, Saved(n), _): In<Self, Saved>) {
+        this.0.borrow_mut().push(n);
     }
 }
 

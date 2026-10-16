@@ -45,10 +45,10 @@ actor! {
 }
 
 #[handler]
-fn msg(_this: &mut Log, _: Line) {}
+fn msg(_: In<Log, Line>) {}
 
 #[handler]
-fn cx(_this: &mut Log, _: Again, cx: Cx) {
+fn cx(In(_, _, cx): In<Log, Again>) {
     let _ = cx;
 }
 

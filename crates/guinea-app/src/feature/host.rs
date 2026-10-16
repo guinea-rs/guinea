@@ -100,7 +100,7 @@ impl FeatureHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guinea_core::actor::{Cx, Handler};
+    use guinea_core::actor::{Handler, In};
 
     #[derive(Debug)]
     struct Counter;
@@ -116,7 +116,7 @@ mod tests {
     }
 
     impl Handler<Bump> for Counter {
-        fn handle(&mut self, _: Bump, _cx: Cx<Self, Bump>) {}
+        fn handle(_: In<Self, Bump>) {}
     }
 
     #[derive(Clone)]

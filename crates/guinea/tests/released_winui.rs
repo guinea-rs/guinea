@@ -65,7 +65,7 @@ actor! {
 }
 
 #[handler]
-fn ping(this: &mut Listener, _: Ping) {
+fn ping(In(this, _, _): In<Listener, Ping>) {
     this.push.send(Pinged);
 }
 

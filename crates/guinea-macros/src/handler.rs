@@ -9,35 +9,29 @@ pub fn generate_standalone_handler(item: ItemFn) -> TokenStream {
     expand_handler(item).unwrap_or_else(|err| err.to_compile_error().into())
 }
 
-fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
+fn expand_handler(item: ItemFn) -> Result<TokenStream> {
     let gc = crate::paths::core();
     let is_async = item.sig.asyncness.is_some();
-
     let signature = item.sig.span();
-    let (actor_ty, actor_name) = if is_async {
-        extract_actor_from_async_ctx(item.sig.inputs.get(0), signature)?
+
+    let (actor_ty, msg_ty) = if is_async {
+        let actor = extract_actor_from_async_ctx(item.sig.inputs.get(0), signature)?.0.clone();
+        let msg = extract_msg_info(item.sig.inputs.get(1), signature)?.0.clone();
+        (actor, msg)
     } else {
-        extract_actor_from_ref(item.sig.inputs.get(0), signature)?
+        handed(item.sig.inputs.first()).ok_or_else(|| {
+            Error::new(
+                signature,
+                "a handler takes what it is handed, taken apart: `In(this, msg, cx): In<Actor, Msg>`",
+            )
+        })?
     };
-    let actor_ty = actor_ty.clone();
     let actor_ty = &actor_ty;
-
-    let msg_ty = extract_msg_info(item.sig.inputs.get(1), signature)?.0.clone();
     let msg_ty = &msg_ty;
-
-    let takes_cx = !is_async && item.sig.inputs.len() == 3;
-    if takes_cx {
-        spell_out_cx(&mut item, actor_ty, msg_ty);
-    }
+    let actor_name = type_to_string(actor_ty);
 
     let fn_name = &item.sig.ident;
     let inputs = &item.sig.inputs;
-    let cx = if takes_cx {
-        quote!(__guinea_cx)
-    } else {
-        quote!(_)
-    };
-    let passed_cx = takes_cx.then(|| quote!(, __guinea_cx));
 
     let ret_ty = match &item.sig.output {
         ReturnType::Default => None,
@@ -62,11 +56,11 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
 
     let trait_impl = match (is_async, ret_ty) {
         (false, None) => {
-            if !(2..=3).contains(&inputs.len()) {
+            if inputs.len() != 1 {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "a handler for `{actor_name}` takes the actor, the message, and - when it sends, publishes or spawns - its `Cx`: (this: &mut {actor_name}, msg: Msg) or (this: &mut {actor_name}, msg: Msg, cx: Cx<{actor_name}, Msg>)"
+                        "a handler for `{actor_name}` takes one argument, what it is handed: `In(this, msg, cx): In<{actor_name}, Msg>`"
                     ),
                 ));
             }
@@ -74,19 +68,19 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, __guinea_msg: #msg_ty, #cx: #gc::actor::Cx<Self, #msg_ty>) {
-                        #fn_name(self, __guinea_msg #passed_cx);
+                    fn handle(__guinea_handed: #gc::actor::In<'_, Self, #msg_ty>) {
+                        #fn_name(__guinea_handed);
                     }
                 }
             }
         }
 
         (false, Some(_)) => {
-            if !(2..=3).contains(&inputs.len()) {
+            if inputs.len() != 1 {
                 return Err(Error::new(
                     item.sig.span(),
                     format!(
-                        "a handler answering a request for `{actor_name}` takes the actor, the request, and optionally its `Cx`: (this: &mut {actor_name}, req: Req) or (this: &mut {actor_name}, req: Req, cx: Cx<{actor_name}, Req>)"
+                        "a handler answering a request for `{actor_name}` takes one argument, what it is handed: `In(this, req, cx): In<{actor_name}, Req>`"
                     ),
                 ));
             }
@@ -95,13 +89,11 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                     #declared
 
                     fn handle_rpc(
-                        &mut self,
-                        __guinea_msg: #msg_ty,
-                        #cx: #gc::actor::Cx<Self, #msg_ty>,
+                        __guinea_handed: #gc::actor::In<'_, Self, #msg_ty>,
                     ) -> #gc::actor::event_bus::Reply<
                         <#msg_ty as #gc::actor::event_bus::RpcCall>::Response,
                     > {
-                        ::core::convert::Into::into(#fn_name(self, __guinea_msg #passed_cx))
+                        ::core::convert::Into::into(#fn_name(__guinea_handed))
                     }
                 }
             }
@@ -120,7 +112,9 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 impl #impl_generics #gc::actor::Handler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
-                    fn handle(&mut self, __guinea_msg: #msg_ty, __guinea_cx: #gc::actor::Cx<Self, #msg_ty>) {
+                    fn handle(
+                        #gc::actor::In(_, __guinea_msg, __guinea_cx): #gc::actor::In<'_, Self, #msg_ty>,
+                    ) {
                         let __guinea_actx = __guinea_cx.async_ctx();
                         __guinea_cx.task().detached().spawn_with(move |_| async move {
                             #fn_name(__guinea_actx, __guinea_msg).await;
@@ -146,9 +140,11 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                     const ANSWERS: bool = true;
 
                     fn handle(
-                        &mut self,
-                        __guinea_msg: #gc::actor::event_bus::RpcRequest<#msg_ty>,
-                        __guinea_cx: #gc::actor::Cx<Self, #gc::actor::event_bus::RpcRequest<#msg_ty>>,
+                        #gc::actor::In(_, __guinea_msg, __guinea_cx): #gc::actor::In<
+                            '_,
+                            Self,
+                            #gc::actor::event_bus::RpcRequest<#msg_ty>,
+                        >,
                     ) {
                         let __guinea_actx = __guinea_cx.async_ctx();
                         let (__guinea_payload, __guinea_reply_to) = __guinea_msg.into_parts();
@@ -169,27 +165,35 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
     }))
 }
 
-fn type_to_string(ty: &Type) -> String {
-    quote!(#ty).to_string().replace(' ', "")
+/// The actor and the message of `In<A, M>`, when that is what the handler
+/// takes.
+fn handed(arg: Option<&FnArg>) -> Option<(Type, Type)> {
+    let Some(FnArg::Typed(PatType { ty, .. })) = arg else {
+        return None;
+    };
+    let Type::Path(path) = ty.as_ref() else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if last.ident != "In" {
+        return None;
+    }
+    let PathArguments::AngleBracketed(args) = &last.arguments else {
+        return None;
+    };
+
+    let mut types = args.args.iter().filter_map(|arg| match arg {
+        GenericArgument::Type(ty) => Some(ty.clone()),
+        _ => None,
+    });
+    let actor = types.next()?;
+    let msg = types.next()?;
+
+    Some((actor, msg))
 }
 
-/// A bare `Cx` in a handler's signature, written out: the actor and the
-/// message are the two arguments before it, and saying them again is noise.
-/// `Cx<A, M>` spelled in full is left as it is.
-fn spell_out_cx(item: &mut ItemFn, actor: &Type, msg: &Type) {
-    let Some(FnArg::Typed(arg)) = item.sig.inputs.get_mut(2) else {
-        return;
-    };
-    let Type::Path(path) = arg.ty.as_mut() else {
-        return;
-    };
-    let Some(last) = path.path.segments.last_mut() else {
-        return;
-    };
-
-    if last.ident == "Cx" && last.arguments.is_empty() {
-        last.arguments = PathArguments::AngleBracketed(syn::parse_quote!(<#actor, #msg>));
-    }
+fn type_to_string(ty: &Type) -> String {
+    quote!(#ty).to_string().replace(' ', "")
 }
 
 fn extract_msg_info(arg: Option<&FnArg>, signature: proc_macro2::Span) -> Result<(&Type, String)> {
@@ -201,22 +205,6 @@ fn extract_msg_info(arg: Option<&FnArg>, signature: proc_macro2::Span) -> Result
     } else {
         Err(Error::new(arg.span(), "expected the message, `msg: Msg`"))
     }
-}
-
-fn extract_actor_from_ref(arg: Option<&FnArg>, signature: proc_macro2::Span) -> Result<(&Type, String)> {
-    let arg = arg.ok_or_else(|| {
-        Error::new(signature, "a handler takes its actor first: `this: &mut Actor`")
-    })?;
-    if let FnArg::Typed(PatType { ty, .. }) = arg {
-        if let Type::Reference(tr) = ty.as_ref() {
-            let inner = tr.elem.as_ref();
-            return Ok((inner, type_to_string(inner)));
-        }
-    }
-    Err(Error::new(
-        arg.span(),
-        "a handler takes its actor first: `this: &mut Actor`, or `this: &Actor`",
-    ))
 }
 
 fn extract_actor_from_async_ctx(

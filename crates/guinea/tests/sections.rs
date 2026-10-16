@@ -43,7 +43,7 @@ mod clock {
     }
 
     #[handler]
-    fn wind(_this: &mut Hand, _: Wind) {}
+    fn wind(_: In<Hand, Wind>) {}
 
     feature! {
         pub Clock {
@@ -87,7 +87,7 @@ mod weather {
     }
 
     #[handler]
-    fn drift(_this: &mut Cloud, _: Drift) {}
+    fn drift(_: In<Cloud, Drift>) {}
 
     feature! {
         pub Weather {
@@ -132,7 +132,7 @@ mod dashboard {
     }
 
     #[handler]
-    fn unpin(_this: &mut Pin, _: Unpin) {}
+    fn unpin(_: In<Pin, Unpin>) {}
 
     feature! {
         pub Dashboard {

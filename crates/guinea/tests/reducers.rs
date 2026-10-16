@@ -31,7 +31,7 @@ mod counting {
     }
 
     #[handler]
-    fn add(this: &mut Counting, Add(by): Add) {
+    fn add(In(this, Add(by), _): In<Counting, Add>) {
         this.push.send(by);
     }
 
@@ -97,7 +97,7 @@ mod sorting {
     }
 
     #[handler]
-    fn sort(this: &mut Sorting, _: Sort) {
+    fn sort(In(this, _, _): In<Sorting, Sort>) {
         this.push.send(Changed::Rows(vec!["b".into(), "a".into()]));
         this.push.send(Changed::Sorted { descending: true });
     }

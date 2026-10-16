@@ -19,14 +19,21 @@ pub use task::Task;
 /// What a handler may do besides change its actor: send on, publish, start
 /// background work.
 ///
-/// Typed by the message being handled, not holding it: the message is the
-/// handler's own argument, and `M` is what `actor!`'s flow checks - a handler
+/// Typed by the message being handled, not holding it: the message comes
+/// beside it in [`In`], and `M` is what `actor!`'s flow checks - a handler
 /// of `Query` declared `Query => { task Found }` may spawn work that answers
 /// `Found`, and nothing else.
 pub struct Cx<A: 'static, M = ()> {
     pub(super) addr: Addr<A>,
     handling: PhantomData<fn() -> M>,
 }
+
+/// What a handler is handed: its actor, the message, and its [`Cx`] - taken
+/// apart where it is received, so that each is named once and only what is
+/// used is bound:
+///
+/// `fn query(In(this, Query(text), cx): In<Searcher, Query>)`
+pub struct In<'a, A: 'static, M>(pub &'a mut A, pub M, pub Cx<A, M>);
 
 impl<A: 'static, M> Clone for Cx<A, M> {
     fn clone(&self) -> Self {

@@ -372,7 +372,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// // Returning the reply is what makes it the answer: the generated code
 /// // sends it back, once.
 /// #[handler]
-/// fn kill(this: &mut Processes, Kill(pid): Kill) -> Outcome {
+/// fn kill(In(this, Kill(pid), _): In<Processes, Kill>) -> Outcome {
 ///     match this.protected.contains(&pid) {
 ///         true => Outcome::Denied,
 ///         false => Outcome::Done,
@@ -426,7 +426,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[handler]
-/// fn told(this: &mut Asker, Told(said): Told) {
+/// fn told(In(this, Told(said), _): In<Asker, Told>) {
 ///     this.push.send(said);
 /// }
 /// ```
@@ -452,7 +452,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// // Returns nothing, so it hears the request and cannot answer it: there
 /// // is one answerer, and it is not this.
 /// #[handler]
-/// fn heard(this: &mut Audit, request: RpcRequest<Kill>) {
+/// fn heard(In(this, request, _): In<Audit, RpcRequest<Kill>>) {
 ///     this.seen.push(request.payload.0);
 /// }
 ///
@@ -534,8 +534,10 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// Makes a function an actor's handler for one message: `impl Handler<M>`
 /// written from its signature.
 ///
-/// A handler takes what it uses and nothing else. The actor, then the message
-/// itself - destructured right in the argument when that reads better:
+/// A handler takes one argument, what it is handed: `In(this, msg, cx)`, the
+/// actor, the message and its `Cx`, typed once as `In<Actor, Msg>`. It is
+/// taken apart right there, so the handler binds what it uses and leaves the
+/// rest as `_` - the message destructured in place when that reads better:
 ///
 /// <!-- shown: a handler that takes the message -->
 /// ```rust,ignore
@@ -553,18 +555,16 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[handler]
-/// fn add(this: &mut Counting, Add(by): Add) {
+/// fn add(In(this, Add(by), _): In<Counting, Add>) {
 ///     this.push.send(by);
 /// }
 /// ```
 /// <!-- /shown -->
 ///
-/// A handler that sends on, publishes, or starts background work takes a
-/// third argument, its `Cx`. Written bare: the actor and the message are the
-/// two arguments before it, and the macro writes them in. `Cx` is typed by the
-/// message it handles, which is what `actor!`'s flow checks - a handler of
-/// `Refresh` declared `Refresh => { task Counted }` may spawn work that answers
-/// `Counted`, and nothing else compiles:
+/// A handler that sends on, publishes, or starts background work binds the
+/// `Cx`. It is typed by the message it handles, which is what `actor!`'s flow
+/// checks - a handler of `Refresh` declared `Refresh => { task Counted }` may
+/// spawn work that answers `Counted`, and nothing else compiles:
 ///
 /// <!-- shown: a handler that starts work -->
 /// ```rust,ignore
@@ -582,10 +582,9 @@ pub fn remote(item: TokenStream) -> TokenStream {
 ///     }
 /// }
 ///
-/// // `cx` is `Cx<Counting, Refresh>`: the macro writes in what the two
-/// // arguments before it already say.
+/// // `cx` is `Cx<Counting, Refresh>`: the `In` it came in names both.
 /// #[handler]
-/// fn refresh(_this: &mut Counting, _: Refresh, cx: Cx) {
+/// fn refresh(In(_, _, cx): In<Counting, Refresh>) {
 ///     cx.task().spawn(async {
 ///         guinea::executor::random_delay().await;
 ///         Counted(7)
@@ -593,7 +592,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[handler]
-/// fn counted(this: &mut Counting, Counted(n): Counted) {
+/// fn counted(In(this, Counted(n), _): In<Counting, Counted>) {
 ///     this.push.send(n);
 /// }
 /// ```
@@ -631,7 +630,7 @@ pub fn remote(item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[handler]
-/// fn loaded(this: &mut Loader, Loaded(n): Loaded) {
+/// fn loaded(In(this, Loaded(n), _): In<Loader, Loaded>) {
 ///     this.push.send(n);
 /// }
 /// ```

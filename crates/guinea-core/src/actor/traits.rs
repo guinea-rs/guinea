@@ -1,6 +1,6 @@
 use crate::actor::flow::EventSubscription;
 use crate::actor::shape::{Declared, Shape};
-use crate::actor::{Addr, Cx};
+use crate::actor::{Addr, In};
 use crate::inspect::Inspector;
 
 #[diagnostic::on_unimplemented(
@@ -17,7 +17,7 @@ pub trait Handler<M: 'static>: 'static {
     /// type; the rest only hear it.
     const ANSWERS: bool = false;
 
-    fn handle(&mut self, msg: M, cx: Cx<Self, M>)
+    fn handle(handed: In<'_, Self, M>)
     where
         Self: Sized;
 }

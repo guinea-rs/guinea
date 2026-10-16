@@ -1,6 +1,6 @@
 use crate::actor::addr::Addr;
 use crate::actor::traits::Handler;
-use crate::actor::Cx;
+use crate::actor::{Cx, In};
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 
@@ -34,5 +34,5 @@ where
         actor: short_type_name::<A>(),
         message: short_type_name::<M>(),
     });
-    actor.handle(message, Cx::new(addr.clone()));
+    A::handle(In(actor, message, Cx::new(addr.clone())));
 }

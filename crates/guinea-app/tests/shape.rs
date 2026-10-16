@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use guinea_core::actor::shape::Channel;
-use guinea_core::actor::{Cx, ManagedActor};
+use guinea_core::actor::{In, ManagedActor};
 use guinea_macros::{Event, actor, handler};
 
 pub struct Start;
@@ -32,7 +32,7 @@ actor! {
 }
 
 #[handler]
-fn start(_this: &mut Poller, _: Start, cx: Cx) {
+fn start(In(_, _, cx): In<Poller, Start>) {
     cx.task().spawn(async {
         tokio::time::sleep(Duration::from_millis(1)).await;
         Tick
@@ -40,13 +40,13 @@ fn start(_this: &mut Poller, _: Start, cx: Cx) {
 }
 
 #[handler]
-fn tick(_this: &mut Poller, _: Tick) {}
+fn tick(_: In<Poller, Tick>) {}
 
 #[handler]
-fn report(_this: &mut Poller, _: Report) {}
+fn report(_: In<Poller, Report>) {}
 
 #[handler]
-fn stopped(_this: &mut Poller, _: Stopped) {}
+fn stopped(_: In<Poller, Stopped>) {}
 
 #[test]
 fn an_actor_knows_where_it_was_declared() {

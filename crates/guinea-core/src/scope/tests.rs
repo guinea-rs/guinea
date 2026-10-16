@@ -219,7 +219,7 @@ guinea_macros::actor! {
 }
 
 impl crate::actor::Handler<Tick> for Leaving {
-    fn handle(&mut self, _: Tick, _cx: crate::actor::Cx<Self, Tick>) {}
+    fn handle(_: crate::actor::In<Self, Tick>) {}
 }
 
 #[tokio::test]
@@ -434,8 +434,8 @@ guinea_macros::actor! {
 }
 
 impl crate::actor::Handler<Tick> for Ticker {
-    fn handle(&mut self, _: Tick, _cx: crate::actor::Cx<Self, Tick>) {
-        self.0 += 1;
+    fn handle(crate::actor::In(this, _, _): crate::actor::In<Self, Tick>) {
+        this.0 += 1;
     }
 }
 

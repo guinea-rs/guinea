@@ -8,7 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 
 struct Counting;
@@ -49,8 +49,8 @@ guinea_macros::actor! {
 }
 
 impl Handler<Payload> for Sink {
-    fn handle(&mut self, Payload(bytes): Payload, _cx: Cx<Self, Payload>) {
-        self.0 += bytes.len() as u64;
+    fn handle(In(this, Payload(bytes), _): In<Self, Payload>) {
+        this.0 += bytes.len() as u64;
     }
 }
 
@@ -66,11 +66,11 @@ guinea_macros::actor! {
 }
 
 impl Handler<Echo> for Echoes {
-    fn handle(&mut self, Echo(left): Echo, cx: Cx<Self, Echo>) {
+    fn handle(In(this, Echo(left), cx): In<Self, Echo>) {
         if left > 0 {
             cx.addr().send(Echo(left - 1));
         }
-        self.0.borrow_mut().push(left);
+        this.0.borrow_mut().push(left);
     }
 }
 

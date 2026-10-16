@@ -5,7 +5,7 @@
 
 use futures_core::Stream;
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use std::pin::Pin;
@@ -42,13 +42,13 @@ guinea_macros::actor! {
 }
 
 impl Handler<Open> for Puller {
-    fn handle(&mut self, Open(source): Open, cx: Cx<Self, Open>) {
+    fn handle(In(_, Open(source), cx): In<Self, Open>) {
         cx.task().pour(source, |()| Pulled);
     }
 }
 
 impl Handler<Pulled> for Puller {
-    fn handle(&mut self, _: Pulled, _cx: Cx<Self, Pulled>) {}
+    fn handle(_: In<Self, Pulled>) {}
 }
 
 struct Nowhere;

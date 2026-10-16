@@ -1,6 +1,6 @@
 //! An actor that sends on and spawns, for the tests of what a handler may do.
 
-use super::Cx;
+use super::In;
 use crate::actor::traits::Handler;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,14 +23,14 @@ guinea_macros::actor! {
 }
 
 impl Handler<First> for Chain {
-    fn handle(&mut self, _: First, cx: Cx<Self, First>) {
-        self.log.borrow_mut().push("first");
+    fn handle(In(this, _, cx): In<Self, First>) {
+        this.log.borrow_mut().push("first");
         cx.send(Second);
     }
 }
 
 impl Handler<Second> for Chain {
-    fn handle(&mut self, _: Second, _cx: Cx<Self, Second>) {
-        self.log.borrow_mut().push("second");
+    fn handle(In(this, _, _): In<Self, Second>) {
+        this.log.borrow_mut().push("second");
     }
 }

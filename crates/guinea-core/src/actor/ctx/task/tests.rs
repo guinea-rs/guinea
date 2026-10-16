@@ -4,6 +4,7 @@ use std::rc::Rc;
 use tokio::sync::oneshot;
 
 use super::*;
+use crate::actor::In;
 use crate::actor::addr::{Addr, TestHome};
 use crate::executor::seeded::{self as executor, Installed};
 use crate::trace::Trace;
@@ -26,12 +27,12 @@ guinea_macros::actor! {
 }
 
 impl Handler<Search> for Searcher {
-    fn handle(&mut self, _: Search, _cx: Cx<Self, Search>) {}
+    fn handle(_: In<Self, Search>) {}
 }
 
 impl Handler<Found> for Searcher {
-    fn handle(&mut self, Found(n): Found, _cx: Cx<Self, Found>) {
-        self.found.borrow_mut().push(n);
+    fn handle(In(this, Found(n), _): In<Self, Found>) {
+        this.found.borrow_mut().push(n);
     }
 }
 

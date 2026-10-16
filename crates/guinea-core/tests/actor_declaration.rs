@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use guinea_core::actor::ManagedActor;
+use guinea_core::actor::{In, ManagedActor};
 use guinea_macros::{actor, handler};
 
 pub struct Load;
@@ -25,10 +25,10 @@ actor! {
 }
 
 #[handler]
-fn load(_this: &mut Cache, _: Load) {}
+fn load(_: In<Cache, Load>) {}
 
 #[handler]
-fn loaded(_this: &mut Cache, _: Loaded<String, u32>) {}
+fn loaded(_: In<Cache, Loaded<String, u32>>) {}
 
 #[test]
 fn a_message_with_two_type_arguments_is_one_message() {

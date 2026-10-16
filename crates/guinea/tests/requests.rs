@@ -49,7 +49,7 @@ mod answering {
     // Returning the reply is what makes it the answer: the generated code
     // sends it back, once.
     #[handler]
-    fn kill(this: &mut Processes, Kill(pid): Kill) -> Outcome {
+    fn kill(In(this, Kill(pid), _): In<Processes, Kill>) -> Outcome {
         match this.protected.contains(&pid) {
             true => Outcome::Denied,
             false => Outcome::Done,
@@ -84,7 +84,7 @@ mod answering_later {
     }
 
     #[handler]
-    fn kill(this: &mut Processes, Kill(pid): Kill) -> Reply<Outcome> {
+    fn kill(In(this, Kill(pid), _): In<Processes, Kill>) -> Reply<Outcome> {
         let protected = this.protected.contains(&pid);
 
         Reply::later(async move {
@@ -134,13 +134,13 @@ mod answering_and_sending {
     }
 
     #[handler]
-    fn kill(_this: &mut Processes, Kill(pid): Kill, cx: Cx) -> Outcome {
+    fn kill(In(_, Kill(pid), cx): In<Processes, Kill>) -> Outcome {
         cx.send(Killed(pid));
         Outcome::Done
     }
 
     #[handler]
-    fn killed(this: &mut Processes, Killed(pid): Killed) {
+    fn killed(In(this, Killed(pid), _): In<Processes, Killed>) {
         this.push.send(pid);
     }
 
@@ -187,7 +187,7 @@ mod asking {
     }
 
     #[handler]
-    fn told(this: &mut Asker, Told(said): Told) {
+    fn told(In(this, Told(said), _): In<Asker, Told>) {
         this.push.send(said);
     }
     //@show-end
@@ -223,7 +223,7 @@ mod listening {
     // Returns nothing, so it hears the request and cannot answer it: there
     // is one answerer, and it is not this.
     #[handler]
-    fn heard(this: &mut Audit, request: RpcRequest<Kill>) {
+    fn heard(In(this, request, _): In<Audit, RpcRequest<Kill>>) {
         this.seen.push(request.payload.0);
     }
 
@@ -287,7 +287,7 @@ mod dropping {
     impl Handler<RpcRequest<Kill>> for Processes {
         const ANSWERS: bool = true;
 
-        fn handle(&mut self, _: RpcRequest<Kill>, _cx: Cx<Self, RpcRequest<Kill>>) {}
+        fn handle(_: In<Self, RpcRequest<Kill>>) {}
     }
 
     feature! {
@@ -324,7 +324,7 @@ mod listening_and_replying {
     }
 
     #[handler]
-    fn hearing(this: &mut Audit, request: RpcRequest<Kill>) {
+    fn hearing(In(this, request, _): In<Audit, RpcRequest<Kill>>) {
         this.push.send(request.payload.0);
         request.reply(Outcome::Denied);
     }

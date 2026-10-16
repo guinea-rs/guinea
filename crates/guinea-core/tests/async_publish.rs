@@ -5,7 +5,7 @@
 //! A process of its own, because the dispatcher is process-wide.
 
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+use guinea_core::actor::{Addr, AsyncContext, Handler, In};
 use guinea_core::scope::ScopeTree;
 use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use std::cell::RefCell;
@@ -37,8 +37,8 @@ guinea_macros::actor! {
 }
 
 impl Handler<Refresh> for Refresher {
-    fn handle(&mut self, _: Refresh, cx: Cx<Self, Refresh>) {
-        *self.handed.lock().unwrap() = Some(cx.async_ctx());
+    fn handle(In(this, _, cx): In<Self, Refresh>) {
+        *this.handed.lock().unwrap() = Some(cx.async_ctx());
     }
 }
 

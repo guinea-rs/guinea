@@ -101,7 +101,7 @@ mod producing {
     }
 
     #[handler]
-    fn followed(this: &mut Producer, followed: Followed<Report>) {
+    fn followed(In(this, followed, _): In<Producer, Followed<Report>>) {
         this.heard.send(followed.0);
     }
 

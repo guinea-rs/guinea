@@ -96,7 +96,7 @@ fn save<P: Policy>(task: Task<'_, Searcher, Save, P>, named: bool, work: Boxed<(
 }
 
 #[handler]
-fn spawning(_this: &mut Searcher, Spawn { under, key, work }: Spawn, cx: Cx) {
+fn spawning(In(_, Spawn { under, key, work }, cx): In<Searcher, Spawn>) {
     let task = cx.task();
 
     match under {
@@ -108,7 +108,7 @@ fn spawning(_this: &mut Searcher, Spawn { under, key, work }: Spawn, cx: Cx) {
 }
 
 #[handler]
-fn saving(_this: &mut Searcher, Save { under, named, work }: Save, cx: Cx) {
+fn saving(In(_, Save { under, named, work }, cx): In<Searcher, Save>) {
     let task = cx.task();
 
     match under {
@@ -120,7 +120,7 @@ fn saving(_this: &mut Searcher, Save { under, named, work }: Save, cx: Cx) {
 }
 
 #[handler]
-fn cancel_lane(_this: &mut Searcher, CancelLane { named, key }: CancelLane, cx: Cx) {
+fn cancel_lane(In(_, CancelLane { named, key }, cx): In<Searcher, CancelLane>) {
     let task = cx.task();
     let task = match named {
         true => task.lane::<Answer>(),
@@ -135,7 +135,7 @@ fn cancel_lane(_this: &mut Searcher, CancelLane { named, key }: CancelLane, cx: 
 }
 
 #[handler]
-fn answer(this: &mut Searcher, Answer(n): Answer) {
+fn answer(In(this, Answer(n), _): In<Searcher, Answer>) {
     this.push.send(n);
 }
 

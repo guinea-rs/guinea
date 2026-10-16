@@ -1,6 +1,6 @@
 use guinea_core::actor::event_bus::{HeardBy, Listener, Listening};
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 
 #[derive(Clone, Debug, guinea_macros::Event)]
@@ -19,7 +19,7 @@ guinea_macros::actor! {
 }
 
 impl Handler<Report> for Processes {
-    fn handle(&mut self, _: Report, _cx: Cx<Self, Report>) {}
+    fn handle(_: In<Self, Report>) {}
 }
 
 #[test]

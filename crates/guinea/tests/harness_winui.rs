@@ -65,7 +65,7 @@ actor! {
 }
 
 #[handler]
-fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+fn query(In(_, Query(text), cx): In<Searcher, Query>) {
     cx.task().spawn(async move {
         guinea::executor::random_delay().await;
         let found = CATALOGUE.iter().copied().filter(|name| name.contains(text.as_str())).collect();
@@ -74,7 +74,7 @@ fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
 }
 
 #[handler]
-fn found(this: &mut Searcher, found: Found) {
+fn found(In(this, found, _): In<Searcher, Found>) {
     this.push.send(found);
 }
 
@@ -644,7 +644,7 @@ mod polling {
     }
 
     #[handler]
-    fn sample(this: &mut Sampler, _: Sample) {
+    fn sample(In(this, _, _): In<Sampler, Sample>) {
         this.push.send(Taken);
     }
 
@@ -953,7 +953,7 @@ mod navigating {
         }
 
         #[handler]
-        fn frame_tick(this: &mut FrameTicker, tick: Tick) {
+        fn frame_tick(In(this, tick, _): In<FrameTicker, Tick>) {
             this.push.send(tick);
         }
 
@@ -997,7 +997,7 @@ mod navigating {
         }
 
         #[handler]
-        fn list_tick(this: &mut ListTicker, tick: Tick) {
+        fn list_tick(In(this, tick, _): In<ListTicker, Tick>) {
             this.push.send(tick);
         }
 

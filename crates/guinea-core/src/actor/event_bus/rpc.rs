@@ -1,7 +1,7 @@
 use crate::actor::event_bus::{Answering, Event};
 use crate::actor::shape::Declared;
 use crate::actor::traits::Handler;
-use crate::actor::Cx;
+use crate::actor::In;
 use crate::scope::Scope;
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
@@ -155,7 +155,7 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// ```
 /// # use std::time::Duration;
 /// # use guinea_core::__private::Home;
-/// # use guinea_core::actor::Addr;
+/// # use guinea_core::actor::{Addr, In};
 /// # use guinea_core::actor::event_bus::{Reply, RpcRequest};
 /// # use guinea_core::scope::ScopeTree;
 /// # use guinea_core::ui_thread::UiLoop;
@@ -176,7 +176,7 @@ impl<Req: RpcCall> RpcRequest<Req> {
 /// #     Actions { subscribes { RpcRequest<Act> } }
 /// # }
 /// #[handler]
-/// fn act(this: &mut Actions, Act(action): Act) -> Reply<Outcome> {
+/// fn act(In(this, Act(action), _): In<Actions, Act>) -> Reply<Outcome> {
 ///     let Some(transport) = this.transport.clone() else {
 ///         return Reply::now(Outcome::NotConnected);
 ///     };
@@ -243,7 +243,7 @@ pub trait RpcHandler<Req: RpcCall>: 'static {
     /// Where the handler was written; `#[handler]` fills it in.
     const DECLARED: Option<Declared> = None;
 
-    fn handle_rpc(&mut self, req: Req, cx: Cx<Self, Req>) -> Reply<Req::Response>
+    fn handle_rpc(handed: In<'_, Self, Req>) -> Reply<Req::Response>
     where
         Self: Sized;
 }
@@ -257,9 +257,9 @@ where
 
     const ANSWERS: bool = true;
 
-    fn handle(&mut self, msg: RpcRequest<Req>, cx: Cx<Self, RpcRequest<Req>>) {
+    fn handle(In(this, msg, cx): In<Self, RpcRequest<Req>>) {
         let (payload, reply_to) = msg.into_parts();
-        self.handle_rpc(payload, cx.asked()).send(reply_to);
+        A::handle_rpc(In(this, payload, cx.asked())).send(reply_to);
     }
 }
 

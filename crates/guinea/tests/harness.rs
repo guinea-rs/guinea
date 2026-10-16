@@ -62,7 +62,7 @@ mod naive {
     }
 
     #[handler]
-    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
+    fn query(In(this, Query(text), cx): In<Searcher, Query>) {
         cx.task().pushing(this.push).spawn(search(text));
     }
 
@@ -102,7 +102,7 @@ mod latest {
     }
 
     #[handler]
-    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
+    fn query(In(this, Query(text), cx): In<Searcher, Query>) {
         this.asked += 1;
 
         let asked = this.asked;
@@ -115,7 +115,7 @@ mod latest {
     }
 
     #[handler]
-    fn answered(this: &mut Searcher, answered: Answered) {
+    fn answered(In(this, answered, _): In<Searcher, Answered>) {
         if answered.asked == this.asked {
             this.push.send(answered.found);
         }
@@ -151,7 +151,7 @@ mod by_policy {
     }
 
     #[handler]
-    fn query(this: &mut Searcher, Query(text): Query, cx: Cx) {
+    fn query(In(this, Query(text), cx): In<Searcher, Query>) {
         cx.task().latest().pushing(this.push).spawn(search(text));
     }
 
@@ -236,7 +236,7 @@ mod sleepy {
     }
 
     #[handler]
-    fn query(_this: &mut Searcher, Query(text): Query, cx: Cx) {
+    fn query(In(_, Query(text), cx): In<Searcher, Query>) {
         cx.task().spawn(async move {
             guinea_core::__private::tokio::time::sleep(std::time::Duration::from_millis(800)).await;
             Found { query: text, found: Vec::new() }
@@ -244,7 +244,7 @@ mod sleepy {
     }
 
     #[handler]
-    fn found(this: &mut Searcher, found: Found) {
+    fn found(In(this, found, _): In<Searcher, Found>) {
         this.push.send(found);
     }
 
@@ -314,7 +314,7 @@ mod polling {
     }
 
     #[handler]
-    fn sample(this: &mut Sampler, _: Sample) {
+    fn sample(In(this, _, _): In<Sampler, Sample>) {
         this.push.send(Taken);
     }
 
@@ -421,12 +421,12 @@ mod reports {
     }
 
     #[handler]
-    fn report(this: &mut Reader, report: Report) {
+    fn report(In(this, report, _): In<Reader, Report>) {
         this.push.send(report);
     }
 
     #[handler]
-    fn announce(_this: &mut Reader, Announce(text): Announce, cx: Cx) {
+    fn announce(In(_, Announce(text), cx): In<Reader, Announce>) {
         cx.async_ctx().publish(Report(text));
     }
 
@@ -559,12 +559,12 @@ mod named {
     }
 
     #[handler]
-    fn rename(_this: &mut Namer, Rename(name): Rename, cx: Cx) {
+    fn rename(In(_, Rename(name), cx): In<Namer, Rename>) {
         cx.publish(Renamed(name));
     }
 
     #[handler]
-    fn renamed(this: &mut Namer, renamed: Renamed) {
+    fn renamed(In(this, renamed, _): In<Namer, Renamed>) {
         this.push.send(renamed);
     }
 
@@ -610,7 +610,7 @@ mod titled {
     }
 
     #[handler]
-    fn rename(this: &mut Titler, rename: Rename) {
+    fn rename(In(this, rename, _): In<Titler, Rename>) {
         this.push.send(rename);
     }
 
@@ -726,7 +726,7 @@ mod listening {
     }
 
     #[handler]
-    fn report(this: &mut Listener, _: reports::Report) {
+    fn report(In(this, _, _): In<Listener, reports::Report>) {
         this.push.send(Once);
     }
 
@@ -994,13 +994,13 @@ mod watching {
     }
 
     #[handler]
-    fn watch(_this: &mut Watcher, Watch(changes): Watch, cx: Cx) {
+    fn watch(In(_, Watch(changes), cx): In<Watcher, Watch>) {
         let changes = changes.lock().unwrap().take().expect("a watch is opened once");
         cx.task().pour(changes, Changed);
     }
 
     #[handler]
-    fn changed(this: &mut Watcher, changed: Changed) {
+    fn changed(In(this, changed, _): In<Watcher, Changed>) {
         this.push.send(changed);
     }
 
@@ -1129,12 +1129,12 @@ mod lingering {
     }
 
     #[handler]
-    fn poke(_this: &mut Lingerer, _: Poke, cx: Cx) {
+    fn poke(In(_, _, cx): In<Lingerer, Poke>) {
         cx.task().spawn(async { Poked });
     }
 
     #[handler]
-    fn poked(this: &mut Lingerer, poked: Poked) {
+    fn poked(In(this, poked, _): In<Lingerer, Poked>) {
         this.push.send(poked);
     }
 
@@ -1196,7 +1196,7 @@ mod supervising {
     }
 
     #[handler]
-    fn ping(_this: &mut Agent, _: Ping) {}
+    fn ping(_: In<Agent, Ping>) {}
 
     #[derive(Clone, Debug)]
     pub struct Look;
@@ -1224,12 +1224,12 @@ mod supervising {
     }
 
     #[handler]
-    fn look(_this: &mut Supervisor, _: Look, cx: Cx) {
+    fn look(In(_, _, cx): In<Supervisor, Look>) {
         cx.task().spawn(async { Found });
     }
 
     #[handler]
-    fn found(this: &mut Supervisor, found: Found, cx: Cx) {
+    fn found(In(this, found, cx): In<Supervisor, Found>) {
         let comes_and_goes = cx.addr().home().child();
         let agent = Addr::new(Agent, &comes_and_goes);
         agent.send(Ping);
@@ -1268,7 +1268,7 @@ mod hiring {
     }
 
     #[handler]
-    fn work(_this: &mut Worker, _: Hire) {}
+    fn work(_: In<Worker, Hire>) {}
 
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Staff(pub u32);
@@ -1290,7 +1290,7 @@ mod hiring {
     }
 
     #[handler]
-    fn hire(this: &mut Boss, _: Hire, cx: Cx) {
+    fn hire(In(this, _, cx): In<Boss, Hire>) {
         let _worker = Addr::new(Worker, &cx.addr().home());
         this.push.send(1);
     }
@@ -1410,7 +1410,7 @@ mod forever {
     }
 
     #[handler]
-    fn wait(_this: &mut Waiter, _: Wait, cx: Cx) {
+    fn wait(In(_, _, cx): In<Waiter, Wait>) {
         cx.task().spawn(async {
             std::future::pending::<()>().await;
             Never
@@ -1418,7 +1418,7 @@ mod forever {
     }
 
     #[handler]
-    fn never(this: &mut Waiter, never: Never) {
+    fn never(In(this, never, _): In<Waiter, Never>) {
         this.push.send(never);
     }
 

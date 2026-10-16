@@ -9,7 +9,7 @@ use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_gr
 use guinea_core::actor::event_bus::{Event, EventBus};
 use guinea_core::actor::event_bus::subscribe::BusSubscription;
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 
 const HEARD_BY: [usize; 3] = [1, 4, 16];
@@ -29,8 +29,8 @@ guinea_macros::actor! {
 }
 
 impl<const N: usize> Handler<Payload<N>> for Sink {
-    fn handle(&mut self, Payload(bytes): Payload<N>, _cx: Cx<Self, Payload<N>>) {
-        self.0 += black_box(bytes).len() as u64;
+    fn handle(In(this, Payload(bytes), _): In<Self, Payload<N>>) {
+        this.0 += black_box(bytes).len() as u64;
     }
 }
 

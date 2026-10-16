@@ -151,7 +151,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// use std::time::Duration;
     ///
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::actor::{Addr, Handler, In};
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///
@@ -174,7 +174,7 @@ impl<A: 'static, M> Cx<A, M> {
     /// }
     ///
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///     fn handle(In(_, Fetch { city, takes }, cx): In<Self, Fetch>) {
     ///         cx.task().spawn(async move {
     ///             tokio::time::sleep(takes).await;
     ///             Fetched(city)
@@ -183,8 +183,8 @@ impl<A: 'static, M> Cx<A, M> {
     /// }
     ///
     /// impl Handler<Fetched> for Weather {
-    ///     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
-    ///         self.0.borrow_mut().push(city);
+    ///     fn handle(In(this, Fetched(city), _): In<Self, Fetched>) {
+    ///         this.0.borrow_mut().push(city);
     ///     }
     /// }
     ///
@@ -286,7 +286,7 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -294,12 +294,12 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # struct Fetched(&'static str);
     /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
     /// # impl Handler<Fetched> for Weather {
-    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
-    /// #         self.0.borrow_mut().push(city);
+    /// #     fn handle(In(this, Fetched(city), _): In<Self, Fetched>) {
+    /// #         this.0.borrow_mut().push(city);
     /// #     }
     /// # }
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///     fn handle(In(_, Fetch { city, takes }, cx): In<Self, Fetch>) {
     ///         cx.task().latest().spawn(async move {
     ///             tokio::time::sleep(takes).await;
     ///             Fetched(city)
@@ -333,7 +333,7 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -341,12 +341,12 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # struct Fetched(&'static str);
     /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
     /// # impl Handler<Fetched> for Weather {
-    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
-    /// #         self.0.borrow_mut().push(city);
+    /// #     fn handle(In(this, Fetched(city), _): In<Self, Fetched>) {
+    /// #         this.0.borrow_mut().push(city);
     /// #     }
     /// # }
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///     fn handle(In(_, Fetch { city, takes }, cx): In<Self, Fetch>) {
     ///         cx.task().conflate().spawn(async move {
     ///             tokio::time::sleep(takes).await;
     ///             Fetched(city)
@@ -381,7 +381,7 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -389,12 +389,12 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # struct Fetched(&'static str);
     /// # guinea_macros::actor! { Weather { handlers { Fetch => { task Fetched } Fetched } } }
     /// # impl Handler<Fetched> for Weather {
-    /// #     fn handle(&mut self, Fetched(city): Fetched, _cx: Cx<Self, Fetched>) {
-    /// #         self.0.borrow_mut().push(city);
+    /// #     fn handle(In(this, Fetched(city), _): In<Self, Fetched>) {
+    /// #         this.0.borrow_mut().push(city);
     /// #     }
     /// # }
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch { city, takes }: Fetch, cx: Cx<Self, Fetch>) {
+    ///     fn handle(In(_, Fetch { city, takes }, cx): In<Self, Fetch>) {
     ///         cx.task().exhaust().spawn(async move {
     ///             tokio::time::sleep(takes).await;
     ///             Fetched(city)
@@ -438,7 +438,7 @@ impl<'cx, A: 'static, M, P> Task<'cx, A, M, P, Reply> {
     /// ```
     /// # use std::time::Duration;
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::actor::{Addr, Handler, In};
     /// use guinea_core::feature::Push;
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
@@ -462,8 +462,8 @@ impl<'cx, A: 'static, M, P> Task<'cx, A, M, P, Reply> {
     /// }
     ///
     /// impl Handler<Fetch> for Weather {
-    ///     fn handle(&mut self, Fetch(city): Fetch, cx: Cx<Self, Fetch>) {
-    ///         cx.task().latest().pushing(self.0).spawn(async move {
+    ///     fn handle(In(this, Fetch(city), cx): In<Self, Fetch>) {
+    ///         cx.task().latest().pushing(this.0).spawn(async move {
     ///             if city == "Oslo" { "snow" } else { "sun" }
     ///         });
     ///     }
@@ -619,7 +619,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// # use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     /// # use std::time::Duration;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # #[derive(Debug)]
@@ -628,11 +628,11 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// # struct Tick;
     /// # guinea_macros::actor! { Poller { handlers { Start => { task Tick } Tick } } }
     /// # impl Handler<Tick> for Poller {
-    /// #     fn handle(&mut self, _: Tick, _cx: Cx<Self, Tick>) {}
+    /// #     fn handle(_: In<Self, Tick>) {}
     /// # }
     /// # impl Handler<Start> for Poller {
-    /// #     fn handle(&mut self, _: Start, cx: Cx<Self, Start>) {
-    /// #         let (polls, stopped) = (self.polls.clone(), self.stopped.clone());
+    /// #     fn handle(In(this, _, cx): In<Self, Start>) {
+    /// #         let (polls, stopped) = (this.polls.clone(), this.stopped.clone());
     /// #         let poll = move || {
     /// #             let polls = polls.clone();
     /// #             async move {
@@ -702,7 +702,7 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// use std::time::Duration;
     ///
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler, Stream};
+    /// use guinea_core::actor::{Addr, Handler, In, Stream};
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///
@@ -737,14 +737,14 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// }
     ///
     /// impl Handler<Start> for Launch {
-    ///     fn handle(&mut self, _: Start, cx: Cx<Self, Start>) {
+    ///     fn handle(In(_, _, cx): In<Self, Start>) {
     ///         cx.task().pour(Countdown(3), Tick);
     ///     }
     /// }
     ///
     /// impl Handler<Tick> for Launch {
-    ///     fn handle(&mut self, Tick(n): Tick, _cx: Cx<Self, Tick>) {
-    ///         self.0.borrow_mut().push(n);
+    ///     fn handle(In(this, Tick(n), _): In<Self, Tick>) {
+    ///         this.0.borrow_mut().push(n);
     ///     }
     /// }
     ///

@@ -145,7 +145,7 @@ impl<A: 'static> Addr<A> {
     /// ```
     /// use guinea_core::actor::event_bus::Event;
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::actor::{Addr, Handler, In};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Clone)]
@@ -163,7 +163,7 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// impl Handler<Saved> for Autosave {
-    ///     fn handle(&mut self, _: Saved, _cx: Cx<Self, Saved>) {}
+    ///     fn handle(_: In<Self, Saved>) {}
     /// }
     ///
     /// let tree = ScopeTree::new();
@@ -237,7 +237,7 @@ impl<A: 'static> Addr<A> {
     ///
     /// ```
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::actor::{Addr, Handler, In};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Debug)]
@@ -252,8 +252,8 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// impl Handler<Add> for Total {
-    ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
-    ///         self.0 += n;
+    ///     fn handle(In(this, Add(n), _): In<Self, Add>) {
+    ///         this.0 += n;
     ///     }
     /// }
     ///
@@ -270,7 +270,7 @@ impl<A: 'static> Addr<A> {
     ///
     /// ```
     /// # use guinea_core::__private::Home;
-    /// use guinea_core::actor::{Addr, Cx, Handler};
+    /// use guinea_core::actor::{Addr, Handler, In};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Debug)]
@@ -285,11 +285,11 @@ impl<A: 'static> Addr<A> {
     /// }
     ///
     /// impl Handler<From> for Countdown {
-    ///     fn handle(&mut self, From(n): From, cx: Cx<Self, From>) {
+    ///     fn handle(In(this, From(n), cx): In<Self, From>) {
     ///         if n > 0 {
     ///             cx.addr().send(From(n - 1));
     ///         }
-    ///         self.0.push(n);
+    ///         this.0.push(n);
     ///     }
     /// }
     ///
@@ -474,6 +474,7 @@ impl std::ops::Deref for TestHome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actor::In;
 
     #[test]
     fn an_address_is_one_pointer_so_handing_it_on_is_one_count() {
@@ -599,14 +600,14 @@ mod tests {
     }
 
     impl Handler<Heard> for Listening {
-        fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {}
+        fn handle(_: In<Self, Heard>) {}
     }
 
     struct Counting(Rc<Cell<u32>>);
 
     impl Handler<Heard> for Counting {
-        fn handle(&mut self, _: Heard, _cx: crate::actor::Cx<Self, Heard>) {
-            self.0.set(self.0.get() + 1);
+        fn handle(In(this, _, _): In<Self, Heard>) {
+            this.0.set(this.0.get() + 1);
         }
     }
 
@@ -632,16 +633,16 @@ mod tests {
     }
 
     impl Handler<Leave> for Leaving {
-        fn handle(&mut self, _: Leave, cx: crate::actor::Cx<Self, Leave>) {
+        fn handle(In(this, _, cx): In<Self, Leave>) {
             cx.addr().send(After);
-            self.scope.remove();
-            self.log.borrow_mut().push("leave");
+            this.scope.remove();
+            this.log.borrow_mut().push("leave");
         }
     }
 
     impl Handler<After> for Leaving {
-        fn handle(&mut self, _: After, _cx: crate::actor::Cx<Self, After>) {
-            self.log.borrow_mut().push("after");
+        fn handle(In(this, _, _): In<Self, After>) {
+            this.log.borrow_mut().push("after");
         }
     }
 
@@ -675,7 +676,7 @@ mod tests {
     struct Boom;
 
     impl Handler<Boom> for Counting {
-        fn handle(&mut self, _: Boom, _cx: crate::actor::Cx<Self, Boom>) {
+        fn handle(_: In<Self, Boom>) {
             panic!("boom");
         }
     }
@@ -696,7 +697,7 @@ mod tests {
     struct Fuse;
 
     impl Handler<Fuse> for Counting {
-        fn handle(&mut self, _: Fuse, cx: crate::actor::Cx<Self, Fuse>) {
+        fn handle(In(_, _, cx): In<Self, Fuse>) {
             cx.addr().send(Heard);
             panic!("fuse");
         }

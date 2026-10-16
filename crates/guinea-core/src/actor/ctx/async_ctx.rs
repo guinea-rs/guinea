@@ -42,7 +42,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -53,8 +53,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -78,7 +78,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -89,8 +89,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -114,7 +114,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -125,8 +125,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -154,7 +154,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -165,8 +165,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -191,7 +191,7 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -203,8 +203,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -250,7 +250,7 @@ impl<A: 'static> AsyncContext<A> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use guinea_core::__private::Home;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{Addr, AsyncContext, Handler, In};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -261,8 +261,8 @@ impl<A: 'static> AsyncContext<A> {
     /// #     }
     /// # }
     /// # impl Handler<Begin> for Job {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.0.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.0.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// # let tree = ScopeTree::new();
@@ -306,11 +306,11 @@ impl<A: 'static> AsyncContext<A> {
     ///
     /// ```
     /// # use std::cell::RefCell;
-    /// # use guinea_core::actor::{AsyncContext, Cx, Handler};
+    /// # use guinea_core::actor::{AsyncContext, Handler, In};
     /// # struct Begin;
     /// # impl Handler<Begin> for Total {
-    /// #     fn handle(&mut self, _: Begin, cx: Cx<Self, Begin>) {
-    /// #         *self.1.borrow_mut() = Some(cx.async_ctx());
+    /// #     fn handle(In(this, _, cx): In<Self, Begin>) {
+    /// #         *this.1.borrow_mut() = Some(cx.async_ctx());
     /// #     }
     /// # }
     /// use std::cell::Cell;
@@ -333,8 +333,8 @@ impl<A: 'static> AsyncContext<A> {
     /// }
     ///
     /// impl Handler<Add> for Total {
-    ///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
-    ///         self.0.set(self.0.get() + n);
+    ///     fn handle(In(this, Add(n), _): In<Self, Add>) {
+    ///         this.0.set(this.0.get() + n);
     ///     }
     /// }
     ///

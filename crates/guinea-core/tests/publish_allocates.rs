@@ -11,7 +11,7 @@ use std::rc::Rc;
 use guinea_core::actor::event_bus::subscribe::BusSubscription;
 use guinea_core::actor::event_bus::Event;
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::scope::ScopeTree;
 
 struct Counting;
@@ -55,8 +55,8 @@ guinea_macros::actor! {
 }
 
 impl Handler<Saved> for Sink {
-    fn handle(&mut self, Saved(bytes): Saved, _cx: Cx<Self, Saved>) {
-        self.0 += black_box(bytes).len() as u64;
+    fn handle(In(this, Saved(bytes), _): In<Self, Saved>) {
+        this.0 += black_box(bytes).len() as u64;
     }
 }
 

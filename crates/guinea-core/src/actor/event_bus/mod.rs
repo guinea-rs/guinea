@@ -56,7 +56,7 @@ pub enum HeardBy {
 /// ```compile_fail,E0624
 /// use guinea_core::actor::event_bus::Event;
 /// # use guinea_core::__private::Home;
-/// use guinea_core::actor::{Addr, Cx, Handler};
+/// use guinea_core::actor::{Addr, Handler, In};
 /// use guinea_core::scope::ScopeTree;
 ///
 /// #[derive(Clone)]
@@ -74,8 +74,8 @@ pub enum HeardBy {
 /// }
 ///
 /// impl Handler<Add> for Total {
-///     fn handle(&mut self, Add(n): Add, _cx: Cx<Self, Add>) {
-///         self.0 += n;
+///     fn handle(In(this, Add(n), _): In<Self, Add>) {
+///         this.0 += n;
 ///     }
 /// }
 ///

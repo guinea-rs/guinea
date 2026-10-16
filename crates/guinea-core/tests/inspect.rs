@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use guinea_core::__private::Home;
-use guinea_core::actor::{Addr, Cx, Handler};
+use guinea_core::actor::{Addr, Handler, In};
 use guinea_core::inspect::{Form, Node, Open, Opened, Step};
 use guinea_core::scope::ScopeTree;
 use guinea_macros::{Inspect, actor, reducer};
@@ -139,7 +139,7 @@ actor! {
 }
 
 impl Handler<Refresh> for Lister {
-    fn handle(&mut self, _: Refresh, _cx: Cx<Self, Refresh>) {}
+    fn handle(_: In<Self, Refresh>) {}
 }
 
 #[derive(Debug)]
@@ -153,7 +153,7 @@ actor! {
 }
 
 impl Handler<Refresh> for Printed {
-    fn handle(&mut self, _: Refresh, _cx: Cx<Self, Refresh>) {}
+    fn handle(_: In<Self, Refresh>) {}
 }
 
 struct Silent;
@@ -165,7 +165,7 @@ actor! {
 }
 
 impl Handler<Refresh> for Silent {
-    fn handle(&mut self, _: Refresh, _cx: Cx<Self, Refresh>) {}
+    fn handle(_: In<Self, Refresh>) {}
 }
 
 fn rows_from(window: std::ops::Range<usize>) -> Open {

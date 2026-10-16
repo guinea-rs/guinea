@@ -458,7 +458,7 @@ mod observed {
     use std::sync::{Mutex, MutexGuard, PoisonError};
 
     use guinea_core::actor::shape::name;
-    use guinea_core::observability::observer::{Event, Watching};
+    use guinea_core::observability::{Event, Watching};
     use guinea_core::observability::panels::{self, Panel};
     use guinea_macros::{actor, builds, feature, handler, installs, plugin, reducer};
 

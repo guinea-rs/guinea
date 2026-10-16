@@ -54,7 +54,6 @@ inventory::collect!(RemoteEvent);
 /// to the first of `scopes` that answers one by that name, innermost first:
 /// `scopes` run from the outermost layout to the page. Answers the action's
 /// id in the trace.
-#[doc(hidden)]
 pub fn act_in(scopes: &[Scope], named: &str, json: &str) -> Result<u64, String> {
     let candidates: Vec<&RemoteAction> = inventory::iter::<RemoteAction>()
         .filter(|action| action.name == named || action.path == named)
@@ -95,7 +94,6 @@ pub fn act_in(scopes: &[Scope], named: &str, json: &str) -> Result<u64, String> 
 
 /// Publishes the event `named` - a short name or a path - decoded from
 /// `json`, on `scope`'s bus. On the UI thread, where the bus lives.
-#[doc(hidden)]
 pub fn publish(scope: Scope, named: &str, json: &str) -> Result<u64, String> {
     let candidates: Vec<&RemoteEvent> = inventory::iter::<RemoteEvent>()
         .filter(|event| event.name == named || event.path == named)

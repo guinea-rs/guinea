@@ -5,12 +5,12 @@ use std::sync::Arc;
 use guinea_core::actor::Stream;
 use guinea_core::sources::{Period, Source};
 use guinea_core::actor::shape::{Declared, name};
-use guinea_core::actor::{Addr, Home, ManagedActor, Receives};
+use guinea_core::__private::{Claim, Exported, Home, Section};
+use guinea_core::actor::{Addr, ManagedActor, Receives};
 use guinea_core::actor::event_bus::subscribe::Event;
-use guinea_core::feature::{Claim, Exported};
 use guinea_core::feed::{Feed, FeedWriter};
 use guinea_core::guard::{Ask, Verdict};
-use guinea_core::scope::{Reducer, Scope, Section};
+use guinea_core::scope::{Reducer, Scope};
 
 use super::given::Lookup;
 

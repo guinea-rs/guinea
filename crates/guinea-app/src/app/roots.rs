@@ -24,7 +24,8 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use guinea_core::observability::observer::{self, Event};
+use guinea_core::__private::observer;
+use guinea_core::observability::Event;
 use guinea_core::scope::Scope;
 
 /// Names one root for as long as it is open.

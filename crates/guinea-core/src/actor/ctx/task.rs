@@ -137,7 +137,8 @@ impl<A: 'static, M> Cx<A, M> {
     /// use std::rc::Rc;
     /// use std::time::Duration;
     ///
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler};
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///
@@ -259,7 +260,8 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
-    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -305,7 +307,8 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
-    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -352,7 +355,8 @@ impl<'cx, A: 'static, M, R> Task<'cx, A, M, Parallel, R> {
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
     /// # use std::time::Duration;
-    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # struct Weather(Rc<RefCell<Vec<&'static str>>>);
@@ -431,7 +435,8 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// # use std::sync::Arc;
     /// # use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     /// # use std::time::Duration;
-    /// # use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # use guinea_core::ui_thread::UiLoop;
     /// # #[derive(Debug)]
@@ -513,7 +518,8 @@ impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
     /// use std::task::{Context, Poll};
     /// use std::time::Duration;
     ///
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home, Stream};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler, Stream};
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///

@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::*;
 use crate::actor::event_bus::HeardBy;
-use crate::actor::{Addr, Home};
+use crate::actor::Addr;
+use crate::actor::addr::Home;
 use crate::scope::ScopeTree;
 use crate::trace::{self, Point};
 

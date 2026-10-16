@@ -4,7 +4,7 @@ use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
 use crate::actor::event_bus::RpcCall;
 use crate::actor::traits::Handler;
-use crate::actor::PublishedBy;
+use crate::actor::traits::PublishedBy;
 use crate::trace;
 use crate::ui_thread::invoke_on_ui;
 use std::time::Duration;
@@ -41,7 +41,8 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -76,7 +77,8 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -111,7 +113,8 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -150,7 +153,8 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -186,7 +190,8 @@ impl<A: 'static> AsyncContext<A> {
     ///
     /// ```
     /// # use std::cell::RefCell;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -244,7 +249,8 @@ impl<A: 'static> AsyncContext<A> {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// # use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
     /// # use guinea_core::scope::ScopeTree;
     /// # #[derive(Debug)]
     /// # struct Job(Rc<RefCell<Option<AsyncContext<Job>>>>);
@@ -310,7 +316,8 @@ impl<A: 'static> AsyncContext<A> {
     /// use std::cell::Cell;
     /// use std::rc::Rc;
     ///
-    /// use guinea_core::actor::{Addr, Home};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::Addr;
     /// use guinea_core::scope::ScopeTree;
     /// use guinea_core::ui_thread::UiLoop;
     ///

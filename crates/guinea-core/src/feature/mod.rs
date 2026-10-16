@@ -14,9 +14,8 @@
 //! What a feature lets the segments below it read is its [`Exported`] list.
 
 pub(crate) mod claim;
-mod exports;
+pub(crate) mod exports;
 mod handles;
 
-pub use claim::{Bound, Claim};
-pub use exports::{Exported, Named};
+pub use claim::Bound;
 pub use handles::{Dispatch, Push};

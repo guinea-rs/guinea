@@ -113,6 +113,18 @@ fn an_action_sent_by_a_tool_reaches_the_page_in_the_newest_window_that_answers_i
 }
 
 #[test]
+fn a_tool_is_told_what_actions_and_events_it_may_send() {
+    let named = named();
+
+    let offered = (named.observed.actions(), named.observed.events());
+
+    assert!(
+        offered.0.contains(&"Rename") && offered.1.contains(&"Renamed"),
+        "{offered:?}"
+    );
+}
+
+#[test]
 fn an_action_for_a_window_that_is_not_open_is_refused() {
     let named = named();
 

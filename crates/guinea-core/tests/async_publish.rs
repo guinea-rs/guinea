@@ -4,7 +4,8 @@
 //!
 //! A process of its own, because the dispatcher is process-wide.
 
-use guinea_core::actor::{Addr, AsyncContext, Cx, Handler, Home};
+use guinea_core::__private::Home;
+use guinea_core::actor::{Addr, AsyncContext, Cx, Handler};
 use guinea_core::scope::ScopeTree;
 use guinea_core::ui_thread::{UiDispatcher, UiTask, set_ui_dispatcher};
 use std::cell::RefCell;

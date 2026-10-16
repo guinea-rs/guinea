@@ -1,5 +1,5 @@
 use guinea_core::actor::shape::Declared;
-use guinea_core::feature::Exported;
+use guinea_core::__private::Exported;
 
 use super::builder::{FeatureBuilder, PluginBuilder};
 

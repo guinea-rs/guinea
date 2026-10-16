@@ -1,5 +1,6 @@
 use crate::actor::shape::Declared;
-use crate::actor::{Addr, Home, ManagedActor};
+use crate::actor::addr::Home;
+use crate::actor::{Addr, ManagedActor};
 use crate::scope::{Reducer, Section};
 
 use super::{Dispatch, Push};

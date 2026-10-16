@@ -154,7 +154,8 @@ impl<Req: RpcCall> RpcRequest<Req> {
 ///
 /// ```
 /// # use std::time::Duration;
-/// # use guinea_core::actor::{Addr, Home};
+/// # use guinea_core::__private::Home;
+/// # use guinea_core::actor::Addr;
 /// # use guinea_core::actor::event_bus::{Reply, RpcRequest};
 /// # use guinea_core::scope::ScopeTree;
 /// # use guinea_core::ui_thread::UiLoop;

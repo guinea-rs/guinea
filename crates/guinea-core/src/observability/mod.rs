@@ -3,18 +3,20 @@
 //!
 //! - what happened, and why: [`trace`](crate::trace), with
 //!   [`mark_anywhere`] for something off the UI thread;
-//! - what is in the application and what moves in it: [`observer`];
+//! - what is in the application and what moves in it: a [`Batch`] of
+//!   [`Event`]s at a time, while [`Watching`];
 //! - what a backend or a plugin knows about itself: [`panels`];
 //! - the application's own `tracing` events: [`layer`].
 
 mod log_layer;
-pub mod observer;
+pub(crate) mod observer;
 pub mod panels;
 
 use crate::trace::{self, Point};
 use crate::ui_thread::try_invoke_on_ui;
 
 pub use log_layer::{LogLayer, layer};
+pub use observer::{AlreadyWatched, Batch, Event, Navigation, Watching};
 
 pub use crate::trace::is_observed;
 

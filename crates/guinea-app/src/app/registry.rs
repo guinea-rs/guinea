@@ -1,4 +1,5 @@
-use guinea_core::observability::observer::{self, Event};
+use guinea_core::__private::observer;
+use guinea_core::observability::Event;
 use guinea_core::scope::Scope;
 
 #[derive(Clone, Copy)]

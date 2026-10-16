@@ -623,7 +623,7 @@ mod titled {
 
 #[guinea::test(iterations = 4)]
 fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
-    use guinea::core::remote;
+    use guinea_core::__private::remote;
 
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::actions().contains(&"Rename"), "{:?}", remote::actions());
@@ -647,7 +647,7 @@ fn an_action_sent_as_json_reaches_the_scope_that_answers_it(h: &mut Harness) {
 /// page answers, the page before the layout above it.
 #[guinea::test(iterations = 4)]
 fn two_actions_of_one_name_each_reach_the_page_that_answers_it(h: &mut Harness) {
-    use guinea::core::remote;
+    use guinea_core::__private::remote;
 
     h.install::<named::Naming>(&()).unwrap();
     let page = h.child();
@@ -668,7 +668,7 @@ fn two_actions_of_one_name_each_reach_the_page_that_answers_it(h: &mut Harness) 
 /// path is.
 #[guinea::test(iterations = 4)]
 fn two_actions_of_one_name_in_one_scope_are_told_apart_by_path(h: &mut Harness) {
-    use guinea::core::remote;
+    use guinea_core::__private::remote;
 
     h.install::<named::Naming>(&()).unwrap();
     h.install::<titled::Titling>(&()).unwrap();
@@ -685,7 +685,7 @@ fn two_actions_of_one_name_in_one_scope_are_told_apart_by_path(h: &mut Harness) 
 
 #[guinea::test(iterations = 4)]
 fn an_event_sent_as_json_goes_out_on_the_application_s_bus(h: &mut Harness) {
-    use guinea::core::remote;
+    use guinea_core::__private::remote;
 
     h.install::<named::Naming>(&()).unwrap();
     assert!(remote::events().contains(&"Renamed"), "{:?}", remote::events());

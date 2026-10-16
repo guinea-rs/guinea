@@ -1,5 +1,6 @@
 use guinea_core::actor::event_bus::{HeardBy, Listener, Listening};
-use guinea_core::actor::{Addr, Cx, Handler, Home};
+use guinea_core::__private::Home;
+use guinea_core::actor::{Addr, Cx, Handler};
 use guinea_core::scope::ScopeTree;
 
 #[derive(Clone, Debug, guinea_macros::Event)]

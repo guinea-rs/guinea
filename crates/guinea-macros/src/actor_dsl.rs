@@ -547,7 +547,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
     };
 
     let published = publishes.iter().map(|msg| {
-        quote! { impl #impl_generics #gc::actor::PublishedBy<#self_ty> for #msg #where_clause {} }
+        quote! { impl #impl_generics #gc::__private::PublishedBy<#self_ty> for #msg #where_clause {} }
     });
 
     let subscriptions = subscribes.iter().map(|msg| {
@@ -637,7 +637,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
             impl #impl_generics #private::Serves for #self_ty #where_clause {
                 fn serve(
                     addr: &#gc::actor::Addr<Self>,
-                    section: #gc::scope::Section,
+                    section: #gc::__private::Section,
                 ) {
                     #(#served)*
                 }

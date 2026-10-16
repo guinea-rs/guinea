@@ -7,7 +7,8 @@ use std::hint::black_box;
 
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use guinea_core::actor::{Addr, Cx, Handler, Home};
+use guinea_core::__private::Home;
+use guinea_core::actor::{Addr, Cx, Handler};
 use guinea_core::scope::ScopeTree;
 use guinea_core::trace;
 

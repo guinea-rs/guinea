@@ -115,7 +115,6 @@ pub struct Batch {
 
 /// What a layer above this crate knows about a scope, told again to a tool
 /// that starts watching.
-#[doc(hidden)]
 pub struct Describer(pub fn(Scope, &mut Vec<Event>));
 
 inventory::collect!(Describer);
@@ -188,7 +187,6 @@ thread_local! {
 /// taken since the last call - from the thread it moved on, in the middle
 /// of whatever moved it. It hands off and returns: it does not take, and
 /// calls nothing here.
-#[doc(hidden)]
 pub fn watch(
     scope: Scope,
     woken: impl Fn() + Send + Sync + 'static,
@@ -355,7 +353,6 @@ fn watching(scope: Scope) -> Option<Rc<Observer>> {
 
 /// Tells the tool watching `scope`'s tree, if one does; `event` is not built
 /// otherwise.
-#[doc(hidden)]
 pub fn tell(scope: Scope, event: impl FnOnce() -> Event) {
     if let Some(observer) = watching(scope) {
         observer.note(event());

@@ -439,8 +439,8 @@ impl crate::actor::Handler<Tick> for Ticker {
     }
 }
 
-fn home(scope: Scope) -> crate::actor::Home {
-    crate::actor::Home::new(scope)
+fn home(scope: Scope) -> crate::actor::addr::Home {
+    crate::actor::addr::Home::new(scope)
 }
 
 #[test]

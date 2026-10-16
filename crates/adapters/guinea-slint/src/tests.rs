@@ -237,7 +237,8 @@ impl Open {
 
 #[test]
 fn what_is_mounted_says_where_it_was_written() {
-    use guinea_core::observability::observer::{self, Event};
+    use guinea_core::__private::observer;
+    use guinea_core::observability::Event;
 
     let window = Open::at(Place::Processes);
     let watching = observer::watch(window.host.scope(), || {}).expect("nothing else watches");

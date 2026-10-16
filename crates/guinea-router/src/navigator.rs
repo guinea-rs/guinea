@@ -20,7 +20,8 @@ use std::rc::{Rc, Weak};
 use guinea_core::guard::{Ask, Decision, Verdict};
 use guinea_core::scope::Scope;
 
-use guinea_core::observability::observer::{self, Event, Navigation};
+use guinea_core::__private::observer;
+use guinea_core::observability::{Event, Navigation};
 
 /// A place the application can be: an enum, a variant per place, and a
 /// variant holding another route for each layout below.

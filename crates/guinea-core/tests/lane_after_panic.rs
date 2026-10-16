@@ -2,7 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use guinea_core::actor::{Addr, Cx, Handler, Home};
+use guinea_core::__private::Home;
+use guinea_core::actor::{Addr, Cx, Handler};
 use guinea_core::scope::ScopeTree;
 use guinea_core::trace::{self, Trace};
 use guinea_core::ui_thread::UiLoop;

@@ -1,8 +1,9 @@
 use guinea_core::actor::snapshot::ActorSnapshot;
 use guinea_core::inspect::{Node, Open};
-use guinea_core::observability::observer::{self, Describer, Event, Watching};
+use guinea_core::__private::observer::{self, Describer};
+use guinea_core::observability::{Event, Watching};
 use guinea_core::observability::panels::{self, Panel};
-use guinea_core::remote;
+use guinea_core::__private::remote;
 use guinea_core::scope::{DescribedState, Scope, ScopeId};
 
 use super::registry::{Backend, Plugins};
@@ -92,6 +93,16 @@ impl Observed {
         let mut scopes: Vec<Scope> = window.subtree().into_iter().filter(Scope::is_awake).collect();
         scopes.reverse();
         remote::act_in(&scopes, action, json)
+    }
+
+    /// Every action [`act`](Self::act) may send, by name, each once.
+    pub fn actions(self) -> Vec<&'static str> {
+        remote::actions()
+    }
+
+    /// Every event [`publish`](Self::publish) may send, by name, each once.
+    pub fn events(self) -> Vec<&'static str> {
+        remote::events()
     }
 
     /// Publishes the event registered as `event`, decoded from `json`, on the

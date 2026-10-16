@@ -6,7 +6,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use guinea_app::feature::FeatureHost;
 use guinea_core::actor::shape::Declared;
-use guinea_core::observability::observer::{self, Event, Navigation, Watching};
+use guinea_core::__private::observer;
+use guinea_core::observability::{Event, Navigation, Watching};
 use guinea_core::scope::Scope;
 use guinea_router::mount::{self, Pass};
 use guinea_router::navigator::Navigator;

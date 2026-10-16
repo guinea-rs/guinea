@@ -4,7 +4,8 @@ use crate::actor::event_bus::subscribe::Event;
 use crate::actor::event_bus::{RpcCall, RpcRequest};
 use crate::actor::flow::Allows;
 use crate::actor::traits::Handler;
-use crate::actor::{ManagedActor, PublishedBy};
+use crate::actor::ManagedActor;
+use crate::actor::traits::PublishedBy;
 use std::marker::PhantomData;
 
 mod async_ctx;

@@ -7,7 +7,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_core::actor::{Addr, Cx, Handler, Home};
+use guinea_core::__private::Home;
+use guinea_core::actor::{Addr, Cx, Handler};
 use guinea_core::scope::ScopeTree;
 
 struct Counting;

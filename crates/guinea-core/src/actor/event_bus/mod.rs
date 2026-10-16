@@ -55,7 +55,8 @@ pub enum HeardBy {
 ///
 /// ```compile_fail,E0624
 /// use guinea_core::actor::event_bus::Event;
-/// use guinea_core::actor::{Addr, Cx, Handler, Home};
+/// # use guinea_core::__private::Home;
+/// use guinea_core::actor::{Addr, Cx, Handler};
 /// use guinea_core::scope::ScopeTree;
 ///
 /// #[derive(Clone)]

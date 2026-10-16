@@ -144,7 +144,8 @@ impl<A: 'static> Addr<A> {
     ///
     /// ```
     /// use guinea_core::actor::event_bus::Event;
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Clone)]
@@ -235,7 +236,8 @@ impl<A: 'static> Addr<A> {
     /// returns:
     ///
     /// ```
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Debug)]
@@ -267,7 +269,8 @@ impl<A: 'static> Addr<A> {
     /// what it is doing returns, in the order it was sent:
     ///
     /// ```
-    /// use guinea_core::actor::{Addr, Cx, Handler, Home};
+    /// # use guinea_core::__private::Home;
+    /// use guinea_core::actor::{Addr, Cx, Handler};
     /// use guinea_core::scope::ScopeTree;
     ///
     /// #[derive(Debug)]

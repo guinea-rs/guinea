@@ -1,7 +1,8 @@
 //! What the tool watching an application is told of its windows when it
 //! starts: what was mounted where, and where the navigators are.
 
-use guinea_core::observability::observer::{Describer, Event};
+use guinea_core::__private::observer::Describer;
+use guinea_core::observability::Event;
 use guinea_core::scope::Scope;
 
 fn describe(scope: Scope, events: &mut Vec<Event>) {

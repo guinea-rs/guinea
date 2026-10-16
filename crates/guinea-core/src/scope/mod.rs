@@ -4,7 +4,7 @@ use crate::actor::event_bus::EventBus;
 use crate::observability::observer::{self, Event};
 
 mod actors;
-mod features;
+pub(crate) mod features;
 mod held;
 mod kept;
 mod lifetime;
@@ -15,7 +15,8 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
-pub use features::{Installed, Listener, Section};
+pub use features::{Installed, Listener};
+pub(crate) use features::Section;
 pub use lifetime::Awake;
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
 pub use tree::{ScopeGuard, ScopeTree};

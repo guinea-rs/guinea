@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use guinea::app::{Act, Harness};
 use guinea::core::__private::tokio::sync::oneshot;
 use guinea::core::actor::Cancel;
-use guinea::core::actor::ctx::task::{Policy, Task};
+use guinea::core::actor::task::{Policy, Task};
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]

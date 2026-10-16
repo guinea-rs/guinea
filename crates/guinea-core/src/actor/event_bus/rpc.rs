@@ -45,7 +45,7 @@ impl<T: RpcCall> Event for RpcRequest<T> {
     }
 }
 
-type Waiting<R> = Arc<Mutex<Option<oneshot::Sender<Result<R, String>>>>>;
+type Waiting<R> = Arc<Mutex<Option<oneshot::Sender<Result<R, Why>>>>>;
 
 /// Where the answer to one request goes: to whoever awaits it, once.
 ///
@@ -76,7 +76,7 @@ impl<R: Send + 'static> ReplyTo<R> {
         }
     }
 
-    fn settle(&self, outcome: Result<R, String>) -> bool {
+    fn settle(&self, outcome: Result<R, Why>) -> bool {
         let Some(waiting) = &self.waiting else {
             return false;
         };
@@ -268,7 +268,7 @@ impl Scope {
     /// one answer, from whichever thread this runs on: the request is
     /// published on the UI thread, and fails at once when nothing awake
     /// answers it.
-    pub async fn request<Req>(self, payload: Req, timeout: Duration) -> anyhow::Result<Req::Response>
+    pub async fn request<Req>(self, payload: Req, timeout: Duration) -> Result<Req::Response, Unanswered>
     where
         Req: RpcCall,
     {
@@ -310,29 +310,65 @@ impl Scope {
         invoke_on_ui(move || {
             let _carried = carried.resume();
 
-            let unanswered = match self.tree_bus() {
-                None => "the tree it was asked in is gone".to_string(),
+            let why = match self.tree_bus() {
+                None => Why::TreeGone,
                 Some(bus) => match bus.answering::<RpcRequest<Req>>() {
                     Answering::Awake => return bus.publish(envelope),
-                    Answering::Nobody => format!("nobody answers {}", std::any::type_name::<Req>()),
-                    Answering::Asleep(answerer) => format!(
-                        "{answerer}, which answers {}, is asleep",
-                        std::any::type_name::<Req>()
-                    ),
+                    Answering::Nobody => Why::Nobody,
+                    Answering::Asleep(answerer) => Why::Asleep { answerer },
                 },
             };
 
-            envelope.reply_to.settle(Err(unanswered));
+            envelope.reply_to.settle(Err(why));
         });
 
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(Ok(response))) => Ok(response),
-            Ok(Ok(Err(unanswered))) => Err(anyhow::anyhow!(unanswered)),
-            Ok(Err(_)) => Err(anyhow::anyhow!(
-                "{} was dropped without an answer",
-                std::any::type_name::<Req>()
-            )),
-            Err(_) => Err(anyhow::anyhow!("RPC request timed out")),
+        let why = match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(response))) => return Ok(response),
+            Ok(Ok(Err(why))) => why,
+            Ok(Err(_)) => Why::Dropped,
+            Err(_) => Why::TimedOut,
+        };
+
+        Err(Unanswered {
+            request: std::any::type_name::<Req>(),
+            why,
+        })
+    }
+}
+
+/// Why a request came back without an answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unanswered {
+    /// The request, as its type is named.
+    pub request: &'static str,
+    pub why: Why,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// The tree it was asked in is gone.
+    TreeGone,
+    /// Nothing in the tree answers it.
+    Nobody,
+    /// What answers it lives in a scope that is asleep.
+    Asleep { answerer: &'static str },
+    /// What answers it let go of it without answering.
+    Dropped,
+    /// No answer came in the time it was given.
+    TimedOut,
+}
+
+impl std::fmt::Display for Unanswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let request = self.request;
+        match self.why {
+            Why::TreeGone => write!(f, "{request} was asked in a tree that is gone"),
+            Why::Nobody => write!(f, "nobody answers {request}"),
+            Why::Asleep { answerer } => write!(f, "{answerer}, which answers {request}, is asleep"),
+            Why::Dropped => write!(f, "{request} was dropped without an answer"),
+            Why::TimedOut => write!(f, "{request} was not answered in time"),
         }
     }
 }
+
+impl std::error::Error for Unanswered {}

@@ -2,7 +2,7 @@ use super::Cx;
 use crate::actor::addr::Reach;
 use crate::actor::cancel::Cancel;
 use crate::actor::event_bus::subscribe::Event;
-use crate::actor::event_bus::RpcCall;
+use crate::actor::event_bus::{RpcCall, Unanswered};
 use crate::actor::traits::Handler;
 use crate::actor::traits::PublishedBy;
 use crate::trace;
@@ -296,7 +296,7 @@ impl<A: 'static> AsyncContext<A> {
         &self,
         payload: Req,
         timeout: Duration,
-    ) -> anyhow::Result<Req::Response> {
+    ) -> Result<Req::Response, Unanswered> {
         self.reach.scope().request(payload, timeout).await
     }
 

@@ -401,7 +401,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// <!-- shown: asking -->
 /// ```rust,ignore
 /// pub struct Ask(pub u32);
-/// pub struct Told(pub String);
+/// pub struct Told(pub Result<Outcome, Why>);
 ///
 /// #[derive(Debug)]
 /// pub struct Asker {
@@ -418,11 +418,8 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// // returned - or with why there was nothing to wait for.
 /// #[handler]
 /// async fn ask(cx: AsyncContext<Asker>, Ask(pid): Ask) {
-///     let said = match cx.request(Kill(pid), Duration::from_secs(5)).await {
-///         Ok(outcome) => format!("{outcome:?}"),
-///         Err(error) => error.to_string(),
-///     };
-///     cx.send(Told(said));
+///     let said = cx.request(Kill(pid), Duration::from_secs(5)).await;
+///     cx.send(Told(said.map_err(|unanswered| unanswered.why)));
 /// }
 ///
 /// #[handler]

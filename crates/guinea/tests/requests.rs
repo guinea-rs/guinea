@@ -4,14 +4,14 @@
 use std::time::Duration;
 
 use guinea::app::Harness;
-use guinea::actor::event_bus::RpcRequest;
+use guinea::actor::event_bus::{RpcRequest, Why};
 use guinea::prelude::*;
 
 #[derive(Default, Clone, PartialEq, Debug)]
-pub struct Said(pub Option<String>);
+pub struct Said(pub Option<Result<Outcome, Why>>);
 
 #[reducer]
-fn said(this: &mut Said, said: String) {
+fn said(this: &mut Said, said: Result<Outcome, Why>) {
     this.0 = Some(said);
 }
 
@@ -162,7 +162,7 @@ mod asking {
 
     //@show asking
     pub struct Ask(pub u32);
-    pub struct Told(pub String);
+    pub struct Told(pub Result<Outcome, Why>);
 
     #[derive(Debug)]
     pub struct Asker {
@@ -179,11 +179,8 @@ mod asking {
     // returned - or with why there was nothing to wait for.
     #[handler]
     async fn ask(cx: AsyncContext<Asker>, Ask(pid): Ask) {
-        let said = match cx.request(Kill(pid), Duration::from_secs(5)).await {
-            Ok(outcome) => format!("{outcome:?}"),
-            Err(error) => error.to_string(),
-        };
-        cx.send(Told(said));
+        let said = cx.request(Kill(pid), Duration::from_secs(5)).await;
+        cx.send(Told(said.map_err(|unanswered| unanswered.why)));
     }
 
     #[handler]
@@ -401,7 +398,7 @@ mod cycle {
     }
 }
 
-fn asked(h: &Harness, pid: u32) -> Option<String> {
+fn asked(h: &Harness, pid: u32) -> Option<Result<Outcome, Why>> {
     h.dispatch::<Said>().emit(asking::Ask(pid));
     h.settled();
     h.state::<Said>().0.clone()
@@ -412,8 +409,8 @@ fn the_answer_comes_back_to_whoever_asked(h: &mut Harness) {
     h.install::<answering::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
-    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
+    assert_eq!(asked(h, 4), Some(Ok(Outcome::Denied)));
 }
 
 #[guinea::test(iterations = 4)]
@@ -421,8 +418,8 @@ fn an_answer_given_later_comes_back_to_whoever_asked(h: &mut Harness) {
     h.install::<answering_later::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
-    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
+    assert_eq!(asked(h, 4), Some(Ok(Outcome::Denied)));
 }
 
 #[guinea::test(iterations = 4)]
@@ -430,7 +427,7 @@ fn an_answerer_sends_what_its_request_declares(h: &mut Harness) {
     h.install::<answering_and_sending::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
     assert_eq!(h.state::<answering_and_sending::LastKilled>().0, Some(7));
 }
 
@@ -439,8 +436,7 @@ fn a_request_nobody_answers_says_so_at_once(h: &mut Harness) {
     h.install::<listening::Auditing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
-    assert!(said.starts_with("nobody answers"), "{said}");
+    assert_eq!(asked(h, 7), Some(Err(Why::Nobody)), "an answer, not a wait for the timeout");
 }
 
 #[guinea::test(iterations = 4)]
@@ -449,7 +445,7 @@ fn a_listener_beside_the_answerer_does_not_change_the_answer(h: &mut Harness) {
     h.install::<answering::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+    assert_eq!(asked(h, 4), Some(Ok(Outcome::Denied)));
 }
 
 #[guinea::test(iterations = 4)]
@@ -458,11 +454,10 @@ fn the_answerer_goes_with_its_segment(h: &mut Harness) {
 
     let area = h.child();
     area.install::<answering::Killing>(&()).unwrap();
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
 
     area.leave();
-    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
-    assert!(said.starts_with("nobody answers"), "{said}");
+    assert_eq!(asked(h, 7), Some(Err(Why::Nobody)), "an answer, not a wait for the timeout");
 }
 
 #[guinea::test(iterations = 4)]
@@ -470,8 +465,8 @@ fn an_answerer_written_async_answers_with_what_it_returns(h: &mut Harness) {
     h.install::<answering_async::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
-    assert_eq!(asked(h, 4).as_deref(), Some("Denied"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
+    assert_eq!(asked(h, 4), Some(Ok(Outcome::Denied)));
 }
 
 #[guinea::test(iterations = 4)]
@@ -480,7 +475,7 @@ fn a_listener_hears_the_request_and_its_reply_goes_nowhere(h: &mut Harness) {
     h.install::<answering::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
     assert_eq!(h.state::<listening_and_replying::Heard>().0, [7]);
 }
 
@@ -494,7 +489,7 @@ fn the_answerer_s_place_is_free_again_once_its_segment_goes(h: &mut Harness) {
 
     let second = h.child();
     second.install::<answering::Killing>(&()).unwrap();
-    assert_eq!(asked(h, 7).as_deref(), Some("Done"));
+    assert_eq!(asked(h, 7), Some(Ok(Outcome::Done)));
 }
 
 #[guinea::test(iterations = 4)]
@@ -505,8 +500,11 @@ fn a_request_whose_answerer_sleeps_says_so_at_once(h: &mut Harness) {
     area.install::<answering::Killing>(&()).unwrap();
     area.scope().sleep();
 
-    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
-    assert!(said.contains("is asleep"), "{said}");
+    let said = asked(h, 7);
+    assert!(
+        matches!(said, Some(Err(Why::Asleep { answerer })) if answerer.ends_with("Processes")),
+        "an answer, not a wait for the timeout: {said:?}"
+    );
 }
 
 #[guinea::test(iterations = 4)]
@@ -514,8 +512,7 @@ fn a_request_its_answerer_drops_says_so_at_once(h: &mut Harness) {
     h.install::<dropping::Killing>(&()).unwrap();
     h.install::<asking::Asking>(&()).unwrap();
 
-    let said = asked(h, 7).expect("an answer, not a wait for the timeout");
-    assert!(said.contains("without an answer"), "{said}");
+    assert_eq!(asked(h, 7), Some(Err(Why::Dropped)), "an answer, not a wait for the timeout");
 }
 
 #[guinea::test(iterations = 4)]

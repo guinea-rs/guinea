@@ -56,7 +56,7 @@ pub use guinea_eframe as eframe;
 pub use guinea_iced as iced;
 
 pub use guinea_app::{app, app_meta, feature};
-pub use guinea_core::{actor, executor, guard, sources};
+pub use guinea_core::{actor, executor, guard, sources, ui_thread};
 
 pub use guinea_meta as meta;
 

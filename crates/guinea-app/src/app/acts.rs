@@ -14,6 +14,7 @@ use guinea_core::trace::{self, Cause, Point, Trace};
 pub(crate) struct Recorder {
     log: Rc<RefCell<Log>>,
     _every_render: EveryRender,
+    _hearing: trace::Observing,
 }
 
 #[derive(Default)]
@@ -71,11 +72,12 @@ impl Recorder {
         let log = Rc::new(RefCell::new(Log::default()));
 
         let hearing = log.clone();
-        trace::observe(move |trace| hearing.borrow_mut().hear(trace));
+        let hearing = trace::observe(move |trace| hearing.borrow_mut().hear(trace));
 
         Self {
             log,
             _every_render: record_every_render(),
+            _hearing: hearing,
         }
     }
 
@@ -117,12 +119,6 @@ impl Recorder {
     pub(crate) fn chain(&self, cause: Cause) -> Chain {
         let log = self.log.borrow();
         Chain::grow(&log, cause)
-    }
-}
-
-impl Drop for Recorder {
-    fn drop(&mut self) {
-        trace::stop_observing();
     }
 }
 

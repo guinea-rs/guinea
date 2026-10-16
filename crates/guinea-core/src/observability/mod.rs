@@ -168,7 +168,7 @@ mod tests {
         let ui = crate::ui_thread::UiLoop::install();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |record| {
+        let observing = trace::observe(move |record| {
             if let trace::Trace::Mark(record) = record {
                 sink.borrow_mut().push((record.parent, record.point.kind()));
             }
@@ -185,7 +185,7 @@ mod tests {
         .join()
         .expect("writer");
         ui.drain();
-        trace::stop_observing();
+        drop(observing);
 
         assert_eq!(
             *seen.borrow(),

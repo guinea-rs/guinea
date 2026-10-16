@@ -25,8 +25,8 @@ mod sink;
 pub use json::{Json, json};
 pub use point::Point;
 pub use sink::{
-    ELSEWHERE_LIMIT, Elsewhere, is_observed, is_observed_anywhere, is_point_target,
-    is_recorded_anywhere, observe, ring_on_elsewhere, stop_observing, take_elsewhere, thread_id,
+    ELSEWHERE_LIMIT, Elsewhere, Observing, is_observed, is_observed_anywhere, is_point_target,
+    is_recorded_anywhere, observe, ring_on_elsewhere, take_elsewhere, thread_id,
 };
 
 use std::cell::Cell;
@@ -303,11 +303,11 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    fn collect() -> Rc<RefCell<Vec<Trace>>> {
+    fn collect() -> (Rc<RefCell<Vec<Trace>>>, Observing) {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        observe(move |trace| sink.borrow_mut().push(trace.clone()));
-        seen
+        let observing = observe(move |trace| sink.borrow_mut().push(trace.clone()));
+        (seen, observing)
     }
 
     /// Every trace, as its kind, its id and its parent, in the order it was
@@ -339,12 +339,12 @@ mod tests {
 
     #[test]
     fn now_is_read_on_the_clock_a_record_is_stamped_with() {
-        let seen = collect();
+        let (seen, observing) = collect();
 
         let before = mark(|| Point::Push { reducer: "Before" });
         let between = now();
         let after = mark(|| Point::Push { reducer: "After" });
-        stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         assert_eq!(
@@ -370,7 +370,7 @@ mod tests {
     fn what_a_point_took_leaves_out_what_watching_it_cost() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        observe(move |trace| {
+        let observing = observe(move |trace| {
             // An observer that takes its time, so the cost is unmistakable.
             std::thread::sleep(std::time::Duration::from_millis(2));
             sink.borrow_mut().push(trace.clone());
@@ -384,7 +384,7 @@ mod tests {
         let fifth = mark(|| Point::Push { reducer: "Metrics" });
         let action_id = action.id();
         drop(action);
-        stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         assert_eq!(
@@ -414,7 +414,7 @@ mod tests {
     fn what_a_point_took_leaves_out_recording_its_own_beginning() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        observe(move |trace| {
+        let observing = observe(move |trace| {
             std::thread::sleep(std::time::Duration::from_millis(10));
             sink.borrow_mut().push(trace.clone());
         });
@@ -422,7 +422,7 @@ mod tests {
         let action = enter(|| Point::Action { message: "Save" });
         let action_id = action.id();
         drop(action);
-        stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         assert_eq!(
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn what_happens_inside_a_point_is_caused_by_it() {
-        let seen = collect();
+        let (seen, observing) = collect();
 
         let action = enter(|| Point::Action { message: "Kill" });
         let send = mark(|| Point::Send {
@@ -461,7 +461,7 @@ mod tests {
         let action_id = action.id();
         drop(handled);
         drop(action);
-        stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         assert_eq!(
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn a_resumed_cause_holds_only_until_its_guard_drops() {
-        let seen = collect();
+        let (seen, observing) = collect();
         let spawn = mark(|| Point::Spawn {
             actor: "Poller",
             actor_id: 1,
@@ -491,7 +491,7 @@ mod tests {
         let pushed = mark(|| Point::Push { reducer: "Metrics" });
         drop(resumed);
         let after = mark(|| Point::Push { reducer: "Metrics" });
-        stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         assert_eq!(
@@ -512,7 +512,7 @@ mod tests {
         ring_on_elsewhere(Some(std::sync::Arc::new(move || {
             counted.fetch_add(1, Ordering::SeqCst);
         })));
-        observe(|_| {});
+        let observing = observe(|_| {});
         take_elsewhere();
 
         let elsewhere = || {
@@ -528,7 +528,7 @@ mod tests {
         take_elsewhere();
         elsewhere();
 
-        stop_observing();
+        drop(observing);
         ring_on_elsewhere(None);
         assert_eq!((before_the_take, rung.load(Ordering::SeqCst)), (1, 2));
     }

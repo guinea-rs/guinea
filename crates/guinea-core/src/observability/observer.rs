@@ -135,6 +135,7 @@ impl std::error::Error for AlreadyWatched {}
 /// The watch [`watch`] started; dropping it ends the watch.
 pub struct Watching {
     observer: Rc<Observer>,
+    _traced: trace::Observing,
 }
 
 struct Observer {
@@ -193,7 +194,7 @@ pub fn watch(
     woken: impl Fn() + Send + Sync + 'static,
 ) -> Result<Watching, AlreadyWatched> {
     let root = scope.root().filter(|root| root.is_alive()).ok_or(AlreadyWatched)?;
-    if trace::is_observed() || WATCHED.swap(true, Ordering::AcqRel) {
+    if WATCHED.swap(true, Ordering::AcqRel) {
         return Err(AlreadyWatched);
     }
 
@@ -214,7 +215,7 @@ pub fn watch(
 
     OBSERVER.with(|slot| slot.replace(Some(observer.clone())));
     let traced = Rc::downgrade(&observer);
-    trace::observe(move |record| {
+    let traced = trace::observe(move |record| {
         if let Some(observer) = traced.upgrade() {
             observer.traced(record);
         }
@@ -222,7 +223,10 @@ pub fn watch(
     trace::ring_on_elsewhere(Some(Arc::new(move || bell.ring())));
     observer.bell.ring();
 
-    Ok(Watching { observer })
+    Ok(Watching {
+        observer,
+        _traced: traced,
+    })
 }
 
 impl Watching {
@@ -260,7 +264,6 @@ impl Watching {
 impl Drop for Watching {
     fn drop(&mut self) {
         trace::ring_on_elsewhere(None);
-        trace::stop_observing();
         let _ = OBSERVER.try_with(|slot| slot.take());
         WATCHED.store(false, Ordering::Release);
     }

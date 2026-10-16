@@ -236,7 +236,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |record| {
+        let observing = trace::observe(move |record| {
             if let trace::Trace::Mark(record) = record
                 && let Point::Log { text, .. } = &record.point
             {
@@ -251,7 +251,7 @@ mod tests {
             tracing::info!(pid = 42, "process killed");
             tracing::debug!(target: "guinea::plugin", "a guinea point, logged: not traced twice");
         });
-        trace::stop_observing();
+        drop(observing);
 
         assert_eq!(
             *seen.borrow(),
@@ -265,7 +265,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |record| {
+        let observing = trace::observe(move |record| {
             if let trace::Trace::Mark(record) = record
                 && let Point::Log {
                     file, line, module, ..
@@ -277,7 +277,7 @@ mod tests {
 
         let subscriber = tracing_subscriber::registry().with(layer());
         tracing::subscriber::with_default(subscriber, || tracing::info!("here"));
-        trace::stop_observing();
+        drop(observing);
 
         assert_eq!(
             *seen.borrow(),
@@ -291,7 +291,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |trace| sink.borrow_mut().push(trace.clone()));
+        let observing = trace::observe(move |trace| sink.borrow_mut().push(trace.clone()));
 
         let subscriber = tracing_subscriber::registry().with(layer());
         let action = trace::mark(|| Point::Action { message: "Refresh" });
@@ -307,7 +307,7 @@ mod tests {
                 fields: Vec::new(),
             });
         });
-        trace::stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         let span = seen
@@ -348,7 +348,7 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
-        trace::observe(move |trace| {
+        let observing = trace::observe(move |trace| {
             if let trace::Trace::Begin(record) = trace
                 && let Point::Span { name, level, .. } = &record.point
             {
@@ -361,7 +361,7 @@ mod tests {
             let _warned = tracing::warn_span!("retrying").entered();
             let _debugged = tracing::debug_span!("parsing").entered();
         });
-        trace::stop_observing();
+        drop(observing);
 
         assert_eq!(
             *seen.borrow(),
@@ -375,7 +375,7 @@ mod tests {
 
         let took = Rc::new(RefCell::new(Vec::new()));
         let sink = took.clone();
-        trace::observe(move |trace| {
+        let observing = trace::observe(move |trace| {
             if let trace::Trace::End { took, .. } = trace {
                 sink.borrow_mut().push(*took);
             }
@@ -390,7 +390,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(40));
         });
-        trace::stop_observing();
+        drop(observing);
 
         let took = *took.borrow().first().expect("the span closed");
         assert!(
@@ -405,14 +405,14 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(0));
         let sink = seen.clone();
-        trace::observe(move |_| *sink.borrow_mut() += 1);
+        let observing = trace::observe(move |_| *sink.borrow_mut() += 1);
 
         let subscriber = tracing_subscriber::registry().with(layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::span!(target: "guinea::handle", tracing::Level::INFO, "a guinea point");
             let _entered = span.enter();
         });
-        trace::stop_observing();
+        drop(observing);
 
         assert_eq!(*seen.borrow(), 0);
     }

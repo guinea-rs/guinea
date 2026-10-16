@@ -4,7 +4,7 @@ use guinea_trace::{Point, is_observed_anywhere, mark, observe, take_elsewhere};
 
 #[test]
 fn a_thread_that_observed_and_ended_is_watching_nothing() {
-    std::thread::spawn(|| observe(|_| {})).join().unwrap();
+    std::thread::spawn(|| std::mem::forget(observe(|_| {}))).join().unwrap();
 
     assert!(
         !is_observed_anywhere(),

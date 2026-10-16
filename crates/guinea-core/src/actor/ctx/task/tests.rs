@@ -56,6 +56,7 @@ struct Bench {
     addr: Addr<Searcher>,
     found: Rc<RefCell<Vec<u32>>>,
     ends: Rc<RefCell<Vec<&'static str>>>,
+    _observing: trace::Observing,
 }
 
 impl Bench {
@@ -68,7 +69,7 @@ impl Bench {
 
         let ends = Rc::new(RefCell::new(Vec::new()));
         let sink = ends.clone();
-        trace::observe(move |trace| {
+        let observing = trace::observe(move |trace| {
             if let Trace::Mark(record) = trace
                 && ENDS.contains(&record.point.kind())
             {
@@ -82,6 +83,7 @@ impl Bench {
             addr,
             found,
             ends,
+            _observing: observing,
         }
     }
 
@@ -95,12 +97,6 @@ impl Bench {
 
     fn ends(&self) -> Vec<&'static str> {
         self.ends.borrow().clone()
-    }
-}
-
-impl Drop for Bench {
-    fn drop(&mut self) {
-        trace::stop_observing();
     }
 }
 

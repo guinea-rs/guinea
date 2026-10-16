@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use guinea_trace::{Cause, Point, Trace, enter, mark, observe, stop_observing};
+use guinea_trace::{Cause, Point, Trace, enter, mark, observe};
 
 #[test]
 fn a_point_opened_while_nobody_watched_does_not_end_for_whoever_watches_later() {
@@ -12,12 +12,12 @@ fn a_point_opened_while_nobody_watched_does_not_end_for_whoever_watches_later() 
 
     let seen = Rc::new(RefCell::new(Vec::new()));
     let sink = seen.clone();
-    observe(move |trace| sink.borrow_mut().push(trace.clone()));
+    let observing = observe(move |trace| sink.borrow_mut().push(trace.clone()));
 
     let pushed = mark(|| Point::Push { reducer: "Metrics" });
     let action_id = action.id();
     drop(action);
-    stop_observing();
+    drop(observing);
 
     let seen: Vec<(&str, Cause, Option<Cause>)> = seen
         .borrow()

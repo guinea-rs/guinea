@@ -1,5 +1,5 @@
 use guinea_trace::{
-    Cause, Point, Trace, enter, mark, observe, resume, stop_observing, take_elsewhere, thread_id,
+    Cause, Point, Trace, enter, mark, observe, resume, take_elsewhere, thread_id,
 };
 
 /// Every record taken from the other threads, as the thread, its kind, its
@@ -18,7 +18,7 @@ fn order(records: &[(u32, Trace)]) -> Vec<(u32, &'static str, Cause, Option<Caus
 
 #[test]
 fn a_cause_carried_to_another_thread_is_the_parent_of_what_is_recorded_there() {
-    observe(|_| {});
+    let observing = observe(|_| {});
 
     let action = enter(|| Point::Action { message: "Kill" });
     let cause = action.id();
@@ -36,7 +36,7 @@ fn a_cause_carried_to_another_thread_is_the_parent_of_what_is_recorded_there() {
 
     drop(action);
     let elsewhere = take_elsewhere();
-    stop_observing();
+    drop(observing);
 
     assert_eq!(
         order(&elsewhere.records),

@@ -111,7 +111,7 @@ mod tests {
         let home = TestHome::new();
         let seen = Rc::new(RefCell::new(Vec::<Record>::new()));
         let sink = seen.clone();
-        trace::observe(move |trace| {
+        let observing = trace::observe(move |trace| {
             if let Trace::Begin(record) | Trace::Mark(record) = trace {
                 sink.borrow_mut().push(record.clone());
             }
@@ -127,7 +127,7 @@ mod tests {
             let _action = trace::enter(|| Point::Action { message: "First" });
             addr.send(First);
         }
-        trace::stop_observing();
+        drop(observing);
 
         let seen = seen.borrow();
         let find = |wanted: &dyn Fn(&Point) -> bool| -> &Record {

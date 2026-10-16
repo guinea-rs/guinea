@@ -33,7 +33,7 @@ thread_local! {
 fn a_local_that_outlives_the_observer_still_asks_whether_it_is_observed() {
     std::thread::spawn(|| {
         OUTLIVES_THE_OBSERVER.with(|local| *local.borrow_mut() = Some(AsksOnTheWayOut));
-        observe(|_| {});
+        std::mem::forget(observe(|_| {}));
     })
     .join()
     .unwrap();

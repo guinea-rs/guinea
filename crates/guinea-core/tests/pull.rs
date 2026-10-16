@@ -81,7 +81,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
 
     let heard = Rc::new(RefCell::new(Vec::<Heard>::new()));
     let hearing = heard.clone();
-    trace::observe(move |record| {
+    let observing = trace::observe(move |record| {
         if let Trace::Begin(record) | Trace::Mark(record) = record {
             hearing.borrow_mut().push(Heard {
                 id: record.id,
@@ -104,7 +104,7 @@ fn what_a_source_does_for_its_next_item_is_under_a_pull_of_it() {
             tokio::task::yield_now().await;
         }
     });
-    trace::stop_observing();
+    drop(observing);
 
     let heard = heard.borrow();
     let at = |id: Cause| heard.iter().find(|one| one.id == id);

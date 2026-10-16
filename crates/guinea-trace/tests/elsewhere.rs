@@ -1,4 +1,4 @@
-use guinea_trace::{ELSEWHERE_LIMIT, Point, Trace, mark, observe, stop_observing, take_elsewhere, thread_id};
+use guinea_trace::{ELSEWHERE_LIMIT, Point, Trace, mark, observe, take_elsewhere, thread_id};
 
 fn note(trace: &Trace) -> Option<&str> {
     match trace {
@@ -28,7 +28,7 @@ fn on_a_thread(marks: usize) -> u32 {
 fn what_other_threads_record_waits_for_the_observing_thread_and_keeps_the_newest() {
     let seen_here = std::rc::Rc::new(std::cell::Cell::new(0));
     let counted = seen_here.clone();
-    observe(move |_| counted.set(counted.get() + 1));
+    let observing = observe(move |_| counted.set(counted.get() + 1));
 
     let worker = on_a_thread(3);
     assert_ne!(worker, thread_id(), "two threads are told apart");
@@ -58,7 +58,7 @@ fn what_other_threads_record_waits_for_the_observing_thread_and_keeps_the_newest
         "the newest stay"
     );
 
-    stop_observing();
+    drop(observing);
     on_a_thread(2);
     assert!(take_elsewhere().records.is_empty(), "nobody observes, nothing is kept");
 }

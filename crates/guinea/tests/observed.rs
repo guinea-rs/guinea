@@ -122,6 +122,27 @@ fn an_action_for_a_window_that_is_not_open_is_refused() {
 }
 
 #[test]
+fn a_tool_watches_an_application_a_harness_drives_and_both_hear_what_it_did() {
+    let mut h = guinea::app::Harness::new(1);
+    let Watches(observed) = h.plugin::<Watches>(()).expect("the plugin builds");
+    h.install::<Naming>(&()).expect("the feature installs");
+
+    let watching = observed.watch(|| {});
+    let act = h.act::<Name>(Renamed("guinea".into()));
+    act.settle();
+    let heard = watching.as_ref().map(|watching| {
+        watching.take().trace.iter().any(|(_, trace)| {
+            matches!(
+                trace,
+                guinea::observability::trace::Trace::Begin(record) if record.id == act.cause()
+            )
+        })
+    });
+
+    assert_eq!((heard.ok(), act.is_settled()), (Some(true), true));
+}
+
+#[test]
 fn an_event_sent_by_a_tool_goes_out_on_the_application_s_bus() {
     let named = named();
 

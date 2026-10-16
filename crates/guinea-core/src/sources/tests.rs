@@ -116,7 +116,7 @@ fn an_item_says_which_source_it_came_from() {
     let tree = ScopeTree::new();
     let seen = Rc::new(RefCell::new(Vec::new()));
     let heard = seen.clone();
-    crate::trace::observe(move |trace| {
+    let observing = crate::trace::observe(move |trace| {
         let record = match trace {
             crate::trace::Trace::Begin(record) | crate::trace::Trace::Mark(record) => record,
             _ => return,
@@ -130,7 +130,7 @@ fn an_item_says_which_source_it_came_from() {
     let (source, _) = every(&tree, 30);
     let source = source.named("flush");
     wait(&clock, 30);
-    crate::trace::stop_observing();
+    drop(observing);
 
     let id = source.id().expect("open");
     assert_eq!(

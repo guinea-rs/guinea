@@ -1,7 +1,8 @@
 //! Where records go.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -14,38 +15,94 @@ use crate::{Cause, Point, Record, Trace};
 
 type Observer = Rc<dyn Fn(&Trace)>;
 
-struct Slot(RefCell<Option<Observer>>);
+type Observers = Rc<Vec<(u64, Observer)>>;
+
+struct Slot {
+    observers: RefCell<Option<Observers>>,
+    next: Cell<u64>,
+}
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        if self.0.get_mut().take().is_some() {
+        if self.observers.get_mut().take().is_some() {
             stopped();
         }
     }
 }
 
 thread_local! {
-    static OBSERVER: Slot = const { Slot(RefCell::new(None)) };
+    static OBSERVERS: Slot = const {
+        Slot {
+            observers: RefCell::new(None),
+            next: Cell::new(0),
+        }
+    };
 }
 
 static OBSERVED_THREADS: AtomicUsize = AtomicUsize::new(0);
 
-/// Hands every record produced on this thread to `observer`, replacing any
-/// observer already set, until [`stop_observing`] or the thread ends. A
-/// thread already tearing its locals down is not observed.
-pub fn observe(observer: impl Fn(&Trace) + 'static) {
-    let Ok(before) = OBSERVER.try_with(|slot| slot.0.borrow_mut().replace(Rc::new(observer))) else {
-        return;
-    };
+/// Hands every record produced on this thread to `observer`, beside any
+/// other observer of it, until the returned guard drops or the thread ends.
+/// A thread already tearing its locals down is not observed.
+pub fn observe(observer: impl Fn(&Trace) + 'static) -> Observing {
+    let added = OBSERVERS.try_with(|slot| {
+        let id = slot.next.get();
+        slot.next.set(id + 1);
 
-    if before.is_none() {
+        let mut observers = slot.observers.borrow_mut();
+        let first = observers.is_none();
+        let mut list = observers.as_deref().cloned().unwrap_or_default();
+        list.push((id, Rc::new(observer) as Observer));
+        *observers = Some(Rc::new(list));
+
+        (id, first)
+    });
+
+    let Ok((id, first)) = added else {
+        return Observing {
+            id: None,
+            thread: PhantomData,
+        };
+    };
+    if first {
         OBSERVED_THREADS.fetch_add(1, Ordering::Relaxed);
+    }
+    Observing {
+        id: Some(id),
+        thread: PhantomData,
     }
 }
 
-pub fn stop_observing() {
-    if OBSERVER.try_with(|slot| slot.0.borrow_mut().take()).ok().flatten().is_some() {
-        stopped();
+/// An observer of this thread's records, heard until it drops.
+#[must_use = "the observer stops hearing when this drops"]
+pub struct Observing {
+    id: Option<u64>,
+    thread: PhantomData<Rc<()>>,
+}
+
+impl Drop for Observing {
+    fn drop(&mut self) {
+        let Some(id) = self.id else {
+            return;
+        };
+
+        let emptied = OBSERVERS
+            .try_with(|slot| {
+                let mut observers = slot.observers.borrow_mut();
+                let Some(list) = observers.as_ref() else {
+                    return false;
+                };
+                let left: Vec<(u64, Observer)> =
+                    list.iter().filter(|(other, _)| *other != id).cloned().collect();
+                let emptied = left.is_empty();
+                *observers = (!emptied).then(|| Rc::new(left));
+                emptied
+            })
+            .unwrap_or(false);
+
+        if emptied {
+            stopped();
+        }
     }
 }
 
@@ -55,14 +112,14 @@ fn stopped() {
     }
 }
 
-/// Whether devtools are watching this thread.
+/// Whether anything observes this thread's records.
 pub fn is_observed() -> bool {
-    OBSERVER
-        .try_with(|slot| slot.0.borrow().is_some())
+    OBSERVERS
+        .try_with(|slot| slot.observers.borrow().is_some())
         .unwrap_or(false)
 }
 
-/// Whether devtools are watching any thread.
+/// Whether anything observes the records of any thread.
 pub fn is_observed_anywhere() -> bool {
     OBSERVED_THREADS.load(Ordering::Relaxed) > 0
 }
@@ -196,8 +253,11 @@ fn os_thread_id() -> u32 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
-fn observer() -> Option<Observer> {
-    OBSERVER.try_with(|slot| slot.0.borrow().clone()).ok().flatten()
+fn observers() -> Option<Observers> {
+    OBSERVERS
+        .try_with(|slot| slot.observers.borrow().clone())
+        .ok()
+        .flatten()
 }
 
 /// Whether `target` is one [`emit`] writes points under, so a layer that
@@ -379,8 +439,12 @@ pub(crate) fn emit(trace: Trace) {
         ),
     }
 
-    match observer() {
-        Some(observer) => observer(&trace),
+    match observers() {
+        Some(observers) => {
+            for (_, observer) in observers.iter() {
+                observer(&trace);
+            }
+        }
         None if is_observed_anywhere() => keep_elsewhere(trace),
         None => {}
     }

@@ -47,7 +47,7 @@ fn a_lane_whose_work_panicked_takes_work_again() {
 
     let ends = Rc::new(RefCell::new(Vec::new()));
     let sink = ends.clone();
-    trace::observe(move |trace| {
+    let _observing = trace::observe(move |trace| {
         if let Trace::Mark(record) = trace
             && ["settled", "cancelled"].contains(&record.point.kind())
         {

@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use guinea_app::feature::FeatureInitContext;
 use guinea_core::actor::shape::Declared;
-use guinea_core::binding::ReducerBinding;
+use guinea_core::__private::ReducerBinding;
 use guinea_core::feature::Dispatch;
 use guinea_core::__private::observer;
 use guinea_core::observability::Event;

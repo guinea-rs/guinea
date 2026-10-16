@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicUsize;
 use super::*;
 use crate::actor::addr::{Addr, TestHome};
 use crate::actor::{Cx, Handler};
-use crate::executor::{Installed, install};
+use crate::executor::seeded::{Installed, install};
 use crate::scope::ScopeTree;
 
 /// The test's own clock: ticks wait on it, and it moves only when told.

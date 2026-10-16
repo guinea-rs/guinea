@@ -282,12 +282,18 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
     }
 }
 
-/// Whether a scope above `scope` opened a feed of the type `of`.
-pub fn opened_above(scope: Scope, of: TypeId) -> bool {
-    scope
-        .ancestors()
-        .iter()
-        .any(|above| above.feed_key(of).is_some())
+pub(crate) mod above {
+    use std::any::TypeId;
+
+    use crate::scope::Scope;
+
+    /// Whether a scope above `scope` opened a feed of the type `of`.
+    pub fn opened_above(scope: Scope, of: TypeId) -> bool {
+        scope
+            .ancestors()
+            .iter()
+            .any(|above| above.feed_key(of).is_some())
+    }
 }
 
 fn deliver<T: Send + Sync + 'static>(home: Scope, key: usize) {

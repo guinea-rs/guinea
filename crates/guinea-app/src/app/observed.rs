@@ -2,7 +2,8 @@ use guinea_core::actor::snapshot::ActorSnapshot;
 use guinea_core::inspect::{Node, Open};
 use guinea_core::__private::observer::{self, Describer};
 use guinea_core::observability::{Event, Watching};
-use guinea_core::observability::panels::{self, Panel};
+use guinea_core::__private::panels;
+use guinea_core::observability::panels::Panel;
 use guinea_core::__private::remote;
 use guinea_core::scope::{DescribedState, Scope, ScopeId};
 

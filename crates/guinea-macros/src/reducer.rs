@@ -73,8 +73,8 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
             }
 
             fn show(&self, at: #gc::inspect::Inspector<'_>) {
-                use #gc::inspect::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
-                (&&&#gc::inspect::pick::Probe(self)).show(at)
+                use #gc::__private::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
+                (&&&#gc::__private::pick::Probe(self)).show(at)
             }
         }
     })

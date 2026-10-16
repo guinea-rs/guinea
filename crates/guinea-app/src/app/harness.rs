@@ -5,10 +5,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use guinea_core::actor::event_bus::{Event, EventBus};
-use guinea_core::executor::{self, Installed};
+use guinea_core::__private::{Installed, short_type_name};
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope, ScopeGuard};
-use guinea_core::short_type_name;
 use guinea_core::trace::{self, Cause, Point};
 
 use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
@@ -92,7 +91,7 @@ const HORIZON: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl Harness {
     pub fn new(seed: u64) -> Self {
-        let executor = executor::install(seed);
+        let executor = guinea_core::__private::install(seed);
         let app = TestApp::new();
         let window = FeatureHost::under(&AppContext::of(&app));
         let segment = window.context(window.scope(), 0);

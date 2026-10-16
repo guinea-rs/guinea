@@ -15,9 +15,9 @@ use std::any::TypeId;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use guinea_core::feed::{self, Feed};
+use guinea_core::__private::{opened_above, short_type_name};
+use guinea_core::feed::Feed;
 use guinea_core::scope::Scope;
-use guinea_core::short_type_name;
 
 use super::FeatureInitContext;
 
@@ -109,7 +109,7 @@ impl Need {
     fn is_there(&self, scope: Scope) -> bool {
         match self.fed {
             false => scope.provides(self.id),
-            true => feed::opened_above(scope, self.id),
+            true => opened_above(scope, self.id),
         }
     }
 }

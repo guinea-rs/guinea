@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use guinea_core::binding::ReducerBinding;
+use guinea_core::__private::ReducerBinding;
 use guinea_core::scope::Reducer;
 use slint::{Model, ModelNotify, ModelRc, ModelTracker};
 

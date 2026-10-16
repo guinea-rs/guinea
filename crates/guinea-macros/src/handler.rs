@@ -91,15 +91,15 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                 ));
             }
             quote! {
-                impl #impl_generics #gc::actor::event_bus::rpc::RpcHandler<#msg_ty> for #actor_ty #where_clause {
+                impl #impl_generics #gc::__private::RpcHandler<#msg_ty> for #actor_ty #where_clause {
                     #declared
 
                     fn handle_rpc(
                         &mut self,
                         __guinea_msg: #msg_ty,
                         #cx: #gc::actor::Cx<Self, #msg_ty>,
-                    ) -> #gc::actor::event_bus::rpc::Reply<
-                        <#msg_ty as #gc::actor::event_bus::rpc::RpcCall>::Response,
+                    ) -> #gc::actor::event_bus::Reply<
+                        <#msg_ty as #gc::actor::event_bus::RpcCall>::Response,
                     > {
                         ::core::convert::Into::into(#fn_name(self, __guinea_msg #passed_cx))
                     }
@@ -152,7 +152,7 @@ fn expand_handler(mut item: ItemFn) -> Result<TokenStream> {
                     ) {
                         let __guinea_actx = __guinea_cx.async_ctx();
                         let (__guinea_payload, __guinea_reply_to) = __guinea_msg.into_parts();
-                        #gc::actor::event_bus::ReplyTo::<#ret_ty>::later(
+                        #gc::__private::ReplyTo::<#ret_ty>::later(
                             __guinea_reply_to,
                             async move { #fn_name(__guinea_actx, __guinea_payload).await },
                         );

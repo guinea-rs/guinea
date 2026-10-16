@@ -36,23 +36,28 @@ thread_local! {
     static EVERY_RENDER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Records every render on this thread, however quick, while the returned
-/// guard lives.
-///
-/// For a test, which asks which segments a cause redrew. The threshold is
-/// noise control for devtools watching a live application, and a test's draw
-/// is usually under it. Per thread rather than per process: tests run side by
-/// side, and a setting one of them changed would be every other's too.
-pub fn record_every_render() -> EveryRender {
-    EveryRender(EVERY_RENDER.replace(true))
-}
+pub(crate) mod rendered {
+    use super::EVERY_RENDER;
 
-/// Puts the threshold back when dropped. See [`record_every_render`].
-pub struct EveryRender(bool);
+    /// Records every render on this thread, however quick, while the
+    /// returned guard lives.
+    ///
+    /// For a test, which asks which segments a cause redrew. The threshold
+    /// is noise control for devtools watching a live application, and a
+    /// test's draw is usually under it. Per thread rather than per process:
+    /// tests run side by side, and a setting one of them changed would be
+    /// every other's too.
+    pub fn record_every_render() -> EveryRender {
+        EveryRender(EVERY_RENDER.replace(true))
+    }
 
-impl Drop for EveryRender {
-    fn drop(&mut self) {
-        let _gone = EVERY_RENDER.try_with(|every| every.set(self.0));
+    /// Puts the threshold back when dropped. See [`record_every_render`].
+    pub struct EveryRender(bool);
+
+    impl Drop for EveryRender {
+        fn drop(&mut self) {
+            let _gone = EVERY_RENDER.try_with(|every| every.set(self.0));
+        }
     }
 }
 
@@ -138,7 +143,8 @@ pub(crate) fn end_anywhere(id: trace::Cause, took: std::time::Duration) {
 #[cfg(test)]
 mod tests {
     use super::observer::{Event, tell};
-    use super::panels::{Panel, contribute, contribute_to_app, for_app, for_root};
+    use super::panels::read::{for_app, for_root};
+    use super::panels::{Panel, contribute, contribute_to_app};
 
     fn test_panel() -> Option<Panel> {
         Some(Panel {

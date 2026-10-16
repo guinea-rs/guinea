@@ -65,14 +65,18 @@ pub fn contribute_to_app(provider: impl Fn() -> Option<Panel> + 'static) -> Pane
     offer(None, provider)
 }
 
-/// Every panel offered for `root`, built now.
-pub fn for_root(root: u64) -> Vec<Panel> {
-    built(Some(root))
-}
+pub(crate) mod read {
+    use super::{Panel, built};
 
-/// Every panel offered for the application, built now.
-pub fn for_app() -> Vec<Panel> {
-    built(None)
+    /// Every panel offered for `root`, built now.
+    pub fn for_root(root: u64) -> Vec<Panel> {
+        built(Some(root))
+    }
+
+    /// Every panel offered for the application, built now.
+    pub fn for_app() -> Vec<Panel> {
+        built(None)
+    }
 }
 
 pub struct PanelGuard {

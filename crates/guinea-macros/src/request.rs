@@ -36,7 +36,7 @@ pub(crate) fn derive_request(input: DeriveInput) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics #gc::actor::event_bus::rpc::RpcCall for #name #ty_generics #where_clause {
+        impl #impl_generics #gc::actor::event_bus::RpcCall for #name #ty_generics #where_clause {
             type Response = #reply;
         }
     }

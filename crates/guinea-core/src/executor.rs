@@ -92,13 +92,10 @@ impl Future for YieldNow {
 }
 
 #[cfg(feature = "test-utils")]
-pub use seeded::{Installed, install};
-
-#[cfg(feature = "test-utils")]
 pub(crate) use seeded::queue_ui;
 
 #[cfg(feature = "test-utils")]
-mod seeded {
+pub(crate) mod seeded {
     use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::future::Future;

@@ -49,7 +49,7 @@ use std::any::Any;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use guinea_core::binding::ReducerBinding;
+use guinea_core::__private::ReducerBinding;
 use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::mount::{Pass, binding, navigator};

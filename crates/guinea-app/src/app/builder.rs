@@ -4,8 +4,8 @@ use std::ops::{Deref, DerefMut};
 use anyhow::Context as _;
 use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
+use guinea_core::__private::short_type_name;
 use guinea_core::scope::ScopeTree;
-use guinea_core::short_type_name;
 use crate::feature::{ScopeContext, publish, settle};
 
 use super::observed::Observed;

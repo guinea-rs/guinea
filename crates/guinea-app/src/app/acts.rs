@@ -6,8 +6,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use guinea_core::observability::{EveryRender, record_every_render};
-use guinea_core::short_type_name;
+use guinea_core::__private::{EveryRender, record_every_render, short_type_name};
 use guinea_core::trace::{self, Cause, Point, Trace};
 
 /// Every point recorded on this thread while it is held.

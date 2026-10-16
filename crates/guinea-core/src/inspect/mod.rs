@@ -451,8 +451,7 @@ impl fmt::Write for Preview {
     }
 }
 
-#[doc(hidden)]
-pub mod pick {
+pub(crate) mod pick {
     //! What `actor!` and `#[reducer]` show a state with: its [`Inspect`],
     //! else its `Debug`, else its type's name - picked where the type is
     //! known, by which of three impls method lookup reaches first.

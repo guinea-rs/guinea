@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use super::*;
 use crate::actor::addr::{Addr, TestHome};
-use crate::executor::{self, Installed};
+use crate::executor::seeded::{self as executor, Installed};
 use crate::trace::Trace;
 
 struct Search;

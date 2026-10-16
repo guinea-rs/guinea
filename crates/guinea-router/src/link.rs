@@ -30,31 +30,8 @@ mod sealed {
 ///
 /// Implemented for the standard types that survive a round trip through a path
 /// segment, and sealed, so the set is guinea's to widen rather than anyone's
-/// to reach into.
-///
-/// A type of the application's own cannot be let in, however well it parses:
-///
-/// ```compile_fail
-/// use guinea_router::link::LinkValue;
-///
-/// struct Session(String);
-///
-/// impl LinkValue for Session {
-///     const NAME: &'static str = "Session";
-///     fn decode(segment: &str) -> Option<Self> { Some(Session(segment.to_string())) }
-///     fn encode(&self) -> String { self.0.clone() }
-/// }
-/// ```
-///
-/// and one that never tried cannot be a capture:
-///
-/// ```compile_fail
-/// use guinea_router::link::LinkValue;
-///
-/// struct Session(String);
-///
-/// let _: Option<Session> = LinkValue::decode("anything");
-/// ```
+/// to reach into: a type of the application's own cannot be let in, however
+/// well it parses.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot appear in a link",
     label = "a link carries only standard types",

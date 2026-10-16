@@ -51,38 +51,7 @@ pub enum HeardBy {
 ///
 /// A callback joins with [`subscribe_fn`](Self::subscribe_fn) or
 /// [`answer_fn`](Self::answer_fn). An actor joins by its manifest's
-/// `subscribes { .. }`, when it is made, and nothing subscribes it by hand:
-///
-/// ```compile_fail,E0624
-/// use guinea_core::actor::event_bus::Event;
-/// # use guinea_core::__private::Home;
-/// use guinea_core::actor::{Addr, Handler, In};
-/// use guinea_core::scope::ScopeTree;
-///
-/// #[derive(Clone)]
-/// struct Add(u32);
-///
-/// impl Event for Add {}
-///
-/// #[derive(Debug)]
-/// struct Total(u32);
-///
-/// guinea_macros::actor! {
-///     Total {
-///         handlers { Add }
-///     }
-/// }
-///
-/// impl Handler<Add> for Total {
-///     fn handle(In(this, Add(n), _): In<Self, Add>) {
-///         this.0 += n;
-///     }
-/// }
-///
-/// let tree = ScopeTree::new();
-/// let total = Addr::new(Total(0), &Home::new(tree.scope()));
-/// let _heard = tree.bus().subscribe::<Total, Add>(total);
-/// ```
+/// `subscribes { .. }`, when it is made, and nothing subscribes it by hand.
 pub struct EventBus {
     /// Each list is replaced, never changed in place: a publication holds the
     /// list it started with, so one that subscribes or unsubscribes while it

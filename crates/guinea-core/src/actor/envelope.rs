@@ -4,11 +4,11 @@ use crate::actor::Cx;
 use crate::short_type_name;
 use crate::trace::{self, Cause, Point};
 
-pub trait Envelope<A> {
+pub(crate) trait Envelope<A> {
     fn handle(&mut self, actor: &mut A, addr: &Addr<A>);
 }
 
-pub struct MessageEnvelope<M: 'static> {
+pub(crate) struct MessageEnvelope<M: 'static> {
     pub(super) message: Option<M>,
     /// The send that queued this message.
     pub(super) cause: Cause,

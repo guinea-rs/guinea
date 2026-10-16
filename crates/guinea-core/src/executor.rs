@@ -92,7 +92,7 @@ impl Future for YieldNow {
 }
 
 #[cfg(feature = "test-utils")]
-pub use seeded::{Installed, Seeded, install};
+pub use seeded::{Installed, install};
 
 #[cfg(feature = "test-utils")]
 pub(crate) use seeded::queue_ui;

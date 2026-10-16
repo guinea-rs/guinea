@@ -143,7 +143,7 @@ const SETTLE_ROUNDS: usize = 16;
 /// starting one of its own, and every round counts against the same
 /// [`SETTLE_ROUNDS`]: a cycle ends in a warning, not in a stack that never
 /// stops growing.
-pub fn drain() {
+pub(crate) fn drain() {
     if DRAINING.with(Cell::get) || !pending() {
         return;
     }
@@ -257,7 +257,7 @@ pub fn drain() {
 }
 
 /// Whether any cell or feed is waiting to be drained.
-pub fn pending() -> bool {
+pub(crate) fn pending() -> bool {
     MARKED.with(|marked| !marked.borrow().is_empty()) || FED.with(|fed| !fed.borrow().is_empty())
 }
 

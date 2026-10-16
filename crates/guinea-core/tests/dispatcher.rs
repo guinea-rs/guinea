@@ -5,7 +5,7 @@
 //! unifies dev-dependencies' features into the application, and the feature
 //! must add a place for work to go, not take the dispatcher away.
 
-use guinea_core::ui_thread::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher, try_invoke_on_ui};
+use guinea_core::ui_thread::{UiDispatcher, UiTask, invoke_on_ui, set_ui_dispatcher};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -34,20 +34,11 @@ fn work_for_the_ui_thread_goes_to_the_registered_dispatcher() {
         counted.fetch_add(1, Ordering::SeqCst);
     });
 
-    let counted = ran.clone();
-    assert!(
-        try_invoke_on_ui(move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-        })
-        .is_ok(),
-        "there is a UI thread to run it on"
-    );
-
     let dispatched: Vec<UiTask> = std::mem::take(&mut *tasks.lock().unwrap());
-    assert_eq!(dispatched.len(), 2, "both went to the dispatcher");
+    assert_eq!(dispatched.len(), 1, "it went to the dispatcher");
 
     for task in dispatched {
         task();
     }
-    assert_eq!(ran.load(Ordering::SeqCst), 2);
+    assert_eq!(ran.load(Ordering::SeqCst), 1);
 }

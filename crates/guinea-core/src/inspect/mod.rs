@@ -15,14 +15,14 @@ use std::ops::Range;
 mod std_impls;
 
 /// How long a preview may grow before it is cut, in bytes.
-pub const PREVIEW: usize = 120;
+pub(crate) const PREVIEW: usize = 120;
 
 /// How many items of a list or map are read when no window was asked for.
-pub const WINDOW: usize = 100;
+pub(crate) const WINDOW: usize = 100;
 
 /// How long the text of an open state shown through `Debug` may grow, in
 /// bytes.
-pub const TEXT: usize = 64 * 1024;
+pub(crate) const TEXT: usize = 64 * 1024;
 
 /// A value devtools can open a node at a time.
 ///

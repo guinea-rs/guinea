@@ -8,7 +8,7 @@ use std::cell::Cell;
 use std::hint::black_box;
 use std::rc::Rc;
 
-use guinea_core::BusSubscription;
+use guinea_core::actor::event_bus::subscribe::BusSubscription;
 use guinea_core::actor::event_bus::Event;
 use guinea_core::actor::{Addr, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;

@@ -56,7 +56,7 @@ where
 
 /// Like [`invoke_on_ui`], but hands `f` back when there is no UI thread to
 /// run it on yet.
-pub fn try_invoke_on_ui<F>(f: F) -> Result<(), F>
+pub(crate) fn try_invoke_on_ui<F>(f: F) -> Result<(), F>
 where
     F: FnOnce() + Send + 'static,
 {

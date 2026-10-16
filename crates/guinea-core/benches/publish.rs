@@ -7,7 +7,7 @@ use std::rc::Rc;
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use guinea_core::actor::event_bus::{Event, EventBus};
-use guinea_core::BusSubscription;
+use guinea_core::actor::event_bus::subscribe::BusSubscription;
 use guinea_core::actor::{Addr, Cx, Handler, Home};
 use guinea_core::scope::ScopeTree;
 

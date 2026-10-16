@@ -44,22 +44,6 @@ pub struct Declared {
     pub crate_dir: &'static str,
 }
 
-/// Where the line that calls it was written.
-///
-/// `file!` and friends expand at the call site, so a macro that puts this in
-/// what it generates points at the code the author wrote, not at itself.
-#[macro_export]
-macro_rules! declared {
-    () => {
-        $crate::actor::shape::Declared {
-            file: ::core::file!(),
-            line: ::core::line!(),
-            column: ::core::column!(),
-            crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
-        }
-    };
-}
-
 impl Declared {
     /// The file on this machine: `file` itself when absolute, otherwise the
     /// first of `crate_dir` and its ancestors that has it. `None` when the

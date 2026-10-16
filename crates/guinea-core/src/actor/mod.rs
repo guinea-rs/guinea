@@ -1,7 +1,7 @@
 pub mod addr;
 pub mod cancel;
 pub mod ctx;
-pub mod envelope;
+mod envelope;
 pub(crate) mod flow;
 
 pub mod traits;
@@ -9,7 +9,6 @@ pub mod traits;
 pub use addr::*;
 pub use cancel::*;
 pub use ctx::*;
-pub use envelope::*;
 pub use traits::*;
 
 /// What [`Task::pour`](ctx::Task::pour) and [`Section::pour`](crate::scope::Section::pour)

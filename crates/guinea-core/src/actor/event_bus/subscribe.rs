@@ -13,7 +13,7 @@ use super::{EventBus, HeardBy};
 /// Identifies one subscription on one bus. Carries the event's `TypeId` so
 /// removal goes straight to the right bucket instead of scanning every one.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct SubscriptionId {
+pub(crate) struct SubscriptionId {
     pub(super) seq: u64,
     pub(super) event: TypeId,
 }
@@ -66,7 +66,7 @@ pub trait Event: Clone + Send + 'static {
 
 /// One publication of an event on its way to who hears it: each opens a copy
 /// of it, and the last the event itself.
-pub struct Letter<M> {
+pub(crate) struct Letter<M> {
     event: Option<M>,
     last: bool,
 }
@@ -93,7 +93,7 @@ impl<M: Clone> Letter<M> {
     }
 }
 
-pub trait UntypedSubscriber: 'static {
+pub(crate) trait UntypedSubscriber: 'static {
     /// Hands over `letter`, a [`Letter`] of the event this subscriber hears.
     fn deliver(&self, letter: &mut dyn Any);
     fn seq(&self) -> u64;
@@ -115,7 +115,7 @@ pub trait UntypedSubscriber: 'static {
     }
 }
 
-pub struct Subscriber<A: Handler<M>, M: Event> {
+pub(crate) struct Subscriber<A: Handler<M>, M: Event> {
     pub(super) seq: u64,
     pub(super) addr: Addr<A>,
     pub(super) _marker: PhantomData<M>,
@@ -165,7 +165,7 @@ where
 }
 
 /// A callback that answers `Req`: see [`EventBus::answer_fn`].
-pub struct AnswerFn<Req: RpcCall> {
+pub(crate) struct AnswerFn<Req: RpcCall> {
     pub(super) seq: u64,
     pub(super) answer: Box<dyn Fn(Req) -> Req::Response>,
     pub(super) at: &'static Location<'static>,
@@ -200,7 +200,7 @@ impl<Req: RpcCall> UntypedSubscriber for AnswerFn<Req> {
     }
 }
 
-pub struct FnSubscriber<M: Event> {
+pub(crate) struct FnSubscriber<M: Event> {
     pub(super) seq: u64,
     pub(super) callback: std::sync::Arc<dyn Fn(M) + 'static>,
     pub(super) at: &'static Location<'static>,

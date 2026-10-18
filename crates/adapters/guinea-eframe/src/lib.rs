@@ -171,7 +171,7 @@ fn layout_draw<L: Layout>(scope: Scope, ui: &mut egui::Ui) {
 
 /// The drawing of what was mounted into `scope`.
 pub(crate) fn drawn(scope: Scope) -> Node {
-    let draws = scope.keeps::<Draws>().then(|| scope.kept::<Draws, _>(|draws| draws.0)).flatten();
+    let draws = scope.kept::<Draws, _>(|draws| draws.0);
     Node::new(move |ui| {
         if let Some(draw) = draws {
             draw(scope, ui);

@@ -63,7 +63,7 @@ impl Nodes {
     /// Takes in the node `install` left in `scope`, when there is one: a node
     /// mounted by the frame that is drawing it.
     pub(crate) fn adopt(&self, scope: Scope) {
-        if self.held.get(&scope).is_some() || !scope.keeps::<Staged>() {
+        if self.held.get(&scope).is_some() {
             return;
         }
         if let Some(held) = scope.kept::<Staged, _>(|staged| staged.0.take()).flatten() {

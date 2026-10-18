@@ -423,7 +423,7 @@ struct Draws(for<'a> fn(Scope, &'a Nodes) -> Element<'a, Envelope>);
 
 /// The view of what was mounted into `scope`.
 pub(crate) fn drawn(scope: Scope, nodes: &Nodes) -> Element<'_, Envelope> {
-    let draws = scope.keeps::<Draws>().then(|| scope.kept::<Draws, _>(|draws| draws.0)).flatten();
+    let draws = scope.kept::<Draws, _>(|draws| draws.0);
     match draws {
         Some(draw) => draw(scope, nodes),
         None => iced::widget::text("").into(),

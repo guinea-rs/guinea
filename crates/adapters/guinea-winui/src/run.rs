@@ -58,8 +58,7 @@ struct Application(AppContext);
 /// The application the window `from` is in belongs to.
 pub(crate) fn application(from: Scope) -> Option<AppContext> {
     std::iter::successors(Some(from), Scope::parent)
-        .find(|scope| scope.keeps::<Application>())
-        .and_then(|window| window.kept::<Application, _>(|app| app.0.clone()))
+        .find_map(|scope| scope.kept::<Application, _>(|app| app.0.clone()))
 }
 
 /// Another window of the application.

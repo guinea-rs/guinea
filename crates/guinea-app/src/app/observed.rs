@@ -118,15 +118,11 @@ impl Observed {
 }
 
 fn describe(scope: Scope, events: &mut Vec<Event>) {
-    if scope.keeps::<Backend>()
-        && let Some(Some(name)) = scope.kept::<Backend, _>(|backend| backend.0)
-    {
+    if let Some(Some(name)) = scope.kept::<Backend, _>(|backend| backend.0) {
         events.push(Event::Backend { name });
     }
-    if scope.keeps::<Plugins>() {
-        let built = scope.kept::<Plugins, _>(|plugins| plugins.ids()).unwrap_or_default();
-        events.extend(built.into_iter().map(|name| Event::Plugin { name }));
-    }
+    let built = scope.kept::<Plugins, _>(|plugins| plugins.ids()).unwrap_or_default();
+    events.extend(built.into_iter().map(|name| Event::Plugin { name }));
     roots::describe(scope, events);
 }
 

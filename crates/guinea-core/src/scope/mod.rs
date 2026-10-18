@@ -19,6 +19,7 @@ pub use features::{Installed, Listener};
 pub(crate) use features::Section;
 pub use lifetime::Awake;
 pub use state::{DescribedState, Reducer, Slot, StateHandle, Subscription};
+pub(crate) use state::Watcher;
 pub use tree::{ScopeGuard, ScopeTree};
 
 pub(crate) use held::next_key;

@@ -18,9 +18,9 @@
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
-use std::time::Instant;
+use std::rc::Rc;
 
-use crate::scope::Scope;
+use crate::scope::{Scope, Watcher};
 use crate::trace::{self, Cause};
 
 /// One applied update, on its way to whoever is watching.
@@ -46,7 +46,6 @@ struct Fed {
 thread_local! {
     static MARKED: RefCell<Vec<Change>> = const { RefCell::new(Vec::new()) };
     static FED: RefCell<Vec<Fed>> = const { RefCell::new(Vec::new()) };
-    static OPENED: Cell<Option<Instant>> = const { Cell::new(None) };
     static DEPTH: Cell<u32> = const { Cell::new(0) };
     static DRAINING: Cell<bool> = const { Cell::new(false) };
 }
@@ -80,7 +79,6 @@ pub fn turn<R>(f: impl FnOnce() -> R) -> R {
 }
 
 pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
-    let was_pending = pending();
     MARKED.with(|marked| {
         let mut marked = marked.borrow_mut();
 
@@ -99,14 +97,13 @@ pub(crate) fn mark(scope: Scope, cell: TypeId, update: Option<Box<dyn Any>>) {
         }
     });
 
-    marked(was_pending);
+    drain_outside_turn();
 }
 
 /// Marks the feed `scope` holds under `key` as moved: its followers are
 /// handed the value it has when the turn ends, with the state the turn
 /// changed.
 pub(crate) fn feed(scope: Scope, key: usize, deliver: fn(Scope, usize)) {
-    let was_pending = pending();
     FED.with(|fed| {
         let mut fed = fed.borrow_mut();
         if !fed.iter().any(|fed| fed.key == key) {
@@ -114,16 +111,13 @@ pub(crate) fn feed(scope: Scope, key: usize, deliver: fn(Scope, usize)) {
         }
     });
 
-    marked(was_pending);
+    drain_outside_turn();
 }
 
-fn marked(was_pending: bool) {
-    if !was_pending {
-        OPENED.with(|opened| opened.set(Some(Instant::now())));
-    }
-
-    let free = DEPTH.with(|depth| depth.get()) == 0 && !DRAINING.with(|d| d.get());
-    if free {
+/// A mark made outside any turn has no frame beneath it to protect, and is
+/// drained at once.
+fn drain_outside_turn() {
+    if DEPTH.with(Cell::get) == 0 {
         drain();
     }
 }
@@ -144,116 +138,110 @@ const SETTLE_ROUNDS: usize = 16;
 /// [`SETTLE_ROUNDS`]: a cycle ends in a warning, not in a stack that never
 /// stops growing.
 pub(crate) fn drain() {
-    if DRAINING.with(Cell::get) || !pending() {
+    let Some(_draining) = Draining::start() else {
         return;
-    }
+    };
 
-    struct Running;
-    impl Drop for Running {
-        fn drop(&mut self) {
-            DRAINING.with(|draining| draining.set(false));
+    let mut rounds = 0;
+    while pending() {
+        let Some(touched) = settle(&mut rounds) else {
+            return;
+        };
+        redraw(touched);
+    }
+}
+
+/// The drain under way on this thread. There is one at a time.
+struct Draining;
+
+impl Draining {
+    fn start() -> Option<Self> {
+        match DRAINING.replace(true) {
+            true => None,
+            false => Some(Self),
         }
     }
-    DRAINING.with(|draining| draining.set(true));
-    let _running = Running;
+}
 
-    let opened = OPENED.with(|opened| opened.take());
+impl Drop for Draining {
+    fn drop(&mut self) {
+        DRAINING.set(false);
+    }
+}
 
-    let mut updates = 0usize;
-    let mut gone = 0usize;
-    let mut rounds = 0usize;
-    let mut cells = 0usize;
-    let mut listeners = 0usize;
-    let mut feeds = 0usize;
+/// A cell that moved during a drain, and what moved it.
+struct Touched {
+    scope: Scope,
+    cell: TypeId,
+    cause: Option<Cause>,
+}
 
-    'drained: while pending() {
-        let mut touched: Vec<(Scope, TypeId, Option<Cause>)> = Vec::new();
+/// Hands each update to its cell's observers and each fed value to its
+/// followers, round after round, until nothing is marked.
+///
+/// An observer turning one update into another is how one piece of state
+/// follows another, and a feed's follower is one of those: all of it settles
+/// before anything is told to redraw. Comes back with the cells it touched,
+/// each once, in the order first marked; `None` when it did not settle
+/// within [`SETTLE_ROUNDS`].
+fn settle(rounds: &mut usize) -> Option<Vec<Touched>> {
+    let mut touched: Vec<Touched> = Vec::new();
 
-        // State first, and until it stops moving: an observer turning someone
-        // else's update into its own is how one piece of state follows another,
-        // and all of it has to settle before anything is told to redraw. A
-        // feed's follower is one of those.
-        while pending() {
-            rounds += 1;
-            if rounds > SETTLE_ROUNDS {
-                tracing::warn!(
-                    rounds = SETTLE_ROUNDS,
-                    "state did not settle - an observer or a listener is feeding itself"
-                );
-                MARKED.with(|marked| marked.borrow_mut().clear());
-                FED.with(|fed| fed.borrow_mut().clear());
-                break 'drained;
-            }
-
-            let batch = MARKED.with(|marked| std::mem::take(&mut *marked.borrow_mut()));
-
-            for change in batch {
-                if !change.scope.is_alive() {
-                    gone += 1;
-                    continue;
-                }
-
-                let seen = touched
-                    .iter()
-                    .any(|&(scope, cell, _)| scope == change.scope && cell == change.cell);
-                if !seen {
-                    touched.push((change.scope, change.cell, change.cause));
-                }
-
-                let Some(update) = change.update else { continue };
-                let _under = trace::resume(change.cause);
-                for observer in change.scope.observers_of(change.cell) {
-                    if observer.is_gone() || !change.scope.is_alive() {
-                        continue;
-                    }
-
-                    updates += 1;
-                    (observer.run)(&*update);
-                }
-            }
-
-            let fed = FED.with(|fed| std::mem::take(&mut *fed.borrow_mut()));
-            for fed in fed {
-                if !fed.scope.is_alive() {
-                    gone += 1;
-                    continue;
-                }
-
-                feeds += 1;
-                (fed.deliver)(fed.scope, fed.key);
-            }
+    while pending() {
+        *rounds += 1;
+        if *rounds > SETTLE_ROUNDS {
+            tracing::warn!(
+                rounds = SETTLE_ROUNDS,
+                "state did not settle - an observer or a listener is feeding itself"
+            );
+            MARKED.with_borrow_mut(Vec::clear);
+            FED.with_borrow_mut(Vec::clear);
+            return None;
         }
 
-        cells += touched.len();
-
-        for (scope, cell, cause) in touched {
+        for Change { scope, cell, update, cause } in MARKED.take() {
             if !scope.is_alive() {
-                gone += 1;
                 continue;
             }
 
-            let _under = trace::resume(cause);
-            for listener in scope.listeners_of(cell) {
-                if listener.is_gone() || !scope.is_alive() {
-                    continue;
-                }
+            if !touched.iter().any(|seen| seen.scope == scope && seen.cell == cell) {
+                touched.push(Touched { scope, cell, cause });
+            }
 
-                listeners += 1;
-                (listener.run)();
+            let Some(update) = update else { continue };
+            let _under = trace::resume(cause);
+            each_present(scope, scope.observers_of(cell), |observe| observe(&*update));
+        }
+
+        for fed in FED.take() {
+            if fed.scope.is_alive() {
+                (fed.deliver)(fed.scope, fed.key);
             }
         }
     }
 
-    tracing::debug!(
-        cells,
-        listeners,
-        updates,
-        feeds,
-        rounds,
-        gone,
-        waited_us = opened.map(|at| at.elapsed().as_micros()).unwrap_or(0),
-        "drained"
-    );
+    Some(touched)
+}
+
+/// Runs the listeners of each touched cell, once.
+fn redraw(touched: Vec<Touched>) {
+    for Touched { scope, cell, cause } in touched {
+        let _under = trace::resume(cause);
+        each_present(scope, scope.listeners_of(cell), |listen| listen());
+    }
+}
+
+/// Runs `run` on each watcher of `scope` that has not left, while `scope`
+/// lives: any of them may remove the scope, or a watcher after it.
+fn each_present<F: ?Sized>(scope: Scope, watchers: Vec<Rc<Watcher<F>>>, run: impl Fn(&F)) {
+    for watcher in watchers {
+        if !scope.is_alive() {
+            return;
+        }
+        if !watcher.is_gone() {
+            run(&watcher.run);
+        }
+    }
 }
 
 /// Whether any cell or feed is waiting to be drained.

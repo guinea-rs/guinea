@@ -69,9 +69,39 @@ impl Drop for Guard {
 /// Runs `f` as one turn: everything it marks is notified once, after it
 /// returns, and nested turns fold into the outermost one.
 ///
-/// For whoever delivers work to the application - an actor's queue, an event
-/// from the toolkit. A push made outside any turn notifies at once, since
-/// there is no frame beneath it to protect.
+/// An actor opens one for each delivery to it, and nothing else in guinea
+/// does: an action answered by a closure, a toolkit's event or a timer runs
+/// outside any turn, and each push it makes notifies at once, since there is
+/// no actor beneath it to protect.
+///
+/// ```
+/// # use std::cell::Cell;
+/// # use std::rc::Rc;
+/// # use guinea_core::notify;
+/// # use guinea_core::scope::ScopeTree;
+/// #[derive(Clone, Default, Debug)]
+/// struct Count(u32);
+///
+/// #[guinea_macros::reducer]
+/// fn count(this: &mut Count, to: u32) {
+///     this.0 = to;
+/// }
+///
+/// let tree = ScopeTree::new();
+/// let redrawn = Rc::new(Cell::new(0));
+/// let counted = redrawn.clone();
+/// let _listening = tree.subscribe::<Count>(move || counted.set(counted.get() + 1));
+///
+/// tree.push::<Count>(1);
+/// tree.push::<Count>(2);
+/// assert_eq!(redrawn.get(), 2);
+///
+/// notify::turn(|| {
+///     tree.push::<Count>(3);
+///     tree.push::<Count>(4);
+/// });
+/// assert_eq!(redrawn.get(), 3);
+/// ```
 pub fn turn<R>(f: impl FnOnce() -> R) -> R {
     DEPTH.with(|depth| depth.set(depth.get() + 1));
     let _guard = Guard;

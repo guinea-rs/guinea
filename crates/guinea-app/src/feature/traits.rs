@@ -364,6 +364,23 @@ impl ScopeContext {
     /// When following it starts and stops matters to whoever produces the
     /// value, answer [`Followed<T>`](guinea_core::feed::Followed) here.
     ///
+    /// ```
+    /// # use guinea_app::feature::FeatureHost;
+    /// # use guinea_core::feed::Feed;
+    /// struct Selected(u32);
+    ///
+    /// let host = FeatureHost::detached();
+    /// let selection = host
+    ///     .install(|cx| {
+    ///         cx.feed::<Selected>().set(Selected(3));
+    ///         Ok(())
+    ///     })
+    ///     .unwrap();
+    ///
+    /// let page = selection.child();
+    /// assert_eq!(Feed::<Selected>::above(page).unwrap().get().unwrap().0, 3);
+    /// ```
+    ///
     /// # Panics
     ///
     /// When this scope already has a feed of `T`, naming where it was opened.
@@ -377,6 +394,37 @@ impl ScopeContext {
     ///
     /// Asleep, it is told nothing; woken, it is handed the value once if the
     /// feed moved meanwhile.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use guinea_app::feature::FeatureHost;
+    /// let host = FeatureHost::detached();
+    /// let writer = RefCell::new(None);
+    /// let selection = host
+    ///     .install(|cx| {
+    ///         let selected = cx.feed::<u32>();
+    ///         selected.set(1);
+    ///         *writer.borrow_mut() = Some(selected);
+    ///         Ok(())
+    ///     })
+    ///     .unwrap();
+    /// let selected = writer.take().unwrap();
+    ///
+    /// let page = selection.child();
+    /// let shown = Rc::new(RefCell::new(Vec::new()));
+    /// let into = shown.clone();
+    /// host.context(page, 0)
+    ///     .follow(selected.feed(), move |selected| into.borrow_mut().push(*selected));
+    ///
+    /// selected.set(2);
+    /// page.sleep();
+    /// selected.set(3);
+    /// selected.set(4);
+    /// page.wake();
+    ///
+    /// assert_eq!(*shown.borrow(), [1, 2, 4]);
+    /// ```
     pub fn follow<T: Send + Sync + 'static>(&self, feed: Feed<T>, run: impl Fn(Arc<T>) + 'static) {
         feed.follow(self.scope, run);
     }

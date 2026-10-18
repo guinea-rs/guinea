@@ -14,8 +14,16 @@
 //! What a feature lets the segments below it read is its [`Exported`] list.
 
 pub(crate) mod claim;
+mod dispatch;
 pub(crate) mod exports;
-mod handles;
+mod push;
+#[cfg(test)]
+mod tests;
 
 pub use claim::Bound;
-pub use handles::{Dispatch, Push};
+pub use dispatch::Dispatch;
+pub use push::Push;
+
+/// Keeps a handle on the thread its scope lives on: neither `Send` nor
+/// `Sync`.
+type UiThread = std::marker::PhantomData<*const ()>;

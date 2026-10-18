@@ -49,6 +49,27 @@ pub struct Feed<T> {
 
 /// Sent into the section that opened a feed of `T` when it gains its first
 /// awake follower, `Followed(true, ..)`, and when it loses its last one.
+///
+/// ```
+/// # use std::cell::RefCell;
+/// # use std::rc::Rc;
+/// # use guinea_core::feed::Followed;
+/// # use guinea_core::scope::ScopeTree;
+/// struct Prices(Vec<f64>);
+///
+/// let tree = ScopeTree::new();
+/// let section = tree.scope().section();
+/// let polling = Rc::new(RefCell::new(Vec::new()));
+/// let into = polling.clone();
+/// section.answers(move |followed: Followed<Prices>| into.borrow_mut().push(followed.0));
+/// let writer = section.feed::<Prices>();
+///
+/// let chart = tree.scope().child();
+/// writer.feed().follow(chart, |_prices| {});
+/// chart.sleep();
+///
+/// assert_eq!(*polling.borrow(), [true, false]);
+/// ```
 pub struct Followed<T>(pub bool, PhantomData<fn() -> T>);
 
 /// What the writer and the UI thread share.
@@ -162,6 +183,18 @@ impl Section {
     /// Opens the feed of `T` in this section's scope; [`Followed<T>`] is sent
     /// here.
     ///
+    /// ```
+    /// # use guinea_core::scope::ScopeTree;
+    /// struct Temperature(f32);
+    ///
+    /// let tree = ScopeTree::new();
+    /// let writer = tree.scope().section().feed::<Temperature>();
+    /// assert!(writer.feed().get().is_none());
+    ///
+    /// writer.set(Temperature(21.5));
+    /// assert_eq!(writer.feed().get().unwrap().0, 21.5);
+    /// ```
+    ///
     /// # Panics
     ///
     /// When the scope already has one, naming where it was opened, and when
@@ -208,6 +241,28 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
     /// On the UI thread the followers are handed it when the turn ends; from
     /// another thread, in one hop to the UI thread for however many values
     /// were set before it ran.
+    ///
+    /// ```
+    /// # use std::time::Duration;
+    /// # use guinea_core::scope::ScopeTree;
+    /// # use guinea_core::ui_thread::UiLoop;
+    /// # use std::sync::{Arc, Mutex};
+    /// let ui = UiLoop::install();
+    /// let tree = ScopeTree::new();
+    /// let writer = tree.scope().section().feed::<u32>();
+    ///
+    /// let seen = Arc::new(Mutex::new(Vec::new()));
+    /// let into = seen.clone();
+    /// writer.feed().follow(tree.scope(), move |value| into.lock().unwrap().push(*value));
+    ///
+    /// let producer = writer.clone();
+    /// std::thread::spawn(move || (1..=3).for_each(|value| producer.set(value)))
+    ///     .join()
+    ///     .unwrap();
+    ///
+    /// assert!(ui.run_until(|| !seen.lock().unwrap().is_empty(), Duration::from_secs(5)));
+    /// assert_eq!(*seen.lock().unwrap(), [3]);
+    /// ```
     ///
     /// # Panics
     ///
@@ -273,6 +328,16 @@ impl<T: Send + Sync + 'static> FeedWriter<T> {
     }
 
     /// The feed, to read and follow.
+    ///
+    /// ```
+    /// # use guinea_core::scope::ScopeTree;
+    /// let tree = ScopeTree::new();
+    /// let writer = tree.scope().section().feed::<u32>();
+    /// let (one, other) = (writer.feed(), writer.feed());
+    ///
+    /// writer.set(5);
+    /// assert_eq!((one.get().as_deref(), other.get().as_deref()), (Some(&5), Some(&5)));
+    /// ```
     pub fn feed(&self) -> Feed<T> {
         Feed {
             home: self.shared.home,
@@ -307,6 +372,20 @@ fn deliver<T: Send + Sync + 'static>(home: Scope, key: usize) {
 
 impl<T: Send + Sync + 'static> Feed<T> {
     /// The feed of `T` the nearest scope above `scope` opened.
+    ///
+    /// ```
+    /// # use guinea_core::feed::Feed;
+    /// # use guinea_core::scope::ScopeTree;
+    /// struct Selected(u32);
+    ///
+    /// let tree = ScopeTree::new();
+    /// let page = tree.scope().child();
+    /// let panel = page.child();
+    /// page.section().feed::<Selected>().set(Selected(7));
+    ///
+    /// assert_eq!(Feed::<Selected>::above(panel).unwrap().get().unwrap().0, 7);
+    /// assert!(Feed::<Selected>::above(tree.scope()).is_none());
+    /// ```
     pub fn above(scope: Scope) -> Option<Self> {
         let of = TypeId::of::<T>();
         let (home, key) = scope
@@ -323,6 +402,20 @@ impl<T: Send + Sync + 'static> Feed<T> {
 
     /// Its value now, `None` before the first `set` and once its scope is
     /// gone.
+    ///
+    /// ```
+    /// # use guinea_core::scope::ScopeTree;
+    /// let tree = ScopeTree::new();
+    /// let page = tree.scope().child();
+    /// let writer = page.section().feed::<&str>();
+    /// let feed = writer.feed();
+    ///
+    /// writer.set("ready");
+    /// assert_eq!(feed.get().as_deref(), Some(&"ready"));
+    ///
+    /// page.remove();
+    /// assert!(feed.get().is_none());
+    /// ```
     pub fn get(&self) -> Option<Arc<T>> {
         let fed = self.fed()?;
         let now = fed.shared.current.load();
@@ -331,6 +424,31 @@ impl<T: Send + Sync + 'static> Feed<T> {
 
     /// Hands `run` every value the feed takes while `by` is awake, starting
     /// with the one it has, for as long as `by` lives.
+    ///
+    /// Asleep, `by` is told nothing; woken, it is handed the value once if
+    /// the feed moved meanwhile.
+    ///
+    /// ```
+    /// # use std::cell::RefCell;
+    /// # use std::rc::Rc;
+    /// # use guinea_core::scope::ScopeTree;
+    /// let tree = ScopeTree::new();
+    /// let writer = tree.scope().section().feed::<u32>();
+    /// writer.set(1);
+    ///
+    /// let panel = tree.scope().child();
+    /// let seen = Rc::new(RefCell::new(Vec::new()));
+    /// let into = seen.clone();
+    /// writer.feed().follow(panel, move |value| into.borrow_mut().push(*value));
+    ///
+    /// writer.set(2);
+    /// panel.sleep();
+    /// writer.set(3);
+    /// writer.set(4);
+    /// panel.wake();
+    ///
+    /// assert_eq!(*seen.borrow(), [1, 2, 4]);
+    /// ```
     ///
     /// # Panics
     ///

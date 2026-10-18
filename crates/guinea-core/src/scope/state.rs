@@ -111,11 +111,11 @@ pub(super) struct States {
 
 struct Cell {
     state: Rc<dyn Any>,
-    listeners: RefCell<Vec<(u64, Rc<Watcher<dyn Fn()>>)>>,
+    readers: RefCell<Vec<(u64, Rc<Watcher<dyn Any>>)>>,
     observers: RefCell<Vec<(u64, Rc<Watcher<dyn Fn(&dyn Any)>>)>>,
 }
 
-/// A listener or an observer, and whether it still is one: a drain runs a
+/// A reader or an observer, and whether it still is one: a drain runs a
 /// copy of the list, and what was dropped since must not run from it.
 pub(crate) struct Watcher<F: ?Sized> {
     gone: std::cell::Cell<bool>,
@@ -143,8 +143,8 @@ impl<F: ?Sized> Watcher<F> {
 
 impl Drop for Cell {
     fn drop(&mut self) {
-        for (_, listener) in self.listeners.get_mut().iter() {
-            listener.leave();
+        for (_, reader) in self.readers.get_mut().iter() {
+            reader.leave();
         }
 
         for (_, observer) in self.observers.get_mut().iter() {
@@ -195,7 +195,7 @@ impl Cell {
     fn holding(state: Rc<dyn Any>) -> Self {
         Cell {
             state,
-            listeners: RefCell::new(Vec::new()),
+            readers: RefCell::new(Vec::new()),
             observers: RefCell::new(Vec::new()),
         }
     }
@@ -283,7 +283,7 @@ impl Scope {
 
     /// Sets `R`'s starting value instead of `R::default()`. Call before
     /// anything else touches `R` in this scope - overwrites any existing cell,
-    /// dropping its listeners.
+    /// dropping its readers.
     pub fn seed<R: Reducer>(&self, state: R) {
         let data = self.alive("seeding a reducer");
         data.state.note_kind::<R>();
@@ -298,11 +298,11 @@ impl Scope {
         self.moved::<R>();
     }
 
-    /// Applies `msg` to `F`'s state now, and marks the cell so its listeners
-    /// run at the next [`notify::drain`](crate::notify::drain).
+    /// Applies `msg` to `F`'s state now, and marks the cell so its readers
+    /// are redrawn when the turn ends.
     ///
     /// The state is current the moment this returns; what waits is the
-    /// redraw. Nothing a listener does - navigating, dropping scopes, sending
+    /// redraw. Nothing a redraw does - navigating, dropping scopes, sending
     /// to another actor - happens on the stack of whoever pushed.
     pub fn push<R: Reducer>(&self, update: R::Update) {
         let data = self.alive("pushing an update");
@@ -324,11 +324,10 @@ impl Scope {
 
     /// Watches *what happened* to `F`, not merely that something did.
     ///
-    /// A listener from [`subscribe`](Self::subscribe) learns the cell changed
-    /// and reads the new state; an observer is handed the update itself, which
-    /// is what tells a rename apart from a whole new list. Runs during the
-    /// drain, before any listener, so state that depends on this one has
-    /// settled by the time anything draws.
+    /// A reader is redrawn because the cell changed, and reads the new state;
+    /// an observer is handed the update itself, which is what tells a rename
+    /// apart from a whole new list. Runs during the drain, before anything is
+    /// redrawn, so state that depends on this one has settled by then.
     pub fn observe<R: Reducer>(&self, callback: impl Fn(&R::Update) + 'static) -> Subscription {
         let data = self.alive("observing a reducer");
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
@@ -357,14 +356,14 @@ impl Scope {
         }
     }
 
-    pub(crate) fn listeners_of(&self, cell: TypeId) -> Vec<Rc<Watcher<dyn Fn()>>> {
+    pub(crate) fn readers_of(&self, cell: TypeId) -> Vec<Rc<Watcher<dyn Any>>> {
         let Some(data) = self.data() else {
             return Vec::new();
         };
         let cells = data.state.cells.borrow();
         cells
             .get(&cell)
-            .map(|cell| cell.listeners.borrow().iter().map(|(_, f)| f.clone()).collect())
+            .map(|cell| cell.readers.borrow().iter().map(|(_, reader)| reader.clone()).collect())
             .unwrap_or_default()
     }
 
@@ -379,23 +378,42 @@ impl Scope {
             .unwrap_or_default()
     }
 
-    pub fn subscribe<R: Reducer>(&self, callback: impl Fn() + 'static) -> Subscription {
-        let data = self.alive("listening to a reducer");
+    /// See [`ReducerBinding::read_by`](crate::binding::ReducerBinding::read_by).
+    pub(crate) fn read_by<R: Reducer, D: 'static>(&self, reader: D) -> Subscription {
+        let data = self.alive("reading a reducer");
+
+        match self.tree_drawing() {
+            Some(drawing) if drawing.reader() == TypeId::of::<D>() => {}
+            Some(_) => panic!(
+                "{} is read by a `{}` in {self:?}, and its tree is drawn with readers of \
+                 another type",
+                std::any::type_name::<R>(),
+                std::any::type_name::<D>()
+            ),
+            None => panic!(
+                "{} is read by a `{}` in {self:?}, and nothing draws its tree: call \
+                 `drawn_by` on it first",
+                std::any::type_name::<R>(),
+                std::any::type_name::<D>()
+            ),
+        }
+
         let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
         data.state.note_kind::<R>();
         {
             let mut cells = data.state.cells.borrow_mut();
             let cell = cells.entry(TypeId::of::<R>()).or_insert_with(Cell::empty::<R>);
-            cell.listeners.borrow_mut().push((id, Rc::new(Watcher::new(callback))));
+            let reader: Rc<Watcher<dyn Any>> = Rc::new(Watcher::new(reader));
+            cell.readers.borrow_mut().push((id, reader));
         }
 
         let held = Rc::downgrade(&data);
         Subscription {
             unsubscribe: Some(Box::new(move || {
                 let Some(data) = held.upgrade() else { return };
-                let listener = data.state.unlisten(TypeId::of::<R>(), id);
+                let reader = data.state.unread(TypeId::of::<R>(), id);
                 drop(data);
-                drop(listener);
+                drop(reader);
             })),
         }
     }
@@ -468,14 +486,14 @@ impl States {
         (slot, made)
     }
 
-    fn unlisten(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Fn()>>> {
+    fn unread(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Any>>> {
         let cells = self.cells.borrow();
-        let mut listeners = cells.get(&cell)?.listeners.borrow_mut();
-        let at = listeners.iter().position(|(listener, _)| *listener == id)?;
+        let mut readers = cells.get(&cell)?.readers.borrow_mut();
+        let at = readers.iter().position(|(reader, _)| *reader == id)?;
 
-        let (_, listener) = listeners.remove(at);
-        listener.leave();
-        Some(listener)
+        let (_, reader) = readers.remove(at);
+        reader.leave();
+        Some(reader)
     }
 
     fn unobserve(&self, cell: TypeId, id: u64) -> Option<Rc<Watcher<dyn Fn(&dyn Any)>>> {

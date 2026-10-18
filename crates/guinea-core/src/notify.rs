@@ -1,8 +1,11 @@
 //! Where a reducer's change becomes a redraw - after the turn that made it.
 //!
 //! [`Scope::push`](crate::scope::Scope::push) applies the update and marks the
-//! cell. The listeners run when the current *turn* ends: a turn is one delivery
-//! of messages to an actor, or, when nothing opened one, the push itself.
+//! cell. When the current *turn* ends - one delivery of messages to an actor,
+//! or, when nothing opened one, the push itself - the cell's observers are
+//! handed the update until state settles, and then each tree's
+//! [`Draws`](crate::draws::Draws) is handed, in one call, every reader of a
+//! cell that moved.
 //!
 //! The unit is deliberately the turn and not the frame. Tying it to a frame
 //! makes the delay a property of the backend - the next tick under an
@@ -11,7 +14,7 @@
 //! the drain microseconds later, in the same place on every backend.
 //!
 //! Two things follow. The actor loop and the drawing loop stop sharing a
-//! stack: the listeners run after `handle` returned, so navigating or dropping
+//! stack: the redraw comes after `handle` returned, so navigating or dropping
 //! a scope from one cannot pull the ground from under an actor that is still
 //! running. And a burst of pushes inside one turn costs one notification per
 //! cell rather than one per push, because marks are deduplicated.
@@ -20,6 +23,7 @@ use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use crate::draws::Read;
 use crate::scope::{Scope, Watcher};
 use crate::trace::{self, Cause};
 
@@ -28,9 +32,8 @@ struct Change {
     scope: Scope,
     cell: TypeId,
     update: Option<Box<dyn Any>>,
-    /// What was happening when the update was applied. The listeners run a
-    /// drain later, and what they set off - a redraw, most often - is still
-    /// its doing.
+    /// What was happening when the update was applied. Its observers and
+    /// readers run a drain later, and what they set off is still its doing.
     cause: Option<Cause>,
 }
 
@@ -77,6 +80,7 @@ impl Drop for Guard {
 /// ```
 /// # use std::cell::Cell;
 /// # use std::rc::Rc;
+/// # use guinea_core::draws::{Draws, Readers};
 /// # use guinea_core::notify;
 /// # use guinea_core::scope::ScopeTree;
 /// #[derive(Clone, Default, Debug)]
@@ -87,10 +91,20 @@ impl Drop for Guard {
 ///     this.0 = to;
 /// }
 ///
+/// struct Counting(Rc<Cell<u32>>);
+///
+/// impl Draws for Counting {
+///     type Reader = ();
+///
+///     fn redraw(&self, _: Readers<'_, ()>) {
+///         self.0.set(self.0.get() + 1);
+///     }
+/// }
+///
 /// let tree = ScopeTree::new();
 /// let redrawn = Rc::new(Cell::new(0));
-/// let counted = redrawn.clone();
-/// let _listening = tree.subscribe::<Count>(move || counted.set(counted.get() + 1));
+/// tree.drawn_by(Counting(redrawn.clone()));
+/// let _reading = tree.binding::<Count>().read_by(());
 ///
 /// tree.push::<Count>(1);
 /// tree.push::<Count>(2);
@@ -159,10 +173,10 @@ fn drain_outside_turn() {
 /// surfaces as a message rather than a hang.
 const SETTLE_ROUNDS: usize = 16;
 
-/// Runs the listeners of every cell marked since the last call, in the order
-/// the cells were first marked.
+/// Settles every cell marked since the last call, then redraws the readers of
+/// each, in the order the cells were first marked.
 ///
-/// One drain at a time. A listener that marks a cell - directly, or through
+/// One drain at a time. A redraw that marks a cell - directly, or through
 /// an actor whose turn ends inside it - adds a round to this drain instead of
 /// starting one of its own, and every round counts against the same
 /// [`SETTLE_ROUNDS`]: a cycle ends in a warning, not in a stack that never
@@ -222,7 +236,7 @@ fn settle(rounds: &mut usize) -> Option<Vec<Touched>> {
         if *rounds > SETTLE_ROUNDS {
             tracing::warn!(
                 rounds = SETTLE_ROUNDS,
-                "state did not settle - an observer or a listener is feeding itself"
+                "state did not settle - an observer or a redraw is feeding itself"
             );
             MARKED.with_borrow_mut(Vec::clear);
             FED.with_borrow_mut(Vec::clear);
@@ -253,11 +267,26 @@ fn settle(rounds: &mut usize) -> Option<Vec<Touched>> {
     Some(touched)
 }
 
-/// Runs the listeners of each touched cell, once.
+/// Hands each tree's [`Draws`](crate::draws::Draws) the readers of the
+/// cells it touched, in one call.
 fn redraw(touched: Vec<Touched>) {
-    for Touched { scope, cell, cause } in touched {
-        let _under = trace::resume(cause);
-        each_present(scope, scope.listeners_of(cell), |listen| listen());
+    let mut reads: Vec<Read> = touched
+        .into_iter()
+        .flat_map(|Touched { scope, cell, cause }| {
+            scope
+                .readers_of(cell)
+                .into_iter()
+                .map(move |reader| Read { scope, reader, cause })
+        })
+        .collect();
+
+    while let Some(first) = reads.first().map(|read| read.scope) {
+        let (tree, rest) = reads.into_iter().partition(|read| read.scope.shares_tree(first));
+        reads = rest;
+
+        if let Some(drawing) = first.tree_drawing() {
+            drawing.redraw(&tree);
+        }
     }
 }
 
@@ -285,7 +314,17 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use crate::scope::ScopeTree;
+    use crate::scope::{Reducer, Scope, ScopeTree, Subscription};
+
+    fn drawn() -> ScopeTree {
+        let tree = ScopeTree::new();
+        tree.drawn_by(crate::draws::Calls);
+        tree
+    }
+
+    fn read<R: Reducer>(scope: &Scope, redraw: impl Fn() + 'static) -> Subscription {
+        scope.binding::<R>().read_by(Box::new(redraw) as Box<dyn Fn()>)
+    }
 
     #[derive(Clone, Default, Debug)]
     struct Count(u32);
@@ -305,9 +344,9 @@ mod tests {
     }
 
     fn watched() -> (ScopeTree, Rc<StdCell<u32>>, crate::scope::Subscription) {
-        let scope = ScopeTree::new();
+        let scope = drawn();
         let runs = Rc::new(StdCell::new(0));
-        let sub = scope.subscribe::<Count>({
+        let sub = read::<Count>(&scope, {
             let runs = runs.clone();
             move || runs.set(runs.get() + 1)
         });
@@ -335,7 +374,7 @@ mod tests {
                 7,
                 "state is current inside the turn"
             );
-            assert_eq!(runs.get(), 0, "the listener did not run on the pusher's stack");
+            assert_eq!(runs.get(), 0, "the reader was not redrawn on the pusher's stack");
         });
 
         assert_eq!(runs.get(), 1);
@@ -384,7 +423,7 @@ mod tests {
 
     #[test]
     fn an_observer_is_handed_the_update_itself() {
-        let scope = ScopeTree::new();
+        let scope = drawn();
         let seen = Rc::new(RefCell::new(Vec::new()));
 
         let _sub = scope.observe::<Count>({
@@ -405,32 +444,32 @@ mod tests {
     }
 
     #[test]
-    fn observers_run_before_listeners_and_state_settles_first() {
-        let scope = ScopeTree::new();
+    fn observers_run_before_anything_is_redrawn() {
+        let scope = drawn();
         let order = Rc::new(RefCell::new(Vec::new()));
 
         let _observer = scope.observe::<Count>({
             let order = order.clone();
             move |_| order.borrow_mut().push("observe")
         });
-        let _listener = scope.subscribe::<Count>({
+        let _reader = read::<Count>(&scope, {
             let order = order.clone();
-            move || order.borrow_mut().push("listen")
+            move || order.borrow_mut().push("redraw")
         });
 
         super::turn(|| scope.push::<Count>(1));
 
-        assert_eq!(*order.borrow(), vec!["observe", "listen"]);
+        assert_eq!(*order.borrow(), vec!["observe", "redraw"]);
     }
 
     #[test]
     fn an_observer_feeding_another_cell_settles_before_anything_draws() {
-        let scope = ScopeTree::new();
+        let scope = drawn();
         let order = Rc::new(RefCell::new(Vec::new()));
 
         let held = scope.scope();
         let _follows = scope.observe::<Count>(move |update| held.push::<Mirror>(*update * 10));
-        let _mirror_listener = scope.subscribe::<Mirror>({
+        let _mirror_reader = read::<Mirror>(&scope, {
             let order = order.clone();
             move || order.borrow_mut().push(held.state::<Mirror>().borrow().0)
         });
@@ -440,17 +479,17 @@ mod tests {
         assert_eq!(
             *order.borrow(),
             vec![40],
-            "the follower had already caught up by the time its listener ran"
+            "the follower had already caught up by the time its reader was redrawn"
         );
     }
 
     #[test]
-    fn a_push_from_a_listener_is_another_round_of_the_same_drain() {
-        let scope = ScopeTree::new();
+    fn a_push_from_a_redraw_is_another_round_of_the_same_drain() {
+        let scope = drawn();
         let runs = Rc::new(StdCell::new(0));
 
         let held = scope.scope();
-        let _sub = scope.subscribe::<Count>({
+        let _sub = read::<Count>(&scope, {
             let runs = runs.clone();
             move || {
                 runs.set(runs.get() + 1);
@@ -467,40 +506,40 @@ mod tests {
     }
 
     #[test]
-    fn a_listener_whose_scope_an_earlier_listener_removed_is_not_called() {
-        let tree = ScopeTree::new();
+    fn a_reader_whose_scope_an_earlier_redraw_removed_is_not_redrawn() {
+        let tree = drawn();
         let page = tree.child();
         let late = Rc::new(StdCell::new(0));
 
-        page.hold_watching(page.subscribe::<Count>(move || page.remove()));
+        page.hold_watching(read::<Count>(&page, move || page.remove()));
         let counted = late.clone();
-        page.hold_watching(page.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+        page.hold_watching(read::<Count>(&page, move || counted.set(counted.get() + 1)));
 
         page.push::<Count>(1);
 
         assert!(!page.is_alive());
-        assert_eq!(late.get(), 0, "the second listener ran after its scope was removed");
+        assert_eq!(late.get(), 0, "the second reader was redrawn after its scope was removed");
     }
 
     #[test]
-    fn a_page_listening_to_app_state_does_not_run_after_the_app_navigated_it_away() {
-        let tree = ScopeTree::new();
+    fn a_page_reading_app_state_is_not_redrawn_after_the_app_navigated_it_away() {
+        let tree = drawn();
         let app = tree.scope();
         let page = tree.child();
         let late = Rc::new(StdCell::new(0));
 
-        app.hold_watching(app.subscribe::<Count>(move || page.remove()));
+        app.hold_watching(read::<Count>(&app, move || page.remove()));
         let counted = late.clone();
-        page.hold_watching(app.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+        page.hold_watching(read::<Count>(&app, move || counted.set(counted.get() + 1)));
 
         app.push::<Count>(1);
 
-        assert_eq!(late.get(), 0, "a removed page's listener ran");
+        assert_eq!(late.get(), 0, "a removed page's reader was redrawn");
     }
 
     #[test]
     fn an_observer_whose_scope_an_earlier_observer_removed_is_not_called() {
-        let tree = ScopeTree::new();
+        let tree = drawn();
         let page = tree.child();
         let late = Rc::new(StdCell::new(0));
 
@@ -515,45 +554,45 @@ mod tests {
     }
 
     #[test]
-    fn a_listener_dropped_by_an_earlier_listener_is_not_called() {
-        let tree = ScopeTree::new();
+    fn a_reader_dropped_by_an_earlier_redraw_is_not_redrawn() {
+        let tree = drawn();
         let late = Rc::new(StdCell::new(0));
         let second = Rc::new(RefCell::new(None));
 
         let dropping = second.clone();
-        let _first = tree.subscribe::<Count>(move || drop(dropping.borrow_mut().take()));
+        let _first = read::<Count>(&tree, move || drop(dropping.borrow_mut().take()));
         let counted = late.clone();
-        *second.borrow_mut() = Some(tree.subscribe::<Count>(move || counted.set(counted.get() + 1)));
+        *second.borrow_mut() = Some(read::<Count>(&tree, move || counted.set(counted.get() + 1)));
 
         tree.push::<Count>(1);
 
         assert!(second.borrow().is_none());
-        assert_eq!(late.get(), 0, "the listener ran after its Subscription was dropped");
+        assert_eq!(late.get(), 0, "the reader was redrawn after its Subscription was dropped");
     }
 
     #[test]
-    fn a_listener_whose_cell_was_seeded_over_is_not_called() {
-        let tree = ScopeTree::new();
+    fn a_reader_whose_cell_was_seeded_over_is_not_redrawn() {
+        let tree = drawn();
         let late = Rc::new(StdCell::new(0));
 
         let held = tree.scope();
-        let _first = tree.subscribe::<Count>(move || held.seed(Count(0)));
+        let _first = read::<Count>(&tree, move || held.seed(Count(0)));
         let counted = late.clone();
-        let _second = tree.subscribe::<Count>(move || counted.set(counted.get() + 1));
+        let _second = read::<Count>(&tree, move || counted.set(counted.get() + 1));
 
         tree.push::<Count>(1);
 
-        assert_eq!(late.get(), 0, "seed drops a cell's listeners, yet this one ran");
+        assert_eq!(late.get(), 0, "seed drops a cell's readers, yet this one was redrawn");
     }
 
-    /// A listener that sends to an actor, whose handler pushes to the cell the
-    /// listener watches: the turn the actor opens ends inside the listener.
+    /// A redraw that sends to an actor, whose handler pushes to the cell the
+    /// reader reads: the turn the actor opens ends inside the redraw.
     fn feeding_itself(through_a_turn: bool) -> usize {
-        let scope = ScopeTree::new();
+        let scope = drawn();
         let runs = Rc::new(StdCell::new(0));
 
         let held = scope.scope();
-        let _sub = scope.subscribe::<Count>({
+        let _sub = read::<Count>(&scope, {
             let runs = runs.clone();
             move || {
                 runs.set(runs.get() + 1);
@@ -572,16 +611,16 @@ mod tests {
     }
 
     #[test]
-    fn a_listener_feeding_itself_stops_at_the_limit() {
+    fn a_redraw_feeding_itself_stops_at_the_limit() {
         assert_eq!(feeding_itself(false), super::SETTLE_ROUNDS);
     }
 
     #[test]
-    fn a_listener_feeding_itself_through_a_turn_stops_at_the_same_limit() {
+    fn a_redraw_feeding_itself_through_a_turn_stops_at_the_same_limit() {
         assert_eq!(
             feeding_itself(true),
             super::SETTLE_ROUNDS,
-            "the turn ending inside the listener did not start a drain of its own"
+            "the turn ending inside the redraw did not start a drain of its own"
         );
     }
 }

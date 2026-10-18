@@ -405,6 +405,7 @@ impl<'h, S: Mountable> Mounted<'h, S> {
         wrap: impl FnOnce(View) -> View,
     ) -> anyhow::Result<Self> {
         let cx = segment.context();
+        cx.__scope().drawn_by(crate::winui::Reactor);
         guinea_router::mount::root::<S>(cx.__scope());
         S::install(cx, &params)?;
         let view = crate::winui::drawn(cx.__scope());

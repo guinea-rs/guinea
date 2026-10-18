@@ -133,6 +133,7 @@ impl<W: ComponentHandle + 'static> Window<W> {
     /// loop: for tests, and for an application that runs Slint's loop
     /// itself.
     pub fn open(self, window: Scope) -> anyhow::Result<Opened> {
+        window.drawn_by(crate::Properties);
         window.keep(Component(Rc::new(self.component.clone_strong())));
 
         let remount = remounter(window, self.root);

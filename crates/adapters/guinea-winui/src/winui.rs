@@ -1401,6 +1401,20 @@ impl Refresher {
     }
 }
 
+/// What redraws a tree the reactor draws: each component that read a reducer
+/// that moved is asked to publish again.
+pub(crate) struct Reactor;
+
+impl guinea_core::draws::Draws for Reactor {
+    type Reader = Refresher;
+
+    fn redraw(&self, readers: guinea_core::draws::Readers<'_, Refresher>) {
+        for component in readers {
+            component.refresh();
+        }
+    }
+}
+
 /// What a node's `update` is handed.
 ///
 /// Reading and acting, and nothing else. Navigation is not here on purpose: it
@@ -1458,7 +1472,7 @@ where
         // subscriptions rather than one that replaces the other.
         let watching = binding.clone();
         cx.use_effect(std::any::type_name::<R>(), scope, move || {
-            let subscription = watching.on_change(move |_| refresher.refresh());
+            let subscription = watching.read_by(refresher);
             // Ends with this component instance rather than with the scope: one
             // that had been unmounted and kept listening would be asking a
             // reconciler slot nobody renders to publish.

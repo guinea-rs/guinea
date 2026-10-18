@@ -2,6 +2,7 @@ extern crate self as guinea_core;
 
 pub mod actor;
 mod binding;
+pub mod draws;
 pub mod feature;
 pub mod feed;
 pub mod executor;

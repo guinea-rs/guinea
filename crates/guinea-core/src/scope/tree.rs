@@ -11,6 +11,7 @@ use super::lifetime::Lifetime;
 use super::services::Services;
 use super::state::States;
 use crate::actor::event_bus::EventBus;
+use crate::draws::Drawing;
 use crate::trace::Sink;
 
 new_key_type! {
@@ -56,6 +57,8 @@ pub(super) struct Tree {
     pub(super) bus: Rc<EventBus>,
     /// Where what happens in the tree is recorded, for whoever observes it.
     pub(super) trace: Sink,
+    /// What redraws the tree, when something keeps what it drew.
+    pub(super) drawing: Option<Rc<dyn Drawing>>,
 }
 
 impl Node {
@@ -107,6 +110,7 @@ impl Tree {
             root,
             bus: Rc::new(EventBus::new()),
             trace: Sink::new(),
+            drawing: None,
         };
         (tree, root)
     }

@@ -242,9 +242,25 @@ fn component<W: slint::ComponentHandle + 'static>(scope: Scope) -> W {
         .clone_strong()
 }
 
-fn bind_to_scope<R: Reducer>(binding: &ReducerBinding<R>, apply: impl Fn(&R) + 'static) {
+fn bind_to_scope<R: Reducer>(scope: Scope, binding: ReducerBinding<R>, apply: impl Fn(&R) + 'static) {
     apply(&binding.peek());
-    binding.on_change_owned(apply);
+    let reading = binding.clone();
+    let reader: Box<dyn Fn()> = Box::new(move || apply(&reading.get()));
+    scope.hold_watching(binding.read_by(reader));
+}
+
+/// What redraws a tree Slint shows: each property bound to a reducer that
+/// moved is set again.
+pub(crate) struct Properties;
+
+impl guinea_core::draws::Draws for Properties {
+    type Reader = Box<dyn Fn()>;
+
+    fn redraw(&self, readers: guinea_core::draws::Readers<'_, Box<dyn Fn()>>) {
+        for set in readers {
+            set();
+        }
+    }
 }
 
 /// What a page or a layout binds its globals with.
@@ -294,7 +310,7 @@ impl<S> BindCx<S> {
     /// Applies the state now, and again after every change, for as long as
     /// this segment's scope lives.
     pub fn bind<R: Reducer>(&self, apply: impl Fn(&R) + 'static) {
-        bind_to_scope(&self.binding::<R>(), apply)
+        bind_to_scope(self.scope, self.binding::<R>(), apply)
     }
 
     /// [`Self::bind`], with the root handed back on every call.
@@ -326,7 +342,7 @@ impl<S> BindCx<S> {
         T: ToSlint + 'static,
         T::Slint: Clone + 'static,
     {
-        model::Rows::new(self.binding::<R>(), select)
+        model::Rows::new(self.scope, self.binding::<R>(), select)
     }
 }
 

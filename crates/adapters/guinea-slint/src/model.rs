@@ -14,7 +14,7 @@
 use std::rc::Rc;
 
 use guinea_core::__private::ReducerBinding;
-use guinea_core::scope::Reducer;
+use guinea_core::scope::{Reducer, Scope};
 use slint::{Model, ModelNotify, ModelRc, ModelTracker};
 
 use crate::ToSlint;
@@ -34,22 +34,19 @@ where
 {
     /// Wraps the state behind `binding`, watching it for changes.
     ///
-    /// The subscription lives as long as the scope, the way every other
-    /// binding here does; the model itself lives as long as the property
-    /// holding it.
-    pub(crate) fn new(binding: ReducerBinding<R>, select: fn(&R) -> &[T]) -> ModelRc<T::Slint> {
+    /// It is read for as long as `scope`, the segment that bound it, lives,
+    /// the way every other binding here is; the model itself lives as long as
+    /// the property holding it.
+    pub(crate) fn new(scope: Scope, binding: ReducerBinding<R>, select: fn(&R) -> &[T]) -> ModelRc<T::Slint> {
         let rows = Rc::new(Self {
             binding: binding.clone(),
             select,
             notify: ModelNotify::default(),
         });
 
-        binding.on_change_owned({
-            let rows = rows.clone();
-            // Which row changed is not something a reducer says - it replaces
-            // the state - so the honest answer is that all of them did.
-            move |_| rows.notify.reset()
-        });
+        let changed = rows.clone();
+        let reader: Box<dyn Fn()> = Box::new(move || changed.notify.reset());
+        scope.hold_watching(binding.read_by(reader));
 
         ModelRc::from(rows as Rc<dyn Model<Data = T::Slint>>)
     }
@@ -94,7 +91,8 @@ mod tests {
     }
 
     fn rows(scope: &Scope) -> slint::ModelRc<slint::SharedString> {
-        Rows::new(scope.binding::<Items>(), |items: &Items| items.0.as_slice())
+        scope.drawn_by(crate::Properties);
+        Rows::new(*scope, scope.binding::<Items>(), |items: &Items| items.0.as_slice())
     }
 
     #[test]

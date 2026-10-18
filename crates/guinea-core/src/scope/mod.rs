@@ -235,4 +235,21 @@ impl Scope {
     pub(crate) fn tree_sink(&self) -> Option<crate::trace::Sink> {
         self.read(|tree| tree.trace.clone())
     }
+
+    /// What redraws this scope's tree, while the tree is there.
+    pub(crate) fn tree_drawing(&self) -> Option<Rc<dyn crate::draws::Drawing>> {
+        self.read(|tree| tree.drawing.clone()).flatten()
+    }
+
+    pub(crate) fn set_tree_drawing(&self, drawing: Rc<dyn crate::draws::Drawing>) {
+        let tree = tree(self.tree).unwrap_or_else(|| panic!("drawing {self:?}, whose tree is gone"));
+        let replaced = tree.borrow_mut().drawing.replace(drawing);
+        drop(tree);
+        drop(replaced);
+    }
+
+    /// Whether `other` is in this scope's tree.
+    pub(crate) fn shares_tree(&self, other: Scope) -> bool {
+        self.tree == other.tree
+    }
 }

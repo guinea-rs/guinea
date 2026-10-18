@@ -254,6 +254,7 @@ impl Component for Chrome {
 
         let host = FeatureHost::under(&input.app);
         let window = host.scope();
+        window.drawn_by(crate::winui::Reactor);
         window.keep(Application(input.app.clone()));
         if standing(window) {
             guinea_app::app::roots::set_label(window, MAIN);

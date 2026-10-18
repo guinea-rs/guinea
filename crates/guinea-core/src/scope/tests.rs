@@ -78,9 +78,10 @@ fn a_wake_hook_does_not_run_after_an_earlier_hook_put_its_scope_back_to_sleep() 
 }
 
 #[test]
-fn a_reducer_only_listened_to_is_described() {
+fn a_reducer_only_read_is_described() {
     let tree = ScopeTree::new();
-    let _listening = tree.subscribe::<Counter>(|| {});
+    tree.drawn_by(crate::draws::Calls);
+    let _reading = tree.binding::<Counter>().read_by(Box::new(|| {}) as Box<dyn Fn()>);
 
     let described: Vec<_> = tree.describe_states().iter().map(|state| state.type_name).collect();
 
@@ -226,15 +227,17 @@ impl crate::actor::Handler<Tick> for Leaving {
 async fn a_scope_lets_go_of_every_kind_it_holds_in_the_reverse_of_the_order_it_took_them() {
     let said = Rc::new(RefCell::new(Vec::new()));
     let scope = ScopeTree::new();
+    scope.drawn_by(crate::draws::Calls);
 
     let hearing = Says(said.clone(), "hearing");
     scope.hold_hearing(scope.bus().subscribe_fn(move |_: Ping| {
         let _ = &hearing;
     }));
     let watching = Says(said.clone(), "watching");
-    scope.hold_watching(scope.subscribe::<Counter>(move || {
+    let reader: Box<dyn Fn()> = Box::new(move || {
         let _ = &watching;
-    }));
+    });
+    scope.hold_watching(scope.binding::<Counter>().read_by(reader));
     let timer = Rc::new(RefCell::new(None::<crate::sources::Source>));
     let after_the_timer = said.clone();
     let gone = timer.clone();
@@ -316,9 +319,9 @@ fn pushing_into_a_removed_scope_is_a_mistake_said_out_loud() {
 }
 
 #[test]
-fn listening_in_a_removed_scope_is_a_mistake_said_out_loud() {
-    refused_in_a_removed_scope("listening to a reducer", |scope| {
-        drop(scope.subscribe::<Counter>(|| {}))
+fn reading_in_a_removed_scope_is_a_mistake_said_out_loud() {
+    refused_in_a_removed_scope("reading a reducer", |scope| {
+        drop(scope.binding::<Counter>().read_by(()))
     });
 }
 
@@ -389,9 +392,9 @@ fn pushing_through_a_binding_after_its_scope_went_is_a_mistake_said_out_loud() {
 #[test]
 fn watching_through_a_binding_after_its_scope_went_is_a_mistake_said_out_loud() {
     refused_after_its_scope_went(
-        "listening to a reducer",
+        "reading a reducer",
         |scope| scope.binding::<Counter>(),
-        |binding| drop(binding.on_change(|_| {})),
+        |binding| drop(binding.read_by(())),
     );
 }
 
@@ -645,15 +648,17 @@ fn state_survives_unmount_remount_within_a_live_store() {
 }
 
 #[test]
-fn push_notifies_subscribers_and_unsubscribe_stops_it() {
+fn a_push_redraws_its_readers_until_they_are_let_go_of() {
     let store = ScopeTree::new();
+    store.drawn_by(crate::draws::Calls);
     let seen = Rc::new(RefCell::new(Vec::new()));
 
     let seen_for_sub = seen.clone();
     let read = store.scope();
-    let sub = store.subscribe::<Counter>(move || {
+    let reader: Box<dyn Fn()> = Box::new(move || {
         seen_for_sub.borrow_mut().push(read.state::<Counter>().borrow().value);
     });
+    let sub = store.binding::<Counter>().read_by(reader);
 
     store.push::<Counter>(CounterMsg::Set(1));
     store.push::<Counter>(CounterMsg::Set(2));

@@ -191,7 +191,7 @@ fn layout_mount<L: Layout>(scope: Scope) {
 
 /// Mounts what is under `scope`, as what was mounted into it says.
 pub(crate) fn descend(scope: Scope) {
-    let segment = scope.kept::<Segment, _>(|segment| *segment);
+    let segment = scope.try_kept::<Segment, _>(|segment| *segment);
     if let Some(Segment(mount)) = segment {
         mount(scope);
     }
@@ -222,7 +222,7 @@ impl Child {
 /// The window component nearest above `scope`.
 fn component<W: slint::ComponentHandle + 'static>(scope: Scope) -> W {
     let found = std::iter::successors(Some(scope), Scope::parent)
-        .find_map(|scope| scope.kept::<Component, _>(|component| component.0.clone()))
+        .find_map(|scope| scope.try_kept::<Component, _>(|component| component.0.clone()))
         .unwrap_or_else(|| {
             panic!(
                 "root::<{}>() outside a window: this scope is not under one `run` opened",

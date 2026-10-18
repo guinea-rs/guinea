@@ -504,7 +504,7 @@ fn what_a_scope_keeps_is_handed_back_as_it_was_left() {
 }
 
 #[test]
-fn a_scope_asked_for_what_it_never_kept_hands_back_nothing() {
+fn asking_a_scope_that_is_there_for_what_it_never_kept_is_a_mistake_said_out_loud() {
     let tree = ScopeTree::new();
     let scope = tree.scope();
 
@@ -512,7 +512,40 @@ fn a_scope_asked_for_what_it_never_kept_hands_back_nothing() {
         scope.kept::<u32, _>(|kept| *kept += 5)
     }));
 
-    assert!(matches!(asked, Ok(None)), "asking for what was never kept is not a mistake");
+    let message = asked
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    assert_eq!(message, Some(format!("{scope:?} keeps no u32")));
+}
+
+#[test]
+fn trying_a_scope_for_what_it_never_kept_hands_back_nothing() {
+    let tree = ScopeTree::new();
+    let scope = tree.scope();
+
+    let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope.try_kept::<u32, _>(|kept| *kept += 5)
+    }));
+
+    assert!(matches!(asked, Ok(None)), "what may not be kept is not a mistake to ask for");
+}
+
+#[test]
+fn trying_for_what_is_out_for_a_call_already_is_a_mistake_said_out_loud() {
+    let tree = ScopeTree::new();
+    let scope = tree.scope();
+    scope.keep(1u32);
+
+    let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope.try_kept::<u32, _>(|_| scope.try_kept::<u32, _>(|kept| *kept))
+    }));
+
+    let message = asked
+        .err()
+        .and_then(|panic| panic.downcast::<String>().ok())
+        .map(|message| *message);
+    assert_eq!(message, Some(format!("{scope:?} has its u32 out for a call already")));
 }
 
 #[test]
@@ -529,7 +562,7 @@ fn asking_for_what_is_out_for_a_call_already_is_a_mistake_said_out_loud() {
         .err()
         .and_then(|panic| panic.downcast::<String>().ok())
         .map(|message| *message);
-    assert_eq!(message, Some(format!("{scope:?} has its u32 out for a call already")));
+    assert_eq!(message, Some(format!("{scope:?} keeps no u32")));
 }
 
 #[test]

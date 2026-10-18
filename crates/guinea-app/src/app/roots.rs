@@ -92,7 +92,7 @@ pub(crate) fn open(window: Scope) -> RootId {
 /// What a tool that starts watching is told of the root opened on `scope`,
 /// if one was.
 pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
-    let told = scope.kept::<Root, _>(|root| (root.id.0, root.label.clone()));
+    let told = scope.try_kept::<Root, _>(|root| (root.id.0, root.label.clone()));
     let Some((root, label)) = told else {
         return;
     };

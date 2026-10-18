@@ -258,7 +258,7 @@ fn layout_offer<L: Layout>(window: Scope, scope: Scope, input: &Input) -> Handle
 
 /// The drawing of what was mounted into `scope`, in the window `window`.
 pub(crate) fn drawn(window: Scope, scope: Scope) -> Node {
-    let segment = scope.kept::<Segment, _>(|segment| *segment);
+    let segment = scope.try_kept::<Segment, _>(|segment| *segment);
     Node::new(move |frame, area| {
         let Some(segment) = segment else {
             return;
@@ -297,7 +297,7 @@ pub(crate) fn offer(window: Scope, event: &Event) -> Handled {
     let drawn = window.kept::<Shown, _>(|shown| shown.drawn.clone()).unwrap_or_default();
 
     for scope in drawn.into_iter().rev() {
-        let Some(segment) = scope.kept::<Segment, _>(|segment| *segment) else {
+        let Some(segment) = scope.try_kept::<Segment, _>(|segment| *segment) else {
             continue;
         };
         if (segment.offer)(window, scope, &input) == Handled::Yes {
@@ -310,7 +310,7 @@ pub(crate) fn offer(window: Scope, event: &Event) -> Handled {
 
 /// Whether a segment of `window` closed it.
 pub(crate) fn closed(window: Scope) -> bool {
-    window.kept::<Shown, _>(|shown| shown.closed).unwrap_or_default()
+    window.try_kept::<Shown, _>(|shown| shown.closed).unwrap_or_default()
 }
 
 /// What a layout mounted: the child's drawing, or why it did not mount.

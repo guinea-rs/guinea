@@ -1035,7 +1035,7 @@ impl From<Child> for View {
 
 /// The view of what was mounted into `scope`.
 pub(crate) fn drawn(scope: Scope) -> View {
-    match scope.kept::<Draws, _>(|draws| draws.0) {
+    match scope.try_kept::<Draws, _>(|draws| draws.0) {
         Some(view) => view(scope),
         None => Grid::new().into(),
     }

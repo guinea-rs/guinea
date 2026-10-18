@@ -66,7 +66,7 @@ impl Nodes {
         if self.held.get(&scope).is_some() {
             return;
         }
-        if let Some(held) = scope.kept::<Staged, _>(|staged| staged.0.take()).flatten() {
+        if let Some(held) = scope.try_kept::<Staged, _>(|staged| staged.0.take()).flatten() {
             self.held.insert(scope, Box::new(held));
         }
     }

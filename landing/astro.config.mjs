@@ -21,7 +21,7 @@ export default defineConfig({
   },
 
   integrations: [
-    mermaid({ autoTheme: true }),
+    mermaid({ autoTheme: true, enableLog: false, mermaidConfig: { layout: 'elk' } }),
     starlight({
       title: 'guinea',
       favicon: '/guinea.svg',

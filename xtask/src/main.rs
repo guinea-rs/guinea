@@ -1,5 +1,6 @@
 //! `cargo xtask docs` copies the examples marked in tests into the pages that
-//! show them: the README and the doc comments under `crates/*/src`.
+//! show them: the README, the doc comments under `crates/*/src`, and the book
+//! under `landing/src/content/docs`.
 //! `--check` writes nothing and fails when a page is behind its tests.
 
 use std::collections::BTreeSet;
@@ -8,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const KINDS: &[&str] = &["shown"];
+const BOOK: &str = "landing/src/content/docs";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -49,8 +51,12 @@ fn docs(check: bool) -> Result<(), Vec<String>> {
             .map_err(|error| vec![error.to_string()])?;
     }
 
+    let mut book = Vec::new();
+    walk(&root.join(BOOK), &mut book).map_err(|error| vec![error])?;
+
     let pages = std::iter::once(root.join("README.md"))
-        .chain(files.iter().filter(|file| is_page(&root, file)).cloned());
+        .chain(files.iter().filter(|file| is_page(&root, file)).cloned())
+        .chain(book);
 
     let mut problems = Vec::new();
     let mut used = BTreeSet::new();

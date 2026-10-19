@@ -15,7 +15,7 @@
 //!
 //! `winui` is a default feature and means nothing off Windows.
 
-pub use guinea_router::{link, manifest, mount, navigator, slot};
+pub use guinea_router::{link, mount, navigator, slot};
 #[doc(hidden)]
 pub use guinea_router::sample;
 

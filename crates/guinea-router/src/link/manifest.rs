@@ -15,12 +15,32 @@
 //! The shape of the check is a golden file: [`check`] renders the manifest and
 //! compares it with what is committed, failing when they differ.
 //!
-//! ```ignore
-//! #[test]
-//! fn deep_links_are_what_was_shipped() {
-//!     guinea::manifest::check("deeplinks.toml", "guinea-processes", &[&Route::deep_links()]);
-//! }
 //! ```
+//! use guinea_router::link::manifest;
+//! use guinea_router::navigator::Routable;
+//!
+//! #[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
+//! enum Route {
+//!     #[at("/:context/processes")]
+//!     Processes { context: String },
+//! }
+//! # #[derive(Clone, Debug, PartialEq, guinea_macros::Routable)]
+//! # enum Widened {
+//! #     #[at("/:context/processes")]
+//! #     Processes { context: u32 },
+//! # }
+//!
+//! # let shipped = std::env::temp_dir().join("guinea-router-doc-deeplinks.toml");
+//! # std::fs::write(&shipped, manifest::render("guinea-processes", &[&Route::deep_links()])).unwrap();
+//! manifest::check(&shipped, "guinea-processes", &[&Route::deep_links()]);
+//! # let changed = std::panic::catch_unwind(|| {
+//! #     manifest::check(&shipped, "guinea-processes", &[&Widened::deep_links()])
+//! # });
+//! # assert!(changed.is_err(), "a capture that changed type is a changed address");
+//! ```
+//!
+//! In an application it is a test of its own, next to a committed
+//! `deeplinks.toml`.
 //!
 //! Set `GUINEA_BLESS=1` to rewrite it. Updating is then something a person did
 //! and a reviewer can see, rather than something a build did quietly.
@@ -28,7 +48,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::link::DeepLink;
+use super::DeepLink;
 
 /// The manifest as text, sorted so that only real changes show up in a diff.
 ///
@@ -180,7 +200,7 @@ fn interesting(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link::Capture;
+    use super::super::Capture;
 
     fn processes() -> DeepLink {
         DeepLink {

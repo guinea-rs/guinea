@@ -10,7 +10,6 @@
 extern crate self as guinea_router;
 
 pub mod link;
-pub mod manifest;
 pub mod mount;
 pub mod navigator;
 pub mod observability;

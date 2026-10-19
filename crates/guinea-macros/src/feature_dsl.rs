@@ -4,7 +4,7 @@
 //! ```
 //! # use guinea_app::app::{GuineaHost, PluginBuilder};
 //! # use guinea_app::app::roots::Root;
-//! # use guinea_app::feature::FeatureInitContext;
+//! # use guinea_app::feature::Install;
 //! # use guinea_core::feature::Bound;
 //! # use guinea_core::feed::Feed;
 //! # use guinea_macros::{builds, feature, installs, plugin, reducer};
@@ -35,7 +35,7 @@
 //!     }
 //! }
 //! # #[installs]
-//! # fn agent_link(cx: &FeatureInitContext) -> anyhow::Result<AgentLink> {
+//! # fn agent_link(cx: &Install) -> anyhow::Result<AgentLink> {
 //! #     let link = cx.state::<AgentLinkState>().plain();
 //! #     let report = cx.feed::<AgentReport>();
 //! #     report.set(AgentReport("idle"));

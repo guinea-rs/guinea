@@ -1240,7 +1240,7 @@ impl<'h, R: Routable> Mounted<'h, R> {
     /// window's dialog - see [`answer`](Self::answer).
     ///
     /// ```
-    /// # use guinea_app::feature::FeatureInitContext;
+    /// # use guinea_app::feature::{FeatureInitContext, Install};
     /// # use guinea_core::actor::In;
     /// # use guinea_core::feature::Push;
     /// # use guinea_macros::{Mark, actor, feature, handler, installs, reducer};
@@ -1285,7 +1285,7 @@ impl<'h, R: Routable> Mounted<'h, R> {
     /// #     }
     /// # }
     /// # #[installs]
-    /// # fn listed(cx: &FeatureInitContext) -> anyhow::Result<Listed> {
+    /// # fn listed(cx: &Install) -> anyhow::Result<Listed> {
     /// #     let (listing, loader) = cx.state::<Listing>().driven_by(|push| Loader { push });
     /// #     loader.send(Load);
     /// #     Ok(Listed(listing))

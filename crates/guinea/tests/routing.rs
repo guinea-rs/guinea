@@ -28,7 +28,7 @@ mod provided {
     }
 
     #[guinea_macros::installs]
-    fn greeted(_cx: &FeatureInitContext, greeting: Greeting) -> anyhow::Result<Greeted> {
+    fn greeted(_cx: &guinea::feature::Install, greeting: Greeting) -> anyhow::Result<Greeted> {
         assert_eq!(greeting.0, "hello");
         Ok(Greeted)
     }

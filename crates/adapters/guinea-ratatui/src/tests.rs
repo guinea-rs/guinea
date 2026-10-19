@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 
 use guinea_app::app::{GuineaHost, roots};
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureInitContext, Install};
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
@@ -41,7 +41,7 @@ feature! {
 }
 
 #[installs]
-fn sharing(cx: &FeatureInitContext) -> anyhow::Result<Sharing> {
+fn sharing(cx: &Install) -> anyhow::Result<Sharing> {
     Ok(Sharing(cx.state::<Shared>().seed(Shared(7)).plain()))
 }
 

@@ -24,7 +24,7 @@ mod slot;
 /// ```
 /// # use guinea_app::app::GuineaHost;
 /// # use guinea_app::app::roots::Root;
-/// # use guinea_app::feature::FeatureInitContext;
+/// # use guinea_app::feature::Install;
 /// # use guinea_core::feature::Bound;
 /// # use guinea_core::feed::Feed;
 /// # use guinea_macros::{feature, installs};
@@ -46,7 +46,7 @@ mod slot;
 ///     }
 /// }
 /// # #[installs]
-/// # fn tabs(cx: &FeatureInitContext) -> anyhow::Result<Tabs> {
+/// # fn tabs(cx: &Install) -> anyhow::Result<Tabs> {
 /// #     let tabs = cx.state::<contracts::Tabs>().plain();
 /// #     let open_tab = cx.feed::<contracts::OpenTab>();
 /// #     open_tab.set(contracts::OpenTab("inbox".into()));
@@ -729,7 +729,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 ///
 /// // It answers for as long as the segment that installed it stands.
 /// #[installs]
-/// fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+/// fn killing(cx: &Install) -> anyhow::Result<Killing> {
 ///     cx.spawn(Processes { protected: vec![4] });
 ///     Ok(Killing)
 /// }
@@ -802,7 +802,7 @@ pub fn event(item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[installs]
-/// fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+/// fn auditing(cx: &Install) -> anyhow::Result<Auditing> {
 ///     cx.spawn(Audit::default());
 ///     Ok(Auditing)
 /// }

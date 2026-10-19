@@ -35,7 +35,7 @@ mod counting {
     }
 
     #[installs]
-    fn counting(cx: &FeatureInitContext, _ready: Ready) -> anyhow::Result<Counting> {
+    fn counting(cx: &Install,_ready: Ready) -> anyhow::Result<Counting> {
         let count = cx.state::<Count>().seed(Count(7)).plain();
         Ok(Counting(count))
     }
@@ -47,7 +47,7 @@ mod counting {
     }
 
     #[installs]
-    fn halfway(cx: &FeatureInitContext, ready: Option<Ready>) -> anyhow::Result<Halfway> {
+    fn halfway(cx: &Install,ready: Option<Ready>) -> anyhow::Result<Halfway> {
         let count = cx.state::<Count>().plain();
         ready.ok_or_else(|| anyhow::anyhow!("nothing provides Ready yet"))?;
         Ok(Halfway(count))
@@ -146,7 +146,7 @@ mod once {
     }
 
     #[installs]
-    fn once(_cx: &FeatureInitContext) -> anyhow::Result<Once> {
+    fn once(_cx: &Install) -> anyhow::Result<Once> {
         RUNS.set(RUNS.get() + 1);
         Ok(Once)
     }

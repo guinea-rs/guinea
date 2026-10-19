@@ -28,7 +28,7 @@ feature! {
 
 #[installs]
 fn remembering<T: Clone + PartialEq + std::fmt::Debug + Default + 'static, const N: usize>(
-    cx: &FeatureInitContext,
+    cx: &Install,
 ) -> anyhow::Result<Remembering<T, N>> {
     Ok(Remembering(cx.state::<Recent<T, N>>().plain()))
 }

@@ -27,7 +27,7 @@ mod drafting {
     }
 
     #[installs]
-    fn drafting(cx: &FeatureInitContext) -> anyhow::Result<Drafting> {
+    fn drafting(cx: &Install) -> anyhow::Result<Drafting> {
         cx.block_leave_while::<Draft>(|draft| draft.dirty);
         let draft = cx
             .state::<Draft>()
@@ -44,7 +44,7 @@ mod drafting {
     }
 
     #[installs]
-    fn editing(cx: &FeatureInitContext) -> anyhow::Result<Editing> {
+    fn editing(cx: &Install) -> anyhow::Result<Editing> {
         cx.block_leave_while::<Draft>(|draft| draft.dirty);
         Ok(Editing)
     }
@@ -54,7 +54,7 @@ mod drafting {
     }
 
     #[installs]
-    fn asking(cx: &FeatureInitContext) -> anyhow::Result<Asking> {
+    fn asking(cx: &Install) -> anyhow::Result<Asking> {
         cx.confirm_leave::<Draft>(
             |draft| draft.dirty,
             |_| guinea::guard::Ask::new("Leave the draft?", "Leave", "Stay"),

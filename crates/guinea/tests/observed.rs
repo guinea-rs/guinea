@@ -51,7 +51,7 @@ feature! {
 }
 
 #[installs]
-fn naming(cx: &FeatureInitContext) -> anyhow::Result<Naming> {
+fn naming(cx: &Install) -> anyhow::Result<Naming> {
     let (name, _) = cx.state::<Name>().driven_by(|push| Namer { push });
     Ok(Naming(name))
 }

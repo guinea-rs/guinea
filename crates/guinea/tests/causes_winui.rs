@@ -59,7 +59,7 @@ feature! {
 }
 
 #[installs]
-fn metering(cx: &FeatureInitContext) -> anyhow::Result<Metering> {
+fn metering(cx: &Install) -> anyhow::Result<Metering> {
     let (load, _) = cx.state::<Load>().driven_by(|push| Meter { push });
     Ok(Metering(load))
 }
@@ -100,7 +100,7 @@ feature! {
 }
 
 #[installs]
-fn linking(cx: &FeatureInitContext) -> anyhow::Result<Linking> {
+fn linking(cx: &Install) -> anyhow::Result<Linking> {
     let (link, _linker) = cx.state::<Link>().driven_by(|push| Linker { push });
     Ok(Linking(link))
 }
@@ -247,7 +247,7 @@ feature! {
 }
 
 #[installs]
-fn ticking(cx: &FeatureInitContext) -> anyhow::Result<Ticking> {
+fn ticking(cx: &Install) -> anyhow::Result<Ticking> {
     let (rate, _) = cx.state::<Rate>().driven_by(|push| Ticker { push });
     Ok(Ticking(rate))
 }

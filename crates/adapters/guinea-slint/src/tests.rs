@@ -3,7 +3,7 @@
 //! way the markup moves it.
 
 use guinea_app::app::{GuineaHost, roots};
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureInitContext, Install};
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
@@ -99,7 +99,7 @@ feature! {
 }
 
 #[installs]
-fn labelling(cx: &FeatureInitContext) -> anyhow::Result<Labelling> {
+fn labelling(cx: &Install) -> anyhow::Result<Labelling> {
     Ok(Labelling(cx.state::<Label>().seed(Label("processes".into())).plain()))
 }
 

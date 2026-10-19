@@ -162,7 +162,7 @@ feature! {
 }
 
 #[installs]
-fn pinging(cx: &FeatureInitContext) -> anyhow::Result<Pinging> {
+fn pinging(cx: &Install) -> anyhow::Result<Pinging> {
     let (pings, _) = cx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
     Ok(Pinging(pings))
 }

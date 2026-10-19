@@ -73,7 +73,7 @@ mod naive {
     }
 
     #[installs]
-    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+    fn searching(cx: &Install) -> anyhow::Result<Search> {
         let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push });
         Ok(Search(results))
     }
@@ -128,7 +128,7 @@ mod latest {
     }
 
     #[installs]
-    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+    fn searching(cx: &Install) -> anyhow::Result<Search> {
         let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push, asked: 0 });
         Ok(Search(results))
     }
@@ -162,7 +162,7 @@ mod by_policy {
     }
 
     #[installs]
-    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+    fn searching(cx: &Install) -> anyhow::Result<Search> {
         let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push });
         Ok(Search(results))
     }
@@ -255,7 +255,7 @@ mod sleepy {
     }
 
     #[installs]
-    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+    fn searching(cx: &Install) -> anyhow::Result<Search> {
         let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push });
         Ok(Search(results))
     }
@@ -325,7 +325,7 @@ mod polling {
     }
 
     #[installs]
-    fn polling(cx: &FeatureInitContext) -> anyhow::Result<Polling> {
+    fn polling(cx: &Install) -> anyhow::Result<Polling> {
         let (samples, sampler) = cx.state::<Samples>().driven_by(|push| Sampler { push });
         cx.every(std::time::Duration::from_millis(100), || Sample, sampler);
         Ok(Polling(samples))
@@ -437,7 +437,7 @@ mod reports {
     }
 
     #[installs]
-    fn reports(cx: &FeatureInitContext) -> anyhow::Result<Reports> {
+    fn reports(cx: &Install) -> anyhow::Result<Reports> {
         let (running, _) = cx.state::<Running>().driven_by(|push| Reader { push });
         Ok(Reports(running))
     }
@@ -486,7 +486,7 @@ mod reports {
     }
 
     #[installs]
-    fn prefixed(_cx: &FeatureInitContext, prefix: Prefix) -> anyhow::Result<Prefixed> {
+    fn prefixed(_cx: &Install,prefix: Prefix) -> anyhow::Result<Prefixed> {
         assert_eq!(prefix.0, "proc-");
         Ok(Prefixed)
     }
@@ -504,7 +504,7 @@ mod reports {
     }
 
     #[installs]
-    fn limited(_cx: &FeatureInitContext, limit: Option<Limit>) -> anyhow::Result<Limited> {
+    fn limited(_cx: &Install,limit: Option<Limit>) -> anyhow::Result<Limited> {
         LIMITED_TO.set(Some(limit.unwrap_or_default()));
         Ok(Limited)
     }
@@ -575,7 +575,7 @@ mod named {
     }
 
     #[installs]
-    fn naming(cx: &FeatureInitContext) -> anyhow::Result<Naming> {
+    fn naming(cx: &Install) -> anyhow::Result<Naming> {
         let (name, _) = cx.state::<Name>().driven_by(|push| Namer { push });
         Ok(Naming(name))
     }
@@ -619,7 +619,7 @@ mod titled {
     }
 
     #[installs]
-    fn titling(cx: &FeatureInitContext) -> anyhow::Result<Titling> {
+    fn titling(cx: &Install) -> anyhow::Result<Titling> {
         cx.state::<Title>().driven_by(|push| Titler { push });
         Ok(Titling)
     }
@@ -737,7 +737,7 @@ mod listening {
     }
 
     #[installs]
-    fn listening(cx: &FeatureInitContext) -> anyhow::Result<Listening> {
+    fn listening(cx: &Install) -> anyhow::Result<Listening> {
         let (heard, _) = cx.state::<Heard>().driven_by(|push| Listener { push });
         Ok(Listening(heard))
     }
@@ -895,7 +895,7 @@ mod echo {
     }
 
     #[installs]
-    fn echo(cx: &FeatureInitContext) -> anyhow::Result<Echo> {
+    fn echo(cx: &Install) -> anyhow::Result<Echo> {
         let seen = cx.state::<Seen>().plain();
 
         let pushing = seen.clone();
@@ -1011,7 +1011,7 @@ mod watching {
     }
 
     #[installs]
-    fn watching(cx: &FeatureInitContext) -> anyhow::Result<Watching> {
+    fn watching(cx: &Install) -> anyhow::Result<Watching> {
         let (seen, _) = cx.state::<Seen>().driven_by(|push| Watcher { push });
         Ok(Watching(seen))
     }
@@ -1145,7 +1145,7 @@ mod lingering {
     }
 
     #[installs]
-    fn lingering(cx: &FeatureInitContext) -> anyhow::Result<Lingering> {
+    fn lingering(cx: &Install) -> anyhow::Result<Lingering> {
         let (pokes, addr) = cx.state::<Pokes>().driven_by(|push| Lingerer { push, _alive: Alive::new() });
         cx.every(ms(100), || Poke, addr);
         Ok(Lingering(pokes))
@@ -1245,7 +1245,7 @@ mod supervising {
     }
 
     #[installs]
-    fn supervising(cx: &FeatureInitContext) -> anyhow::Result<Supervising> {
+    fn supervising(cx: &Install) -> anyhow::Result<Supervising> {
         let (agents, _) = cx.state::<Agents>().driven_by(|push| Supervisor { push });
         Ok(Supervising(agents))
     }
@@ -1302,7 +1302,7 @@ mod hiring {
     }
 
     #[installs]
-    fn hiring(cx: &FeatureInitContext) -> anyhow::Result<Hiring> {
+    fn hiring(cx: &Install) -> anyhow::Result<Hiring> {
         let (staff, _) = cx.state::<Staff>().driven_by(|push| Boss { push });
         Ok(Hiring(staff))
     }
@@ -1433,7 +1433,7 @@ mod forever {
     }
 
     #[installs]
-    fn forever(cx: &FeatureInitContext) -> anyhow::Result<Forever> {
+    fn forever(cx: &Install) -> anyhow::Result<Forever> {
         let (waiting, _) = cx.state::<Waiting>().driven_by(|push| Waiter { push });
         cx.repeat(Duration::from_secs(60 * 60), || {
             let ticks = TICKS.get() + 1;

@@ -84,7 +84,7 @@ feature! {
 }
 
 #[installs]
-fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+fn counter(cx: &Install) -> anyhow::Result<Counter> {
     let (count, _) = cx.state::<Count>().driven_by(|push| Counting { push });
     Ok(Counter(count))
 }

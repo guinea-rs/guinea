@@ -146,7 +146,7 @@ feature! {
 }
 
 #[installs]
-fn lanes(cx: &FeatureInitContext) -> anyhow::Result<Lanes> {
+fn lanes(cx: &Install) -> anyhow::Result<Lanes> {
     let (found, _) = cx.state::<Found>().driven_by(|push| Searcher { push });
     Ok(Lanes(found))
 }

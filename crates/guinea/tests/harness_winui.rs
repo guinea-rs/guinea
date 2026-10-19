@@ -85,7 +85,7 @@ feature! {
 }
 
 #[installs]
-fn search(cx: &FeatureInitContext) -> anyhow::Result<Search> {
+fn search(cx: &Install) -> anyhow::Result<Search> {
     let (results, _) = cx.state::<Results>().driven_by(|push| Searcher { push });
     Ok(Search(results))
 }
@@ -655,7 +655,7 @@ mod polling {
     }
 
     #[installs]
-    fn polling(cx: &FeatureInitContext) -> anyhow::Result<Polling> {
+    fn polling(cx: &Install) -> anyhow::Result<Polling> {
         let (samples, sampler) = cx.state::<Samples>().driven_by(|push| Sampler { push });
         cx.every(std::time::Duration::from_millis(100), || Sample, sampler);
         Ok(Polling(samples))
@@ -964,7 +964,7 @@ mod navigating {
         }
 
         #[installs]
-        fn frame_clock(cx: &FeatureInitContext) -> anyhow::Result<FrameClock> {
+        fn frame_clock(cx: &Install) -> anyhow::Result<FrameClock> {
             let (ticks, ticker) = cx.state::<FrameTicks>().driven_by(|push| FrameTicker { push });
             cx.every(std::time::Duration::from_secs(1), || Tick, ticker);
             Ok(FrameClock(ticks))
@@ -1008,7 +1008,7 @@ mod navigating {
         }
 
         #[installs]
-        fn list_clock(cx: &FeatureInitContext) -> anyhow::Result<ListClock> {
+        fn list_clock(cx: &Install) -> anyhow::Result<ListClock> {
             let (ticks, ticker) = cx.state::<ListTicks>().driven_by(|push| ListTicker { push });
             cx.every(std::time::Duration::from_secs(1), || Tick, ticker);
             Ok(ListClock(ticks))
@@ -1038,7 +1038,7 @@ mod navigating {
         }
 
         #[installs]
-        fn greeted(cx: &FeatureInitContext, greeting: Option<Greeting>) -> anyhow::Result<Greeted> {
+        fn greeted(cx: &Install,greeting: Option<Greeting>) -> anyhow::Result<Greeted> {
             let greeting = greeting.map_or("nobody", |greeting| greeting.0);
             Ok(Greeted(cx.state::<Heard>().seed(Heard(greeting)).plain()))
         }

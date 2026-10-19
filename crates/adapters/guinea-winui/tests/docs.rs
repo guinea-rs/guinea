@@ -26,7 +26,7 @@ mod whole {
     //@hide
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
     use windows_reactor::{Button, StackPanel, TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -47,7 +47,7 @@ mod whole {
     }
 
     #[installs]
-    fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+    fn counter(cx: &Install) -> anyhow::Result<Counter> {
         let count = cx.state::<Count>().plain();
 
         cx.answers(move |Add(by): Add| count.push(by));
@@ -372,7 +372,7 @@ mod asking_a_feature {
     //@hide
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
     use windows_reactor::{TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -392,7 +392,7 @@ mod asking_a_feature {
     }
 
     #[installs]
-    fn searching(cx: &FeatureInitContext) -> anyhow::Result<Searching> {
+    fn searching(cx: &Install) -> anyhow::Result<Searching> {
         let results = cx.state::<Results>().plain();
 
         cx.answers(move |Search(query): Search| results.push(format!("found {query}")));
@@ -514,7 +514,8 @@ mod shell {
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
-        FeatureInitContext, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
+        FeatureInitContext, Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout,
+        page,
     };
     use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 
@@ -544,7 +545,7 @@ mod shell {
     }
 
     #[installs]
-    fn chrome(cx: &FeatureInitContext) -> anyhow::Result<Chrome> {
+    fn chrome(cx: &Install) -> anyhow::Result<Chrome> {
         let sidebar = cx.state::<Sidebar>().seed(Sidebar { open: true }).plain();
 
         cx.answers(move |SetOpen(open): SetOpen| sidebar.push(open));
@@ -765,7 +766,7 @@ mod layout_installing {
     //@show a layout that installs
     //@hide
     use guinea_macros::{feature, installs, reducer};
-    use guinea_winui::{Page, PageCx, page};
+    use guinea_winui::{Install, Page, PageCx, page};
     use windows_reactor::TextBlock;
     //@unhide
     use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
@@ -800,12 +801,12 @@ mod layout_installing {
     feature! { pub MetricsFeature { exports { Metrics } } }
 
     #[installs]
-    fn sidebar(cx: &FeatureInitContext) -> anyhow::Result<SidebarFeature> {
+    fn sidebar(cx: &Install) -> anyhow::Result<SidebarFeature> {
         Ok(SidebarFeature(cx.state::<Sidebar>().plain()))
     }
 
     #[installs]
-    fn metrics(cx: &FeatureInitContext) -> anyhow::Result<MetricsFeature> {
+    fn metrics(cx: &Install) -> anyhow::Result<MetricsFeature> {
         Ok(MetricsFeature(cx.state::<Metrics>().plain()))
     }
 

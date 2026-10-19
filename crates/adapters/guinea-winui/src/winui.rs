@@ -79,7 +79,7 @@ use windows_reactor::{
 ///
 /// <!-- shown: a whole page -->
 /// ```rust,ignore
-/// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+/// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
 /// use windows_reactor::{Button, StackPanel, TextBlock, View};
 ///
 /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -100,7 +100,7 @@ use windows_reactor::{
 /// }
 ///
 /// #[installs]
-/// fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+/// fn counter(cx: &Install) -> anyhow::Result<Counter> {
 ///     let count = cx.state::<Count>().plain();
 ///
 ///     cx.answers(move |Add(by): Add| count.push(by));
@@ -428,7 +428,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that asks a feature -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    /// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
     /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -448,7 +448,7 @@ pub trait Page: Sized + 'static {
     /// }
     ///
     /// #[installs]
-    /// fn searching(cx: &FeatureInitContext) -> anyhow::Result<Searching> {
+    /// fn searching(cx: &Install) -> anyhow::Result<Searching> {
     ///     let results = cx.state::<Results>().plain();
     ///
     ///     cx.answers(move |Search(query): Search| results.push(format!("found {query}")));
@@ -565,7 +565,8 @@ pub trait Page: Sized + 'static {
 /// <!-- shown: a shell -->
 /// ```rust,ignore
 /// use guinea_winui::{
-///     FeatureInitContext, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
+///     FeatureInitContext, Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout,
+///     page,
 /// };
 /// use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 ///
@@ -595,7 +596,7 @@ pub trait Page: Sized + 'static {
 /// }
 ///
 /// #[installs]
-/// fn chrome(cx: &FeatureInitContext) -> anyhow::Result<Chrome> {
+/// fn chrome(cx: &Install) -> anyhow::Result<Chrome> {
 ///     let sidebar = cx.state::<Sidebar>().seed(Sidebar { open: true }).plain();
 ///
 ///     cx.answers(move |SetOpen(open): SetOpen| sidebar.push(open));

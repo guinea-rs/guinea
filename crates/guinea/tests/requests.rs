@@ -62,7 +62,7 @@ mod answering {
 
     // It answers for as long as the segment that installed it stands.
     #[installs]
-    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+    fn killing(cx: &Install) -> anyhow::Result<Killing> {
         cx.spawn(Processes { protected: vec![4] });
         Ok(Killing)
     }
@@ -102,7 +102,7 @@ mod answering_later {
     }
 
     #[installs]
-    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+    fn killing(cx: &Install) -> anyhow::Result<Killing> {
         cx.spawn(Processes { protected: vec![4] });
         Ok(Killing)
     }
@@ -151,7 +151,7 @@ mod answering_and_sending {
     }
 
     #[installs]
-    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+    fn killing(cx: &Install) -> anyhow::Result<Killing> {
         let (killed, _) = cx.state::<LastKilled>().driven_by(|push| Processes { push });
         Ok(Killing(killed))
     }
@@ -196,7 +196,7 @@ mod asking {
     }
 
     #[installs]
-    fn asking(cx: &FeatureInitContext) -> anyhow::Result<Asking> {
+    fn asking(cx: &Install) -> anyhow::Result<Asking> {
         let (said, _) = cx.state::<Said>().driven_by(|push| Asker { push });
         Ok(Asking(said))
     }
@@ -229,7 +229,7 @@ mod listening {
     }
 
     #[installs]
-    fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+    fn auditing(cx: &Install) -> anyhow::Result<Auditing> {
         cx.spawn(Audit::default());
         Ok(Auditing)
     }
@@ -263,7 +263,7 @@ mod answering_async {
     }
 
     #[installs]
-    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+    fn killing(cx: &Install) -> anyhow::Result<Killing> {
         cx.spawn(Processes);
         Ok(Killing)
     }
@@ -292,7 +292,7 @@ mod dropping {
     }
 
     #[installs]
-    fn killing(cx: &FeatureInitContext) -> anyhow::Result<Killing> {
+    fn killing(cx: &Install) -> anyhow::Result<Killing> {
         cx.spawn(Processes);
         Ok(Killing)
     }
@@ -333,7 +333,7 @@ mod listening_and_replying {
     }
 
     #[installs]
-    fn auditing(cx: &FeatureInitContext) -> anyhow::Result<Auditing> {
+    fn auditing(cx: &Install) -> anyhow::Result<Auditing> {
         let (heard, _) = cx.state::<Heard>().driven_by(|push| Audit { push });
         Ok(Auditing(heard))
     }
@@ -391,7 +391,7 @@ mod cycle {
     }
 
     #[installs]
-    fn looping(cx: &FeatureInitContext) -> anyhow::Result<Looping> {
+    fn looping(cx: &Install) -> anyhow::Result<Looping> {
         cx.spawn(There);
         cx.spawn(Again);
         Ok(Looping)

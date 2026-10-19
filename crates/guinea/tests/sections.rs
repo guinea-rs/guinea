@@ -52,7 +52,7 @@ mod clock {
     }
 
     #[installs]
-    fn clock(cx: &FeatureInitContext) -> anyhow::Result<Clock> {
+    fn clock(cx: &Install) -> anyhow::Result<Clock> {
         let time = cx.state::<Time>().plain();
 
         cx.answers::<Refresh>(move |_| time.push(1));
@@ -96,7 +96,7 @@ mod weather {
     }
 
     #[installs]
-    fn weather(cx: &FeatureInitContext) -> anyhow::Result<Weather> {
+    fn weather(cx: &Install) -> anyhow::Result<Weather> {
         let forecast = cx.state::<Forecast>().plain();
 
         cx.answers::<Refresh>(move |_| forecast.push(1));
@@ -141,7 +141,7 @@ mod dashboard {
     }
 
     #[installs]
-    fn dashboard(cx: &FeatureInitContext) -> anyhow::Result<Dashboard> {
+    fn dashboard(cx: &Install) -> anyhow::Result<Dashboard> {
         cx.install::<clock::Clock>(&())?;
 
         let pinned = cx.state::<Pinned>().plain();

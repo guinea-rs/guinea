@@ -74,7 +74,7 @@ mod scanning {
     }
 
     #[installs]
-    fn scanning(cx: &FeatureInitContext) -> anyhow::Result<Scanning> {
+    fn scanning(cx: &Install) -> anyhow::Result<Scanning> {
         let heard = cx.state::<Heard>().plain();
         cx.answers(move |followed: Followed<Report>| heard.push(followed.0));
 
@@ -113,7 +113,7 @@ mod producing {
     }
 
     #[installs]
-    fn producing(cx: &FeatureInitContext) -> anyhow::Result<Producing> {
+    fn producing(cx: &Install) -> anyhow::Result<Producing> {
         let (heard, _) = cx.state::<Heard>().driven_by(|heard| Producer { heard });
         let report = cx.feed::<Report>();
 
@@ -129,7 +129,7 @@ mod twice {
     }
 
     #[installs]
-    fn twice(cx: &FeatureInitContext) -> anyhow::Result<Twice> {
+    fn twice(cx: &Install) -> anyhow::Result<Twice> {
         let (_first, at) = (cx.feed::<Report>(), line!());
         FIRST_OPENED_AT.set(at);
         let _second = cx.feed::<Report>();
@@ -148,7 +148,7 @@ mod watching {
     }
 
     #[installs]
-    fn watching(cx: &FeatureInitContext, report: Feed<Report>) -> anyhow::Result<Watching> {
+    fn watching(cx: &Install,report: Feed<Report>) -> anyhow::Result<Watching> {
         let seen = cx.state::<Seen>().plain();
         cx.follow(report, move |report| seen.push(report.0));
 
@@ -166,7 +166,7 @@ mod glancing {
     }
 
     #[installs]
-    fn glancing(cx: &FeatureInitContext, report: Option<Feed<Report>>) -> anyhow::Result<Glancing> {
+    fn glancing(cx: &Install,report: Option<Feed<Report>>) -> anyhow::Result<Glancing> {
         let seen = cx.state::<Seen>().plain();
         if let Some(report) = report.and_then(|report| report.get()) {
             seen.push(report.0);
@@ -189,7 +189,7 @@ mod needing {
 
     #[installs]
     fn needing(
-        _cx: &FeatureInitContext,
+        _cx: &Install,
         _greeting: Greeting,
         _report: Feed<Report>,
     ) -> anyhow::Result<Needing> {
@@ -208,7 +208,7 @@ mod beside {
     }
 
     #[installs]
-    fn beside(cx: &FeatureInitContext) -> anyhow::Result<Beside> {
+    fn beside(cx: &Install) -> anyhow::Result<Beside> {
         let scanning = cx.install::<scanning::Scanning>(&())?;
         let seen = cx.state::<Seen>().plain();
         cx.follow(scanning.1, move |report| seen.push(report.0));

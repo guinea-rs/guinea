@@ -45,7 +45,7 @@ mod inbox {
     }
 
     #[installs]
-    fn inbox(cx: &FeatureInitContext) -> anyhow::Result<Inbox> {
+    fn inbox(cx: &Install) -> anyhow::Result<Inbox> {
         let (unread, _) = cx.state::<Unread>().driven_by(|push| Mailbox { push });
         Ok(Inbox(unread))
     }

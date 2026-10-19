@@ -80,8 +80,8 @@
 //! ```
 //!
 //! Everything the trait wants is already in the signature: the feature is what
-//! it returns, `Params` is what its `Install` carries - `()` for a plain
-//! `&FeatureInitContext` - and `Exports` is what the manifest listed. Every
+//! it returns, `Params` is what its `Install` carries - `()` for a bare
+//! `&Install` - and `Exports` is what the manifest listed. Every
 //! argument after the context is a service the application provided, taken
 //! by clone before the function runs. So the macro writes
 //! `impl Feature` from those, and the function stays a function.
@@ -158,13 +158,25 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
         .into();
     }
 
-    let (params, cx) = match carried(&function) {
-        Some(params) => (
-            quote!(#params),
-            quote!(&#feature::Install::new(__guinea_cx, __guinea_params)),
-        ),
-        None => (quote!(()), quote!(__guinea_cx)),
+    let Some(params) = carried(&function) else {
+        let at = function
+            .sig
+            .inputs
+            .first()
+            .map(|first| quote!(#first))
+            .unwrap_or_else(|| {
+                let sig = &function.sig;
+                quote!(#sig)
+            });
+        return syn::Error::new_spanned(
+            at,
+            "#[installs] takes what the segment hands in first - write `cx: &Install`, or \
+             `cx: &Install<P>` for a feature installed with params `P`",
+        )
+        .to_compile_error()
+        .into();
     };
+    let cx = quote!(&#feature::Install::new(__guinea_cx, __guinea_params));
     let taking = crate::given::taking(quote!(__guinea_cx), &named, &types, quote!(?));
 
     quote! {
@@ -180,7 +192,6 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 __guinea_cx: &#feature::FeatureInitContext,
                 __guinea_params: &Self::Params,
             ) -> #gc::__private::anyhow::Result<Self> {
-                let _ = __guinea_params;
                 #taking
                 #called(#cx, #(#given),*)
             }

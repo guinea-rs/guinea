@@ -42,7 +42,7 @@ mod counting {
     }
 
     #[installs]
-    fn counter(cx: &FeatureInitContext) -> anyhow::Result<Counter> {
+    fn counter(cx: &Install) -> anyhow::Result<Counter> {
         let (count, _) = cx.state::<Count>().driven_by(|push| Counting { push });
         Ok(Counter(count))
     }
@@ -109,7 +109,7 @@ mod sorting {
     }
 
     #[installs]
-    fn tables(cx: &FeatureInitContext) -> anyhow::Result<Tables> {
+    fn tables(cx: &Install) -> anyhow::Result<Tables> {
         let (table, _) = cx.state::<Table>().driven_by(|push| Sorting { push });
         Ok(Tables(table))
     }

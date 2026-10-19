@@ -88,7 +88,7 @@ mod plain {
     use super::*;
 
     #[installs]
-    fn cx(cx: &FeatureInitContext) -> anyhow::Result<Plain> {
+    fn cx(cx: &Install) -> anyhow::Result<Plain> {
         let _ = cx;
         Ok(Plain)
     }

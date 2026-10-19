@@ -46,7 +46,7 @@ mod greeter {
 
     #[installs]
     fn greeter(
-        cx: &FeatureInitContext,
+        cx: &Install,
         greeting: Greeting,
         volume: Option<Volume>,
     ) -> anyhow::Result<Greeter> {
@@ -68,7 +68,7 @@ mod needy {
     }
 
     #[installs]
-    fn needy(_cx: &FeatureInitContext, _greeting: Greeting, _volume: Volume) -> anyhow::Result<Needy> {
+    fn needy(_cx: &Install,_greeting: Greeting, _volume: Volume) -> anyhow::Result<Needy> {
         RAN.set(true);
         Ok(Needy)
     }
@@ -212,7 +212,7 @@ mod counted {
     }
 
     #[installs]
-    fn counted(_cx: &FeatureInitContext, visits: Visits) -> anyhow::Result<Counted> {
+    fn counted(_cx: &Install,visits: Visits) -> anyhow::Result<Counted> {
         visits.0.set(visits.0.get() + 1);
         Ok(Counted)
     }

@@ -26,17 +26,38 @@ MVI for a whole application:
 - **View** - the page, written the way its toolkit works: WinUI, iced, egui,
   ratatui or Slint.
 
+A click goes around one loop:
+
+```mermaid
+flowchart LR
+    subgraph View
+        page[page]
+    end
+    subgraph Model
+        actor[actor]
+        task[background task]
+        reducer[reducer]
+    end
+    page -->|"action (Intent)"| actor
+    actor -->|spawns| task
+    task -->|answer| actor
+    actor -->|push| reducer
+    reducer -->|state| page
+```
+
+1. The page emits an action - what the user asked for, not what to change.
+2. The actor of the feature that owns the state decides what it means. Slow
+   work - a request, a file - runs as a background task, and its answer comes
+   back to the actor as one more message.
+3. The actor pushes an update to the reducer, the one place the state changes.
+4. The page reads the state and draws again.
+
+What only the page cares about - which tab is open, what is typed in a filter -
+does not go around the loop: the page keeps it itself.
+
 The application is built out of pages. Everything lives in a scope - the
 application's, a window's, a layout's, a page's - and goes with it: what a page
 set up ends when the user leaves it, with nothing to tear down by hand.
-
-```mermaid
-flowchart TD
-    app[application] --> window[window]
-    window --> layout[layout]
-    layout --> list[page: list]
-    layout --> details[page: details]
-```
 
 State lives with the screen that needs it, and is shared by installing it
 higher up - in a layout, or in the application. A page reads what it installed

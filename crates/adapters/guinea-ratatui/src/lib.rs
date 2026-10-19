@@ -90,7 +90,7 @@ pub trait Page: Sized + 'static {
     /// returns the state it starts with. Runs once per scope, when the scope
     /// is made.
     ///
-    /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
+    /// What it installs with `cx.install::<F>(..)` is the page's scope's,
     /// and goes when the page does.
     fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 

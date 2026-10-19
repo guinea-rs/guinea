@@ -40,7 +40,7 @@ use windows_reactor::{
 ///
 /// - [`install`](Page::install) mounts the page: it sets up what the page
 ///   needs while it is mounted - the features it installs with
-///   `ctx.install::<F>(..)` - and returns the node it starts as. Both live in
+///   `cx.install::<F>(..)` - and returns the node it starts as. Both live in
 ///   the page's scope and go when the page is left.
 /// - [`update`](Page::update) is the only place the page's own state changes,
 ///   one [`Message`](Page::Message) at a time.

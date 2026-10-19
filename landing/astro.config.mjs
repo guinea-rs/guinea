@@ -2,12 +2,19 @@
 
 import { defineConfig } from 'astro/config';
 
+import { satteri } from '@astrojs/markdown-satteri';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
+
+import { backendTabs, chooseBackend } from './src/backends.mjs';
 
 export default defineConfig({
   site: 'https://guinea-rs.github.io',
   base: '/guinea',
+
+  markdown: {
+    processor: satteri({ mdastPlugins: [backendTabs()] }),
+  },
 
   vite: {
     server: { fs: { allow: ['..'] } },
@@ -33,6 +40,7 @@ export default defineConfig({
             href: 'https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&display=swap',
           },
         },
+        { tag: 'script', content: chooseBackend },
       ],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/guinea-rs/guinea' }],
 

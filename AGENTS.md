@@ -79,6 +79,27 @@ block runs and does not show. The grammar is the
 Editing the fenced block in the page is wasted work; the next run overwrites
 it, and `--check` fails CI until it does.
 
+Where the backends differ, a page shows the same example on each, as tabs - a
+container directive per backend inside `::::backends`:
+
+```markdown
+::::backends
+:::winui
+<!-- shown: winui: a page -->
+<!-- /shown -->
+:::
+:::egui
+<!-- shown: egui: a page -->
+<!-- /shown -->
+:::
+::::
+```
+
+The tabs are `landing/src/backends.mjs`; the reader's choice holds across the
+page and the next visit. The documented backends are WinUI and egui. Their
+examples live in `book_<page>_<backend>.rs` in the facade, under the backend's
+feature; CI builds the egui ones with `--features eframe`.
+
 Diagrams are Mermaid fences, not ASCII art: an agent reads a graph from text
 reliably and a two-dimensional picture of one badly. ASCII is for trees.
 

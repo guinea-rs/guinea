@@ -58,6 +58,47 @@
 	animation: guinea-run-small 0.4s steps(4) infinite;
 }
 
+.backends {
+	margin-top: 1.5rem;
+}
+
+.backend-tabs {
+	display: flex;
+	gap: 0.25rem;
+	border-bottom: 1px solid var(--sl-color-gray-5);
+}
+
+.sl-markdown-content .backend-tab {
+	margin: 0;
+	padding: 0.4rem 0.9rem;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: none;
+	color: var(--sl-color-gray-2);
+	font: inherit;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.sl-markdown-content .backend-tab:hover {
+	color: var(--sl-color-white);
+}
+
+.backend-panel {
+	display: none;
+}
+
+:root[data-backend='winui'] .backend-tab[data-backend-tab='winui'],
+:root[data-backend='egui'] .backend-tab[data-backend-tab='egui'] {
+	color: var(--sl-color-white);
+	border-bottom-color: var(--sl-color-accent);
+}
+
+:root[data-backend='winui'] .backend-panel[data-backend='winui'],
+:root[data-backend='egui'] .backend-panel[data-backend='egui'] {
+	display: block;
+}
+
 @keyframes guinea-run {
 	to { background-position: -128px 0 }
 }

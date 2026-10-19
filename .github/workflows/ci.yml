@@ -46,6 +46,11 @@ jobs:
       - name: Test guinea-core without the workspace's features
         run: cargo test -p guinea-core
 
+      # The book shows every page on each backend it documents; the facade's
+      # default build has only WinUI, so the egui examples are built here.
+      - name: Book examples on egui
+        run: cargo test -p guinea --features eframe --test book_pages_egui
+
       # The examples in the README and in doc comments are copied from tests
       # by `cargo xtask docs`; a page edited by hand, or a test changed without
       # it, fails here.

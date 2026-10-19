@@ -156,7 +156,7 @@ pub trait Page: Sized + 'static {
     /// returns the node it starts as. `#[page]` writes one that starts from
     /// `Default` when it is left out.
     ///
-    /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
+    /// What it installs with `cx.install::<F>(..)` is the page's scope's,
     /// and goes when the page does.
     ///
     /// Runs once per scope, when the scope is made. A page woken from sleep

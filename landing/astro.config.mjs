@@ -44,6 +44,11 @@ export default defineConfig({
 
       sidebar: [
         { slug: 'introduction' },
+        {
+          label: 'Concepts',
+          translations: { ru: 'Концепции' },
+          items: [{ autogenerate: { directory: 'Concepts' } }],
+        },
       ],
     }),
   ],

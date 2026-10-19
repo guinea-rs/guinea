@@ -1,11 +1,82 @@
 //! `#[installs]` - the function that installs a feature `feature!` declared.
 //!
-//! ```ignore
+//! ```
+//! # use guinea_app::app::GuineaHost;
+//! # use guinea_app::app::roots::Root;
+//! # use guinea_app::feature::Install;
+//! # use guinea_core::actor::In;
+//! # use guinea_core::feature::Push;
+//! # use guinea_macros::{actor, feature, handler, installs, reducer};
+//! # #[derive(Clone, Default)]
+//! # pub struct AgentLinkState {
+//! #     pub connected: bool,
+//! # }
+//! #
+//! # #[reducer]
+//! # fn agent_link_state(this: &mut AgentLinkState, connected: bool) {
+//! #     this.connected = connected;
+//! # }
+//! #
+//! # pub struct AgentLinkParams {
+//! #     pub address: &'static str,
+//! # }
+//! #
+//! # #[derive(Clone)]
+//! # pub struct Store;
+//! #
+//! # pub struct Connect;
+//! #
+//! # pub struct AgentLinkActor {
+//! #     port: Push<AgentLinkState>,
+//! # }
+//! #
+//! # impl AgentLinkActor {
+//! #     fn new(port: Push<AgentLinkState>) -> Self {
+//! #         Self { port }
+//! #     }
+//! # }
+//! #
+//! # actor! {
+//! #     AgentLinkActor {
+//! #         handlers { Connect }
+//! #     }
+//! # }
+//! #
+//! # #[handler]
+//! # fn connect(In(this, Connect, _): In<AgentLinkActor, Connect>) {
+//! #     this.port.send(true);
+//! # }
+//! #
+//! # feature! {
+//! #     pub AgentLink {
+//! #         exports { AgentLinkState }
+//! #     }
+//! # }
 //! #[installs]
 //! fn agent_link(cx: &Install<AgentLinkParams>, store: Store) -> anyhow::Result<AgentLink> {
 //!     let (link, _) = cx.state::<AgentLinkState>().driven_by(|port| AgentLinkActor::new(port));
 //!     Ok(AgentLink(link))
 //! }
+//! # fn main() -> anyhow::Result<()> {
+//! # let params = AgentLinkParams { address: "pipe" };
+//! #
+//! # let bare = GuineaHost::new();
+//! # let window = Root::under(&bare.context());
+//! # let refused = window.context(window.scope(), 0).install::<AgentLink>(&params).err().unwrap();
+//! # assert!(refused.to_string().contains("nothing provided: `"), "{refused}");
+//! # assert!(refused.to_string().contains("Store`"), "{refused}");
+//! #
+//! # let (host, ()) = guinea_app::app::start("doc", |app| {
+//! #     app.provide(Store);
+//! #     Ok(())
+//! # })?;
+//! # let window = Root::under(&host.context());
+//! # let page = window.context(window.scope(), 0);
+//! # let AgentLink(link) = page.install::<AgentLink>(&params)?;
+//! # link.emit(Connect);
+//! # assert_eq!(page.read::<AgentLinkState>().map(|state| state.connected), Some(true));
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Everything the trait wants is already in the signature: the feature is what

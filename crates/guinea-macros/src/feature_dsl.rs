@@ -1,7 +1,27 @@
 //! `feature!` and `plugin!` - a feature's or a plugin's manifest: its name,
 //! what it exports and what it feeds, and for a plugin what it provides.
 //!
-//! ```ignore
+//! ```
+//! # use guinea_app::app::{GuineaHost, PluginBuilder};
+//! # use guinea_app::app::roots::Root;
+//! # use guinea_app::feature::FeatureInitContext;
+//! # use guinea_core::feature::Bound;
+//! # use guinea_core::feed::Feed;
+//! # use guinea_macros::{builds, feature, installs, plugin, reducer};
+//! # #[derive(Clone, Default)]
+//! # pub struct AgentLinkState {
+//! #     pub connected: bool,
+//! # }
+//! #
+//! # #[reducer]
+//! # fn agent_link_state(this: &mut AgentLinkState, connected: bool) {
+//! #     this.connected = connected;
+//! # }
+//! #
+//! # pub struct AgentReport(pub &'static str);
+//! #
+//! # #[derive(Clone, Debug, PartialEq)]
+//! # pub struct Store(&'static str);
 //! feature! {
 //!     pub AgentLink {
 //!         exports { AgentLinkState }
@@ -14,6 +34,34 @@
 //!         provides { Store }
 //!     }
 //! }
+//! # #[installs]
+//! # fn agent_link(cx: &FeatureInitContext) -> anyhow::Result<AgentLink> {
+//! #     let link = cx.state::<AgentLinkState>().plain();
+//! #     let report = cx.feed::<AgentReport>();
+//! #     report.set(AgentReport("idle"));
+//! #     Ok(AgentLink(link, report.feed()))
+//! # }
+//! #
+//! # #[builds]
+//! # fn settings(_app: &mut PluginBuilder, file: &'static str) -> anyhow::Result<Settings> {
+//! #     Ok(Settings(Store(file)))
+//! # }
+//! #
+//! # fn main() -> anyhow::Result<()> {
+//! # let host = GuineaHost::new();
+//! # let window = Root::under(&host.context());
+//! # let AgentLink(link, report) = window.context(window.scope(), 0).install::<AgentLink>(&())?;
+//! # let _: (Bound<AgentLinkState>, Feed<AgentReport>) = (link, report);
+//! # link.push(true);
+//! # assert_eq!(report.get().map(|report| report.0), Some("idle"));
+//! #
+//! # let page = window.context(window.scope().child(), 1);
+//! # assert_eq!(page.read::<AgentLinkState>().map(|state| state.connected), Some(true));
+//! #
+//! # let (_app, Settings(store)) = guinea_app::app::start("doc", |app| app.plugin::<Settings>("settings.db"))?;
+//! # assert_eq!(store, Store("settings.db"));
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! A list, not a struct: the manifest says what the feature is, and the

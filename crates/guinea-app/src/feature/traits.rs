@@ -126,7 +126,38 @@ impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
 ///
 /// Written as a manifest and a function, the way an actor is:
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::GuineaHost;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_app::feature::Install;
+/// # use guinea_core::actor::{Handler, In};
+/// # use guinea_core::feature::Push;
+/// # use guinea_macros::{actor, feature, installs};
+/// # mod contracts {
+/// #     #[derive(Clone, Default, Debug, PartialEq)]
+/// #     pub struct Processes(pub Vec<String>);
+/// #     #[guinea_macros::reducer]
+/// #     fn listed(this: &mut Processes, rows: Vec<String>) {
+/// #         this.0 = rows;
+/// #     }
+/// # }
+/// # pub struct Refresh;
+/// # #[derive(Debug)]
+/// # pub struct ProcessActor {
+/// #     context: String,
+/// #     push: Push<contracts::Processes>,
+/// # }
+/// # impl ProcessActor {
+/// #     fn new(context: String, push: Push<contracts::Processes>) -> Self {
+/// #         Self { context, push }
+/// #     }
+/// # }
+/// # actor! { ProcessActor { handlers { Refresh } } }
+/// # impl Handler<Refresh> for ProcessActor {
+/// #     fn handle(In(this, _, _): In<Self, Refresh>) {
+/// #         this.push.send(vec![format!("init on {}", this.context)]);
+/// #     }
+/// # }
 /// feature! {
 ///     pub Processes {
 ///         exports { contracts::Processes }
@@ -134,13 +165,24 @@ impl<P: ?Sized> super::given::Context for super::Install<'_, P> {
 /// }
 ///
 /// #[installs]
-/// fn processes(cx: &FeatureInitContext, context: &str) -> anyhow::Result<Processes> {
+/// fn processes(cx: &Install<str>) -> anyhow::Result<Processes> {
 ///     let (listing, _) = cx.state::<contracts::Processes>()
-///         .driven_by(|push| ProcessActor::new(context.to_string(), push));
+///         .driven_by(|push| ProcessActor::new(cx.params().to_string(), push));
 ///
 ///     listing.emit(Refresh);
 ///     Ok(Processes(listing))
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let host = GuineaHost::new();
+/// # let window = Root::under(&host.context());
+/// # let _page = window.install(|cx| {
+/// #     cx.install::<Processes>("ubuntu")?;
+/// #     let listed = cx.read::<contracts::Processes>().map(|listed| listed.0.clone());
+/// #     assert_eq!(listed, Some(vec!["init on ubuntu".to_string()]));
+/// #     Ok(())
+/// # })?;
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// The feature is what the function returns, built from what it exports - a
@@ -281,11 +323,50 @@ impl ScopeContext {
     /// could be left unwired without anything failing to build. Here the claim
     /// is the call, and continuing it is optional:
     ///
-    /// ```ignore
+    /// ```
+    /// # use guinea_app::app::GuineaHost;
+    /// # use guinea_app::app::roots::Root;
+    /// # use guinea_core::actor::{Handler, In};
+    /// # use guinea_core::feature::Push;
+    /// # use guinea_macros::{actor, reducer};
+    /// # #[derive(Clone, Default, Debug, PartialEq)]
+    /// # pub struct Processes(pub Vec<String>);
+    /// # #[reducer]
+    /// # fn listed(this: &mut Processes, rows: Vec<String>) {
+    /// #     this.0 = rows;
+    /// # }
+    /// # pub struct Refresh;
+    /// # #[derive(Debug)]
+    /// # pub struct ProcessActor {
+    /// #     context: String,
+    /// #     push: Push<Processes>,
+    /// # }
+    /// # impl ProcessActor {
+    /// #     fn new(context: String, push: Push<Processes>) -> Self {
+    /// #         Self { context, push }
+    /// #     }
+    /// # }
+    /// # actor! { ProcessActor { handlers { Refresh } } }
+    /// # impl Handler<Refresh> for ProcessActor {
+    /// #     fn handle(In(this, _, _): In<Self, Refresh>) {
+    /// #         this.push.send(vec![format!("init on {}", this.context)]);
+    /// #     }
+    /// # }
+    /// # fn main() -> anyhow::Result<()> {
+    /// # let host = GuineaHost::new();
+    /// # let window = Root::under(&host.context());
+    /// # let context = "ubuntu";
+    /// # let _page = window.install(|cx| {
     /// let (processes, _) = cx.state::<Processes>()
     ///     .driven_by(|push| ProcessActor::new(context.to_string(), push));
     ///
     /// processes.emit(Refresh);
+    /// #     let listed = cx.read::<Processes>().map(|listed| listed.0.clone());
+    /// #     assert_eq!(listed, Some(vec!["init on ubuntu".to_string()]));
+    /// #     Ok(())
+    /// # })?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// Ending it at [`plain`](Claim::plain) is not a half-written feature - it

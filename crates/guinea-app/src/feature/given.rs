@@ -24,12 +24,46 @@ use super::FeatureInitContext;
 /// What a feature is installed with: its context, and what the segment
 /// handed in.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_app::feature::Install;
+/// # use guinea_macros::{feature, installs, reducer};
+/// # #[derive(Clone)]
+/// # pub struct Store(&'static str);
+/// # pub struct AgentLinkParams {
+/// #     pub address: String,
+/// # }
+/// # #[derive(Clone, Default, Debug, PartialEq)]
+/// # pub struct Linked(pub String);
+/// # #[reducer]
+/// # fn linked(this: &mut Linked, to: String) {
+/// #     this.0 = to;
+/// # }
+/// # feature! { pub AgentLink { exports { Linked } } }
 /// #[installs]
 /// fn agent_link(cx: &Install<AgentLinkParams>, store: Store) -> anyhow::Result<AgentLink> {
 ///     let address = &cx.params().address;
-///     ...
+///
+///     let linked = cx
+///         .state::<Linked>()
+///         .seed(Linked(format!("{address}, remembered in {}", store.0)))
+///         .plain();
+///     Ok(AgentLink(linked))
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, ()) = guinea_app::app::start("doc", |app| {
+/// #     app.provide(Store("agents.db"));
+/// #     Ok(())
+/// # })?;
+/// # let window = Root::under(&host.context());
+/// # let _page = window.install(|cx| {
+/// #     cx.install::<AgentLink>(&AgentLinkParams { address: "10.0.0.7".into() })?;
+/// #     let linked = cx.read::<Linked>().map(|linked| linked.0.clone());
+/// #     assert_eq!(linked.as_deref(), Some("10.0.0.7, remembered in agents.db"));
+/// #     Ok(())
+/// # })?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct Install<'a, P: ?Sized = ()> {
     cx: &'a FeatureInitContext,

@@ -8,14 +8,22 @@
 //!
 //! [`Build`] does both where the work happens: an input is watched because it
 //! was read through [`Build::read`], an output is left alone by
-//! [`Build::write`] when its contents did not change.
+//! [`Build::write`] when its contents did not change. A `build.rs`:
 //!
-//! ```no_run
-//! // build.rs
+//! ```
 //! fn main() -> std::io::Result<()> {
+//! #     let package = tempfile::tempdir()?;
+//! #     std::fs::write(package.path().join("app.toml"), "[app]")?;
+//! #     unsafe {
+//! #         std::env::set_var("CARGO_MANIFEST_DIR", package.path());
+//! #         std::env::set_var("OUT_DIR", package.path().join("out"));
+//! #     }
 //!     let mut build = guinea_codegen::Build::from_env();
 //!     let manifest = build.read("app.toml")?;
 //!     build.write("app.rs", format!("pub const APP: &str = {manifest:?};"))?;
+//! #     let written = std::fs::read_to_string(package.path().join("out").join("app.rs"))?;
+//! #     assert_eq!(written, r#"pub const APP: &str = "[app]";"#);
+//! #     assert_eq!(build.tracked(), [package.path().join("app.toml")]);
 //!     Ok(())
 //! }
 //! ```

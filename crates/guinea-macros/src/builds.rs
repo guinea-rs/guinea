@@ -1,10 +1,40 @@
 //! `#[builds]` - the function that builds a plugin `plugin!` declared.
 //!
-//! ```ignore
+//! ```
+//! # use guinea_app::app::PluginBuilder;
+//! # use guinea_macros::{builds, plugin};
+//! # #[derive(Clone, Debug, PartialEq)]
+//! # pub struct Store(String);
+//! #
+//! # impl Store {
+//! #     fn open(path: &str) -> anyhow::Result<Self> {
+//! #         anyhow::ensure!(!path.is_empty(), "a store needs a path");
+//! #         Ok(Store(path.to_string()))
+//! #     }
+//! # }
+//! #
+//! # pub struct StoreParams {
+//! #     path: &'static str,
+//! # }
+//! #
+//! # plugin! {
+//! #     pub Settings {
+//! #         provides { Store }
+//! #     }
+//! # }
 //! #[builds]
 //! fn settings(app: &mut PluginBuilder, params: StoreParams) -> anyhow::Result<Settings> {
 //!     Ok(Settings(Store::open(params.path)?))
 //! }
+//! # fn main() -> anyhow::Result<()> {
+//! # let (_host, Settings(store)) =
+//! #     guinea_app::app::start("doc", |app| app.plugin::<Settings>(StoreParams { path: "settings.db" }))?;
+//! # assert_eq!(store, Store("settings.db".into()));
+//! #
+//! # let refused = guinea_app::app::start("doc", |app| app.plugin::<Settings>(StoreParams { path: "" }));
+//! # assert!(refused.is_err());
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! As `#[installs]` for a feature: the plugin is what it returns, `Params` is

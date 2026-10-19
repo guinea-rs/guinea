@@ -18,13 +18,30 @@ use super::{begin_anywhere, end_anywhere, mark_anywhere};
 /// workspace's crates. guinea's and every dependency's - winit, wgpu, tokio -
 /// stay out of the trace and off the wire; [`LogLayer::all`] lets them in.
 ///
-/// ```no_run
+/// ```standalone_crate
 /// use tracing_subscriber::prelude::*;
+/// # use std::cell::RefCell;
+/// # use std::rc::Rc;
+/// # use guinea_core::trace::{self, Point, Trace};
 ///
 /// tracing_subscriber::registry()
 ///     .with(tracing_subscriber::fmt::layer())
 ///     .with(guinea_core::observability::layer())
 ///     .init();
+/// # let logged = Rc::new(RefCell::new(Vec::new()));
+/// # let into = logged.clone();
+/// # let sink = trace::Sink::new();
+/// # let _observing = sink.observe(move |record| {
+/// #     if let Trace::Mark(record) = record
+/// #         && let Point::Log { text, .. } = &record.point
+/// #     {
+/// #         into.borrow_mut().push(text.clone());
+/// #     }
+/// # });
+/// # let _recording = trace::record_into(&sink);
+///
+/// tracing::info!(pid = 42, "process killed");
+/// # assert_eq!(*logged.borrow(), ["process killed pid=42"]);
 /// ```
 pub fn layer() -> LogLayer {
     LogLayer { all: false }

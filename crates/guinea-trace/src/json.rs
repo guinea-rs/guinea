@@ -18,13 +18,22 @@ const RESERVED: [&str; 4] = ["ts", "level", "target", "cause"];
 /// `level`, `target`, then `cause` - the point an application's own event
 /// happened under - then the event's fields with their own types.
 ///
-/// ```no_run
+/// ```
 /// use tracing_subscriber::prelude::*;
+/// # let dir = tempfile::tempdir()?;
+/// # let path = dir.path().join("app.log");
 ///
-/// let log = std::fs::File::create("app.log").unwrap();
+/// let log = std::fs::File::create(&path)?;
 /// tracing_subscriber::registry()
 ///     .with(guinea_trace::json(log))
 ///     .init();
+///
+/// tracing::info!(pid = 42, "process killed");
+/// # let line: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+/// # assert_eq!(line["level"], "INFO");
+/// # assert_eq!(line["message"], "process killed");
+/// # assert_eq!(line["pid"], 42);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// A line that cannot be written is said on stderr, once for each run of

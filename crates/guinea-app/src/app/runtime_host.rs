@@ -5,9 +5,12 @@
 //! is the UI thread, which nothing has entered. Every application therefore
 //! opened with the same two lines before it could do anything:
 //!
-//! ```ignore
+//! ```
 //! let runtime = tokio::runtime::Runtime::new()?;
 //! let _guard = runtime.enter();
+//! # let spawned = tokio::spawn(async { 2 + 2 });
+//! # assert_eq!(runtime.block_on(spawned)?, 4);
+//! # anyhow::Ok(())
 //! ```
 //!
 //! So guinea does it instead, unless the application already has a runtime of

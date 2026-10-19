@@ -26,8 +26,32 @@ pub const MAIN: &str = "main";
 /// A window: the component Slint draws, the layout that mounts under it, and
 /// where it starts.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_slint::{Layout, LayoutCx, Navigator, Routable, Shows, Window, layout};
+/// # slint::slint! {
+/// #     export component AppWindow inherits Window {}
+/// # }
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # impl Shows<AppWindow> for Route {
+/// #     fn show(_window: &AppWindow, _nav: &Navigator<Self>) {}
+/// #     fn listen(_window: &AppWindow, _nav: &Navigator<Self>) {}
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn mount(&mut self, _cx: &mut LayoutCx<'_, Self>) {}
+/// # }
+/// # fn main() -> anyhow::Result<()> {
+/// # i_slint_backend_testing::init_no_event_loop();
+/// # let _window =
 /// Window::of::<Shell>(AppWindow::new()?).at(Route::Processes)
+/// # ;
+/// # Ok(())
+/// # }
 /// ```
 pub struct Window<W> {
     component: W,
@@ -82,9 +106,45 @@ impl<W: ComponentHandle + 'static> Window<W> {
     /// Opens the window where `saved` remembers it, before it shows: what a
     /// plugin remembering windows hands the application.
     ///
-    /// ```ignore
+    /// ```
+    /// # use guinea_app::app::windows::{Geometry, RestoreGeometry, SavedGeometry};
+    /// # use guinea_app::app::{FeatureBuilder, PluginBuilder};
+    /// # use guinea_macros::{builds, plugin};
+    /// # use guinea_slint::{Layout, LayoutCx, Window, layout};
+    /// # slint::slint! {
+    /// #     export component AppWindow inherits Window {}
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Shell;
+    /// # #[layout]
+    /// # impl Layout for Shell {
+    /// #     fn mount(&mut self, _cx: &mut LayoutCx<'_, Self>) {}
+    /// # }
+    /// # struct Remembered;
+    /// # impl RestoreGeometry for Remembered {
+    /// #     fn for_label(&self, _label: &str) -> Option<Geometry> {
+    /// #         None
+    /// #     }
+    /// # }
+    /// # plugin! {
+    /// #     WindowStatePlugin {
+    /// #         provides { SavedGeometry }
+    /// #     }
+    /// # }
+    /// # #[builds]
+    /// # fn window_state_plugin(_app: &mut PluginBuilder, _store: &'static str) -> anyhow::Result<WindowStatePlugin> {
+    /// #     Ok(WindowStatePlugin(SavedGeometry::new(Remembered)))
+    /// # }
+    /// # fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window<AppWindow>> {
+    /// # let internal = "state.db";
     /// let WindowStatePlugin(saved) = app.plugin::<WindowStatePlugin>(internal)?;
     /// Ok(Window::of::<Shell>(AppWindow::new()?).remembered_by(saved))
+    /// # }
+    /// # fn main() -> anyhow::Result<()> {
+    /// # i_slint_backend_testing::init_no_event_loop();
+    /// # let (_host, _window) = guinea_app::app::start("doc", app)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn remembered_by(mut self, saved: SavedGeometry) -> Self {
         self.remembered = Some(saved);
@@ -197,13 +257,42 @@ fn remounter(window: Scope, root: Root) -> Remount {
 /// Builds the application with `app`, opens the window it returns, and runs
 /// until it closes.
 ///
-/// ```ignore
+/// ```no_run
+/// # use guinea_app::app::FeatureBuilder;
+/// # use guinea_macros::{feature, installs};
+/// # use guinea_slint::{Layout, LayoutCx, Navigator, Routable, Shows, Window, layout};
+/// # slint::slint! {
+/// #     export component AppWindow inherits Window {}
+/// # }
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # impl Shows<AppWindow> for Route {
+/// #     fn show(_window: &AppWindow, _nav: &Navigator<Self>) {}
+/// #     fn listen(_window: &AppWindow, _nav: &Navigator<Self>) {}
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn mount(&mut self, _cx: &mut LayoutCx<'_, Self>) {}
+/// # }
+/// # feature! {
+/// #     Activity {}
+/// # }
+/// # #[installs]
+/// # fn activity(_app: &mut FeatureBuilder) -> anyhow::Result<Activity> {
+/// #     Ok(Activity)
+/// # }
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window<AppWindow>> {
 ///     app.install::<Activity>()?;
 ///     Ok(Window::of::<Shell>(AppWindow::new()?).at(Route::Processes))
 /// }
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// guinea_slint::run(app)
+/// # }
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the window shows.

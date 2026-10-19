@@ -17,5 +17,12 @@ quote.workspace = true
 syn = { workspace = true, features = ["full", "extra-traits"] }
 winnow.workspace = true
 
+[dev-dependencies]
+guinea-core.workspace = true
+guinea-app.workspace = true
+guinea-router.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+
 [lints]
 workspace = true

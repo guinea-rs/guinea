@@ -22,8 +22,21 @@ pub const MAIN: &str = "main";
 
 /// A window: the layout it roots at, where it starts, and how it looks.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_eframe::{Layout, LayoutCx, Routable, Window, layout};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn render(&mut self, _cx: &mut LayoutCx<'_, Self>) {}
+/// # }
+/// # let _window =
 /// Window::of::<Shell>().title("guinea").at(Route::Processes)
+/// # ;
 /// ```
 pub struct Window {
     title: String,
@@ -92,13 +105,35 @@ pub(crate) fn frame(window: Scope, root: &Root, ui: &mut egui::Ui) {
 /// Builds the application with `app`, opens the window it returns, and runs
 /// until it closes.
 ///
-/// ```ignore
+/// ```no_run
+/// # use guinea_app::app::FeatureBuilder;
+/// # use guinea_eframe::{Layout, LayoutCx, Routable, Window, layout};
+/// # use guinea_macros::{feature, installs};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn render(&mut self, _cx: &mut LayoutCx<'_, Self>) {}
+/// # }
+/// # feature! {
+/// #     Activity {}
+/// # }
+/// # #[installs]
+/// # fn activity(_app: &mut FeatureBuilder) -> anyhow::Result<Activity> {
+/// #     Ok(Activity)
+/// # }
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
 ///     app.install::<Activity>()?;
 ///     Ok(Window::of::<Shell>().title("guinea").at(Route::Processes))
 /// }
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// guinea_eframe::run(app)
+/// # }
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the window opens.

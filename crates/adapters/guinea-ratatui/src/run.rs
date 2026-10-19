@@ -34,8 +34,21 @@ const TICK: Duration = Duration::from_millis(50);
 
 /// The terminal as a window: the layout it roots at, and where it starts.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_ratatui::{Layout, LayoutCx, Routable, Window, layout};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn render(&mut self, _cx: &mut LayoutCx<'_, '_, Self>) {}
+/// # }
+/// # let _window =
 /// Window::of::<Shell>().at(Route::Processes)
+/// # ;
 /// ```
 pub struct Window {
     root: Root,
@@ -96,13 +109,35 @@ pub(crate) fn frame(window: Scope, root: &Root, frame: &mut ratatui::Frame, area
 /// Builds the application with `app`, takes over the terminal with the window
 /// it returns, and runs until a segment [`closes`](crate::InputCx::close) it.
 ///
-/// ```ignore
+/// ```no_run
+/// # use guinea_app::app::FeatureBuilder;
+/// # use guinea_ratatui::{Layout, LayoutCx, Routable, Window, layout};
+/// # use guinea_macros::{feature, installs};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn render(&mut self, _cx: &mut LayoutCx<'_, '_, Self>) {}
+/// # }
+/// # feature! {
+/// #     Activity {}
+/// # }
+/// # #[installs]
+/// # fn activity(_app: &mut FeatureBuilder) -> anyhow::Result<Activity> {
+/// #     Ok(Activity)
+/// # }
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
 ///     app.install::<Activity>()?;
 ///     Ok(Window::of::<Shell>().at(Route::Processes))
 /// }
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// guinea_ratatui::run(app)
+/// # }
 /// ```
 ///
 /// A root that fails to mount ends it with why, before the terminal is taken.

@@ -1239,11 +1239,103 @@ impl<'h, R: Routable> Mounted<'h, R> {
     /// everything mounted, whenever it is. A guard's question goes up as the
     /// window's dialog - see [`answer`](Self::answer).
     ///
-    /// ```ignore
+    /// ```
+    /// # use guinea_app::feature::FeatureInitContext;
+    /// # use guinea_core::actor::In;
+    /// # use guinea_core::feature::Push;
+    /// # use guinea_macros::{Mark, actor, feature, handler, installs, reducer};
+    /// # use guinea_winui::harness::Mounted;
+    /// # use guinea_winui::reactor::{TextBlock, View};
+    /// # use guinea_winui::{Layout, LayoutCx, MarkExt, Page, PageCx, Routable, layout, page};
+    /// # #[derive(Mark)]
+    /// # enum ProcessesMark {
+    /// #     Loading,
+    /// # }
+    /// # #[derive(Clone, PartialEq, Debug, Routable)]
+    /// # enum Route {
+    /// #     Processes,
+    /// #     Services,
+    /// # }
+    /// # #[derive(Default, Clone, PartialEq, Debug)]
+    /// # struct Listing {
+    /// #     loaded: bool,
+    /// # }
+    /// # #[reducer]
+    /// # fn listing(this: &mut Listing, loaded: bool) {
+    /// #     this.loaded = loaded;
+    /// # }
+    /// # #[derive(Clone, Debug)]
+    /// # struct Load;
+    /// # #[derive(Debug)]
+    /// # struct Loader {
+    /// #     push: Push<Listing>,
+    /// # }
+    /// # actor! {
+    /// #     Loader {
+    /// #         handlers { Load }
+    /// #     }
+    /// # }
+    /// # #[handler]
+    /// # fn load(In(this, _, _): In<Loader, Load>) {
+    /// #     this.push.send(true);
+    /// # }
+    /// # feature! {
+    /// #     Listed {
+    /// #         exports { Listing }
+    /// #     }
+    /// # }
+    /// # #[installs]
+    /// # fn listed(cx: &FeatureInitContext) -> anyhow::Result<Listed> {
+    /// #     let (listing, loader) = cx.state::<Listing>().driven_by(|push| Loader { push });
+    /// #     loader.send(Load);
+    /// #     Ok(Listed(listing))
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Processes;
+    /// # #[page]
+    /// # impl Page for Processes {
+    /// #     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    /// #         ctx.install::<Listed>(&())?;
+    /// #         Ok(Self)
+    /// #     }
+    /// #     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+    /// #         let (listing, _) = cx.read::<Listing>();
+    /// #         match listing.loaded {
+    /// #             true => TextBlock::new().text("processes").into(),
+    /// #             false => TextBlock::new().text("loading").mark(ProcessesMark::Loading).into(),
+    /// #         }
+    /// #     }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Services;
+    /// # #[page]
+    /// # impl Page for Services {
+    /// #     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+    /// #         TextBlock::new().text("services").into()
+    /// #     }
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Shell;
+    /// # #[layout]
+    /// # impl Layout for Shell {
+    /// #     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+    /// #         let nav = cx.navigate::<Route>();
+    /// #         cx.outlet(&nav, |route, cx| match route {
+    /// #             Route::Processes => cx.mount::<Processes>(&()),
+    /// #             Route::Services => cx.mount::<Services>(&()),
+    /// #         })
+    /// #     }
+    /// # }
+    /// # guinea_app::app::check(4, |h| {
+    /// # let routed = || -> anyhow::Result<()> {
     /// let mut app = Mounted::routed::<Shell>(&h, Route::Processes)?;
     /// app.navigate(Route::Services);
     /// app.navigate(Route::Processes);
     /// assert!(app.find(ProcessesMark::Loading).is_none());
+    /// # Ok(())
+    /// # };
+    /// # routed().unwrap();
+    /// # });
     /// ```
     pub fn routed<L: Mountable<Params = ()>>(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
         let rooted = Rooted {

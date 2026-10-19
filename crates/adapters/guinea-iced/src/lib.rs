@@ -26,14 +26,45 @@
 //! `cx.mount::<Services>(&())` beside its own widgets, and
 //! `cx.outlet(&nav, |route, cx| ..)` for what a navigator says is here.
 //!
-//! ```ignore
+//! ```
+//! # use guinea_iced::{Element, Observing, Page, PageCx, UpdateCx, page};
+//! # use guinea_macros::reducer;
+//! # #[derive(Clone, Default, Debug)]
+//! # struct Listing(Vec<u32>);
+//! # #[derive(Clone)]
+//! # struct Replaced(Vec<u32>);
+//! # #[reducer]
+//! # fn listing(this: &mut Listing, update: Replaced) {
+//! #     this.0 = update.0;
+//! # }
+//! # #[derive(Default)]
+//! # struct Processes {
+//! #     row: usize,
+//! # }
+//! # #[derive(Clone)]
+//! # enum Msg {
+//! #     Clamp(usize),
+//! # }
+//! # fn list_replaced(update: &Replaced) -> Option<Msg> {
+//! #     Some(Msg::Clamp(update.0.len()))
+//! # }
 //! #[page]
 //! impl Page for Processes {
 //!     type Message = Msg;
 //!
-//!     fn observes(cx: &Observing<'_, Msg>) { cx.on::<Listing>(list_replaced); }
-//!     fn update(&mut self, message: Msg, cx: &mut UpdateCx<'_, Self>) { .. }
-//!     fn view(&self, cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> { .. }
+//!     fn observes(cx: &Observing<'_, Msg>) {
+//!         cx.on::<Listing>(list_replaced);
+//!     }
+//!
+//!     fn update(&mut self, message: Msg, _cx: &mut UpdateCx<'_, Self>) {
+//!         match message {
+//!             Msg::Clamp(len) => self.row = self.row.min(len.saturating_sub(1)),
+//!         }
+//!     }
+//!
+//!     fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Msg> {
+//!         iced::widget::text(self.row).into()
+//!     }
 //! }
 //! ```
 
@@ -87,9 +118,18 @@ pub type Element<'a, Message> = iced::Element<'a, Message>;
 /// The type that implements this **is** the node's state. There is no
 /// `type State`, because the struct is already there and already named:
 ///
-/// ```ignore
+/// ```
+/// # use guinea_iced::{Element, Page, PageCx, page};
 /// #[derive(Default)]
-/// pub struct Processes { row: usize }
+/// pub struct Processes {
+///     row: usize,
+/// }
+/// # #[page]
+/// # impl Page for Processes {
+/// #     fn view(&self, _cx: &mut PageCx<'_, Self>) -> Element<'_, Self::Message> {
+/// #         iced::widget::text(self.row).into()
+/// #     }
+/// # }
 /// ```
 ///
 /// That is what an iced application writes anyway - `struct Counter { value:

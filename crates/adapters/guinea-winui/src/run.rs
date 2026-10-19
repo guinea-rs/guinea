@@ -80,13 +80,38 @@ fn opening(app: &AppContext, window: Window) -> View {
 /// Builds the application with `app` once XAML is up, opens the window it
 /// returns, and runs until the last window closes.
 ///
-/// ```ignore
+/// ```no_run
+/// # use guinea_app::app::FeatureBuilder;
+/// # use guinea_macros::{feature, installs};
+/// # use guinea_winui::reactor::{TextBlock, View};
+/// # use guinea_winui::{Layout, LayoutCx, Routable, Window, layout, run};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn view(&self, _cx: &mut LayoutCx<'_, '_, Self>) -> View {
+/// #         TextBlock::new().text("guinea").into()
+/// #     }
+/// # }
+/// # feature! {
+/// #     Activity {}
+/// # }
+/// # #[installs]
+/// # fn activity(_app: &mut FeatureBuilder) -> anyhow::Result<Activity> {
+/// #     Ok(Activity)
+/// # }
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
 ///     app.install::<Activity>()?;
 ///     Ok(Window::of::<Shell>().title("guinea").at(Route::Processes))
 /// }
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// run(app)
+/// # }
 /// ```
 pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'static) -> anyhow::Result<()> {
     let failure = Rc::new(RefCell::new(None));
@@ -143,8 +168,24 @@ impl Drop for Installed {
 
 /// A window: the layout it roots at, where it starts, and how it looks.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_winui::reactor::{TextBlock, View};
+/// # use guinea_winui::{Layout, LayoutCx, Routable, Window, layout};
+/// # #[derive(Clone, PartialEq, Debug, Routable)]
+/// # enum Route {
+/// #     Processes,
+/// # }
+/// # #[derive(Default)]
+/// # struct Shell;
+/// # #[layout]
+/// # impl Layout for Shell {
+/// #     fn view(&self, _cx: &mut LayoutCx<'_, '_, Self>) -> View {
+/// #         TextBlock::new().text("guinea").into()
+/// #     }
+/// # }
+/// # let _window =
 /// Window::of::<Shell>().title("guinea").at(Route::Processes)
+/// # ;
 /// ```
 #[derive(Clone)]
 pub struct Window {

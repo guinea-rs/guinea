@@ -15,17 +15,18 @@
 //! - `navigator.rs`: `guinea_slint::Shows` for `Route`, which keeps the
 //!   global in step with the window's navigator.
 //!
+//! An application's `build.rs`:
+//!
 //! ```no_run
-//! // build.rs
 //! fn main() -> anyhow::Result<()> {
 //!     guinea_slint_build::compile("src")
 //! }
 //! ```
 //!
-//! The window imports the global, and exports it so Rust can reach it:
+//! The window, `src/app.slint`, imports the global, and exports it so Rust
+//! can reach it:
 //!
-//! ```ignore
-//! // src/app.slint
+//! ```slint
 //! import { Navigator, RouteId } from "navigator.slint";
 //! export { Navigator }
 //!

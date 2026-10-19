@@ -271,8 +271,36 @@ pub struct BindCx<S> {
 impl<S> BindCx<S> {
     /// The window's component, for the globals hanging off it.
     ///
-    /// ```ignore
-    /// let model = cx.root::<AppWindow>().global::<ProcessesModel>();
+    /// ```
+    /// # use guinea_app::app::GuineaHost;
+    /// # use guinea_app::app::roots::Root;
+    /// # use guinea_slint::{BindCx, Page, Window, page};
+    /// # use slint::ComponentHandle;
+    /// # slint::slint! {
+    /// #     export global ProcessesModel {
+    /// #         in-out property <string> title;
+    /// #     }
+    /// #     export component AppWindow inherits Window {}
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Processes;
+    /// # #[page]
+    /// # impl Page for Processes {
+    /// #     fn bind(&mut self, cx: &BindCx<Self>) {
+    /// let root = cx.root::<AppWindow>();
+    /// let model = root.global::<ProcessesModel>();
+    /// model.set_title("processes".into());
+    /// #     }
+    /// # }
+    /// # fn main() -> anyhow::Result<()> {
+    /// # i_slint_backend_testing::init_no_event_loop();
+    /// # let host = GuineaHost::new();
+    /// # let window = Root::under(&host.context());
+    /// # let component = AppWindow::new()?;
+    /// # let _opened = Window::of::<Processes>(component.clone_strong()).open(window.scope())?;
+    /// # assert_eq!(component.global::<ProcessesModel>().get_title(), "processes");
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// Panics with a different type than the window [`run`] was given.
@@ -332,8 +360,52 @@ impl<S> BindCx<S> {
     /// own state and converts a row when Slint asks for that row - so a list
     /// of ten thousand costs a screenful, and adding one row costs one.
     ///
-    /// ```ignore
+    /// ```
+    /// # use guinea_app::app::GuineaHost;
+    /// # use guinea_app::app::roots::Root;
+    /// # use guinea_macros::reducer;
+    /// # use guinea_slint::{BindCx, Page, Window, page};
+    /// # use slint::{ComponentHandle, Model};
+    /// # slint::slint! {
+    /// #     export global ProcessesModel {
+    /// #         in-out property <[string]> items;
+    /// #     }
+    /// #     export component AppWindow inherits Window {}
+    /// # }
+    /// # #[derive(Clone, Default, Debug)]
+    /// # struct Processes {
+    /// #     items: Vec<String>,
+    /// # }
+    /// # #[reducer]
+    /// # fn processes(this: &mut Processes, items: Vec<String>) {
+    /// #     this.items = items;
+    /// # }
+    /// # #[derive(Default)]
+    /// # struct Listing;
+    /// # #[page]
+    /// # impl Page for Listing {
+    /// #     fn install(ctx: &guinea_slint::FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    /// #         let seeded = Processes { items: vec!["init".into(), "shell".into()] };
+    /// #         ctx.state::<Processes>().seed(seeded).plain();
+    /// #         Ok(Self)
+    /// #     }
+    /// #     fn bind(&mut self, cx: &BindCx<Self>) {
+    /// #         let root = cx.root::<AppWindow>();
+    /// #         let model = root.global::<ProcessesModel>();
     /// model.set_items(cx.rows::<Processes, _>(|state| &state.items));
+    /// #     }
+    /// # }
+    /// # fn main() -> anyhow::Result<()> {
+    /// # i_slint_backend_testing::init_no_event_loop();
+    /// # let host = GuineaHost::new();
+    /// # let window = Root::under(&host.context());
+    /// # let component = AppWindow::new()?;
+    /// # let _opened = Window::of::<Listing>(component.clone_strong()).open(window.scope())?;
+    /// # let items = component.global::<ProcessesModel>().get_items();
+    /// # assert_eq!(items.row_count(), 2);
+    /// # assert_eq!(items.row_data(1).as_deref(), Some("shell"));
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn rows<R, T>(&self, select: fn(&R) -> &[T]) -> slint::ModelRc<T::Slint>
     where

@@ -21,13 +21,50 @@ mod slot;
 /// A feature's manifest: its name, the reducers it exports and the feeds it
 /// opens.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::GuineaHost;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_app::feature::FeatureInitContext;
+/// # use guinea_core::feature::Bound;
+/// # use guinea_core::feed::Feed;
+/// # use guinea_macros::{feature, installs};
+/// # pub mod contracts {
+/// #     #[derive(Clone, Default, PartialEq, Debug)]
+/// #     pub struct Tabs(pub Vec<String>);
+/// #
+/// #     #[guinea_macros::reducer]
+/// #     fn tabs(this: &mut Tabs, opened: String) {
+/// #         this.0.push(opened);
+/// #     }
+/// #
+/// #     pub struct OpenTab(pub String);
+/// # }
 /// feature! {
 ///     pub Tabs {
 ///         exports { contracts::Tabs }
 ///         feeds { contracts::OpenTab }
 ///     }
 /// }
+/// # #[installs]
+/// # fn tabs(cx: &FeatureInitContext) -> anyhow::Result<Tabs> {
+/// #     let tabs = cx.state::<contracts::Tabs>().plain();
+/// #     let open_tab = cx.feed::<contracts::OpenTab>();
+/// #     open_tab.set(contracts::OpenTab("inbox".into()));
+/// #     Ok(Tabs(tabs, open_tab.feed()))
+/// # }
+/// #
+/// # fn main() -> anyhow::Result<()> {
+/// # let host = GuineaHost::new();
+/// # let window = Root::under(&host.context());
+/// # let Tabs(tabs, open_tab) = window.context(window.scope(), 0).install::<Tabs>(&())?;
+/// # let _: (Bound<contracts::Tabs>, Feed<contracts::OpenTab>) = (tabs, open_tab);
+/// # assert_eq!(open_tab.get().map(|open| open.0.clone()), Some("inbox".to_string()));
+/// #
+/// # tabs.push("inbox".into());
+/// # let page = window.context(window.scope().child(), 1);
+/// # assert_eq!(page.read::<contracts::Tabs>().map(|tabs| tabs.0.clone()), Some(vec!["inbox".to_string()]));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// It makes the feature's type - one `Bound` per export, then one `Feed` per
@@ -41,7 +78,31 @@ pub fn feature(input: TokenStream) -> TokenStream {
 /// A plugin's manifest: its name, the reducers it exports to every window,
 /// the feeds it opens and what it provides to the application.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::PluginBuilder;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_macros::{builds, plugin, reducer};
+/// # pub trait Localization: Clone + Default + 'static {}
+/// #
+/// # #[derive(Clone, Copy, Default, Debug, PartialEq)]
+/// # pub enum Locale {
+/// #     #[default]
+/// #     En,
+/// #     De,
+/// # }
+/// #
+/// # impl Localization for Locale {}
+/// #
+/// # #[derive(Clone, Default)]
+/// # pub struct Language<S: Localization>(pub S);
+/// #
+/// # #[reducer]
+/// # fn language<S: Localization>(this: &mut Language<S>, to: S) {
+/// #     this.0 = to;
+/// # }
+/// #
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # pub struct Store(&'static str);
 /// plugin! {
 ///     pub L10n<S: Localization> {
 ///         exports { Language<S> }
@@ -53,6 +114,29 @@ pub fn feature(input: TokenStream) -> TokenStream {
 ///         provides { Store }
 ///     }
 /// }
+/// # #[builds]
+/// # fn l10n<S: Localization>(app: &mut PluginBuilder, first: S) -> anyhow::Result<L10n<S>> {
+/// #     Ok(L10n(app.state::<Language<S>>().seed(Language(first)).plain()))
+/// # }
+/// #
+/// # #[builds]
+/// # fn settings(_app: &mut PluginBuilder, file: &'static str) -> anyhow::Result<Settings> {
+/// #     Ok(Settings(Store(file)))
+/// # }
+/// #
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, store) = guinea_app::app::start("doc", |app| {
+/// #     app.plugin::<L10n<Locale>>(Locale::De)?;
+/// #     let Settings(store) = app.plugin::<Settings>("settings.db")?;
+/// #     Ok(store)
+/// # })?;
+/// # assert_eq!(store, Store("settings.db"));
+/// #
+/// # let window = Root::under(&host.context());
+/// # let page = window.context(window.scope(), 0);
+/// # assert_eq!(page.read::<Language<Locale>>().map(|language| language.0), Some(Locale::De));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// It makes the plugin's type - one `Bound` per export, one `Feed` per feed,
@@ -68,12 +152,57 @@ pub fn plugin(input: TokenStream) -> TokenStream {
 /// its second argument is what it is built with - nothing, when it takes the
 /// builder alone.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::PluginBuilder;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_macros::{builds, plugin, reducer};
+/// # pub trait Localization: Clone + Default + 'static {}
+/// #
+/// # #[derive(Clone, Copy, Default, Debug, PartialEq)]
+/// # pub enum Locale {
+/// #     #[default]
+/// #     En,
+/// #     De,
+/// # }
+/// #
+/// # impl Localization for Locale {}
+/// #
+/// # #[derive(Clone, Default)]
+/// # pub struct Language<S: Localization>(pub S);
+/// #
+/// # #[reducer]
+/// # fn language<S: Localization>(this: &mut Language<S>, to: S) {
+/// #     this.0 = to;
+/// # }
+/// #
+/// # pub struct L10nParams<S>(Vec<S>);
+/// #
+/// # impl<S: Localization> L10nParams<S> {
+/// #     fn first(&self) -> Language<S> {
+/// #         Language(self.0[0].clone())
+/// #     }
+/// # }
+/// #
+/// # plugin! {
+/// #     pub L10n<S: Localization> {
+/// #         exports { Language<S> }
+/// #     }
+/// # }
 /// #[builds]
 /// fn l10n<S: Localization>(app: &mut PluginBuilder, params: L10nParams<S>) -> anyhow::Result<L10n<S>> {
 ///     let language = app.state::<Language<S>>().seed(params.first()).plain();
 ///     Ok(L10n(language))
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, _) = guinea_app::app::start("doc", |app| {
+/// #     app.plugin::<L10n<Locale>>(L10nParams(vec![Locale::De, Locale::En]))
+/// # })?;
+/// #
+/// # let window = Root::under(&host.context());
+/// # let page = window.context(window.scope(), 0);
+/// # assert_eq!(page.read::<Language<Locale>>().map(|language| language.0), Some(Locale::De));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// A plugin takes no services: what it needs of another plugin is in its
@@ -87,12 +216,82 @@ pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// what its `Install` carries is what it is installed with, and every
 /// argument after the context is a service the application provided.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::GuineaHost;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_app::feature::Install;
+/// # use guinea_core::actor::In;
+/// # use guinea_core::feature::Push;
+/// # use guinea_macros::{actor, feature, handler, installs};
+/// # pub mod contracts {
+/// #     #[derive(Clone, Default, PartialEq, Debug)]
+/// #     pub struct Tabs(pub Vec<String>);
+/// #
+/// #     #[guinea_macros::reducer]
+/// #     fn tabs(this: &mut Tabs, opened: String) {
+/// #         this.0.push(opened);
+/// #     }
+/// # }
+/// #
+/// # #[derive(Clone)]
+/// # pub struct Store;
+/// #
+/// # #[derive(Clone)]
+/// # pub struct Clock;
+/// #
+/// # pub struct Open;
+/// #
+/// # pub struct TabsActor {
+/// #     first: String,
+/// #     push: Push<contracts::Tabs>,
+/// # }
+/// #
+/// # impl TabsActor {
+/// #     fn new(first: &str, push: Push<contracts::Tabs>) -> Self {
+/// #         Self { first: first.to_string(), push }
+/// #     }
+/// # }
+/// #
+/// # actor! {
+/// #     TabsActor {
+/// #         handlers { Open }
+/// #     }
+/// # }
+/// #
+/// # #[handler]
+/// # fn open(In(this, Open, _): In<TabsActor, Open>) {
+/// #     this.push.send(this.first.clone());
+/// # }
+/// #
+/// # feature! {
+/// #     pub Tabs {
+/// #         exports { contracts::Tabs }
+/// #     }
+/// # }
 /// #[installs]
 /// fn tabs(cx: &Install<String>, store: Store, clock: Option<Clock>) -> anyhow::Result<Tabs> {
 ///     let (tabs, _) = cx.state::<contracts::Tabs>().driven_by(|push| TabsActor::new(cx.params(), push));
 ///     Ok(Tabs(tabs))
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let bare = GuineaHost::new();
+/// # let window = Root::under(&bare.context());
+/// # let refused = window.context(window.scope(), 0).install::<Tabs>(&"inbox".to_string()).err().unwrap();
+/// # assert!(refused.to_string().contains("nothing provided: `"), "{refused}");
+/// # assert!(refused.to_string().contains("Store`"), "{refused}");
+/// # assert!(!refused.to_string().contains("Clock"), "{refused}");
+/// #
+/// # let (host, ()) = guinea_app::app::start("doc", |app| {
+/// #     app.provide(Store);
+/// #     Ok(())
+/// # })?;
+/// # let window = Root::under(&host.context());
+/// # let page = window.context(window.scope(), 0);
+/// # let Tabs(tabs) = page.install::<Tabs>(&"inbox".to_string())?;
+/// # tabs.emit(Open);
+/// # assert_eq!(page.read::<contracts::Tabs>().map(|tabs| tabs.0.clone()), Some(vec!["inbox".to_string()]));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// A service is taken by clone, so it is taken by value; `Option<T>` is `None`
@@ -102,12 +301,73 @@ pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// A function taking `&mut FeatureBuilder` installs a feature of the
 /// application, which every window reads from, instead:
 ///
-/// ```ignore
+/// ```
+/// # use guinea_app::app::FeatureBuilder;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_core::actor::In;
+/// # use guinea_core::feature::Push;
+/// # use guinea_macros::{actor, feature, handler, installs, reducer};
+/// # #[derive(Clone, Default)]
+/// # pub struct ActivityState {
+/// #     pub busy: bool,
+/// # }
+/// #
+/// # #[reducer]
+/// # fn activity_state(this: &mut ActivityState, busy: bool) {
+/// #     this.busy = busy;
+/// # }
+/// #
+/// # #[derive(Clone)]
+/// # pub struct Store {
+/// #     syncing: bool,
+/// # }
+/// #
+/// # pub struct Refresh;
+/// #
+/// # pub struct ActivityActor {
+/// #     store: Store,
+/// #     push: Push<ActivityState>,
+/// # }
+/// #
+/// # impl ActivityActor {
+/// #     fn new(store: Store, push: Push<ActivityState>) -> Self {
+/// #         Self { store, push }
+/// #     }
+/// # }
+/// #
+/// # actor! {
+/// #     ActivityActor {
+/// #         handlers { Refresh }
+/// #     }
+/// # }
+/// #
+/// # #[handler]
+/// # fn refresh(In(this, Refresh, _): In<ActivityActor, Refresh>) {
+/// #     this.push.send(this.store.syncing);
+/// # }
+/// #
+/// # feature! {
+/// #     pub Activity {
+/// #         exports { ActivityState }
+/// #     }
+/// # }
 /// #[installs]
 /// fn activity(app: &mut FeatureBuilder, store: Store) -> anyhow::Result<Activity> {
 ///     let (activity, _) = app.state::<ActivityState>().driven_by(|push| ActivityActor::new(store, push));
 ///     Ok(Activity(activity))
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, Activity(activity)) = guinea_app::app::start("doc", |app| {
+/// #     app.provide(Store { syncing: true });
+/// #     app.install::<Activity>()
+/// # })?;
+/// # activity.emit(Refresh);
+/// #
+/// # let window = Root::under(&host.context());
+/// # let page = window.context(window.scope(), 0);
+/// # assert_eq!(page.read::<ActivityState>().map(|state| state.busy), Some(true));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// Named for what the function does rather than for the trait: `#[feature]`
@@ -196,9 +456,18 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Declares a slot: a place in a layout's view that a segment below fills.
 ///
-/// ```ignore
+/// ```
+/// # use guinea_macros::slot;
+/// # use guinea_router::slot::Slot;
 /// #[slot]
 /// pub struct Toolbar;
+/// # fn placed<S: Slot>() -> &'static str {
+/// #     std::any::type_name::<S>()
+/// # }
+/// #
+/// # fn main() {
+/// # assert!(placed::<Toolbar>().ends_with("Toolbar"));
+/// # }
 /// ```
 #[proc_macro_attribute]
 pub fn slot(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -300,7 +569,44 @@ pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Declares an actor's manifest:
 ///
-/// ```ignore
+/// ```
+/// # use std::cell::RefCell;
+/// # use std::rc::Rc;
+/// # use guinea_app::app::GuineaHost;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_core::actor::In;
+/// # use guinea_macros::{Event, actor, handler};
+/// # pub trait ProcessesPort {
+/// #     fn kill(&self, pid: u32);
+/// #     fn refresh(&self);
+/// # }
+/// #
+/// # #[derive(Clone, Default)]
+/// # pub struct Recorded(Rc<RefCell<Vec<String>>>);
+/// #
+/// # impl ProcessesPort for Recorded {
+/// #     fn kill(&self, pid: u32) {
+/// #         self.0.borrow_mut().push(format!("kill {pid}"));
+/// #     }
+/// #
+/// #     fn refresh(&self) {
+/// #         self.0.borrow_mut().push("refresh".into());
+/// #     }
+/// # }
+/// #
+/// # pub struct Kill(pub u32);
+/// # pub struct Killed(pub u32);
+/// # pub struct Refresh;
+/// #
+/// # #[derive(Clone, Event)]
+/// # pub struct ProcessKilled(pub u32);
+/// #
+/// # #[derive(Clone, Event)]
+/// # pub struct SettingsChanged;
+/// #
+/// # pub struct ProcessActor<P> {
+/// #     port: P,
+/// # }
 /// actor! {
 ///     ProcessActor<P: ProcessesPort + 'static> {
 ///         handlers   { Kill => { send Killed }, Killed, Refresh }
@@ -308,6 +614,44 @@ pub fn winui_layout(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///         subscribes { SettingsChanged }
 ///     }
 /// }
+/// # #[handler]
+/// # fn kill<P: ProcessesPort + 'static>(In(this, Kill(pid), cx): In<ProcessActor<P>, Kill>) {
+/// #     this.port.kill(pid);
+/// #     cx.send(Killed(pid));
+/// # }
+/// #
+/// # #[handler]
+/// # fn killed<P: ProcessesPort + 'static>(In(_, Killed(pid), cx): In<ProcessActor<P>, Killed>) {
+/// #     cx.publish(ProcessKilled(pid));
+/// # }
+/// #
+/// # #[handler]
+/// # fn refresh<P: ProcessesPort + 'static>(In(this, Refresh, _): In<ProcessActor<P>, Refresh>) {
+/// #     this.port.refresh();
+/// # }
+/// #
+/// # #[handler]
+/// # fn settings_changed<P: ProcessesPort + 'static>(In(this, _, _): In<ProcessActor<P>, SettingsChanged>) {
+/// #     this.port.refresh();
+/// # }
+/// #
+/// # fn main() {
+/// # let host = GuineaHost::new();
+/// # let window = Root::under(&host.context());
+/// # let port = Recorded::default();
+/// # let processes = window.context(window.scope(), 0).spawn(ProcessActor { port: port.clone() });
+/// #
+/// # let heard = Rc::new(RefCell::new(Vec::new()));
+/// # let into = heard.clone();
+/// # let _hearing = window.scope().bus().subscribe_fn(move |ProcessKilled(pid)| into.borrow_mut().push(pid));
+/// #
+/// # processes.send(Kill(4));
+/// # assert_eq!(*heard.borrow(), [4]);
+/// #
+/// # window.scope().bus().publish(SettingsChanged);
+/// # processes.send(Refresh);
+/// # assert_eq!(*port.0.borrow(), ["kill 4", "refresh", "refresh"]);
+/// # }
 /// ```
 ///
 /// What it subscribes to it handles, edges and all - `subscribes { Saved =>
@@ -517,10 +861,32 @@ pub fn mark(item: TokenStream) -> TokenStream {
 /// action to whichever scope answers it, as an event on the bus, or
 /// both. The type derives `serde::Deserialize` too.
 ///
-/// ```ignore
+/// ```
+/// # use std::cell::Cell;
+/// # use std::rc::Rc;
+/// # use guinea_app::app::roots::Root;
+/// # use guinea_macros as guinea;
+/// # use serde::Deserialize;
 /// #[derive(Clone, Debug, Deserialize, guinea::Remote)]
 /// #[remote(action)]
 /// pub struct Kill(pub u32);
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, observed) = guinea_app::app::start("doc", |app| Ok(app.observed()))?;
+/// # assert!(observed.actions().contains(&"Kill"));
+/// #
+/// # let window = Root::under(&host.context());
+/// # let killed = Rc::new(Cell::new(None));
+/// # let into = killed.clone();
+/// # let _page = window.install(|cx| {
+/// #     let into = into.clone();
+/// #     cx.answers(move |Kill(pid)| into.set(Some(pid)));
+/// #     Ok(())
+/// # })?;
+/// #
+/// # observed.act(None, "Kill", "4").unwrap();
+/// # assert_eq!(killed.get(), Some(4));
+/// # Ok(())
+/// # }
 /// ```
 #[proc_macro_derive(Remote, attributes(remote))]
 pub fn remote(item: TokenStream) -> TokenStream {

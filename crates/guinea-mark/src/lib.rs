@@ -6,12 +6,17 @@
 //! One enum per application, derived: each variant is a name, written as the
 //! variant is.
 //!
-//! ```ignore
+//! ```
+//! # mod guinea {
+//! #     pub use guinea_macros::Mark;
+//! # }
+//! # use guinea_mark::Mark;
 //! #[derive(guinea::Mark)]
 //! enum Marks {
 //!     Search,
 //!     Kill,
 //! }
+//! # assert_eq!([Marks::Search.name(), Marks::Kill.name()], ["Search", "Kill"]);
 //! ```
 
 /// A name a backend puts on an element, where a test or a tool finds it again

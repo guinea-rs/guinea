@@ -17,7 +17,29 @@ use super::roots::{self, RootId};
 /// is read here when the tool asks for it. Nothing else reads the
 /// application from outside.
 ///
-/// ```ignore
+/// ```
+/// # use std::cell::{Cell, RefCell};
+/// # use guinea_app::app::{Observed, PluginBuilder};
+/// # use guinea_core::observability::{Event, Watching};
+/// # use guinea_macros::{builds, plugin};
+/// # thread_local! {
+/// #     static SEEN: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
+/// #     static CLOSED: Cell<bool> = const { Cell::new(false) };
+/// # }
+/// # pub struct DevToolsParams;
+/// # struct Link(Watching);
+/// # impl Link {
+/// #     fn open(_params: DevToolsParams, observed: Observed) -> anyhow::Result<Self> {
+/// #         let watching = observed.watch(|| {})?;
+/// #         SEEN.with(|seen| seen.borrow_mut().extend(watching.take().events));
+/// #         Ok(Link(watching))
+/// #     }
+/// #     fn close(self) -> anyhow::Result<()> {
+/// #         CLOSED.set(true);
+/// #         Ok(())
+/// #     }
+/// # }
+/// # plugin! { pub DevTools {} }
 /// #[builds]
 /// fn devtools(app: &mut PluginBuilder, params: DevToolsParams) -> anyhow::Result<DevTools> {
 ///     let observed = app.observed();
@@ -25,6 +47,15 @@ use super::roots::{self, RootId};
 ///     app.on_cleanup(move || link.close());
 ///     Ok(DevTools)
 /// }
+/// # fn main() -> anyhow::Result<()> {
+/// # let (host, DevTools) =
+/// #     guinea_app::app::start("doc", |app| app.plugin::<DevTools>(DevToolsParams))?;
+/// # assert!(SEEN.with(|seen| seen.borrow().contains(&Event::Backend { name: "doc" })));
+/// # assert!(!CLOSED.get());
+/// # drop(host);
+/// # assert!(CLOSED.get());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Copy)]
 pub struct Observed {

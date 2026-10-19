@@ -2355,9 +2355,14 @@ dependencies = [
 name = "guinea-macros"
 version = "0.29.0"
 dependencies = [
+ "anyhow",
+ "guinea-app",
+ "guinea-core",
+ "guinea-router",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
+ "serde",
  "syn 2.0.119",
  "winnow 1.0.4",
 ]
@@ -2365,6 +2370,10 @@ dependencies = [
 [[package]]
 name = "guinea-mark"
 version = "0.29.0"
+dependencies = [
+ "guinea-core",
+ "guinea-macros",
+]
 
 [[package]]
 name = "guinea-meta"
@@ -2450,6 +2459,7 @@ version = "0.29.0"
 dependencies = [
  "pin-project-lite",
  "serde_json",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

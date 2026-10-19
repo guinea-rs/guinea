@@ -3,7 +3,9 @@
 //! Mounting driven through the facade, the way an application sees it.
 
 mod provided {
-    use guinea::feature::{FeatureHost, FeatureInitContext};
+    use guinea::app::GuineaHost;
+    use guinea::app::roots::Root;
+    use guinea::feature::FeatureInitContext;
     use guinea::mount::Pass;
     use guinea::winui::*;
 
@@ -46,8 +48,8 @@ mod provided {
         }
     }
 
-    fn mount(host: &FeatureHost) -> anyhow::Result<()> {
-        let pass = Pass::begin(host.scope());
+    fn mount(root: &Root) -> anyhow::Result<()> {
+        let pass = Pass::begin(root.scope());
         let mounted = pass.mount::<NeedsAService, ()>(&(), |cx| <NeedsAService as Mountable>::install(cx, &()));
         pass.end();
         mounted.map(|_| ())
@@ -55,20 +57,21 @@ mod provided {
 
     #[test]
     fn a_page_s_feature_takes_what_the_application_provided_from_a_plugin() {
-        let (runtime, ()) = guinea::app::start("test", |app| {
+        let (host, ()) = guinea::app::start("test", |app| {
             let Greets(greeting) = app.plugin::<Greets>(())?;
             app.provide(greeting);
             Ok(())
         })
         .expect("install");
 
-        mount(&FeatureHost::under(&runtime.context()))
+        mount(&Root::under(&host.context()))
             .expect("the page's feature must be handed the service the plugin provided");
     }
 
     #[test]
-    fn a_page_without_an_application_gets_a_plain_error_not_a_panic() {
-        let err = mount(&FeatureHost::detached()).expect_err("nothing provided the service");
+    fn a_page_under_an_application_that_provided_nothing_gets_a_plain_error_not_a_panic() {
+        let host = GuineaHost::new();
+        let err = mount(&Root::under(&host.context())).expect_err("nothing provided the service");
 
         assert!(
             format!("{err:#}").contains("Greeting"),

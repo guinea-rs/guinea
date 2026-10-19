@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use guinea_app::app::{FeatureBuilder, Stop, start};
-use guinea_app::feature::FeatureHost;
+use guinea_app::app::roots;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
 use guinea_router::mount::Pass;
@@ -117,15 +117,15 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     };
     let ui = UiLoop::install_waking(repaint.clone());
 
-    let (runtime, window) = match start("egui", app) {
+    let (host, window) = match start("egui", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
 
-    let host = FeatureHost::under(&runtime.context());
-    let scope = host.scope();
-    guinea_app::app::roots::set_label(scope, MAIN);
+    let main = roots::Root::under(&host.context());
+    let scope = main.scope();
+    roots::set_label(scope, MAIN);
 
     let pass = Pass::begin(scope);
     let mounted = (window.root.mount)(&pass);
@@ -162,8 +162,8 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     if let Ok(mut slot) = context.lock() {
         *slot = None;
     }
+    drop(main);
     drop(host);
-    drop(runtime);
 
     outcome.map_err(|e| anyhow::anyhow!("eframe: {e}"))
 }

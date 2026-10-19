@@ -2,17 +2,16 @@
 //!
 //! The loop belongs to Slint, the way it belongs to the reactor under WinUI
 //! and to us under ratatui. What is left here is the wiring: the dispatcher,
-//! the runtime, the window's navigator and its global, and mounting again
+//! the host, the window's navigator and its global, and mounting again
 //! whenever the navigator moves.
 
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use guinea_app::app::roots::RootId;
+use guinea_app::app::roots::{self, RootId};
 use guinea_app::app::windows::{SavedGeometry, WindowService, Windows};
 use guinea_app::app::{FeatureBuilder, Stop, start};
-use guinea_app::feature::FeatureHost;
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
 use guinea_router::navigator::{Navigator, Watching};
@@ -218,7 +217,7 @@ pub fn run<W: ComponentHandle + 'static>(
     let shell = Arc::new(SlintWindows::default());
     let windows = WindowService::from_arc(shell.clone());
 
-    let (runtime, window) = match start("slint", |builder| {
+    let (host, window) = match start("slint", |builder| {
         builder.provide(windows);
         app(builder)
     }) {
@@ -226,18 +225,18 @@ pub fn run<W: ComponentHandle + 'static>(
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let context = runtime.context();
+    let context = host.context();
     let saved = window.remembered.clone();
 
-    let host = FeatureHost::under(&context);
-    let scope = host.scope();
+    let main = roots::Root::under(&context);
+    let scope = main.scope();
 
     // Named, so that anything remembering something about this window between
     // runs has a key that outlives the id.
-    guinea_app::app::roots::set_label(scope, MAIN);
+    roots::set_label(scope, MAIN);
 
     let component = window.component.clone_strong();
-    let root_id = host.root();
+    let root_id = main.id();
     shell.attach(root_id, Some(MAIN.to_string()), context.__scope(), &component);
     restore(&shell, root_id, MAIN, saved);
     let _watching = windows::watch(shell.clone());
@@ -253,8 +252,8 @@ pub fn run<W: ComponentHandle + 'static>(
     };
 
     shell.detach(root_id);
+    drop(main);
     drop(host);
-    drop(runtime);
     outcome
 }
 

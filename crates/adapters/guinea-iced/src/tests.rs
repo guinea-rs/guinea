@@ -5,7 +5,8 @@
 //! needs a window's scope, a navigator and the shell's node store, and nothing
 //! iced draws with.
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_app::app::{GuineaHost, roots};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::scope::Scope;
 use guinea_macros::reducer;
 
@@ -272,29 +273,32 @@ impl Page for Reader {
 /// A window's scope, its navigator and the store the shell would own, drawn
 /// the way the shell draws them.
 struct Window {
-    host: FeatureHost,
+    root: roots::Root,
     nodes: Nodes,
     nav: Navigator<Place>,
+    _app: GuineaHost,
 }
 
 impl Window {
     fn at(place: Place) -> Self {
-        Self::hosted(place, FeatureHost::detached())
+        Self::hosted(place, GuineaHost::new())
     }
 
-    fn hosted(place: Place, host: FeatureHost) -> Self {
-        let nav = Navigator::open(host.scope(), place);
+    fn hosted(place: Place, app: GuineaHost) -> Self {
+        let root = roots::Root::under(&app.context());
+        let nav = Navigator::open(root.scope(), place);
         let window = Window {
-            host,
+            root,
             nodes: Nodes::default(),
             nav,
+            _app: app,
         };
         window.draw();
         window
     }
 
     fn draw(&self) {
-        drop(frame(self.host.scope(), &Root::of::<Shell>(), &self.nodes));
+        drop(frame(self.root.scope(), &Root::of::<Shell>(), &self.nodes));
     }
 
     fn send(&mut self, envelope: Envelope) {
@@ -313,7 +317,7 @@ impl Window {
 
     /// The scope the `N` drawn in this window was mounted into.
     fn scope<N: 'static>(&self) -> Option<Scope> {
-        self.host
+        self.root
             .scope()
             .subtree()
             .into_iter()
@@ -336,7 +340,7 @@ fn what_is_mounted_says_where_it_was_written() {
     use guinea_core::observability::Event;
 
     let window = Window::at(Place::Leaf);
-    let watching = observer::watch(window.host.scope(), || {}).expect("nothing else watches");
+    let watching = observer::watch(window.root.scope(), || {}).expect("nothing else watches");
 
     let events = watching.take().events;
 
@@ -462,10 +466,10 @@ fn a_page_kept_once_is_asked_again_the_next_time() {
 
 #[test]
 fn a_shortcut_written_over_reads_reads_in_a_view() {
-    let (runtime, _) = guinea_app::app::start("iced", |app| app.plugin::<Showing>(())).expect("install");
+    let (host, _) = guinea_app::app::start("iced", |app| app.plugin::<Showing>(())).expect("install");
     SEEN.set(None);
 
-    let _window = Window::hosted(Place::Reader, FeatureHost::under(&runtime.context()));
+    let _window = Window::hosted(Place::Reader, host);
 
     assert_eq!(SEEN.get(), Some(7));
 }

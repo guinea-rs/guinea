@@ -3,7 +3,8 @@
 
 use std::cell::RefCell;
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_app::app::{GuineaHost, roots};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
@@ -219,27 +220,30 @@ impl Page for Draft {
 }
 
 struct Window {
-    host: FeatureHost,
+    root: roots::Root,
     nav: Navigator<Place>,
     terminal: RefCell<Terminal<TestBackend>>,
+    _app: GuineaHost,
 }
 
 impl Window {
     fn at(place: Place) -> Self {
-        let host = FeatureHost::detached();
-        open(host.scope());
-        let nav = Navigator::open(host.scope(), place);
+        let app = GuineaHost::new();
+        let root = roots::Root::under(&app.context());
+        open(root.scope());
+        let nav = Navigator::open(root.scope(), place);
         let window = Self {
-            host,
+            root,
             nav,
             terminal: RefCell::new(Terminal::new(TestBackend::new(20, 2)).expect("terminal")),
+            _app: app,
         };
         window.draw();
         window
     }
 
     fn scope(&self) -> Scope {
-        self.host.scope()
+        self.root.scope()
     }
 
     fn draw(&self) -> String {

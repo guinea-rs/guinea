@@ -1,14 +1,13 @@
 //! Which roots are open.
 //!
-//! A *root* is one instance of an application's tree: its own [`FeatureHost`],
-//! its own event bus, and - when there is routing - its own router and stack
-//! of scopes. What is above it is the application: plugins, services, the
-//! application's scope and the bus of its tree.
+//! A *root* is one window's part of the application's tree: a scope of its
+//! own under the application's, and - when there is routing - its own
+//! navigator and stack of scopes. There is one tree per application, held by
+//! its [`GuineaHost`]: its root is the application's scope, where the plugins,
+//! the services and the application's features are, and every root sits
+//! under it. The bus and the trace are the tree's, so every root shares them.
 //!
-//! That is the split guinea has always had; opening a second window is what
-//! makes it visible. `bootstrap` guards installation per process, because
-//! installing twice would open the store's database again, while the router is
-//! created "one per component instance, not one per process" - so the second
+//! Opening a second window is what makes the split visible: the second
 //! window shares the services and gets scopes of its own.
 //!
 //! Deliberately not called a window. A terminal has one root and no window at
@@ -16,17 +15,132 @@
 //! can hold several webviews and a root belongs to the webview. A window is
 //! what a shell puts a root in, and guinea does not need to know.
 //!
-//! Kept in the root's own scope: a root is open for as long as that scope is
-//! there, and goes with it.
+//! Which root a scope is in is kept in the root's own scope: a root is open
+//! for as long as that scope is there, and goes with it.
 //!
-//! [`FeatureHost`]: crate::feature::FeatureHost
+//! [`GuineaHost`]: super::GuineaHost
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use guinea_core::__private::observer;
 use guinea_core::observability::Event;
-use guinea_core::scope::Scope;
+use guinea_core::scope::{Scope, ScopeGuard};
+
+use super::AppContext;
+use crate::feature::{FeatureInitContext, ScopeContext};
+
+/// A window of an application: its own scope under the application's, which
+/// reads what the application's plugins provided and its features export.
+///
+/// Opened by a backend for each window it shows, and by a test to install
+/// into. Letting go of it removes its scope and everything under it.
+///
+/// ```
+/// use guinea_app::app::GuineaHost;
+/// use guinea_app::app::roots::Root;
+///
+/// let host = GuineaHost::new();
+/// let root = Root::under(&host.context());
+///
+/// assert!(root.application() == &host.context());
+/// assert_eq!(guinea_app::app::roots::of(root.scope()), Some(root.id()));
+/// ```
+pub struct Root {
+    /// Its own scope, which every scope installed through it sits under.
+    /// Removed when it goes, before its registration does.
+    scope: ScopeGuard,
+    app: AppContext,
+    id: RootId,
+}
+
+impl Root {
+    /// A window of `app`: its scope under the application's, with what the
+    /// application's plugins provided.
+    ///
+    /// `app` is what [`GuineaHost::context`](super::GuineaHost::context)
+    /// hands back.
+    pub fn under(app: &AppContext) -> Self {
+        let scope = app.0.scope.child();
+        let id = open(scope);
+
+        Self {
+            scope: scope.guard(),
+            app: app.clone(),
+            id,
+        }
+    }
+
+    /// The application this window belongs to - what a window opened from
+    /// this one is opened under.
+    pub fn application(&self) -> &AppContext {
+        &self.app
+    }
+
+    /// Its own scope: the root of every scope installed here.
+    pub fn scope(&self) -> Scope {
+        self.scope.scope()
+    }
+
+    /// Which root this is - the one a feature installed here belongs to.
+    pub fn id(&self) -> RootId {
+        self.id
+    }
+
+    /// The context a feature installs through, for the segment at `cursor`
+    /// of its chain.
+    ///
+    /// ```
+    /// use guinea_app::app::GuineaHost;
+    /// use guinea_app::app::roots::Root;
+    ///
+    /// let host = GuineaHost::new();
+    /// let root = Root::under(&host.context());
+    /// let page = root.scope().child();
+    ///
+    /// let cx = root.context(page, 1);
+    /// assert_eq!((cx.__scope(), cx.cursor), (page, 1));
+    /// ```
+    pub fn context(&self, scope: Scope, cursor: usize) -> FeatureInitContext {
+        FeatureInitContext {
+            scope_cx: ScopeContext::new(scope),
+            cursor,
+        }
+    }
+
+    /// Installs one feature into a scope of its own, right under the window's,
+    /// which goes when the guard does.
+    ///
+    /// The whole path for an application that has no routes: no chain, no
+    /// route, no backend.
+    ///
+    /// ```
+    /// use guinea_app::app::GuineaHost;
+    /// use guinea_app::app::roots::Root;
+    ///
+    /// let host = GuineaHost::new();
+    /// let root = Root::under(&host.context());
+    ///
+    /// let installed = root.install(|cx| {
+    ///     assert_eq!(cx.__scope().parent(), Some(root.scope()));
+    ///     Ok(())
+    /// })?;
+    ///
+    /// assert_eq!(root.scope().subtree().len(), 2);
+    /// drop(installed);
+    /// assert_eq!(root.scope().subtree().len(), 1);
+    /// # anyhow::Ok(())
+    /// ```
+    pub fn install(
+        &self,
+        install: impl Fn(&FeatureInitContext) -> anyhow::Result<()>,
+    ) -> anyhow::Result<ScopeGuard> {
+        let scope = self.scope().child().guard();
+        let ctx = self.context(scope.scope(), 0);
+        install(&ctx)?;
+        Ok(scope)
+    }
+}
 
 /// Names one root for as long as it is open.
 ///
@@ -49,7 +163,7 @@ impl std::fmt::Display for RootId {
 }
 
 /// What a root's own scope keeps: which root it is, and what it is called.
-struct Root {
+struct Opened {
     id: RootId,
     /// Its own scope, which keeps it.
     scope: Scope,
@@ -60,7 +174,7 @@ thread_local! {
     static OPEN: RefCell<Vec<(RootId, Scope)>> = const { RefCell::new(Vec::new()) };
 }
 
-impl Drop for Root {
+impl Drop for Opened {
     fn drop(&mut self) {
         let id = self.id;
         let _ = OPEN.try_with(|open| open.borrow_mut().retain(|(open, _)| *open != id));
@@ -75,7 +189,7 @@ pub(crate) fn open(window: Scope) -> RootId {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let id = RootId(NEXT.fetch_add(1, Ordering::Relaxed));
 
-    window.keep(Root {
+    window.keep(Opened {
         id,
         scope: window,
         label: None,
@@ -92,7 +206,7 @@ pub(crate) fn open(window: Scope) -> RootId {
 /// What a tool that starts watching is told of the root opened on `scope`,
 /// if one was.
 pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
-    let told = scope.try_kept::<Root, _>(|root| (root.id.0, root.label.clone()));
+    let told = scope.try_kept::<Opened, _>(|root| (root.id.0, root.label.clone()));
     let Some((root, label)) = told else {
         return;
     };
@@ -113,13 +227,13 @@ pub fn opened() -> Vec<(RootId, Scope)> {
 /// The root's own scope `scope` is in: `scope` or the nearest above it that
 /// opened one. `None` for a scope under no root - the application's own.
 fn own(scope: Scope) -> Option<Scope> {
-    std::iter::successors(Some(scope), Scope::parent).find(Scope::keeps::<Root>)
+    std::iter::successors(Some(scope), Scope::parent).find(Scope::keeps::<Opened>)
 }
 
 /// The root `scope` is in. `None` for a scope under no root - the
 /// application's own - and for one that is gone.
 pub fn of(scope: Scope) -> Option<RootId> {
-    own(scope)?.kept::<Root, _>(|root| root.id)
+    own(scope)?.kept::<Opened, _>(|root| root.id)
 }
 
 /// What the root `scope` is in is called, if the shell named it.
@@ -128,7 +242,7 @@ pub fn of(scope: Scope) -> Option<RootId> {
 /// that remembers something *about* a window between runs - where it was, how
 /// big it was - has to key on the name, because tomorrow's ids are new.
 pub fn label(scope: Scope) -> Option<String> {
-    own(scope)?.kept::<Root, _>(|root| root.label.clone()).flatten()
+    own(scope)?.kept::<Opened, _>(|root| root.label.clone()).flatten()
 }
 
 /// Names the root `scope` is in: `"main"`, `"settings"`, `"log"`.
@@ -145,7 +259,7 @@ pub fn set_label(scope: Scope, label: impl Into<String>) {
 
     let label = label.into();
     let told = label.clone();
-    let root = own.kept::<Root, _>(|root| {
+    let root = own.kept::<Opened, _>(|root| {
         root.label = Some(label);
         root.id.0
     });
@@ -230,5 +344,54 @@ mod tests {
 
         assert_ne!(second, gone, "a plugin holding an id must never be handed someone else's root");
         assert_ne!(second, third);
+    }
+
+    #[derive(Debug)]
+    struct Counter;
+
+    struct Bump;
+
+    guinea_macros::actor! {
+        Counter {
+            handlers {
+                Bump
+            }
+        }
+    }
+
+    impl guinea_core::actor::Handler<Bump> for Counter {
+        fn handle(_: guinea_core::actor::In<Self, Bump>) {}
+    }
+
+    #[derive(Clone)]
+    struct Ping;
+    impl guinea_core::actor::event_bus::Event for Ping {}
+
+    #[test]
+    fn an_actor_added_under_a_root_is_in_it() {
+        let host = super::super::GuineaHost::new();
+        let root = Root::under(&host.context());
+
+        let _scope = root
+            .install(|ctx| {
+                ctx.spawn(Counter);
+                ctx.subscribe(|_: Ping| {});
+                Ok(())
+            })
+            .expect("installed");
+
+        let rooted: Vec<Option<RootId>> = root
+            .scope()
+            .actors()
+            .into_iter()
+            .map(|actor| {
+                actor
+                    .owner
+                    .scope
+                    .and_then(|id| root.scope().named_by(id))
+                    .and_then(of)
+            })
+            .collect();
+        assert_eq!(rooted, [Some(root.id())]);
     }
 }

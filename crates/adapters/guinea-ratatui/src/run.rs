@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use guinea_app::app::{FeatureBuilder, Stop, start};
-use guinea_app::feature::FeatureHost;
+use guinea_app::app::roots;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
 use guinea_router::mount::Pass;
@@ -112,15 +112,15 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     // between frames, and wakes every tick anyway, so nothing has to wake it.
     let ui = UiLoop::install();
 
-    let (runtime, window) = match start("ratatui", app) {
+    let (host, window) = match start("ratatui", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
 
-    let host = FeatureHost::under(&runtime.context());
-    let scope = host.scope();
-    guinea_app::app::roots::set_label(scope, MAIN);
+    let main = roots::Root::under(&host.context());
+    let scope = main.scope();
+    roots::set_label(scope, MAIN);
     open(scope);
 
     let asking = window.start.map(|start| start(scope));
@@ -139,8 +139,8 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     });
 
     drop(asking);
+    drop(main);
     drop(host);
-    drop(runtime);
     outcome
 }
 

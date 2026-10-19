@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use guinea_app::app::{FeatureBuilder, Stop, start};
-use guinea_app::feature::FeatureHost;
+use guinea_app::app::roots;
 use guinea_core::guard::Ask;
 use guinea_core::scope::Scope;
 use guinea_core::ui_thread::UiLoop;
@@ -129,15 +129,15 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
     // may already queue work back to this thread.
     let ui = wakeups::install();
 
-    let (runtime, window) = match start("iced", app) {
+    let (host, window) = match start("iced", app) {
         Ok(started) => started,
         Err(error) if error.is::<Stop>() => return Ok(()),
         Err(error) => return Err(error),
     };
 
-    let host = FeatureHost::under(&runtime.context());
-    let scope = host.scope();
-    guinea_app::app::roots::set_label(scope, MAIN);
+    let main = roots::Root::under(&host.context());
+    let scope = main.scope();
+    roots::set_label(scope, MAIN);
     let asking = window.start.map(|start| start(scope));
 
     let nodes = Nodes::default();
@@ -169,8 +169,8 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
         .run();
 
     wakeups::close();
+    drop(main);
     drop(host);
-    drop(runtime);
 
     outcome.map_err(|e| anyhow::anyhow!("iced: {e}"))
 }

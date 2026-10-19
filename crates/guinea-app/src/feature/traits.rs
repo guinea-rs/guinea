@@ -365,11 +365,12 @@ impl ScopeContext {
     /// value, answer [`Followed<T>`](guinea_core::feed::Followed) here.
     ///
     /// ```
-    /// # use guinea_app::feature::FeatureHost;
+    /// # use guinea_app::app::{GuineaHost, roots::Root};
     /// # use guinea_core::feed::Feed;
     /// struct Selected(u32);
     ///
-    /// let host = FeatureHost::detached();
+    /// # let app = GuineaHost::new();
+    /// let host = Root::under(&app.context());
     /// let selection = host
     ///     .install(|cx| {
     ///         cx.feed::<Selected>().set(Selected(3));
@@ -398,8 +399,9 @@ impl ScopeContext {
     /// ```
     /// # use std::cell::RefCell;
     /// # use std::rc::Rc;
-    /// # use guinea_app::feature::FeatureHost;
-    /// let host = FeatureHost::detached();
+    /// # use guinea_app::app::{GuineaHost, roots::Root};
+    /// # let app = GuineaHost::new();
+    /// let host = Root::under(&app.context());
     /// let writer = RefCell::new(None);
     /// let selection = host
     ///     .install(|cx| {

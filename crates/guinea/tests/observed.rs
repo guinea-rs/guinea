@@ -1,8 +1,8 @@
 //! What the tool watching an application sends into it: an action to the
 //! window it names, an event onto the application's bus.
 
-use guinea::app::{AppRuntime, Observed};
-use guinea::feature::FeatureHost;
+use guinea::app::roots::Root;
+use guinea::app::{GuineaHost, Observed};
 use guinea::prelude::*;
 
 #[derive(Clone, Debug, serde::Deserialize, guinea::Remote)]
@@ -72,17 +72,17 @@ fn watches(app: &mut PluginBuilder) -> anyhow::Result<Watches> {
 struct Named {
     observed: Observed,
     page: guinea_core::scope::ScopeGuard,
-    _window: FeatureHost,
-    _runtime: AppRuntime,
+    _window: Root,
+    _host: GuineaHost,
 }
 
 fn named() -> Named {
-    let (runtime, observed) = guinea::app::start("test", |app| {
+    let (host, observed) = guinea::app::start("test", |app| {
         let Watches(observed) = app.plugin::<Watches>(())?;
         Ok(observed)
     })
     .expect("install");
-    let window = FeatureHost::under(&runtime.context());
+    let window = Root::under(&host.context());
     let page = window
         .install(|cx| cx.install::<Naming>(&()).map(|_| ()))
         .expect("the page installs");
@@ -91,7 +91,7 @@ fn named() -> Named {
         observed,
         page,
         _window: window,
-        _runtime: runtime,
+        _host: host,
     }
 }
 

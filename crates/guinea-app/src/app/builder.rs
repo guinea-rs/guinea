@@ -5,13 +5,12 @@ use anyhow::Context as _;
 use guinea_core::actor::shape::name;
 use guinea_core::actor::{Addr, ManagedActor};
 use guinea_core::__private::short_type_name;
-use guinea_core::scope::ScopeTree;
-use guinea_core::trace;
+use guinea_core::scope::Scope;
 use crate::feature::{ScopeContext, publish, settle};
 
 use super::observed::Observed;
 use super::plugin::{AppFeature, Plugin};
-use super::registry::{Backend, Plugins, Registry, Unit};
+use super::registry::{Plugins, Registry, Unit};
 use super::windows::WindowService;
 
 /// What a plugin may do while it builds.
@@ -23,14 +22,7 @@ use super::windows::WindowService;
 /// [`build`](Plugin::build) returns.
 pub struct PluginBuilder {
     cx: ScopeContext,
-    /// The application's tree: its scope is the root, the windows are under
-    /// it, and letting go of the tree removes all of it - the windows first,
-    /// then what the application set up, the last first.
-    tree: ScopeTree,
     registry: RefCell<Registry>,
-    /// What this thread records goes into the application's trace while
-    /// nothing nearer is current, until after the tree is torn down.
-    _recorded: trace::ThreadDefault,
 }
 
 /// The application being built: what [`run`](crate) hands the application's
@@ -43,19 +35,12 @@ pub struct FeatureBuilder {
 }
 
 impl PluginBuilder {
-    pub(crate) fn new() -> Self {
-        let tree = ScopeTree::new();
-        tree.scope().keep(Plugins::default());
-        tree.scope().keep(Backend::default());
-        let recorded = trace::thread_default(
-            &trace::sink_of(tree.scope()).expect("a tree just made is there"),
-        );
-
+    /// Builds into `app`, the root of a [`GuineaHost`](super::GuineaHost)'s
+    /// tree.
+    pub(crate) fn new(app: Scope) -> Self {
         Self {
-            cx: ScopeContext::new(tree.scope()),
-            tree,
+            cx: ScopeContext::new(app),
             registry: RefCell::default(),
-            _recorded: recorded,
         }
     }
 
@@ -67,7 +52,7 @@ impl PluginBuilder {
     /// Runs `f` when the application exits - after what was set up after it,
     /// and before what was set up before it.
     pub fn on_cleanup(&self, f: impl FnOnce() -> anyhow::Result<()> + 'static) -> &Self {
-        self.tree.on_teardown(move || {
+        self.cx.scope.on_teardown(move || {
             if let Err(e) = f() {
                 tracing::error!(error = %e, "an application cleanup failed");
             }
@@ -83,14 +68,14 @@ impl PluginBuilder {
 
     /// The application, for the one tool that watches it.
     pub fn observed(&self) -> Observed {
-        Observed::of(self.tree.scope())
+        Observed::of(self.cx.scope)
     }
 }
 
 impl FeatureBuilder {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(app: Scope) -> Self {
         Self {
-            inner: PluginBuilder::new(),
+            inner: PluginBuilder::new(app),
         }
     }
 

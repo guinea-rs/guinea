@@ -2,7 +2,8 @@
 //! mounted in each, under what, where it was written, and where its
 //! navigators are.
 
-use guinea_app::feature::FeatureHost;
+use guinea_app::app::GuineaHost;
+use guinea_app::app::roots::Root;
 use guinea_core::actor::shape::Declared;
 use guinea_core::__private::observer;
 use guinea_core::observability::{Event, Navigation, Watching};
@@ -27,15 +28,27 @@ fn mount<S: 'static>(parent: Scope) -> Scope {
     mounted.expect("mounted")
 }
 
+/// An application with nothing built in it, and a window of it.
+fn window() -> (GuineaHost, Root) {
+    let app = GuineaHost::new();
+    let root = Root::under(&app.context());
+    (app, root)
+}
+
 /// The window and the tool watching its tree.
 struct Watched {
     watching: Watching,
-    host: FeatureHost,
+    root: Root,
+    _app: GuineaHost,
 }
 
-fn watched(host: FeatureHost) -> Watched {
-    let watching = observer::watch(host.scope(), || {}).expect("nothing else watches");
-    Watched { watching, host }
+fn watched((app, root): (GuineaHost, Root)) -> Watched {
+    let watching = observer::watch(root.scope(), || {}).expect("nothing else watches");
+    Watched {
+        watching,
+        root,
+        _app: app,
+    }
 }
 
 fn mounted(events: &[Event]) -> Vec<(&'static str, Option<u32>)> {
@@ -50,17 +63,17 @@ fn mounted(events: &[Event]) -> Vec<(&'static str, Option<u32>)> {
 
 #[test]
 fn what_is_mounted_in_a_window_is_told_under_what_mounted_it() {
-    let watched = watched(FeatureHost::detached());
+    let watched = watched(window());
     watched.watching.take();
 
-    let shell = mount::<Shell>(watched.host.scope());
+    let shell = mount::<Shell>(watched.root.scope());
     let page = mount::<Page>(shell);
 
     let events = watched.watching.take().events;
     assert_eq!(
         events,
         [
-            Event::ScopeOpened { scope: shell.id(), parent: Some(watched.host.scope().id()) },
+            Event::ScopeOpened { scope: shell.id(), parent: Some(watched.root.scope().id()) },
             Event::Mounted { scope: shell.id(), name: std::any::type_name::<Shell>(), written: None },
             Event::ScopeOpened { scope: page.id(), parent: Some(shell.id()) },
             Event::Mounted { scope: page.id(), name: std::any::type_name::<Page>(), written: None },
@@ -70,10 +83,10 @@ fn what_is_mounted_in_a_window_is_told_under_what_mounted_it() {
 
 #[test]
 fn a_page_that_did_not_mount_is_not_told_mounted() {
-    let watched = watched(FeatureHost::detached());
+    let watched = watched(window());
     watched.watching.take();
 
-    let pass = Pass::begin(watched.host.scope());
+    let pass = Pass::begin(watched.root.scope());
     let refused = pass.mount::<Page, ()>(&(), |_| Err(anyhow::anyhow!("no")));
     pass.end();
 
@@ -83,7 +96,7 @@ fn a_page_that_did_not_mount_is_not_told_mounted() {
 
 #[test]
 fn a_mounted_page_says_where_it_was_written() {
-    let watched = watched(FeatureHost::detached());
+    let watched = watched(window());
     watched.watching.take();
     let here = Declared {
         file: file!(),
@@ -92,7 +105,7 @@ fn a_mounted_page_says_where_it_was_written() {
         crate_dir: env!("CARGO_MANIFEST_DIR"),
     };
 
-    let pass = Pass::begin(watched.host.scope());
+    let pass = Pass::begin(watched.root.scope());
     pass.mount::<Page, ()>(&(), |cx| {
         mount::written(cx.__scope(), Some(here));
         Ok(())
@@ -108,14 +121,14 @@ fn a_mounted_page_says_where_it_was_written() {
 
 #[test]
 fn a_page_kept_asleep_is_told_asleep() {
-    let watched = watched(FeatureHost::detached());
-    let pass = Pass::begin(watched.host.scope());
+    let watched = watched(window());
+    let pass = Pass::begin(watched.root.scope());
     let kept = pass.mount::<Page, ()>(&(), |_| Ok(())).expect("mounted");
     pass.keep(kept);
     pass.end();
     watched.watching.take();
 
-    let pass = Pass::begin(watched.host.scope());
+    let pass = Pass::begin(watched.root.scope());
     pass.mount::<Other, ()>(&(), |_| Ok(())).expect("mounted");
     pass.end();
 
@@ -125,13 +138,13 @@ fn a_page_kept_asleep_is_told_asleep() {
 
 #[test]
 fn a_navigator_is_told_where_it_opened_and_where_it_moved() {
-    let watched = watched(FeatureHost::detached());
+    let watched = watched(window());
     watched.watching.take();
 
-    let nav = Navigator::open(watched.host.scope(), Place::Home);
+    let nav = Navigator::open(watched.root.scope(), Place::Home);
     let _moved = nav.to(Place::Host { name: "db-01".into() });
 
-    let scope = watched.host.scope().id();
+    let scope = watched.root.scope().id();
     let at = |route: &str, back| Event::Navigated {
         scope,
         navigation: Navigation {
@@ -151,12 +164,12 @@ fn a_navigator_is_told_where_it_opened_and_where_it_moved() {
 
 #[test]
 fn a_tool_that_starts_watching_is_told_what_is_mounted_and_where_the_navigators_are() {
-    let host = FeatureHost::detached();
-    let shell = mount::<Shell>(host.scope());
-    let nav = Navigator::open(host.scope(), Place::Home);
+    let (app, root) = window();
+    let shell = mount::<Shell>(root.scope());
+    let nav = Navigator::open(root.scope(), Place::Home);
     let _moved = nav.to(Place::Host { name: "db-01".into() });
 
-    let watched = watched(host);
+    let watched = watched((app, root));
     let events = watched.watching.take().events;
 
     let navigated = events.iter().find_map(|event| match event {
@@ -173,6 +186,6 @@ fn a_tool_that_starts_watching_is_told_what_is_mounted_and_where_the_navigators_
     );
     assert!(events.contains(&Event::ScopeOpened {
         scope: shell.id(),
-        parent: Some(watched.host.scope().id())
+        parent: Some(watched.root.scope().id())
     }));
 }

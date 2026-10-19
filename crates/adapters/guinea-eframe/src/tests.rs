@@ -3,7 +3,8 @@
 
 use std::cell::Cell;
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_app::app::{GuineaHost, roots};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
 
@@ -143,19 +144,22 @@ impl Page for Leaving {
 }
 
 struct Window {
-    host: FeatureHost,
+    root: roots::Root,
     nav: Navigator<Place>,
     egui: egui::Context,
+    _app: GuineaHost,
 }
 
 impl Window {
     fn at(place: Place) -> Self {
-        let host = FeatureHost::detached();
-        let nav = Navigator::open(host.scope(), place);
+        let app = GuineaHost::new();
+        let root = roots::Root::under(&app.context());
+        let nav = Navigator::open(root.scope(), place);
         let window = Self {
-            host,
+            root,
             nav,
             egui: egui::Context::default(),
+            _app: app,
         };
         window.draw();
         window
@@ -165,7 +169,7 @@ impl Window {
         let root = Root::of::<Shell>();
         let mut output = self
             .egui
-            .run_ui(egui::RawInput::default(), |ui| frame(self.host.scope(), &root, ui));
+            .run_ui(egui::RawInput::default(), |ui| frame(self.root.scope(), &root, ui));
         output.textures_delta.clear();
     }
 
@@ -175,7 +179,7 @@ impl Window {
     }
 
     fn scope<N: 'static>(&self) -> Option<Scope> {
-        self.host
+        self.root
             .scope()
             .subtree()
             .into_iter()
@@ -197,7 +201,7 @@ fn what_is_mounted_says_where_it_was_written() {
     use guinea_core::observability::Event;
 
     let window = Window::at(Place::Counting);
-    let watching = observer::watch(window.host.scope(), || {}).expect("nothing else watches");
+    let watching = observer::watch(window.root.scope(), || {}).expect("nothing else watches");
 
     let events = watching.take().events;
 

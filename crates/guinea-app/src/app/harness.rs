@@ -10,12 +10,13 @@ use guinea_core::feature::Dispatch;
 use guinea_core::scope::{Reducer, Scope, ScopeGuard};
 use guinea_core::trace::{self, Cause, Point};
 
-use crate::feature::{Feature, FeatureHost, FeatureInitContext, ScopeContext};
+use crate::feature::{Feature, FeatureInitContext, ScopeContext};
 
 use super::acts::{Chain, Recorder};
 use super::builder::FeatureBuilder;
 use super::plugin::Plugin;
-use super::runtime::AppContext;
+use super::roots::Root;
+use super::{AppContext, GuineaHost};
 
 /// An application without a window, for testing plugins and features.
 ///
@@ -25,18 +26,26 @@ use super::runtime::AppContext;
 /// reactor still needs one.
 pub struct TestApp {
     builder: FeatureBuilder,
+    host: GuineaHost,
 }
 
 impl TestApp {
     pub fn new() -> Self {
+        let host = GuineaHost::new();
+
         Self {
-            builder: FeatureBuilder::new(),
+            builder: FeatureBuilder::new(host.scope()),
+            host,
         }
     }
 
     /// What was provided as `T`, for the test holding the application.
     pub fn service<T: Clone + 'static>(&self) -> Option<T> {
         self.builder.scope.service::<T>()
+    }
+
+    pub(crate) fn context(&self) -> AppContext {
+        self.host.context()
     }
 }
 
@@ -79,7 +88,7 @@ impl DerefMut for TestApp {
 /// back.
 pub struct Harness {
     segment: FeatureInitContext,
-    _window: FeatureHost,
+    _window: Root,
     app: TestApp,
     recorder: Recorder,
     executor: Installed,
@@ -93,7 +102,7 @@ impl Harness {
     pub fn new(seed: u64) -> Self {
         let executor = guinea_core::__private::install(seed);
         let app = TestApp::new();
-        let window = FeatureHost::under(&AppContext::of(&app));
+        let window = Root::under(&app.context());
         let segment = window.context(window.scope(), 0);
 
         Self {
@@ -110,9 +119,9 @@ impl Harness {
     }
 
     /// The application around the harness, as a window is opened from it -
-    /// see [`FeatureHost::under`](crate::feature::FeatureHost::under).
+    /// see [`Root::under`].
     pub fn application(&self) -> AppContext {
-        AppContext::of(&self.app)
+        self.app.context()
     }
 
     /// The application's scope itself, for a test reading what is in it.

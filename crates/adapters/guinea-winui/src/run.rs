@@ -4,8 +4,8 @@ use std::any::TypeId;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use guinea_app::app::{AppContext, AppRuntime, FeatureBuilder, Stop, start};
-use guinea_app::feature::FeatureHost;
+use guinea_app::app::roots;
+use guinea_app::app::{AppContext, FeatureBuilder, GuineaHost, Stop, start};
 use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
 use guinea_router::navigator::{Asking, Navigator, Routable, Watching};
@@ -97,15 +97,15 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'st
         crate::dispatching::install(proxy.clone());
         PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
 
-        let (runtime, window) = match start("winui", app) {
+        let (host, window) = match start("winui", app) {
             Ok(started) => started,
             Err(error) => {
                 *startup_failure.borrow_mut() = Some(error);
                 return Err(windows_core::Error::new(E_FAIL, "installing the application"));
             }
         };
-        let context = runtime.context();
-        let installed = Installed { _runtime: runtime };
+        let context = host.context();
+        let installed = Installed { _host: host };
 
         cx.open_component_window::<Shown>(opening(&context, window))?;
         Ok(installed)
@@ -129,7 +129,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'st
 /// windows mounted first, which the reactor would otherwise take down after
 /// it.
 struct Installed {
-    _runtime: AppRuntime,
+    _host: GuineaHost,
 }
 
 impl Drop for Installed {
@@ -233,10 +233,10 @@ impl PartialEq for Rooted {
 /// A window's root: its chrome, its navigator, and the layout it roots at.
 ///
 /// It owns the window's scope, under the application's, which is what makes
-/// a window a root: the host opens it when the component is created and
+/// a window a root: the root opens it when the component is created and
 /// closes it when the component is dropped.
 pub(crate) struct Chrome {
-    host: FeatureHost,
+    root: roots::Root,
     asking: Option<(Rc<dyn Asking>, Watching)>,
     _panel: guinea_core::observability::panels::PanelGuard,
 }
@@ -251,12 +251,12 @@ impl Component for Chrome {
     fn create(input: &Rooted, cx: &ComponentContext<Self>) -> Self {
         STANDING.with(|standing| standing.set(standing.get() + 1));
 
-        let host = FeatureHost::under(&input.app);
-        let window = host.scope();
+        let root = roots::Root::under(&input.app);
+        let window = root.scope();
         window.drawn_by(crate::winui::Reactor);
         window.keep(Application(input.app.clone()));
         if standing(window) {
-            guinea_app::app::roots::set_label(window, MAIN);
+            roots::set_label(window, MAIN);
         }
 
         let asking = input.window.start.as_ref().map(|start| {
@@ -269,8 +269,8 @@ impl Component for Chrome {
         });
 
         Self {
-            _panel: crate::devtools::offer(host.root().get(), window),
-            host,
+            _panel: crate::devtools::offer(root.id().get(), window),
+            root,
             asking,
         }
     }
@@ -286,7 +286,7 @@ impl Component for Chrome {
             cx.window_visuals(WindowVisuals::new().client_size(width, height));
         }
 
-        let scope = self.host.scope();
+        let scope = self.root.scope();
         let pass = Pass::begin(scope);
         let mounted = (window.root.mount)(&pass);
         pass.end();
@@ -296,7 +296,7 @@ impl Component for Chrome {
             Err(error) => {
                 let shown = format!("{error:#}");
                 tracing::error!(error = %shown, root = window.root.name, "the window's root did not mount");
-                if guinea_app::app::roots::label(scope).as_deref() == Some(MAIN) {
+                if roots::label(scope).as_deref() == Some(MAIN) {
                     failed(error);
                 }
                 TextBlock::new().text(shown).into()

@@ -4,7 +4,8 @@ use std::rc::Rc;
 use guinea_core::actor::shape::name;
 use guinea_macros::{builds, feature, installs, plugin};
 
-use super::{FeatureBuilder, PluginBuilder, start};
+use super::roots::Root;
+use super::{FeatureBuilder, GuineaHost, PluginBuilder, TestApp, start};
 
 thread_local! {
     static TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -18,9 +19,9 @@ fn taken() -> Vec<&'static str> {
     TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()))
 }
 
-fn builder() -> FeatureBuilder {
+fn builder() -> TestApp {
     TRACE.with(|t| t.borrow_mut().clear());
-    FeatureBuilder::new()
+    TestApp::new()
 }
 
 plugin! {
@@ -76,12 +77,12 @@ fn tidy(app: &mut PluginBuilder) -> anyhow::Result<Tidy> {
 }
 
 #[test]
-fn an_application_goes_when_its_runtime_is_let_go_of() {
+fn an_application_goes_when_its_host_is_let_go_of() {
     taken();
-    let (runtime, _) = start("test", |app| app.plugin::<Tidy>(())).unwrap();
+    let (host, _) = start("test", |app| app.plugin::<Tidy>(())).unwrap();
     assert_eq!(taken(), [""; 0]);
 
-    drop(runtime);
+    drop(host);
 
     assert_eq!(taken(), ["tidied"]);
 }
@@ -166,7 +167,8 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     struct Tick;
     impl Event for Tick {}
 
-    let app = PluginBuilder::new();
+    let host = GuineaHost::new();
+    let app = PluginBuilder::new(host.scope());
     let bus = app.scope.bus();
     let seen = Rc::new(RefCell::new(0usize));
 
@@ -178,6 +180,7 @@ fn subscriptions_taken_during_install_are_dropped_on_shutdown() {
     assert_eq!(bus.count_subscribers::<Tick>(), 1);
 
     drop(app);
+    drop(host);
 
     assert_eq!(bus.count_subscribers::<Tick>(), 0);
 }
@@ -198,15 +201,15 @@ fn greets(_app: &mut PluginBuilder) -> anyhow::Result<Greets> {
 
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
-    let (runtime, ()) = start("test", |app| {
+    let (host, ()) = start("test", |app| {
         let Greets(greeting) = app.plugin::<Greets>(())?;
         app.provide(greeting);
         Ok(())
     })
     .expect("install");
 
-    let host = crate::feature::FeatureHost::under(&runtime.context());
-    let scope = host
+    let window = Root::under(&host.context());
+    let scope = window
         .install(|ctx| {
             assert_eq!(ctx.scope.service::<Greeting>().map(|greeting| greeting.0), Some("hello"));
             ctx.subscribe(|_: Ping| trace("pinged"));
@@ -214,11 +217,11 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
         })
         .expect("install the feature");
 
-    host.scope().bus().publish(Ping);
+    window.scope().bus().publish(Ping);
     assert_eq!(taken(), vec!["pinged"]);
 
     drop(scope);
-    host.scope().bus().publish(Ping);
+    window.scope().bus().publish(Ping);
     assert!(
         taken().is_empty(),
         "the subscription is owned by the scope and ends with it"
@@ -366,9 +369,9 @@ mod exports {
 
     #[test]
     fn a_window_reads_what_the_installed_application_exports() {
-        let (runtime, ()) = start("test", localised).expect("install");
+        let (host, ()) = start("test", localised).expect("install");
 
-        let window = crate::feature::FeatureHost::under(&runtime.context());
+        let window = crate::app::roots::Root::under(&host.context());
 
         assert_eq!(language(window.scope()), Some("en"));
     }
@@ -378,10 +381,10 @@ mod exports {
         let (english, ()) = start("test", localised).expect("install");
         let _german = start("test", |app| app.plugin::<Translations>(())).expect("install");
 
-        let window = crate::feature::FeatureHost::under(&english.context());
+        let window = crate::app::roots::Root::under(&english.context());
 
         assert_eq!(language(window.scope()), Some("en"));
-        assert!(window.application() == Some(&english.context()));
+        assert!(window.application() == &english.context());
     }
 
     #[test]
@@ -462,8 +465,8 @@ mod observed {
     use guinea_macros::{actor, builds, feature, handler, installs, plugin, reducer};
 
     use super::{FeatureBuilder, PluginBuilder, start};
-    use crate::app::{AppRuntime, Observed, roots};
-    use crate::feature::FeatureHost;
+    use crate::app::roots::{self, Root};
+    use crate::app::{GuineaHost, Observed};
 
     pub struct Sweep;
 
@@ -540,11 +543,11 @@ mod observed {
     struct Watched {
         watching: Watching,
         observed: Observed,
-        runtime: AppRuntime,
+        host: GuineaHost,
     }
 
     fn watched(backend: &'static str, app: fn(&mut FeatureBuilder) -> anyhow::Result<()>) -> Watched {
-        let (runtime, observed) = start(backend, |builder| {
+        let (host, observed) = start(backend, |builder| {
             app(builder)?;
             let Watches(observed) = builder.plugin::<Watches>(())?;
             Ok(observed)
@@ -555,7 +558,7 @@ mod observed {
         Watched {
             watching,
             observed,
-            runtime,
+            host,
         }
     }
 
@@ -611,7 +614,7 @@ mod observed {
             Ok(())
         });
         watched.watching.take();
-        let app = watched.runtime.context().__scope().id();
+        let app = watched.host.context().__scope().id();
 
         let read = watched
             .observed
@@ -626,9 +629,9 @@ mod observed {
         let watched = watched("test", |_| Ok(()));
         watched.watching.take();
 
-        let window = FeatureHost::under(&watched.runtime.context());
+        let window = Root::under(&watched.host.context());
         roots::set_label(window.scope(), "main");
-        let (root, scope) = (window.root().get(), window.scope().id());
+        let (root, scope) = (window.id().get(), window.scope().id());
         drop(window);
 
         let events = watched.watching.take().events;
@@ -653,18 +656,18 @@ mod observed {
 
     #[test]
     fn a_tool_that_starts_watching_is_told_the_roots_open_and_their_names() {
-        let (runtime, observed) = start("test", |app| {
+        let (host, observed) = start("test", |app| {
             let Watches(observed) = app.plugin::<Watches>(())?;
             Ok(observed)
         })
         .expect("install");
-        let window = FeatureHost::under(&runtime.context());
+        let window = Root::under(&host.context());
         roots::set_label(window.scope(), "main");
 
         let watching = observed.watch(|| {}).expect("nothing else watches");
         let events = watching.take().events;
 
-        let root = window.root().get();
+        let root = window.id().get();
         assert!(
             events.contains(&Event::RootOpened { root, scope: window.scope().id() })
                 && events.contains(&Event::Labelled { root, label: "main".into() }),

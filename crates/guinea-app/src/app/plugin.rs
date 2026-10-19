@@ -28,7 +28,7 @@ use super::builder::{FeatureBuilder, PluginBuilder};
 ///     Ok(Settings(Store(file)))
 /// }
 /// # fn main() -> anyhow::Result<()> {
-/// # let (_runtime, Settings(store)) =
+/// # let (_host, Settings(store)) =
 /// #     guinea_app::app::start("doc", |app| app.plugin::<Settings>("settings.db"))?;
 /// # assert_eq!(store, Store("settings.db"));
 /// # Ok(())
@@ -46,7 +46,7 @@ use super::builder::{FeatureBuilder, PluginBuilder};
 /// # use guinea_app::app::PluginBuilder;
 /// # use guinea_macros::{builds, plugin};
 /// use guinea_app::app::FeatureBuilder;
-/// use guinea_app::feature::FeatureHost;
+/// use guinea_app::app::roots::Root;
 /// # #[derive(Clone, Debug, PartialEq)]
 /// # pub struct Store(&'static str);
 /// # plugin! { pub Settings { provides { Store } } }
@@ -72,9 +72,9 @@ use super::builder::{FeatureBuilder, PluginBuilder};
 ///     Ok(())
 /// }
 /// # fn main() -> anyhow::Result<()> {
-/// # let (runtime, ()) = guinea_app::app::start("doc", app)?;
+/// # let (host, ()) = guinea_app::app::start("doc", app)?;
 ///
-/// let window = FeatureHost::under(&runtime.context());
+/// let window = Root::under(&host.context());
 /// assert_eq!(window.scope().service::<Store>(), Some(Store("settings.db")));
 /// # Ok(())
 /// # }
@@ -98,7 +98,7 @@ pub trait Plugin: Sized + 'static {
 ///
 /// ```
 /// use guinea_app::app::FeatureBuilder;
-/// use guinea_app::feature::FeatureHost;
+/// use guinea_app::app::roots::Root;
 /// use guinea_macros::{Inspect, feature, installs, reducer};
 ///
 /// #[derive(Clone, Default, Inspect)]
@@ -123,9 +123,9 @@ pub trait Plugin: Sized + 'static {
 ///     Ok(Activity(state))
 /// }
 /// # fn main() -> anyhow::Result<()> {
-/// # let (runtime, _) = guinea_app::app::start("doc", |app| app.install::<Activity>())?;
+/// # let (host, _) = guinea_app::app::start("doc", |app| app.install::<Activity>())?;
 ///
-/// let window = FeatureHost::under(&runtime.context());
+/// let window = Root::under(&host.context());
 /// let _page = window.install(|cx| {
 ///     assert_eq!(cx.read::<ActivityState>().map(|state| state.busy), Some(true));
 ///     Ok(())

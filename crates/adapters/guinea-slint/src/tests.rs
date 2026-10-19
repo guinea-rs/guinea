@@ -2,7 +2,8 @@
 //! the navigator is moved from here or through the component's global, the
 //! way the markup moves it.
 
-use guinea_app::feature::{FeatureHost, FeatureInitContext};
+use guinea_app::app::{GuineaHost, roots};
+use guinea_app::feature::FeatureInitContext;
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
@@ -191,34 +192,37 @@ impl Layout for Unreachable {
 }
 
 struct Open {
-    host: FeatureHost,
+    root: roots::Root,
     component: Host,
     nav: crate::Navigator<Place>,
     _opened: Opened,
+    _app: GuineaHost,
 }
 
 impl Open {
     fn at(place: Place) -> Self {
         i_slint_backend_testing::init_no_event_loop();
 
-        let host = FeatureHost::detached();
+        let app = GuineaHost::new();
+        let root = roots::Root::under(&app.context());
         let component = Host::new().expect("the component");
         let opened = Window::of::<Shell>(component.clone_strong())
             .at(place)
-            .open(host.scope())
+            .open(root.scope())
             .expect("the window opens");
-        let nav = crate::Navigator::<Place>::find(host.scope()).expect("the window's navigator");
+        let nav = crate::Navigator::<Place>::find(root.scope()).expect("the window's navigator");
 
         Self {
-            host,
+            root,
             component,
             nav,
             _opened: opened,
+            _app: app,
         }
     }
 
     fn scopes(&self, named: &str) -> Vec<Scope> {
-        self.host
+        self.root
             .scope()
             .subtree()
             .into_iter()
@@ -241,7 +245,7 @@ fn what_is_mounted_says_where_it_was_written() {
     use guinea_core::observability::Event;
 
     let window = Open::at(Place::Processes);
-    let watching = observer::watch(window.host.scope(), || {}).expect("nothing else watches");
+    let watching = observer::watch(window.root.scope(), || {}).expect("nothing else watches");
 
     let events = watching.take().events;
 
@@ -362,9 +366,10 @@ fn a_layout_mounts_what_is_under_it_too() {
 #[test]
 fn a_root_that_does_not_mount_does_not_open() {
     i_slint_backend_testing::init_no_event_loop();
-    let host = FeatureHost::detached();
+    let app = GuineaHost::new();
+    let root = roots::Root::under(&app.context());
 
-    let opened = Window::of::<Unreachable>(Host::new().expect("the component")).open(host.scope());
+    let opened = Window::of::<Unreachable>(Host::new().expect("the component")).open(root.scope());
 
     let error = opened.err().map(|error| format!("{error:#}"));
     assert_eq!(error.as_deref(), Some("Unreachable did not mount: the agent is not reachable"));

@@ -41,7 +41,8 @@ impl Page for Processes {
 
 #[cfg(test)]
 mod tests {
-    use guinea::feature::FeatureHost;
+    use guinea::app::GuineaHost;
+    use guinea::app::roots::Root;
     use guinea::slint::{Opened, Window};
     use slint::ComponentHandle;
 
@@ -50,26 +51,29 @@ mod tests {
     struct Open {
         component: App,
         nav: guinea::slint::Navigator<Route>,
-        _host: FeatureHost,
+        _root: Root,
         _opened: Opened,
+        _app: GuineaHost,
     }
 
     fn at(route: Route) -> Open {
         i_slint_backend_testing::init_no_event_loop();
 
-        let host = FeatureHost::detached();
+        let app = GuineaHost::new();
+        let root = Root::under(&app.context());
         let component = App::new().expect("the window");
         let opened = Window::of::<Shell>(component.clone_strong())
             .at(route)
-            .open(host.scope())
+            .open(root.scope())
             .expect("the window opens");
-        let nav = guinea::slint::Navigator::find(host.scope()).expect("its navigator");
+        let nav = guinea::slint::Navigator::find(root.scope()).expect("its navigator");
 
         Open {
             component,
             nav,
-            _host: host,
+            _root: root,
             _opened: opened,
+            _app: app,
         }
     }
 

@@ -26,7 +26,7 @@ mod whole {
     //@hide
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
+    use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
     use windows_reactor::{Button, StackPanel, TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -73,7 +73,7 @@ mod whole {
     impl Page for CounterPage {
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<Counter>(&())?;
             Ok(Self::default())
         }
@@ -129,7 +129,7 @@ mod installing {
     //@hide
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, page};
+    use guinea_winui::{Install, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -175,8 +175,8 @@ mod installing {
     impl Page for ProcessesPage {
         type Params = ProcessesParams;
 
-        fn install(ctx: &FeatureInitContext, params: &ProcessesParams) -> anyhow::Result<Self> {
-            ctx.install::<Processes>(&params.context)?;
+        fn install(ctx: &Install<ProcessesParams>) -> anyhow::Result<Self> {
+            ctx.install::<Processes>(&ctx.params().context)?;
             ctx.state::<Selection>().plain();
             Ok(Self)
         }
@@ -212,7 +212,7 @@ mod installing {
 
 mod keeping_the_capture {
     //@show a page that keeps its capture
-    use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    use guinea_winui::{Install, Page, PageCx, page};
     use windows_reactor::{TextBlock, View};
 
     #[derive(Clone, PartialEq)]
@@ -228,8 +228,8 @@ mod keeping_the_capture {
     impl Page for ProcessPage {
         type Params = ProcessParams;
 
-        fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<Self> {
-            Ok(Self { pid: params.pid })
+        fn install(ctx: &Install<ProcessParams>) -> anyhow::Result<Self> {
+            Ok(Self { pid: ctx.params().pid })
         }
 
         fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -258,7 +258,7 @@ mod keeping_the_capture {
 
 mod starting_from_a_setting {
     //@show a page that starts from a setting
-    use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
     use windows_reactor::{Button, StackPanel, TextBlock, View};
 
     /// Column widths as the application saved them; a default when it did not.
@@ -286,11 +286,7 @@ mod starting_from_a_setting {
     impl Page for Table {
         type Message = Msg;
 
-        fn install(
-            _ctx: &FeatureInitContext,
-            _params: &(),
-            saved: Option<SavedWidths>,
-        ) -> anyhow::Result<Self> {
+        fn install(_ctx: &Install, saved: Option<SavedWidths>) -> anyhow::Result<Self> {
             Ok(Self { widths: saved.unwrap_or_default().0 })
         }
 
@@ -372,7 +368,7 @@ mod asking_a_feature {
     //@hide
     use guinea_macros::{feature, installs, reducer};
     //@unhide
-    use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
+    use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
     use windows_reactor::{TextBlock, View};
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -414,7 +410,7 @@ mod asking_a_feature {
     impl Page for SearchPage {
         type Message = Msg;
 
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<Searching>(&())?;
             Ok(Self::default())
         }
@@ -514,8 +510,7 @@ mod shell {
     use guinea_macros::{feature, installs, reducer};
     //@unhide
     use guinea_winui::{
-        FeatureInitContext, Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout,
-        page,
+        Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
     };
     use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 
@@ -601,7 +596,7 @@ mod shell {
 
         /// A feature, and a reducer claimed directly. Pages below may read
         /// `Sidebar`, which `Chrome` exports; `Title` is the shell's own.
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<Chrome>(&())?;
             ctx.state::<Title>().seed(Title("guinea".into())).plain();
             Ok(Self)
@@ -687,10 +682,10 @@ mod per_machine {
     //@show a layout per machine
     //@hide
     use guinea_macros::{feature, installs, reducer};
-    use guinea_winui::{Install, Page, PageCx, page};
+    use guinea_winui::{Page, PageCx, page};
     use windows_reactor::TextBlock;
     //@unhide
-    use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    use guinea_winui::{Install, Layout, LayoutCx, layout};
     use windows_reactor::View;
     //@hide
 
@@ -735,8 +730,8 @@ mod per_machine {
         /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
         type Params = String;
 
-        fn install(ctx: &FeatureInitContext, machine: &String) -> anyhow::Result<Self> {
-            ctx.install::<Connection>(machine)?;
+        fn install(ctx: &Install<String>) -> anyhow::Result<Self> {
+            ctx.install::<Connection>(ctx.params())?;
             Ok(Self)
         }
 
@@ -766,10 +761,10 @@ mod layout_installing {
     //@show a layout that installs
     //@hide
     use guinea_macros::{feature, installs, reducer};
-    use guinea_winui::{Install, Page, PageCx, page};
+    use guinea_winui::{Page, PageCx, page};
     use windows_reactor::TextBlock;
     //@unhide
-    use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    use guinea_winui::{Install, Layout, LayoutCx, layout};
     use windows_reactor::View;
     //@hide
 
@@ -834,11 +829,7 @@ mod layout_installing {
     #[layout]
     impl Layout for Shell {
         /// `refresh` is a setting the application may `provide`.
-        fn install(
-            ctx: &FeatureInitContext,
-            _params: &(),
-            refresh: Option<Refresh>,
-        ) -> anyhow::Result<Self> {
+        fn install(ctx: &Install, refresh: Option<Refresh>) -> anyhow::Result<Self> {
             let refresh = refresh.unwrap_or_default();
 
             ctx.install::<SidebarFeature>(&())?;

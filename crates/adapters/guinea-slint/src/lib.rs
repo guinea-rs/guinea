@@ -93,7 +93,7 @@ pub trait Page: Sized + 'static {
     ///
     /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
     /// and goes when the page does.
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     /// Ties this page's globals to state and actions, once, right after
     /// [`install`](Self::install).
@@ -116,7 +116,7 @@ pub trait Layout: Sized + 'static {
     /// What a layout installs is also what the pages below share: they come
     /// and go, and it stays. Whatever its features list in `Exports` those
     /// pages may read.
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     /// See [`Page::bind`].
     fn bind(&mut self, _cx: &BindCx<Self>) {}
@@ -154,7 +154,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
     let scope = ctx.__scope();
     scope.keep(Segment(|_| {}));
     guinea_router::mount::written(scope, P::DECLARED);
-    let mut page = P::install(ctx, params)?;
+    let mut page = P::install(&Install::new(ctx, params))?;
     page.bind(&BindCx {
         scope,
         segment: PhantomData,
@@ -168,7 +168,7 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
     let scope = ctx.__scope();
     scope.keep(Segment(layout_mount::<L>));
     guinea_router::mount::written(scope, L::DECLARED);
-    let mut layout = L::install(ctx, params)?;
+    let mut layout = L::install(&Install::new(ctx, params))?;
     layout.bind(&BindCx {
         scope,
         segment: PhantomData,
@@ -384,7 +384,7 @@ impl<S> BindCx<S> {
     /// # struct Listing;
     /// # #[page]
     /// # impl Page for Listing {
-    /// #     fn install(ctx: &guinea_slint::FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    /// #     fn install(ctx: &guinea_slint::Install) -> anyhow::Result<Self> {
     /// #         let seeded = Processes { items: vec!["init".into(), "shell".into()] };
     /// #         ctx.state::<Processes>().seed(seeded).plain();
     /// #         Ok(Self)

@@ -35,7 +35,7 @@ mod twice {
 
     #[page]
     impl Page for TwiceReader {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.state::<Level>().seed(Level(3)).plain();
             Ok(Self)
         }

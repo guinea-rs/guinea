@@ -84,7 +84,7 @@ pub trait Page: Sized + 'static {
     ///
     /// What it installs with `ctx.install::<F>(..)` is the page's scope's,
     /// and goes when the page does.
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     /// Draws the page, and changes it. Runs again for every frame, so this is
     /// the drawing itself and not a description of it.
@@ -105,7 +105,7 @@ pub trait Layout: Sized + 'static {
     /// What a layout installs is also what the pages below share: they come
     /// and go, and it stays. Whatever its features list in `Exports` those
     /// pages may read.
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>);
 }
@@ -129,7 +129,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
     let scope = ctx.__scope();
     scope.keep(Draws(page_draw::<P>));
     guinea_router::mount::written(scope, P::DECLARED);
-    let node = P::install(ctx, params)?;
+    let node = P::install(&Install::new(ctx, params))?;
     scope.keep(node);
     Ok(())
 }
@@ -139,7 +139,7 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
     let scope = ctx.__scope();
     scope.keep(Draws(layout_draw::<L>));
     guinea_router::mount::written(scope, L::DECLARED);
-    let node = L::install(ctx, params)?;
+    let node = L::install(&Install::new(ctx, params))?;
     scope.keep(node);
     Ok(())
 }

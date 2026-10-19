@@ -3,7 +3,7 @@
 //! way the markup moves it.
 
 use guinea_app::app::{GuineaHost, roots};
-use guinea_app::feature::{FeatureInitContext, Install};
+use guinea_app::feature::Install;
 use guinea_core::guard::Verdict;
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
@@ -127,7 +127,7 @@ struct Processes;
 
 #[page]
 impl Page for Processes {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Labelling>(&())?;
         Ok(Self)
     }
@@ -151,7 +151,7 @@ struct Broken;
 
 #[page]
 impl Page for Broken {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(_ctx: &Install) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 }
@@ -162,7 +162,7 @@ struct Draft;
 
 #[page]
 impl Page for Draft {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.on_leave(|| Verdict::ask(Ask::new("Discard the draft?", "Discard", "Keep editing")));
         Ok(Self)
     }
@@ -184,7 +184,7 @@ struct Unreachable;
 
 #[layout]
 impl Layout for Unreachable {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(_ctx: &Install) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

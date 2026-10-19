@@ -119,7 +119,7 @@ pub struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Metering>(&())?;
         Ok(Self::default())
     }
@@ -149,7 +149,7 @@ pub struct Status;
 
 #[page]
 impl Page for Status {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Linking>(&())?;
         Ok(Self::default())
     }
@@ -258,7 +258,7 @@ pub struct Watched;
 
 #[page]
 impl Page for Watched {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Ticking>(&())?;
         Ok(Self::default())
     }

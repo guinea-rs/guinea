@@ -23,7 +23,7 @@ use guinea_core::scope::{Reducer, Scope};
 use guinea_core::trace::Cause;
 
 use guinea_app::app::AppContext;
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::{FeatureInitContext, Install};
 use guinea_router::mount::{Outlet, Pass, Reads, binding, navigator};
 use guinea_router::navigator::{Navigator, Routable};
 use guinea_router::slot::Slot;
@@ -79,7 +79,7 @@ use windows_reactor::{
 ///
 /// <!-- shown: a whole page -->
 /// ```rust,ignore
-/// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
+/// use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
 /// use windows_reactor::{Button, StackPanel, TextBlock, View};
 ///
 /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -126,7 +126,7 @@ use windows_reactor::{
 /// impl Page for CounterPage {
 ///     type Message = Msg;
 ///
-///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+///     fn install(ctx: &Install) -> anyhow::Result<Self> {
 ///         ctx.install::<Counter>(&())?;
 ///         Ok(Self::default())
 ///     }
@@ -210,7 +210,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that installs -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, page};
+    /// use guinea_winui::{Install, Page, PageCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
     /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -256,8 +256,8 @@ pub trait Page: Sized + 'static {
     /// impl Page for ProcessesPage {
     ///     type Params = ProcessesParams;
     ///
-    ///     fn install(ctx: &FeatureInitContext, params: &ProcessesParams) -> anyhow::Result<Self> {
-    ///         ctx.install::<Processes>(&params.context)?;
+    ///     fn install(ctx: &Install<ProcessesParams>) -> anyhow::Result<Self> {
+    ///         ctx.install::<Processes>(&ctx.params().context)?;
     ///         ctx.state::<Selection>().plain();
     ///         Ok(Self)
     ///     }
@@ -275,7 +275,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that keeps its capture -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Page, PageCx, page};
+    /// use guinea_winui::{Install, Page, PageCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
     /// #[derive(Clone, PartialEq)]
@@ -291,8 +291,8 @@ pub trait Page: Sized + 'static {
     /// impl Page for ProcessPage {
     ///     type Params = ProcessParams;
     ///
-    ///     fn install(_ctx: &FeatureInitContext, params: &ProcessParams) -> anyhow::Result<Self> {
-    ///         Ok(Self { pid: params.pid })
+    ///     fn install(ctx: &Install<ProcessParams>) -> anyhow::Result<Self> {
+    ///         Ok(Self { pid: ctx.params().pid })
     ///     }
     ///
     ///     fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -309,7 +309,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that starts from a setting -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Page, PageCx, UpdateCx, page};
+    /// use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
     /// use windows_reactor::{Button, StackPanel, TextBlock, View};
     ///
     /// /// Column widths as the application saved them; a default when it did not.
@@ -337,11 +337,7 @@ pub trait Page: Sized + 'static {
     /// impl Page for Table {
     ///     type Message = Msg;
     ///
-    ///     fn install(
-    ///         _ctx: &FeatureInitContext,
-    ///         _params: &(),
-    ///         saved: Option<SavedWidths>,
-    ///     ) -> anyhow::Result<Self> {
+    ///     fn install(_ctx: &Install, saved: Option<SavedWidths>) -> anyhow::Result<Self> {
     ///         Ok(Self { widths: saved.unwrap_or_default().0 })
     ///     }
     ///
@@ -364,7 +360,7 @@ pub trait Page: Sized + 'static {
     /// }
     /// ```
     /// <!-- /shown -->
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     /// Asked before this page is left, and answered from its own state.
     ///
@@ -428,7 +424,7 @@ pub trait Page: Sized + 'static {
     ///
     /// <!-- shown: a page that asks a feature -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Install, Page, PageCx, UpdateCx, page};
+    /// use guinea_winui::{Install, Page, PageCx, UpdateCx, page};
     /// use windows_reactor::{TextBlock, View};
     ///
     /// #[derive(Default, Clone, PartialEq, Debug)]
@@ -470,7 +466,7 @@ pub trait Page: Sized + 'static {
     /// impl Page for SearchPage {
     ///     type Message = Msg;
     ///
-    ///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    ///     fn install(ctx: &Install) -> anyhow::Result<Self> {
     ///         ctx.install::<Searching>(&())?;
     ///         Ok(Self::default())
     ///     }
@@ -565,8 +561,7 @@ pub trait Page: Sized + 'static {
 /// <!-- shown: a shell -->
 /// ```rust,ignore
 /// use guinea_winui::{
-///     FeatureInitContext, Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout,
-///     page,
+///     Install, Layout, LayoutCx, Page, PageCx, Routable, UpdateCx, layout, page,
 /// };
 /// use windows_reactor::{Border, Button, StackPanel, TextBlock, View};
 ///
@@ -652,7 +647,7 @@ pub trait Page: Sized + 'static {
 ///
 ///     /// A feature, and a reducer claimed directly. Pages below may read
 ///     /// `Sidebar`, which `Chrome` exports; `Title` is the shell's own.
-///     fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+///     fn install(ctx: &Install) -> anyhow::Result<Self> {
 ///         ctx.install::<Chrome>(&())?;
 ///         ctx.state::<Title>().seed(Title("guinea".into())).plain();
 ///         Ok(Self)
@@ -715,7 +710,7 @@ pub trait Layout: Sized + 'static {
     ///
     /// <!-- shown: a layout per machine -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    /// use guinea_winui::{Install, Layout, LayoutCx, layout};
     /// use windows_reactor::View;
     ///
     /// #[derive(Default)]
@@ -726,8 +721,8 @@ pub trait Layout: Sized + 'static {
     ///     /// Which machine: `cx.mount::<MachineLayout>(&machine)`.
     ///     type Params = String;
     ///
-    ///     fn install(ctx: &FeatureInitContext, machine: &String) -> anyhow::Result<Self> {
-    ///         ctx.install::<Connection>(machine)?;
+    ///     fn install(ctx: &Install<String>) -> anyhow::Result<Self> {
+    ///         ctx.install::<Connection>(ctx.params())?;
     ///         Ok(Self)
     ///     }
     ///
@@ -752,7 +747,7 @@ pub trait Layout: Sized + 'static {
     ///
     /// <!-- shown: a layout that installs -->
     /// ```rust,ignore
-    /// use guinea_winui::{FeatureInitContext, Layout, LayoutCx, layout};
+    /// use guinea_winui::{Install, Layout, LayoutCx, layout};
     /// use windows_reactor::View;
     ///
     /// /// How often metrics refresh, when the application does not say.
@@ -767,11 +762,7 @@ pub trait Layout: Sized + 'static {
     /// #[layout]
     /// impl Layout for Shell {
     ///     /// `refresh` is a setting the application may `provide`.
-    ///     fn install(
-    ///         ctx: &FeatureInitContext,
-    ///         _params: &(),
-    ///         refresh: Option<Refresh>,
-    ///     ) -> anyhow::Result<Self> {
+    ///     fn install(ctx: &Install, refresh: Option<Refresh>) -> anyhow::Result<Self> {
     ///         let refresh = refresh.unwrap_or_default();
     ///
     ///         ctx.install::<SidebarFeature>(&())?;
@@ -793,7 +784,7 @@ pub trait Layout: Sized + 'static {
     /// Runs when the layout is mounted, which is not every navigation: a
     /// move between two of its pages keeps the node, and what the layout
     /// holds survives it.
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self>;
 
     /// Asked before this layout is left. See [`Page::leaving`].
     ///
@@ -943,7 +934,7 @@ pub fn install_page<P: Page>(ctx: &FeatureInitContext, params: &P::Params) -> an
     let scope = ctx.__scope();
     scope.keep(Draws(page_view::<P>));
     guinea_router::mount::written(scope, P::DECLARED);
-    let node = P::install(ctx, params)?;
+    let node = P::install(&Install::new(ctx, params))?;
     stage_node(ctx, node, P::leaving);
     Ok(())
 }
@@ -993,7 +984,7 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
     let scope = ctx.__scope();
     scope.keep(Draws(layout_view::<L>));
     guinea_router::mount::written(scope, L::DECLARED);
-    let node = L::install(ctx, params)?;
+    let node = L::install(&Install::new(ctx, params))?;
     stage_node(ctx, node, L::leaving);
     Ok(())
 }

@@ -100,7 +100,7 @@ pub struct Listening;
 
 #[page]
 impl Page for Listening {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.state::<Pings>().driven_by(|push| Listener { push, _alive: Alive::new() });
         Ok(Self::default())
     }
@@ -126,7 +126,7 @@ pub struct Menu;
 impl Page for Menu {
     type Message = Dismiss;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Pinging>(&())?;
         Ok(Self::default())
     }
@@ -172,7 +172,7 @@ pub struct PingArea;
 
 #[layout]
 impl Layout for PingArea {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Pinging>(&())?;
         Ok(Self::default())
     }

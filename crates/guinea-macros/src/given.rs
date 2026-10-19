@@ -90,23 +90,23 @@ pub(crate) fn refused(output: &ReturnType) -> TokenStream {
     }
 }
 
-/// A page's or a layout's `install`: what follows its context and its
-/// parameters is taken as a service.
+/// A page's or a layout's `install`: what follows its context is taken as a
+/// service.
 pub(crate) fn segment_install(item: &mut ItemImpl) -> syn::Result<()> {
     for entry in &mut item.items {
         if let ImplItem::Fn(method) = entry
             && method.sig.ident == "install"
-            && method.sig.inputs.len() > 2
+            && method.sig.inputs.len() > 1
         {
-            expand(method, 2)?;
+            expand(method)?;
         }
     }
     Ok(())
 }
 
-/// Keeps the receiver and the first `kept` arguments - the context first -
-/// and takes the rest from the context before the body runs.
-fn expand(method: &mut ImplItemFn, kept_count: usize) -> syn::Result<()> {
+/// Keeps the receiver and the context, and takes the rest from the context
+/// before the body runs.
+fn expand(method: &mut ImplItemFn) -> syn::Result<()> {
     let mut arguments = method.sig.inputs.iter();
     let mut kept: Punctuated<FnArg, syn::Token![,]> = Punctuated::new();
 
@@ -130,11 +130,6 @@ fn expand(method: &mut ImplItemFn, kept_count: usize) -> syn::Result<()> {
         ));
     };
     kept.push(FnArg::Typed(context.clone()));
-    for _ in 1..kept_count {
-        if let Some(argument) = arguments.next() {
-            kept.push(argument.clone());
-        }
-    }
 
     let taken = taken(arguments)?;
     let patterns: Vec<TokenStream> = taken.iter().map(|typed| {

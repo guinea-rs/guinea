@@ -105,7 +105,7 @@ impl Page for SearchPage {
     type Params = ();
     type Message = Typing;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Search>(&())?;
         Ok(Self::default())
     }
@@ -1059,7 +1059,7 @@ mod navigating {
 
     #[layout]
     impl Layout for Frame {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<frame_clock::FrameClock>(&())?;
             Ok(Self::default())
         }
@@ -1100,7 +1100,7 @@ mod navigating {
 
     #[layout]
     impl Layout for Area {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.on_teardown(|| AREAS_GONE.with(|gone| gone.set(gone.get() + 1)));
             ctx.install::<list_clock::ListClock>(&())?;
             Ok(Self::default())
@@ -1129,7 +1129,7 @@ mod navigating {
 
     #[page]
     impl Page for Other {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<greeted::Greeted>(&())?;
             Ok(Self)
         }
@@ -1160,7 +1160,7 @@ mod navigating {
 
     #[layout]
     impl Layout for KeptArea {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.on_wake(|| KEPT_WAKES.with(|wakes| wakes.set(wakes.get() + 1)));
             ctx.install::<list_clock::ListClock>(&())?;
             Ok(Self::default())

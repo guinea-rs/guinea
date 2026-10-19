@@ -5,7 +5,6 @@
 mod provided {
     use guinea::app::GuineaHost;
     use guinea::app::roots::Root;
-    use guinea::feature::FeatureInitContext;
     use guinea::mount::Pass;
     use guinea::winui::*;
 
@@ -38,7 +37,7 @@ mod provided {
 
     #[page]
     impl Page for NeedsAService {
-        fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+        fn install(ctx: &Install) -> anyhow::Result<Self> {
             ctx.install::<Greeted>(&())?;
             Ok(Self::default())
         }

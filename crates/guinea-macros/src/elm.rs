@@ -79,8 +79,7 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
     if !has_install {
         item.items.push(parse_quote! {
             fn install(
-                _ctx: &#adapter::FeatureInitContext,
-                _params: &Self::Params,
+                _cx: &#adapter::Install<Self::Params>,
             ) -> #gc::__private::anyhow::Result<Self> {
                 ::std::result::Result::Ok(::core::default::Default::default())
             }

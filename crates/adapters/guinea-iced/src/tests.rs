@@ -6,7 +6,7 @@
 //! iced draws with.
 
 use guinea_app::app::{GuineaHost, roots};
-use guinea_app::feature::FeatureInitContext;
+use guinea_app::feature::Install;
 use guinea_core::scope::Scope;
 use guinea_macros::reducer;
 
@@ -96,7 +96,7 @@ fn list_replaced(update: &Replaced) -> Option<LeafMsg> {
 impl Page for Leaf {
     type Message = LeafMsg;
 
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.state::<Domain>().seed(Domain(vec![1, 2, 3])).plain();
         Ok(Self::default())
     }
@@ -214,8 +214,8 @@ impl Page for Numbered {
     type Params = u32;
     type Message = PickHere;
 
-    fn install(_ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<Self> {
-        Ok(Self { pid: *pid, picked: None })
+    fn install(ctx: &Install<u32>) -> anyhow::Result<Self> {
+        Ok(Self { pid: *ctx.params(), picked: None })
     }
 
     fn update(&mut self, _message: PickHere, _cx: &mut UpdateCx<'_, Self>) {

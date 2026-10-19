@@ -8,7 +8,7 @@
 use std::cell::{Cell, RefCell};
 
 use guinea::app::Harness;
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 use guinea::winui::harness::Mounted;
 use guinea::winui::*;
 use guinea_core::feature::Bound;
@@ -63,9 +63,9 @@ struct Process {
 #[page]
 impl Page for Process {
     type Params = u32;
-    fn install(ctx: &FeatureInitContext, pid: &u32) -> anyhow::Result<Self> {
+    fn install(ctx: &Install<u32>) -> anyhow::Result<Self> {
         INSTALLED.set(Some(ctx.state::<Load>().seed(Load::default()).plain()));
-        Ok(Self { pid: *pid })
+        Ok(Self { pid: *ctx.params() })
     }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
@@ -104,7 +104,7 @@ struct Unreachable;
 
 #[page]
 impl Page for Unreachable {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(_ctx: &Install) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

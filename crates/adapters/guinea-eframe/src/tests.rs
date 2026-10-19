@@ -4,7 +4,7 @@
 use std::cell::Cell;
 
 use guinea_app::app::{GuineaHost, roots};
-use guinea_app::feature::{FeatureInitContext, Install};
+use guinea_app::feature::Install;
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
 
@@ -45,7 +45,7 @@ struct Shell;
 
 #[layout]
 impl Layout for Shell {
-    fn install(ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(ctx: &Install) -> anyhow::Result<Self> {
         ctx.install::<Sharing>(&())?;
         Ok(Self)
     }
@@ -107,7 +107,7 @@ struct Broken;
 
 #[page]
 impl Page for Broken {
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
+    fn install(_ctx: &Install) -> anyhow::Result<Self> {
         anyhow::bail!("the agent is not reachable")
     }
 

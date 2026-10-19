@@ -4,16 +4,15 @@ sidebar:
   order: 1
 ---
 
-Rust has good toolkits and no application layer above them. The architecture is
-left to you, so you borrow one from GC languages, and Rust's ownership fights
-it. What is left is wiring - not the same in every toolkit, but no application
-past a demo escapes it:
+Rust has good toolkits and no application layer above them: a toolkit draws
+the screen, and how the application around it is built is left to each
+project. The answers differ, but every application past a demo meets the same
+problems:
 
 - messages forwarded through layers to where they are handled;
 - request ids, so a late answer does not overwrite a newer one;
 - setup, teardown and refetching written by hand for every screen;
 - one huge state everything reaches into, and no tests for it;
-- handles threaded through constructors, and a `clone()` before every `move`;
 - settings saved and synced by hand.
 
 ## What guinea is

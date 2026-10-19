@@ -175,22 +175,51 @@ where
 
 ### WinUI has no window contract
 
-The Slint shell fits geometry onto the monitors' work areas before applying
-it (`guinea_app::app::windows::fit`) and reports positions in physical
-pixels. WinUI provides no `WindowService` and never reads `SavedGeometry`,
-so the window-state plugin does nothing there.
+Undecided what to do with it; written down 2026-10-19.
 
-- windows-reactor-pre has no way to place a window: `WindowVisuals` sets a
-  client size and nothing else. It needs a position, and a way to read the
-  window's geometry and hear when it moves, through `AppWindow`
-  (`MoveAndResize`, `Changed`).
-- Then guinea-winui provides `WindowService` the way guinea-slint does,
-  restores from `SavedGeometry` before the first window shows, and fits
-  through the same `fit`.
-- Work areas: guinea-slint asks Win32 (`monitors.rs`); WinUI can ask
-  `DisplayArea`, or share the Win32 code.
-- Off Windows, guinea-slint knows no work areas and applies geometry as it
-  comes.
+`guinea_app::app::windows` has one implementer, the Slint shell, and one
+consumer, the window-state plugin, used only by `processes-slint`. WinUI
+provides no `WindowService` and never reads `SavedGeometry`, so window-state
+does nothing there. `PluginBuilder::windows()` has no callers.
+
+What windows-reactor-pre (vendored) offers now:
+
+| `Windows` needs | the reactor has | |
+|---|---|---|
+| `geometry()`, `WindowChanged` | `cx.on_window_placement` - restored outer bounds in physical pixels and `maximized`, coalesced, nothing while minimised; `cx.on_window_size` - client size in DIPs | yes |
+| restore before showing | `WindowVisuals::initial_placement(WindowPlacement)`; Windows moves fully off-screen bounds onto a monitor itself | yes |
+| `apply()` after opening | `client_size` stays live in the declaration; position and maximized are read only at creation | size only |
+| `close()` | `ComponentContext::close_window()`, from the window's component on the UI thread | needs a bridge into `Chrome` |
+| `set_visible`, `start_drag`, fullscreen, minimised | nothing | no |
+| escape hatch | `cx.run_window(\|handle\| ..)` hands out the raw HWND | a workaround only |
+
+Partial implementation, if it is done: a `WinuiWindows` keeping each root's
+last placement and size, fed by both observers in `Chrome`, which also
+publish `WindowChanged` with the label; `geometry()` answers from it; the
+shell reads `SavedGeometry` from the application's services and sets
+`initial_placement`; `apply()` takes the size only, the rest answers
+`Unsupported`; `run` provides `WindowService` as the Slint shell does. No
+Win32 through the raw HWND - the missing commands are a draft issue for
+windows-rs instead.
+
+Open questions before that:
+
+- `Geometry` and `WindowPlacement` disagree on units. `Geometry` is the
+  winit / Slint shape: a logical client size and a physical outer position.
+  The reactor keeps whole outer bounds in physical pixels, the way Win32's
+  `GetWindowPlacement` does - the one that survives a restart without loss.
+  Carrying WinUI's placement through today's `Geometry` means converting
+  DPI and frame insets both ways, which drifts. Moving `Geometry` to outer
+  physical bounds changes `fit` and what window-state stores - breaking for
+  the plugin.
+- The Slint shell is handed restoration twice: window-state provides
+  `SavedGeometry` as a service, and `Window::remembered_by(saved)` takes it
+  again by hand. The shell could read the service itself and
+  `remembered_by` go.
+- `close()` now through a bridge into `Chrome`, or `Unsupported` too.
+- Or none of it: the contract is speculative while no application uses it,
+  `fit` belongs inside the Slint shell, and the module could leave
+  guinea-app until a second real implementer shapes it.
 
 ## Versions: a plugin should not break on a guinea it does not use
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="guinea" width="100%" />
+<img src="https://raw.githubusercontent.com/guinea-rs/guinea/master/crates/guinea/assets/banner.svg" alt="guinea" width="100%" />
 
 *The application layer for Rust GUI.*
 
@@ -9,7 +9,7 @@
 [Read the book](https://guinea-rs.github.io/guinea/introduction/) ·
 [Читать книгу на русском](https://guinea-rs.github.io/guinea/ru/introduction/)
 
-[Todo application on five backends](examples/README.md)
+[Todo application on five backends](https://github.com/guinea-rs/guinea/tree/master/examples)
 
 ### Why
 

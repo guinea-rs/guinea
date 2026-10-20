@@ -4,6 +4,7 @@ import { asset } from '../utils/asset';
 const repo = 'https://github.com/guinea-rs/guinea';
 
 const links: [string, string][] = [
+  ['Documentation', asset('/introduction/')],
   ['Examples', `${repo}/tree/master/examples`],
   ['Plugins', 'https://github.com/guinea-rs/guinea-plugins'],
   ['crates.io', 'https://crates.io/crates/guinea'],
@@ -30,7 +31,7 @@ const links: [string, string][] = [
   <canvas id="meadow" aria-hidden="true"></canvas>
 
   <header class="bar">
-    <nav class="links">
+    <nav class="links" aria-label="Main navigation">
       {links.map(([label, href]) => <a href={href}>{label}</a>)}
     </nav>
   </header>
@@ -192,7 +193,7 @@ const links: [string, string][] = [
   }
 
   @media (max-width: 760px) {
-    .links a:not(:last-child) { display: none }
+    .links a:not(:first-child):not(:last-child) { display: none }
     h1 { font-size: 4rem }
     .tagline { font-size: 1.3rem }
   }

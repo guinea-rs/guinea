@@ -38,9 +38,10 @@ pub enum Model {
 
 pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, model: Model) -> TokenStream1 {
     let mut item = syn::parse_macro_input!(item as ItemImpl);
-    if let Err(error) = crate::given::segment_install(&mut item) {
-        return error.to_compile_error().into();
-    }
+    let declaration = match crate::given::segment_install(&mut item, match kind { Kind::Page => "page", Kind::Layout => "layout" }) {
+        Ok(declaration) => declaration,
+        Err(error) => return error.to_compile_error().into(),
+    };
     let adapter = crate::paths::resolve(package, "", facade);
 
     let declared_type = |name: &str| {
@@ -133,5 +134,5 @@ pub fn node_impl(item: TokenStream1, kind: Kind, package: &str, facade: &str, mo
         }
     };
 
-    quote!(#item #mountable).into()
+    quote!(#item #mountable #declaration).into()
 }

@@ -4,15 +4,59 @@
 //! the body runs.
 //!
 //! The method keeps the trait's signature and opens with what the arguments
-//! it lost were. Whatever is missing is named all at once, as the error the
-//! method returns or, for a method that returns no `Result`, as a panic.
+//! it lost were. Unavailable dependencies are composition errors and panic
+//! before the body runs, naming all missing inputs and declared providers.
 
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
-use syn::{FnArg, ImplItem, ImplItemFn, ItemImpl, Pat, PatType, ReturnType, Type};
+use syn::{FnArg, ImplItem, ImplItemFn, ItemImpl, Pat, PatType, Type};
 
 use crate::paths;
+
+pub(crate) fn descriptor(owner: TokenStream, kind: &str, types: &[&Type], outputs: TokenStream) -> TokenStream {
+    let feature = paths::feature();
+    let gc = paths::core();
+    let uses = probes();
+    let inputs = types.iter().map(|ty| probe(ty));
+    quote! {
+        {
+            #uses
+            #feature::declarations::Declaration::of::<#owner>(
+                #kind,
+                #gc::actor::shape::Declared {
+                    file: ::core::file!(), line: ::core::line!(),
+                    column: ::core::column!(), crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
+                },
+                ::std::vec![#(#inputs.input(),)*], #outputs,
+            )
+        }
+    }
+}
+
+pub(crate) fn registration(function: TokenStream, generics: &syn::Generics, signature: TokenStream) -> TokenStream {
+    let gc = paths::core();
+    let feature = paths::feature();
+    if !generics.params.is_empty() {
+        return quote! {
+            #gc::__private::inventory::submit! {
+                #feature::declarations::TemplateRegistration {
+                    target: ::core::stringify!(#function),
+                    signature: ::core::stringify!(#signature),
+                    source: #gc::actor::shape::Declared {
+                        file: ::core::file!(), line: ::core::line!(),
+                        column: ::core::column!(), crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
+                    },
+                }
+            }
+        };
+    }
+    quote! {
+        #gc::__private::inventory::submit! {
+            #feature::declarations::Registration(#function)
+        }
+    }
+}
 
 /// The services among `arguments`: each by value, since it is handed out by
 /// clone.
@@ -35,14 +79,14 @@ pub(crate) fn taken<'a>(arguments: impl Iterator<Item = &'a FnArg>) -> syn::Resu
         .collect()
 }
 
-/// `let (patterns): (types) = { .. };`, refusing what is missing with
-/// `refused` - `?`, or a panic.
-pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type], refused: TokenStream) -> TokenStream {
+/// Resolves the declared arguments after checking their availability.
+pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type]) -> TokenStream {
     if types.is_empty() {
         return quote!();
     }
 
     let feature = paths::feature();
+    let gc = paths::core();
     let uses = probes();
     let probed: Vec<TokenStream> = types.iter().map(|ty| probe(ty)).collect();
 
@@ -51,7 +95,11 @@ pub(crate) fn taking(cx: TokenStream, patterns: &[TokenStream], types: &[&Type],
             #uses
 
             let __guinea_lookup = #feature::given::lookup(#cx);
-            #feature::given::check::<Self>(__guinea_lookup, &[#(#probed.need()),*]) #refused;
+            #feature::given::check_inputs::<Self>(__guinea_lookup, &[#(#probed.input()),*],
+                #gc::actor::shape::Declared {
+                    file: ::core::file!(), line: ::core::line!(),
+                    column: ::core::column!(), crate_dir: ::core::env!("CARGO_MANIFEST_DIR"),
+                });
 
             (#(#probed.take(__guinea_lookup),)*)
         };
@@ -73,35 +121,37 @@ pub(crate) fn probe(ty: &Type) -> TokenStream {
     quote!((&&#feature::given::Given::<#ty>::new()))
 }
 
-/// `?` when the function returns a `Result`, a panic when it cannot.
-pub(crate) fn refused(output: &ReturnType) -> TokenStream {
-    let returns_result = match output {
-        ReturnType::Type(_, returned) => match &**returned {
-            Type::Path(path) => path.path.segments.last().is_some_and(|last| last.ident == "Result"),
-            _ => false,
-        },
-        ReturnType::Default => false,
-    };
-
-    if returns_result {
-        quote!(?)
-    } else {
-        quote!(.unwrap_or_else(|error| ::core::panic!("{error:#}")))
-    }
-}
 
 /// A page's or a layout's `install`: what follows its context is taken as a
 /// service.
-pub(crate) fn segment_install(item: &mut ItemImpl) -> syn::Result<()> {
+pub(crate) fn segment_install(item: &mut ItemImpl, kind: &str) -> syn::Result<TokenStream> {
+    let feature = paths::feature();
+    let mut types = Vec::new();
+    let mut signature = quote!();
     for entry in &mut item.items {
         if let ImplItem::Fn(method) = entry
             && method.sig.ident == "install"
             && method.sig.inputs.len() > 1
         {
+            let original = &method.sig;
+            signature = quote!(#original);
+            types = taken(method.sig.inputs.iter().skip(1))?.iter().map(|typed| (*typed.ty).clone()).collect();
             expand(method)?;
         }
     }
-    Ok(())
+    let owner = &item.self_ty;
+    let method = quote::format_ident!("__guinea_{}_declaration", kind.to_lowercase());
+    let types: Vec<_> = types.iter().collect();
+    let descriptor = descriptor(quote!(Self), kind, &types, quote!(::std::vec::Vec::new()));
+    let (impl_generics, _, where_clause) = item.generics.split_for_impl();
+    let registration = registration(quote!(#owner::#method), &item.generics, signature);
+    Ok(quote! {
+        impl #impl_generics #owner #where_clause {
+            #[doc(hidden)]
+            fn #method() -> #feature::declarations::Declaration { #descriptor }
+        }
+        #registration
+    })
 }
 
 /// Keeps the receiver and the context, and takes the rest from the context
@@ -139,7 +189,7 @@ fn expand(method: &mut ImplItemFn) -> syn::Result<()> {
     let types: Vec<&Type> = taken.iter().map(|typed| &*typed.ty).collect();
 
     let name = &named.ident;
-    let prelude = taking(quote!(&*#name), &patterns, &types, refused(&method.sig.output));
+    let prelude = taking(quote!(&*#name), &patterns, &types);
 
     let statements = &method.block.stmts;
     let block = quote!({

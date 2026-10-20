@@ -4,25 +4,15 @@ sidebar:
   order: 4
 ---
 
-A feature describes part of your application. A plugin packages something
-several applications can use: a settings store, localisation, window geometry
-or devtools. It knows guinea, but does not need to know your application's
-pages or features.
+A plugin packages something several applications can use: settings,
+localisation, window geometry or devtools. It knows guinea, but not your
+application's pages. Plugins are Rust code linked into the application,
+not modules loaded at runtime.
 
-Plugins are Rust code linked into the application, not modules loaded at
-runtime. Add the plugin crate to your dependencies, then build it in the
-application function with `app.plugin::<P>(params)?`. The plugin's parameters
-and returned value describe how to connect it to the rest of the application.
+## Declare the outputs
 
-This chapter uses a small plugin defined alongside the application, so its
-whole contract is visible. The wiring is the same for a plugin from another
-crate and does not depend on the GUI backend.
-
-## What installation returns
-
-`MemoryStore` builds a key-value store and returns its handle. The store is
-only in memory: this example does not open a file or save settings between
-runs.
+This in-memory store is a complete example of a plugin. `provides` lists
+the dependency it returns:
 
 <!-- shown: plugins: a plugin and its service -->
 ```rust
@@ -54,64 +44,42 @@ fn memory_store(_app: &mut PluginBuilder, theme: &'static str) -> anyhow::Result
 ```
 <!-- /shown -->
 
-`plugin!` declares the returned `Store` field under `provides`.
-`#[builds]` implements construction: the argument after `PluginBuilder`
-becomes the plugin's parameters. Here that is an initial theme.
+The first argument after `PluginBuilder` is the plugin's explicit
+configuration. Any arguments after that are dependencies supplied by the
+framework. Use `()` as configuration when a plugin needs dependencies
+but has no configuration of its own.
 
-Cloning `Store` shares one map; building another `MemoryStore` creates a
-different map. The application can build both and decide which one its
-pages should receive.
-
-## The application chooses
+## Install the plugin
 
 <!-- shown: plugins: application wiring -->
 ```rust
 fn app(app: &mut FeatureBuilder) -> anyhow::Result<Store> {
     let MemoryStore(user) = app.plugin::<MemoryStore>("dark")?;
-    let MemoryStore(internal) = app.plugin::<MemoryStore>("light")?;
-    app.provide(user);
-    Ok(internal)
+    Ok(user)
 }
 ```
 <!-- /shown -->
 
-Each `app.plugin` call builds a new instance immediately. Installation is
-not deduplicated by plugin type. Here `user` and `internal` are independent
-stores, even though they have the same Rust type.
+After a successful build, guinea automatically publishes the outputs
+declared in `provides`. No manual registration or service lookup is needed.
+Cloning `Store` shares the same map. A second value of the same service
+type on one scope branch is a composition bug: use distinct wrapper types
+for distinct stores.
 
-`app.provide(user)` makes the chosen handle available as the application's
-`Store`. Returning a value from a plugin does **not** provide it automatically:
-
-<!-- shown: plugins: returned is not provided -->
+<!-- shown: plugins: declared services are published -->
 ```rust
-#[test]
-fn returning_a_service_does_not_publish_it() {
-    let mut app = TestApp::new();
-    let MemoryStore(store) = app.plugin::<MemoryStore>("dark").unwrap();
-
-    assert!(app.service::<Store>().is_none());
-    app.provide(store);
-    assert_eq!(
-        app.service::<Store>().unwrap().get("theme").as_deref(),
-        Some("dark")
-    );
+#[guinea::test]
+fn declared_services_are_published_automatically(h: &mut Harness) {
+    h.plugin::<MemoryStore>("dark").unwrap();
+    h.install::<Appearance>(&()).unwrap();
+    assert_eq!(h.state::<Theme>().0, "dark");
 }
 ```
 <!-- /shown -->
 
-There is one provided service per Rust type. Providing a second `Store` is
-a setup error and panics; building a second store is fine. If different
-consumers need different stores, pass their handles explicitly, or give the
-services distinct wrapper types.
+## Receive dependencies as arguments
 
-The example's `app` returns the internal handle so the test can inspect it.
-In a GUI application's function, put this wiring before constructing and
-returning the backend's `Window`, as in [pages and layouts](../pages/).
-
-## Taking a provided service
-
-A feature declares the service it needs as an argument after its installation
-context:
+A feature declares its dependencies after the installation context:
 
 <!-- shown: plugins: a feature takes a service -->
 ```rust
@@ -140,56 +108,103 @@ fn appearance(cx: &Install, store: Store) -> anyhow::Result<Appearance> {
 ```
 <!-- /shown -->
 
-`#[installs]` looks up `Store` and passes a clone to the function. It must
-already have been provided when the feature installs. For an optional service,
-use `Option<Store>` instead; a missing required service is a setup error.
+The framework passes a clone of `Store`. The same argument-based injection
+works for application features and for the `install` methods processed by
+`#[page]` and `#[layout]`.
 
-`Appearance` copies the stored theme into its initial state. This is not a
-subscription: changing the map later does not update an installed `Theme`.
-Reactive updates need an explicit subscription or another source of updates.
+An optional dependency is written `Option<Store>`. It receives `None`
+only if there is no declared provider. A declared provider that has not
+made its output available is a composition error, even for an optional
+input. The framework panics before entering the installer.
 
-The harness builds the same application wiring and installs the feature in a
-window scope, without opening an OS window:
+`Appearance` copies the current theme into state, rather than subscribing
+to changes. A newly installed instance reads the current value:
 
 <!-- shown: plugins: testing application wiring -->
 ```rust
 #[guinea::test]
-fn the_application_chooses_which_store_its_pages_receive(h: &mut Harness) {
-    let internal = h.app(app).unwrap();
+fn the_application_shares_its_declared_store_with_pages(h: &mut Harness) {
+    let store = h.app(app).unwrap();
     h.install::<Appearance>(&()).unwrap();
 
     assert_eq!(h.state::<Theme>().0, "dark");
-    assert_eq!(internal.get("theme").as_deref(), Some("light"));
+    assert_eq!(store.get("theme").as_deref(), Some("dark"));
 
-    internal.set("theme", "blue");
+    store.set("theme", "blue");
     let page = h.child();
     page.install::<Appearance>(&()).unwrap();
-    assert_eq!(page.state::<Theme>().0, "dark");
+    assert_eq!(page.state::<Theme>().0, "blue");
 }
 ```
 <!-- /shown -->
 
-The child installs a fresh `Appearance` after the internal store changes.
-It still receives the user store. The test checks service selection, not
-merely the value previously copied into the parent's state.
+## Application outputs
 
-## Connecting plugins
+Application-level features use the same `provides` declaration and return
+their outputs instead of registering values manually:
 
-When one plugin needs another's service, build the producer first and pass
-the returned handle in the consumer's parameters. The application chooses
-the instance and order explicitly; guinea does not resolve a dependency
-graph or install dependencies implicitly.
+<!-- shown: plugins: application outputs -->
+```rust
+#[derive(Clone)]
+pub struct AppName(pub &'static str);
 
-Two declarations serve different purposes:
+feature! {
+    pub Application {
+        provides { AppName }
+    }
+}
 
-- `provides { Store }` puts a service handle in the plugin's returned value.
-  The application decides where to pass it and whether to call `provide`.
-- `exports { SomeState }` makes reducer state claimed by the plugin readable
-  from windows and their descendants after successful installation. This
-  follows the state lookup described in [scopes](../scopes/).
+#[installs]
+fn application(app: &mut FeatureBuilder) -> anyhow::Result<Application> {
+    app.plugin::<MemoryStore>("dark")?;
+    Ok(Application(AppName("guinea")))
+}
+```
+<!-- /shown -->
 
-A service is not automatically reducer state, and a returned service is not
-automatically an application-wide dependency.
+`Application` publishes `AppName`; its `MemoryStore` plugin publishes
+`Store`. Installers that need either declare it as an argument.
+
+The three output sections have different meanings:
+
+- `provides` publishes cloneable dependency values.
+- `exports` exposes reducer state to readers below the scope.
+- `feeds` opens value streams for descendant segments.
+
+A dependency belongs to the scope whose installer returned it and is
+visible there and in its descendants, not in sibling scopes. Removing that
+scope releases its stored dependency values. Application and plugin outputs
+belong to the application scope, so all its windows can receive them.
+
+The concrete declaration graph requires one provider declaration per service
+type. The same local provider may be instantiated in separate sibling
+scopes; each instance owns its own value. Dependencies are not shadowed
+by another value farther down the same branch.
+
+## Declaration validation
+
+Macros register installer contracts through `inventory`. Before the backend
+calls the application function, guinea checks the linked concrete
+declarations for missing required providers, conflicting service providers,
+contradictory inputs, duplicate outputs and dependency cycles. It does not
+run installer bodies, open resources or infer calls inside those bodies.
+Call `guinea::app::validate_declarations()` to run the same check explicitly.
+
+Invalid contracts panic with a structured `miette` diagnostic tree and
+source locations. The actual installation also checks that inputs are
+available before entering each installer: a declaration is not a guarantee
+that its provider has already run or that a feed is reachable from this
+scope. Real failures such as opening a file still use `Result`.
+
+Feed declarations alone do not describe a mount tree, so the initial
+check cannot establish feed ancestry. Generic installers are registered
+as templates; their concrete inputs and outputs are checked when that
+specialization is installed. If a generic output family could supply a
+missing input, the initial check defers that input rather than rejecting
+a potentially valid graph. An attempted specialization remains a declared
+provider even if its resource creation fails; an optional consumer cannot
+silently turn that failure into `None`. Tests supply fixture values through plugins
+with declared outputs, using the same installation path as application code.
 
 ## Lifetime and failure
 

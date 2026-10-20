@@ -20,6 +20,20 @@ use slint::ComponentHandle;
 use crate::windows::SlintWindows;
 use crate::{Component, Mountable, Shows, descend, dispatcher, windows};
 
+guinea_macros::plugin! {
+    BackendWindows {
+        provides { WindowService }
+    }
+}
+
+#[guinea_macros::builds]
+fn backend_windows(
+    _app: &mut guinea_app::app::PluginBuilder,
+    windows: WindowService,
+) -> anyhow::Result<BackendWindows> {
+    Ok(BackendWindows(windows))
+}
+
 /// What [`run`] calls the root it opens.
 pub const MAIN: &str = "main";
 
@@ -307,7 +321,7 @@ pub fn run<W: ComponentHandle + 'static>(
     let windows = WindowService::from_arc(shell.clone());
 
     let (host, window) = match start("slint", |builder| {
-        builder.provide(windows);
+        builder.plugin::<BackendWindows>(windows)?;
         app(builder)
     }) {
         Ok(started) => started,

@@ -1,0 +1,9 @@
+---
+source: crates/guinea/tests/routing.rs
+expression: "message.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × routing::provided::Greeted at crates/guinea/tests/routing.rs:29:5
+        ╰─▶   × Service `routing::provided::Greeting` is unavailable
+              ╰─▶   × plugin routing::provided::Greets at crates/guinea/tests/routing.rs:20:5
+                    ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry

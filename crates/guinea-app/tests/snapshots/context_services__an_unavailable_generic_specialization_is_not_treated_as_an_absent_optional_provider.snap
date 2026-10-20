@@ -1,0 +1,9 @@
+---
+source: crates/guinea-app/tests/context_services.rs
+expression: "message.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × context_services::OptionalGeneric at crates/guinea-app/tests/context_services.rs:269:1
+        ╰─▶   × Service `alloc::rc::Rc<context_services::GenericOnly>` is unavailable
+              ╰─▶   × plugin context_services::GenericPlugin<context_services::GenericOnly> at crates/guinea-app/tests/context_services.rs:258:1
+                    ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry

@@ -1,0 +1,8 @@
+---
+source: crates/guinea-app/tests/invalid_declarations.rs
+expression: "message.replace('\\\\', \"/\")"
+---
+  × Invalid guinea declarations
+  ╰─▶   × application invalid_declarations::BrokenApplication at crates/guinea-app/tests/invalid_declarations.rs:16:1
+        ╰─▶   × requires Service `invalid_declarations::Missing`
+              ╰─▶   × no declared provider

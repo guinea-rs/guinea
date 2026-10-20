@@ -156,3 +156,63 @@ mod shell {
     }
     //@show-end
 }
+
+mod dependencies {
+    use super::*;
+    use guinea::eframe::{Layout, LayoutCx, Window, layout};
+
+    //@show egui: installation dependencies
+    #[derive(Clone)]
+    pub struct PageSettings(pub u32);
+
+    feature! {
+        pub Configuration {
+            provides { PageSettings }
+        }
+    }
+
+    #[installs]
+    fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+        Ok(Configuration(PageSettings(3)))
+    }
+
+    pub struct ConfiguredPage {
+        step: u32,
+    }
+
+    #[page]
+    impl Page for ConfiguredPage {
+        fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+            Ok(Self { step: settings.0 })
+        }
+
+        fn render(&mut self, cx: &mut PageCx<'_, Self>) {
+            cx.ui().label(format!("page {}", self.step));
+        }
+    }
+    //@show-end
+
+    struct ConfiguredLayout(u32);
+
+    #[layout]
+    impl Layout for ConfiguredLayout {
+        fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+            Ok(Self(settings.0))
+        }
+
+        fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
+            cx.ui().label(format!("layout {}", self.0));
+            let page = cx.mount::<ConfiguredPage>(&());
+            page.draw(cx.ui());
+        }
+    }
+
+    #[guinea::test]
+    fn page_and_layout_receive_declared_application_outputs(h: &mut Harness) {
+        guinea::app::validate_declarations();
+        h.app(|app| app.install::<Configuration>()).unwrap();
+        let mut layout = Mounted::window(h, Window::of::<ConfiguredLayout>());
+        assert!(layout.has_text("layout 3"));
+        assert!(layout.has_text("page 3"));
+    }
+}

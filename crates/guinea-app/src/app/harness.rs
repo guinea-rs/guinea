@@ -39,11 +39,6 @@ impl TestApp {
         }
     }
 
-    /// What was provided as `T`, for the test holding the application.
-    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
-        self.builder.scope.service::<T>()
-    }
-
     pub(crate) fn context(&self) -> AppContext {
         self.host.context()
     }
@@ -146,13 +141,6 @@ impl Harness {
     /// hands it back.
     pub fn plugin<P: Plugin>(&mut self, params: P::Params) -> anyhow::Result<P> {
         self.app.plugin::<P>(params)
-    }
-
-    /// Provides one service, as a plugin would - for a test that needs a
-    /// value and no plugin around it.
-    pub fn provide<T: Clone + 'static>(&mut self, value: T) -> &mut Self {
-        self.app.provide(value);
-        self
     }
 
     /// Publishes `event` on the application's bus the way it lands on the UI

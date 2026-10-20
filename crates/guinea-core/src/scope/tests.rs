@@ -724,14 +724,16 @@ mod services {
     }
 
     #[test]
-    fn a_service_is_read_through_any_scope_of_its_tree() {
+    fn a_dependency_is_visible_only_to_its_scope_and_descendants() {
         let tree = ScopeTree::new();
         let page = tree.child().child();
 
         page.provide(7u32, "test").unwrap();
 
-        assert_eq!(tree.service::<u32>(), Some(7));
+        assert_eq!(tree.service::<u32>(), None);
         assert_eq!(page.service::<u32>(), Some(7));
+        assert_eq!(page.child().service::<u32>(), Some(7));
+        assert_eq!(tree.child().service::<u32>(), None);
         assert!(page.provides(TypeId::of::<u32>()));
         assert!(!page.provides(TypeId::of::<u64>()));
     }
@@ -772,6 +774,18 @@ mod services {
 
         drop(tree);
         assert_eq!(*said.borrow(), ["cleanup", "store"]);
+    }
+
+    #[test]
+    fn a_local_dependency_is_released_when_its_scope_is_removed() {
+        let said: Said = Rc::new(RefCell::new(Vec::new()));
+        let tree = ScopeTree::new();
+        let page = tree.child();
+        page.provide(Store { _dropped: Rc::new(Dropped(said.clone())) }, "test").unwrap();
+        page.on_teardown(says(&said, "cleanup"));
+        page.remove();
+        assert_eq!(*said.borrow(), ["cleanup", "store"]);
+        assert!(tree.is_alive());
     }
 
     #[test]

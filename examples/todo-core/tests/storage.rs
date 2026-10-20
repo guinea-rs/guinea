@@ -9,8 +9,9 @@ fn a_disk_plugin_restores_saved_edits(h: &mut Harness) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("todo.json");
     h.app(|app| {
-        let DiskStorage(repository) = app.plugin::<DiskStorage>(StoreBuilder::new(&path))?;
-        configure(app, repository)
+        app.plugin::<StoragePlugin>(StorageConfig::Disk(StoreBuilder::new(&path)))?;
+        app.install::<TodoApp>()?;
+        Ok(())
     })
     .unwrap();
     h.dispatch::<Board>().emit(Add("survives restart".into()));
@@ -19,8 +20,8 @@ fn a_disk_plugin_restores_saved_edits(h: &mut Harness) {
     h.advance(Duration::from_millis(300));
     assert_eq!(*h.state::<SaveState>(), SaveState::Saved(1));
     let mut reopened = TestApp::new();
-    let DiskStorage(repository) = reopened
-        .plugin::<DiskStorage>(StoreBuilder::new(&path))
+    let StoragePlugin(repository) = reopened
+        .plugin::<StoragePlugin>(StorageConfig::Disk(StoreBuilder::new(&path)))
         .unwrap();
     assert_eq!(repository.initial().todos[0].title, "survives restart");
 }
@@ -33,9 +34,9 @@ fn exiting_flushes_edits_before_the_debounce_expires() {
         let mut harness = Harness::new(0);
         harness
             .app(|app| {
-                let DiskStorage(repository) =
-                    app.plugin::<DiskStorage>(StoreBuilder::new(&path))?;
-                configure(app, repository)
+                app.plugin::<StoragePlugin>(StorageConfig::Disk(StoreBuilder::new(&path)))?;
+                app.install::<TodoApp>()?;
+                Ok(())
             })
             .unwrap();
         harness
@@ -44,8 +45,8 @@ fn exiting_flushes_edits_before_the_debounce_expires() {
         assert_eq!(*harness.state::<SaveState>(), SaveState::Pending);
     }
     let mut reopened = TestApp::new();
-    let DiskStorage(repository) = reopened
-        .plugin::<DiskStorage>(StoreBuilder::new(&path))
+    let StoragePlugin(repository) = reopened
+        .plugin::<StoragePlugin>(StorageConfig::Disk(StoreBuilder::new(&path)))
         .unwrap();
     assert_eq!(repository.initial().todos[0].title, "not debounced yet");
 }

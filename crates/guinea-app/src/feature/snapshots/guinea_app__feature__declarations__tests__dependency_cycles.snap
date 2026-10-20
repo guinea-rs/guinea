@@ -1,0 +1,10 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: report
+---
+  × Invalid guinea declarations
+  ╰─▶   × dependency cycle
+        ├─▶   × feature guinea_app::feature::declarations::tests::Application at fixture.rs:42:1
+        │     ╰─▶   × requires `guinea_app::feature::declarations::tests::Store` from guinea_app::feature::declarations::tests::Settings
+        ╰─▶   × feature guinea_app::feature::declarations::tests::Settings at fixture.rs:42:1
+              ╰─▶   × requires `guinea_app::feature::declarations::tests::Selection` from guinea_app::feature::declarations::tests::Application

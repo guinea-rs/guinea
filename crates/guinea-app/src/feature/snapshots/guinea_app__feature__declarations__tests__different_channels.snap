@@ -1,0 +1,8 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: "errors(&[provider, consumer]).unwrap()"
+---
+  × Invalid guinea declarations
+  ╰─▶   × feature guinea_app::feature::declarations::tests::Consumer at fixture.rs:42:1
+        ╰─▶   × requires Feed `guinea_app::feature::declarations::tests::Selection`
+              ╰─▶   × no declared provider

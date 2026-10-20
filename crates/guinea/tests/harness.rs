@@ -811,19 +811,13 @@ fn every_harness_starts_on_an_empty_bus(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn what_a_plugin_hands_the_harness_serves_its_features_once_provided(h: &mut Harness) {
-    let reports::Prefixing(prefix) = h.plugin::<reports::Prefixing>(()).unwrap();
-    assert!(
-        h.child().install::<reports::Prefixed>(&()).is_err(),
-        "nothing provides the prefix yet"
-    );
-
-    h.provide(prefix);
+    h.plugin::<reports::Prefixing>(()).unwrap();
     h.child().install::<reports::Prefixed>(&()).unwrap();
 }
 
 #[guinea::test(iterations = 2)]
 fn a_service_provided_to_the_harness_serves_its_features(h: &mut Harness) {
-    h.provide(reports::Prefix("proc-"));
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(reports::Prefix("proc-")).unwrap();
     h.child().install::<reports::Prefixed>(&()).unwrap();
 }
 
@@ -835,7 +829,7 @@ fn a_setting_nobody_provided_is_its_default(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_setting_the_application_provided_is_what_it_provided(h: &mut Harness) {
-    h.provide(reports::Limit(7));
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(reports::Limit(7)).unwrap();
     h.child().install::<reports::Limited>(&()).unwrap();
     assert_eq!(reports::LIMITED_TO.get(), Some(reports::Limit(7)));
 }
@@ -1472,3 +1466,6 @@ fn a_task_ready_to_run_is_not_stuck(h: &mut Harness) {
 
     assert_eq!(h.stuck(), 0, "a task nothing has polled yet is ready, not waiting");
 }
+
+#[path = "support/dependencies.rs"]
+mod dependency_fixture;

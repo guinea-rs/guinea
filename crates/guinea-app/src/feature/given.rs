@@ -11,11 +11,10 @@
 //! made on the real type, an alias included, and none of the traits is
 //! implemented for anything the caller wrote.
 
-use std::any::TypeId;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-use guinea_core::__private::{opened_above, short_type_name};
+use guinea_core::__private::opened_above;
 use guinea_core::feed::Feed;
 use guinea_core::scope::Scope;
 
@@ -52,7 +51,10 @@ use super::FeatureInitContext;
 /// }
 /// # fn main() -> anyhow::Result<()> {
 /// # let (host, ()) = guinea_app::app::start("doc", |app| {
-/// #     app.provide(Store("agents.db"));
+/// #     guinea_macros::plugin! { Resources { provides { Store } } }
+/// #     #[guinea_macros::builds]
+/// #     fn resources(_app: &mut guinea_app::app::PluginBuilder, value: Store) -> anyhow::Result<Resources> { Ok(Resources(value)) }
+/// #     app.plugin::<Resources>(Store("agents.db"))?;
 /// #     Ok(())
 /// # })?;
 /// # let window = Root::under(&host.context());
@@ -105,84 +107,96 @@ pub fn lookup<C: Context + ?Sized>(cx: &C) -> Lookup {
     cx.lookup()
 }
 
-/// Something a function takes and cannot do without: a service, or a feed.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Need {
-    pub id: TypeId,
-    /// The service, or what the feed carries.
-    pub name: &'static str,
-    /// A feed from a segment above, rather than a service.
-    pub fed: bool,
-}
-
-impl Need {
-    pub fn of<T: 'static>() -> Self {
-        Self {
-            id: TypeId::of::<T>(),
-            name: short_type_name::<T>(),
-            fed: false,
-        }
-    }
-
-    pub fn feed<T: 'static>() -> Self {
-        Self {
-            id: TypeId::of::<T>(),
-            name: short_type_name::<T>(),
-            fed: true,
-        }
-    }
-
-    /// What the function takes, as its signature says it.
-    pub fn taken(&self) -> String {
-        match self.fed {
-            true => format!("Feed<{}>", self.name),
-            false => self.name.to_string(),
-        }
-    }
-
-    fn is_there(&self, scope: Scope) -> bool {
-        match self.fed {
-            false => scope.provides(self.id),
-            true => opened_above(scope, self.id),
-        }
+pub fn publish_dependency<Dependency: Clone + 'static>(
+    cx: &super::ScopeContext,
+    value: Dependency,
+    by: &'static str,
+) {
+    if let Err(first) = guinea_core::__private::publish_dependency(cx.scope, value, by) {
+        use crate::diagnostic::Diagnostic;
+        let report = Diagnostic::new("Invalid guinea composition")
+            .with_related(vec![
+                Diagnostic::new(format!("service `{}`", std::any::type_name::<Dependency>()))
+                    .with_related(vec![
+                        Diagnostic::new(format!("provided by `{first}`")),
+                        Diagnostic::new(format!("provided again by `{by}`")),
+                    ]),
+            ])
+            .render();
+        panic!("{report}");
     }
 }
 
-/// Refuses `W` when anything it cannot do without is not there, naming all
-/// of it at once.
-pub fn check<W: ?Sized>(Lookup(scope): Lookup, needs: &[Option<Need>]) -> anyhow::Result<()> {
-    let missing = |fed: bool| -> Vec<String> {
-        needs
+pub fn check_inputs<W: ?Sized>(
+    Lookup(scope): Lookup,
+    inputs: &[super::declarations::Port],
+    source: guinea_core::actor::shape::Declared,
+) {
+    check_named(std::any::type_name::<W>(), scope, inputs, source);
+}
+
+pub(crate) fn check_named(
+    who: &str,
+    scope: Scope,
+    inputs: &[super::declarations::Port],
+    source: guinea_core::actor::shape::Declared,
+) {
+    use super::declarations::{Channel, in_scope, provider_diagnostic};
+    use crate::diagnostic::Diagnostic;
+    let declarations = in_scope(scope);
+    let mut failures = Vec::new();
+    for input in inputs {
+        let available = match input.channel {
+            Channel::Service => guinea_core::__private::has_dependency(scope, input.id),
+            Channel::Feed => opened_above(scope, input.id),
+            Channel::State => false,
+        };
+        if available {
+            continue;
+        }
+        let providers: Vec<_> = declarations
             .iter()
-            .flatten()
-            .filter(|need| need.fed == fed && !need.is_there(scope))
-            .map(|need| format!("`{}`", need.taken()))
-            .collect()
-    };
-    let services = missing(false);
-    let feeds = missing(true);
-
-    let who = short_type_name::<W>();
-    let mut refused = Vec::new();
-    if !services.is_empty() {
-        refused.push(format!(
-            "`{who}` takes what nothing provided: {} - provide each from a plugin or the \
-             application before `{who}` is installed",
-            services.join(", "),
-        ));
+            .filter(|declaration| {
+                declaration
+                    .outputs
+                    .iter()
+                    .any(|output| output.id == input.id && output.channel == input.channel)
+            })
+            .collect();
+        if input.optional && providers.is_empty() {
+            continue;
+        }
+        let details = if providers.is_empty() {
+            vec![Diagnostic::new("no declared provider")]
+        } else {
+            providers.into_iter().map(|provider| {
+                provider_diagnostic(provider).with_related(vec![
+                    Diagnostic::new("declared, but not available in this scope; check installation order and scope ancestry")
+                ])
+            }).collect()
+        };
+        failures.push(
+            Diagnostic::new(format!(
+                "{:?} `{}` is unavailable",
+                input.channel, input.name
+            ))
+            .with_related(details),
+        );
     }
-    if !feeds.is_empty() {
-        refused.push(format!(
-            "`{who}` follows what no segment above it feeds: {} - a feed is taken from the \
-             segments `{who}` is installed under, and handed on by value within one",
-            feeds.join(", "),
-        ));
+    if !failures.is_empty() {
+        let report = Diagnostic::new("Invalid guinea composition")
+            .with_related(vec![
+                Diagnostic::new(format!(
+                    "{who} at {}:{}:{}",
+                    source.file.replace('\\', "/"),
+                    source.line,
+                    source.column
+                ))
+                .with_related(failures),
+            ])
+            .render();
+        panic!("{report}");
     }
-
-    if refused.is_empty() {
-        return Ok(());
-    }
-    anyhow::bail!("{}", refused.join("; "))
 }
 
 /// What a service has to be to be handed out of the context.
@@ -207,15 +221,15 @@ impl<T> Given<T> {
 pub trait Twice {
     type Taken;
 
-    fn need(&self) -> Option<Need>;
+    fn input(&self) -> super::declarations::Port;
     fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
     type Taken = Option<Feed<T>>;
 
-    fn need(&self) -> Option<Need> {
-        None
+    fn input(&self) -> super::declarations::Port {
+        super::declarations::Port::of::<T>(super::declarations::Channel::Feed).optional()
     }
 
     fn take(&self, Lookup(scope): Lookup) -> Option<Feed<T>> {
@@ -227,15 +241,15 @@ impl<T: Send + Sync + 'static> Twice for &Given<Option<Feed<T>>> {
 pub trait Once {
     type Taken;
 
-    fn need(&self) -> Option<Need>;
+    fn input(&self) -> super::declarations::Port;
     fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
     type Taken = Feed<T>;
 
-    fn need(&self) -> Option<Need> {
-        Some(Need::feed::<T>())
+    fn input(&self) -> super::declarations::Port {
+        super::declarations::Port::of::<T>(super::declarations::Channel::Feed)
     }
 
     fn take(&self, Lookup(scope): Lookup) -> Feed<T> {
@@ -246,12 +260,12 @@ impl<T: Send + Sync + 'static> Once for &&Given<Feed<T>> {
 impl<T: Service> Once for &&Given<Option<T>> {
     type Taken = Option<T>;
 
-    fn need(&self) -> Option<Need> {
-        None
+    fn input(&self) -> super::declarations::Port {
+        super::declarations::Port::of::<T>(super::declarations::Channel::Service).optional()
     }
 
     fn take(&self, Lookup(scope): Lookup) -> Option<T> {
-        scope.service::<T>()
+        guinea_core::__private::dependency::<T>(scope)
     }
 }
 
@@ -259,18 +273,18 @@ impl<T: Service> Once for &&Given<Option<T>> {
 pub trait Bare {
     type Taken;
 
-    fn need(&self) -> Option<Need>;
+    fn input(&self) -> super::declarations::Port;
     fn take(&self, from: Lookup) -> Self::Taken;
 }
 
 impl<T: Service> Bare for Given<T> {
     type Taken = T;
 
-    fn need(&self) -> Option<Need> {
-        Some(Need::of::<T>())
+    fn input(&self) -> super::declarations::Port {
+        super::declarations::Port::of::<T>(super::declarations::Channel::Service)
     }
 
     fn take(&self, Lookup(scope): Lookup) -> T {
-        scope.service::<T>().expect("checked before it was taken")
+        guinea_core::__private::dependency::<T>(scope).expect("checked before it was taken")
     }
 }

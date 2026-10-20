@@ -62,7 +62,7 @@ pub fn builds_impl(item: TokenStream1) -> TokenStream1 {
     let mut inputs = function.sig.inputs.iter();
     let builder = inputs.next();
     let params = inputs.next();
-    if builder.is_none() || inputs.next().is_some() {
+    if builder.is_none() {
         return syn::Error::new_spanned(
             &function.sig.inputs,
             "#[builds] takes the builder and the plugin's parameters - \
@@ -87,9 +87,20 @@ pub fn builds_impl(item: TokenStream1) -> TokenStream1 {
     let app = crate::paths::app();
     let called = crate::installs::called(&function);
     let (impl_generics, _, where_clause) = function.sig.generics.split_for_impl();
+    let dependencies = match crate::given::taken(inputs) {
+        Ok(dependencies) => dependencies,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    let types: Vec<_> = dependencies.iter().map(|dependency| &*dependency.ty).collect();
+    let names: Vec<_> = (0..types.len()).map(|index| quote::format_ident!("__guinea_dependency_{index}")).collect();
+    let patterns: Vec<_> = names.iter().map(|name| quote!(#name)).collect();
+    let taking = crate::given::taking(quote!(&*__guinea_app), &patterns, &types);
+    let descriptor = crate::given::descriptor(quote!(Self), "plugin", &types, quote!(<Self as #feature::Manifest>::outputs()));
+    let signature = &function.sig;
+    let registration = crate::given::registration(quote!(|| <#built as #app::Plugin>::declaration().expect("macro declaration")), &function.sig.generics, quote!(#signature));
 
     let (params, call) = match params {
-        Some(params) => (quote!(#params), quote!(#called(__guinea_app, __guinea_params))),
+        Some(params) => (quote!(#params), quote!(#called(__guinea_app, __guinea_params, #(#names),*))),
         None => (quote!(()), quote!({
             let () = __guinea_params;
             #called(__guinea_app)
@@ -103,13 +114,23 @@ pub fn builds_impl(item: TokenStream1) -> TokenStream1 {
             type Params = #params;
             type Exports = <#built as #feature::Manifest>::Exports;
 
+            fn declaration() -> ::core::option::Option<#feature::declarations::Declaration> {
+                ::core::option::Option::Some(#descriptor)
+            }
+
+            fn publish_dependencies(&self, cx: &#feature::ScopeContext) {
+                <Self as #feature::Manifest>::publish_dependencies(self, cx);
+            }
+
             fn build(
                 __guinea_app: &mut #app::PluginBuilder,
                 __guinea_params: Self::Params,
             ) -> #gc::__private::anyhow::Result<Self> {
+                #taking
                 #call
             }
         }
+        #registration
     }
     .into()
 }

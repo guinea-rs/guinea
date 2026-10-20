@@ -117,49 +117,42 @@ mod plugins {
     }
 
     feature! {
-        pub Quiets {}
+        pub Quiets { provides { Volume } }
     }
 
     #[installs]
-    fn quiets(app: &mut FeatureBuilder, volume: Option<Volume>) -> anyhow::Result<Quiets> {
-        if volume.is_none() {
-            app.provide(Volume(1));
-        }
-        Ok(Quiets)
+    fn quiets(_app: &mut FeatureBuilder) -> anyhow::Result<Quiets> {
+        Ok(Quiets(Volume(1)))
     }
 }
 
 #[guinea::test(iterations = 1)]
 fn a_feature_takes_what_the_application_provided_as_its_arguments(h: &mut Harness) {
-    h.provide(Greeting("hi"));
-    h.provide(Volume(3));
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(Greeting("hi")).unwrap();
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(Volume(3)).unwrap();
 
     assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
     assert_eq!(h.state::<Said>().0, "hi at 3");
 }
 
 #[guinea::test(iterations = 1)]
-fn an_optional_argument_nobody_provided_is_none(h: &mut Harness) {
-    h.provide(Greeting("hi"));
+fn an_optional_argument_with_an_unavailable_declared_provider_panics(h: &mut Harness) {
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(Greeting("hi")).unwrap();
 
-    assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
-    assert_eq!(h.state::<Said>().0, "hi at 0");
+    let refused = catch_unwind(AssertUnwindSafe(|| h.install::<greeter::Greeter>(&()))).err().map(said).unwrap();
+    insta::assert_snapshot!(refused.replace('\\', "/"));
 }
 
 #[guinea::test(iterations = 1)]
 fn a_feature_missing_what_it_takes_says_everything_it_misses_and_does_not_run(h: &mut Harness) {
-    let refused = installed(h.install::<needy::Needy>(&())).unwrap_err();
-
-    assert!(
-        refused.contains("Needy") && refused.contains("Greeting") && refused.contains("Volume"),
-        "{refused}"
-    );
+    let refused = catch_unwind(AssertUnwindSafe(|| h.install::<needy::Needy>(&()))).err().map(said).unwrap();
+    insta::assert_snapshot!(refused.replace('\\', "/"));
     assert!(!needy::RAN.get());
 }
 
 #[guinea::test(iterations = 1)]
 fn what_the_segment_hands_in_is_read_through_the_install(h: &mut Harness) {
-    h.provide(Greeting("hi"));
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(Greeting("hi")).unwrap();
 
     assert_eq!(installed(h.install::<named::Named>(&"Ann".to_string())), Ok(()));
     assert_eq!(h.state::<Said>().0, "hi, Ann");
@@ -169,8 +162,7 @@ fn what_the_segment_hands_in_is_read_through_the_install(h: &mut Harness) {
 fn what_one_plugin_built_is_handed_to_another_and_provided_to_features(h: &mut Harness) {
     let built = h.app(|app| {
         let plugins::Greets(greeting) = app.plugin::<plugins::Greets>(())?;
-        let plugins::Amplifies(volume) = app.plugin::<plugins::Amplifies>(greeting.clone())?;
-        app.provide(greeting).provide(volume);
+        app.plugin::<plugins::Amplifies>(greeting.clone())?;
         Ok(())
     });
 
@@ -181,7 +173,7 @@ fn what_one_plugin_built_is_handed_to_another_and_provided_to_features(h: &mut H
 
 #[guinea::test(iterations = 1)]
 fn an_application_feature_takes_what_it_needs_as_arguments(h: &mut Harness) {
-    h.provide(Greeting("hi"));
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(Greeting("hi")).unwrap();
 
     assert_eq!(installed(h.app(|app| app.install::<plugins::Quiets>())), Ok(()));
     assert_eq!(installed(h.install::<greeter::Greeter>(&())), Ok(()));
@@ -193,11 +185,11 @@ fn a_service_provided_twice_is_a_mistake_that_names_the_first_provider(h: &mut H
     h.app(|app| app.install::<plugins::Quiets>()).unwrap();
 
     let twice = catch_unwind(AssertUnwindSafe(|| {
-        h.provide(Volume(2));
+        h.plugin::<crate::dependency_fixture::Fixture<_>>(Volume(2)).unwrap();
     }));
     let refused = twice.err().map(said).unwrap_or_default();
 
-    assert!(refused.contains("Volume") && refused.contains("Quiets"), "{refused}");
+    insta::assert_snapshot!(refused.replace('\\', "/"));
 }
 
 mod counted {
@@ -221,18 +213,18 @@ mod counted {
 #[guinea::test(iterations = 1)]
 fn a_service_that_stays_on_the_ui_thread_is_taken_like_any_other(h: &mut Harness) {
     let visits = counted::Visits::default();
-    h.provide(visits.clone());
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(visits.clone()).unwrap();
 
     assert_eq!(installed(h.child().install::<counted::Counted>(&())), Ok(()));
     assert_eq!(visits.0.get(), 1);
 }
 
 #[test]
-fn whoever_holds_the_application_reads_what_was_provided() {
+fn a_plugin_publishes_its_declared_dependencies() {
     let mut app = TestApp::new();
     let plugins::Greets(greeting) = app.plugin::<plugins::Greets>(()).unwrap();
-    app.provide(greeting);
-
-    assert_eq!(app.service::<Greeting>(), Some(Greeting("hello")));
-    assert_eq!(app.service::<Volume>(), None);
+    assert_eq!(greeting, Greeting("hello"));
 }
+
+#[path = "support/dependencies.rs"]
+mod dependency_fixture;

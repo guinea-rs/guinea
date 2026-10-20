@@ -41,7 +41,7 @@ pub(super) struct ScopeData {
     pub(super) features: Features,
     pub(super) lifetime: Lifetime,
     pub(super) kept: Kept,
-    /// What was provided to the tree, when this is its root.
+    /// Dependencies provided here, visible to this scope and its descendants.
     pub(super) services: Services,
     /// What it took on - its actors among them - until it goes.
     pub(super) held: Held,
@@ -87,16 +87,6 @@ impl Scope {
             .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
     }
 
-    /// What the root of this scope's tree holds, for `doing` something
-    /// through this scope, which has to be there.
-    pub(super) fn root_alive(&self, doing: &str) -> Rc<ScopeData> {
-        self.read(|tree| {
-            self.node_in(tree)?;
-            tree.nodes.get(tree.root).map(|root| root.data.clone())
-        })
-        .flatten()
-        .unwrap_or_else(|| panic!("{doing} in {self:?}, which was removed"))
-    }
 }
 
 impl Tree {

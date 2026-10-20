@@ -1,0 +1,13 @@
+---
+source: crates/guinea/tests/feeds.rs
+expression: "refused.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × feeds::needing::Needing at crates/guinea/tests/feeds.rs:190:5
+        ├─▶   × Service `feeds::Greeting` is unavailable
+        │     ╰─▶   × no declared provider
+        ╰─▶   × Feed `feeds::Report` is unavailable
+              ├─▶   × feature feeds::producing::Producing at crates/guinea/tests/feeds.rs:115:5
+              │     ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry
+              ╰─▶   × feature feeds::scanning::Scanning at crates/guinea/tests/feeds.rs:76:5
+                    ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry

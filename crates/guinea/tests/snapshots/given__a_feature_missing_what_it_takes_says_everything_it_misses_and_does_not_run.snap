@@ -1,0 +1,14 @@
+---
+source: crates/guinea/tests/given.rs
+expression: "refused.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × given::needy::Needy at crates/guinea/tests/given.rs:70:5
+        ├─▶   × Service `given::Greeting` is unavailable
+        │     ╰─▶   × plugin given::plugins::Greets at crates/guinea/tests/given.rs:102:5
+        │           ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry
+        ╰─▶   × Service `given::Volume` is unavailable
+              ├─▶   × plugin given::plugins::Amplifies at crates/guinea/tests/given.rs:114:5
+              │     ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry
+              ╰─▶   × application given::plugins::Quiets at crates/guinea/tests/given.rs:123:5
+                    ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry

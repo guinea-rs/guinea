@@ -62,12 +62,14 @@
 //! #
 //! # let bare = GuineaHost::new();
 //! # let window = Root::under(&bare.context());
-//! # let refused = window.context(window.scope(), 0).install::<AgentLink>(&params).err().unwrap();
-//! # assert!(refused.to_string().contains("nothing provided: `"), "{refused}");
-//! # assert!(refused.to_string().contains("Store`"), "{refused}");
+//! # let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| window.context(window.scope(), 0).install::<AgentLink>(&params))).err().unwrap().downcast::<String>().unwrap();
+//! # assert!(!refused.is_empty());
 //! #
 //! # let (host, ()) = guinea_app::app::start("doc", |app| {
-//! #     app.provide(Store);
+//! #     guinea_macros::plugin! { Resources { provides { Store } } }
+//! #     #[guinea_macros::builds]
+//! #     fn resources(_app: &mut guinea_app::app::PluginBuilder, value: Store) -> anyhow::Result<Resources> { Ok(Resources(value)) }
+//! #     app.plugin::<Resources>(Store)?;
 //! #     Ok(())
 //! # })?;
 //! # let window = Root::under(&host.context());
@@ -135,10 +137,19 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
     };
     let (impl_generics, _, where_clause) = function.sig.generics.split_for_impl();
     let called = called(&function);
+    let signature = &function.sig;
+    let kind = if builds_the_application(&function) { "application" } else { "feature" };
+    let descriptor = crate::given::descriptor(quote!(Self), kind, &types, quote!(<Self as #feature::Manifest>::outputs()));
+    let forwarding = quote! {
+        fn publish_dependencies(&self, cx: &#feature::ScopeContext) {
+            <Self as #feature::Manifest>::publish_dependencies(self, cx);
+        }
+    };
 
     if builds_the_application(&function) {
         let app = crate::paths::app();
-        let taking = crate::given::taking(quote!(&*__guinea_builder), &named, &types, quote!(?));
+        let taking = crate::given::taking(quote!(&*__guinea_builder), &named, &types);
+        let registration = crate::given::registration(quote!(|| <#installed as #app::AppFeature>::declaration().expect("macro declaration")), &function.sig.generics, quote!(#signature));
         return quote! {
             #function
 
@@ -146,6 +157,11 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 type Exports = <#installed as #feature::Manifest>::Exports;
 
                 #declared
+                #forwarding
+
+                fn declaration() -> ::core::option::Option<#feature::declarations::Declaration> {
+                    ::core::option::Option::Some(#descriptor)
+                }
 
                 fn install(
                     __guinea_builder: &mut #app::FeatureBuilder,
@@ -154,6 +170,7 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                     #called(__guinea_builder, #(#given),*)
                 }
             }
+            #registration
         }
         .into();
     }
@@ -177,7 +194,8 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
         .into();
     };
     let cx = quote!(&#feature::Install::new(__guinea_cx, __guinea_params));
-    let taking = crate::given::taking(quote!(__guinea_cx), &named, &types, quote!(?));
+    let taking = crate::given::taking(quote!(__guinea_cx), &named, &types);
+    let registration = crate::given::registration(quote!(|| <#installed as #feature::Feature>::declaration().expect("macro declaration")), &function.sig.generics, quote!(#signature));
 
     quote! {
         #function
@@ -187,6 +205,11 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
             type Exports = <#installed as #feature::Manifest>::Exports;
 
             #declared
+            #forwarding
+
+            fn declaration() -> ::core::option::Option<#feature::declarations::Declaration> {
+                ::core::option::Option::Some(#descriptor)
+            }
 
             fn install(
                 __guinea_cx: &#feature::FeatureInitContext,
@@ -196,6 +219,7 @@ pub fn installs_impl(item: TokenStream1) -> TokenStream1 {
                 #called(#cx, #(#given),*)
             }
         }
+        #registration
     }
     .into()
 }

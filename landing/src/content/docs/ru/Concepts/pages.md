@@ -152,18 +152,94 @@ impl Page for CounterPage {
 `#[page]` и `#[layout]` также разрешают зависимости, перечисленные аргументами
 после `cx` в `install`, как `#[installs]` у фичи. Например,
 `fn install(cx: &Install, store: Store) -> anyhow::Result<Self>` получает
-копию `Store`, зарегистрированного через `app.provide(store)`: значение
-передаётся через `Clone`. Вызывать `cx.service::<Store>()` вручную не нужно.
+копию `Store`, возвращённого в секции `provides` фичи или плагина: значение
+передаётся через `Clone`. Ни ручная регистрация, ни сервис-локатор не нужны.
 
-Аргумент `Store` обязателен: если сервис не предоставлен, установка вернёт
-ошибку до входа в тело метода. Аргумент `Option<Store>` необязателен и получит
-`None`, если сервиса нет. Запасное значение выбирается явно в теле метода,
+Аргумент `Store` обязателен: если сервис не предоставлен, установка вызовет
+панику до входа в тело метода. Аргумент `Option<Store>` получит
+`None`, только если поставщик вообще не объявлен. Если он объявлен, но выход
+недоступен, установка паникует. Запасное значение выбирается явно в теле метода,
 например через `unwrap_or_default()`.
 
 Эти аргументы не заменяют `Params` страницы или лейаута: значения, переданные
 при монтировании, по-прежнему доступны через `cx.params()`. Получение сервиса
 не устанавливает фичу автоматически: нужные фичи тело метода по-прежнему
-устанавливает через `cx.install`.
+устанавливает через `cx.install`. Подробнее — в разделе о [проверке деклараций](../plugins/#проверка-деклараций).
+
+::::backends
+:::winui
+<!-- shown: winui: installation dependencies -->
+```rust
+#[derive(Clone)]
+pub struct PageSettings(pub u32);
+
+feature! {
+    pub Configuration {
+        provides { PageSettings }
+    }
+}
+
+#[installs]
+fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+    Ok(Configuration(PageSettings(3)))
+}
+
+pub struct ConfiguredPage {
+    step: u32,
+}
+
+#[page]
+impl Page for ConfiguredPage {
+    fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+        Ok(Self { step: settings.0 })
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        TextBlock::new().text(format!("page {}", self.step)).into()
+    }
+}
+```
+<!-- /shown -->
+:::
+:::egui
+<!-- shown: egui: installation dependencies -->
+```rust
+#[derive(Clone)]
+pub struct PageSettings(pub u32);
+
+feature! {
+    pub Configuration {
+        provides { PageSettings }
+    }
+}
+
+#[installs]
+fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+    Ok(Configuration(PageSettings(3)))
+}
+
+pub struct ConfiguredPage {
+    step: u32,
+}
+
+#[page]
+impl Page for ConfiguredPage {
+    fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+        Ok(Self { step: settings.0 })
+    }
+
+    fn render(&mut self, cx: &mut PageCx<'_, Self>) {
+        cx.ui().label(format!("page {}", self.step));
+    }
+}
+```
+<!-- /shown -->
+:::
+::::
+
+Установи `Configuration` через `app.install::<Configuration>()?` до открытия
+`ConfiguredPage`. Лейаут объявляет свои входы так же; ему не нужно вручную
+пробрасывать зависимости приложения в дочерние страницы.
 
 ## Лейаут
 

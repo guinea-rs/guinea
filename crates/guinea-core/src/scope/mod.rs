@@ -8,7 +8,7 @@ pub(crate) mod features;
 mod held;
 mod kept;
 mod lifetime;
-mod services;
+pub(crate) mod services;
 mod state;
 mod tree;
 

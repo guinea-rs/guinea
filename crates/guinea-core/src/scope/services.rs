@@ -4,8 +4,7 @@ use std::collections::HashMap;
 
 use super::Scope;
 
-/// What a tree's root holds as its services: one value per type, handed out
-/// by clone. They go with the root, after everything it held.
+/// Dependencies owned by one scope, visible to it and its descendants.
 #[derive(Default)]
 pub(super) struct Services(RefCell<HashMap<TypeId, Provided>>);
 
@@ -15,19 +14,23 @@ struct Provided {
 }
 
 impl Scope {
-    /// Provides `value` as the one `T` of this scope's tree, `by` whoever is
+    /// Provides `value` as the one `T` visible on this scope's branch, `by` whoever is
     /// named, or hands back who provided a `T` first.
     ///
     /// # Panics
     ///
     /// When this scope is gone.
-    pub fn provide<T: Clone + 'static>(&self, value: T, by: &'static str) -> Result<(), &'static str> {
-        let root = self.root_alive("providing a service");
-        let mut services = root.services.0.borrow_mut();
-
-        if let Some(first) = services.get(&TypeId::of::<T>()) {
-            return Err(first.by);
+    pub(crate) fn provide<T: Clone + 'static>(
+        &self,
+        value: T,
+        by: &'static str,
+    ) -> Result<(), &'static str> {
+        let data = self.alive("providing a dependency");
+        if let Some(first) = dependency_provider(*self, TypeId::of::<T>()) {
+            return Err(first);
         }
+
+        let mut services = data.services.0.borrow_mut();
 
         services.insert(
             TypeId::of::<T>(),
@@ -39,26 +42,62 @@ impl Scope {
         Ok(())
     }
 
-    /// A clone of the `T` provided to this scope's tree.
+    /// A clone of the `T` provided here or by an ancestor.
     ///
     /// # Panics
     ///
     /// When this scope is gone.
-    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
-        let root = self.root_alive("reading a service");
-        let services = root.services.0.borrow();
-
-        services.get(&TypeId::of::<T>())?.value.downcast_ref::<T>().cloned()
+    pub(crate) fn service<T: Clone + 'static>(&self) -> Option<T> {
+        self.alive("reading a dependency");
+        for owner in std::iter::once(*self).chain(self.ancestors()) {
+            let data = owner.alive("reading a dependency");
+            let value = data
+                .services
+                .0
+                .borrow()
+                .get(&TypeId::of::<T>())
+                .and_then(|provided| provided.value.downcast_ref::<T>())
+                .cloned();
+            if value.is_some() {
+                return value;
+            }
+        }
+        None
     }
 
-    /// Whether anything was provided to this scope's tree as the type `of`.
+    /// Whether this scope or an ancestor provides the type `of`.
     ///
     /// # Panics
     ///
     /// When this scope is gone.
-    pub fn provides(&self, of: TypeId) -> bool {
-        let root = self.root_alive("reading a service");
-        let provides = root.services.0.borrow().contains_key(&of);
-        provides
+    pub(crate) fn provides(&self, of: TypeId) -> bool {
+        dependency_provider(*self, of).is_some()
     }
+}
+
+pub fn publish_dependency<T: Clone + 'static>(
+    scope: Scope,
+    value: T,
+    by: &'static str,
+) -> Result<(), &'static str> {
+    scope.provide(value, by)
+}
+
+pub fn dependency<T: Clone + 'static>(scope: Scope) -> Option<T> {
+    scope.service::<T>()
+}
+
+pub fn has_dependency(scope: Scope, id: TypeId) -> bool {
+    scope.provides(id)
+}
+
+pub fn dependency_provider(scope: Scope, id: TypeId) -> Option<&'static str> {
+    scope.alive("reading a dependency provider");
+    for owner in std::iter::once(scope).chain(scope.ancestors()) {
+        let data = owner.alive("reading a dependency provider");
+        if let Some(provided) = data.services.0.borrow().get(&id) {
+            return Some(provided.by);
+        }
+    }
+    None
 }

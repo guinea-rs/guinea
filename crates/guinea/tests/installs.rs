@@ -56,8 +56,8 @@ mod counting {
 
 #[guinea::test(iterations = 1)]
 fn a_feature_whose_install_failed_can_be_installed_once_what_it_needs_is_there(h: &mut Harness) {
-    assert!(h.install::<counting::Counting>(&()).is_err(), "nothing provides Ready yet");
-    h.provide(counting::Ready);
+    assert!(catch_unwind(AssertUnwindSafe(|| h.install::<counting::Counting>(&()))).is_err());
+    h.plugin::<crate::dependency_fixture::Fixture<_>>(counting::Ready).unwrap();
 
     let again = catch_unwind(AssertUnwindSafe(|| h.install::<counting::Counting>(&()).is_ok()))
         .map_err(said);
@@ -67,7 +67,7 @@ fn a_feature_whose_install_failed_can_be_installed_once_what_it_needs_is_there(h
 
 #[guinea::test(iterations = 1)]
 fn a_feature_whose_install_failed_exports_nothing_to_the_page_below(h: &mut Harness) {
-    assert!(h.install::<counting::Counting>(&()).is_err(), "nothing provides Ready yet");
+    assert!(catch_unwind(AssertUnwindSafe(|| h.install::<counting::Counting>(&()))).is_err());
 
     let page = h.child();
     let read = page.context().read::<counting::Count>();
@@ -77,7 +77,7 @@ fn a_feature_whose_install_failed_exports_nothing_to_the_page_below(h: &mut Harn
 
 #[guinea::test(iterations = 1)]
 fn a_feature_whose_install_failed_is_not_listed_as_installed(h: &mut Harness) {
-    assert!(h.install::<counting::Counting>(&()).is_err(), "nothing provides Ready yet");
+    assert!(catch_unwind(AssertUnwindSafe(|| h.install::<counting::Counting>(&()))).is_err());
 
     let listed = h.segment().scope().features();
 
@@ -164,3 +164,6 @@ fn a_feature_installed_twice_in_one_scope_is_refused_before_its_body_runs(h: &mu
         "{again:?}"
     );
 }
+
+#[path = "support/dependencies.rs"]
+mod dependency_fixture;

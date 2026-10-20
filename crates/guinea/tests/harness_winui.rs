@@ -1184,7 +1184,7 @@ mod navigating {
 
     #[guinea::test(iterations = 4)]
     fn a_navigation_tears_down_what_it_left_and_installs_what_it_reached(h: &mut Harness) {
-        h.provide(Greeting("hello"));
+        h.plugin::<crate::dependency_fixture::Fixture<_>>(Greeting("hello")).unwrap();
         AREAS_GONE.with(|gone| gone.set(0));
 
         let mut app = Mounted::routed::<Frame>(h, AppRoute::List).unwrap();
@@ -1514,3 +1514,6 @@ mod two_of_a_kind {
         assert_eq!((first.route(), second.route()), (Where::There, Where::Here));
     }
 }
+
+#[path = "support/dependencies.rs"]
+mod dependency_fixture;

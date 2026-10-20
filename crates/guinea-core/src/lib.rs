@@ -43,6 +43,7 @@ pub mod __private {
     pub use crate::feed::above::opened_above;
     pub use crate::observability::rendered::{EveryRender, record_every_render};
     pub use crate::scope::features::Section;
+    pub use crate::scope::services::{dependency, dependency_provider, has_dependency, publish_dependency};
     pub use crate::type_name::short_type_name;
 
     pub mod observer {

@@ -313,7 +313,7 @@ mod starting_from_a_setting {
     #[test]
     fn starts_from_what_the_application_saved_and_changes_it_itself() {
         guinea_app::app::check(2, |h| {
-            h.provide(SavedWidths(vec![300, 60]));
+            h.plugin::<crate::dependency_fixture::Fixture<_>>(SavedWidths(vec![300, 60])).unwrap();
             let mut page = guinea_winui::harness::Mounted::<Table>::mount(h.segment(), ()).unwrap();
             assert!(page.find_text("widths [300, 60]").is_some(), "{:#?}", page.tree());
 
@@ -851,7 +851,7 @@ mod layout_installing {
     #[test]
     fn starts_from_the_setting_the_application_provided() {
         guinea_app::app::check(2, |h| {
-            h.provide(Refresh { every_ms: 500 });
+            h.plugin::<crate::dependency_fixture::Fixture<_>>(Refresh { every_ms: 500 }).unwrap();
             let shell = guinea_winui::harness::Mounted::<Shell>::mount(h.segment(), ()).unwrap();
             assert!(shell.find_text("metrics 0").is_some(), "{:#?}", shell.tree());
             assert_eq!(h.state::<Title>().0, "every 500 ms");
@@ -860,6 +860,9 @@ mod layout_installing {
     //@unhide
     //@show-end
 }
+
+#[path = "support/dependencies.rs"]
+mod dependency_fixture;
 
 mod minding_the_layout {
     //@show a layout that minds being left

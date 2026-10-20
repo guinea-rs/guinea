@@ -1,0 +1,9 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: "errors(&[consumer]).unwrap()"
+---
+  × Invalid guinea declarations
+  ╰─▶   × feature guinea_app::feature::declarations::tests::Consumer at fixture.rs:42:1
+        ├─▶   × requires Service `guinea_app::feature::declarations::tests::Store`
+        │     ╰─▶   × no declared provider
+        ╰─▶   × input `guinea_app::feature::declarations::tests::Store` is both required and optional

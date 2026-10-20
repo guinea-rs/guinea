@@ -67,9 +67,10 @@ mod slot;
 /// # }
 /// ```
 ///
-/// It makes the feature's type - one `Bound` per export, then one `Feed` per
-/// feed, in the order listed - and what it exports. What installs it is an
-/// [`installs`] function.
+/// It makes the feature's type: one `Bound` per export, then one `Feed` per
+/// feed, then each dependency in `provides`, in the order listed. Provided
+/// dependencies are published automatically after successful installation.
+/// What installs it is an [`installs`] function.
 #[proc_macro]
 pub fn feature(input: TokenStream) -> TokenStream {
     feature_dsl::feature_impl(input)
@@ -141,8 +142,9 @@ pub fn feature(input: TokenStream) -> TokenStream {
 ///
 /// It makes the plugin's type - one `Bound` per export, one `Feed` per feed,
 /// then each thing provided, in the order listed - which the application
-/// takes apart: `let Settings(store) = app.plugin::<Settings>(params)?`. What
-/// builds it is a [`builds`] function.
+/// may inspect: `let Settings(store) = app.plugin::<Settings>(params)?`.
+/// Declared services are published automatically after a successful build.
+/// What builds it is a [`builds`] function.
 #[proc_macro]
 pub fn plugin(input: TokenStream) -> TokenStream {
     feature_dsl::plugin_impl(input)
@@ -205,8 +207,9 @@ pub fn plugin(input: TokenStream) -> TokenStream {
 /// # }
 /// ```
 ///
-/// A plugin takes no services: what it needs of another plugin is in its
-/// parameters, handed over by the application.
+/// The first argument after the builder is explicit configuration. Further
+/// arguments are declared dependencies supplied by the framework. Use `()`
+/// as configuration when only dependencies are needed.
 #[proc_macro_attribute]
 pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
     builds::builds_impl(item)
@@ -276,13 +279,14 @@ pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # fn main() -> anyhow::Result<()> {
 /// # let bare = GuineaHost::new();
 /// # let window = Root::under(&bare.context());
-/// # let refused = window.context(window.scope(), 0).install::<Tabs>(&"inbox".to_string()).err().unwrap();
-/// # assert!(refused.to_string().contains("nothing provided: `"), "{refused}");
-/// # assert!(refused.to_string().contains("Store`"), "{refused}");
-/// # assert!(!refused.to_string().contains("Clock"), "{refused}");
+/// # let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| window.context(window.scope(), 0).install::<Tabs>(&"inbox".to_string()))).err().unwrap().downcast::<String>().unwrap();
+/// # assert!(!refused.is_empty());
 /// #
 /// # let (host, ()) = guinea_app::app::start("doc", |app| {
-/// #     app.provide(Store);
+/// #     guinea_macros::plugin! { Resources { provides { Store } } }
+/// #     #[guinea_macros::builds]
+/// #     fn resources(_app: &mut guinea_app::app::PluginBuilder, value: Store) -> anyhow::Result<Resources> { Ok(Resources(value)) }
+/// #     app.plugin::<Resources>(Store)?;
 /// #     Ok(())
 /// # })?;
 /// # let window = Root::under(&host.context());
@@ -295,8 +299,8 @@ pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 ///
 /// A service is taken by clone, so it is taken by value; `Option<T>` is `None`
-/// when nothing provided `T`. What is missing refuses the install before the
-/// function runs, all of it named at once.
+/// when no provider of `T` is declared. An unavailable declared dependency
+/// panics before the function runs, with all missing inputs named at once.
 ///
 /// A function taking `&mut FeatureBuilder` installs a feature of the
 /// application, which every window reads from, instead:
@@ -358,7 +362,10 @@ pub fn builds(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// # fn main() -> anyhow::Result<()> {
 /// # let (host, Activity(activity)) = guinea_app::app::start("doc", |app| {
-/// #     app.provide(Store { syncing: true });
+/// #     guinea_macros::plugin! { Resources { provides { Store } } }
+/// #     #[guinea_macros::builds]
+/// #     fn resources(_app: &mut guinea_app::app::PluginBuilder, value: Store) -> anyhow::Result<Resources> { Ok(Resources(value)) }
+/// #     app.plugin::<Resources>(Store { syncing: true })?;
 /// #     app.install::<Activity>()
 /// # })?;
 /// # activity.emit(Refresh);

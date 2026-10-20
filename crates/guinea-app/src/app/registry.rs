@@ -2,20 +2,6 @@ use guinea_core::__private::observer;
 use guinea_core::observability::Event;
 use guinea_core::scope::Scope;
 
-#[derive(Clone, Copy)]
-pub(crate) enum Unit {
-    Plugin(&'static str),
-    Feature(&'static str),
-}
-
-impl Unit {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Unit::Plugin(id) => id,
-            Unit::Feature(name) => name,
-        }
-    }
-}
 
 /// The plugins an application was built with, in the order they were, once
 /// per copy: kept in its scope for as long as it lives.
@@ -37,23 +23,3 @@ impl Plugins {
 /// What draws the application, as the backend that started it named itself.
 #[derive(Default)]
 pub(crate) struct Backend(pub(crate) Option<&'static str>);
-
-/// What is being installed right now, outermost first.
-#[derive(Default)]
-pub(crate) struct Registry {
-    stack: Vec<Unit>,
-}
-
-impl Registry {
-    pub(crate) fn current(&self) -> &'static str {
-        self.stack.last().map(|unit| unit.label()).unwrap_or("app root")
-    }
-
-    pub(crate) fn enter(&mut self, unit: Unit) {
-        self.stack.push(unit);
-    }
-
-    pub(crate) fn leave(&mut self) {
-        self.stack.pop();
-    }
-}

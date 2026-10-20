@@ -1,0 +1,10 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: report
+---
+  × Invalid guinea declarations
+  ╰─▶   × feature guinea_app::feature::declarations::tests::Consumer at fixture.rs:42:1
+        ├─▶   × requires Service `guinea_app::feature::declarations::tests::Store`
+        │     ╰─▶   × no declared provider
+        ╰─▶   × requires Feed `guinea_app::feature::declarations::tests::Selection`
+              ╰─▶   × no declared provider

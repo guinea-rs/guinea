@@ -1,0 +1,9 @@
+---
+source: crates/guinea-app/tests/context_services.rs
+expression: "message.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × context_services::LocalConsumer at crates/guinea-app/tests/context_services.rs:305:1
+        ╰─▶   × Service `context_services::LocalValue` is unavailable
+              ╰─▶   × feature context_services::LocalProvider at crates/guinea-app/tests/context_services.rs:298:1
+                    ╰─▶   × declared, but not available in this scope; check installation order and scope ancestry

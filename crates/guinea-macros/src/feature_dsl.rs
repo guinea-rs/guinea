@@ -1,5 +1,5 @@
 //! `feature!` and `plugin!` - a feature's or a plugin's manifest: its name,
-//! what it exports and what it feeds, and for a plugin what it provides.
+//! what it exports, what it feeds and which dependencies it provides.
 //!
 //! ```
 //! # use guinea_app::app::{GuineaHost, PluginBuilder};
@@ -96,7 +96,7 @@ impl Kind {
 
     fn sections(self) -> &'static str {
         match self {
-            Kind::Feature => "`exports` and `feeds`",
+            Kind::Feature => "`exports`, `feeds` and `provides`",
             Kind::Plugin => "`exports`, `feeds` and `provides`",
         }
     }
@@ -131,7 +131,7 @@ impl Manifest {
             let into = match (section.to_string().as_str(), kind) {
                 ("exports", _) => &mut exports,
                 ("feeds", _) => &mut feeds,
-                ("provides", Kind::Plugin) => &mut provides,
+                ("provides", _) => &mut provides,
                 _ => {
                     return Err(syn::Error::new(
                         section.span(),
@@ -215,7 +215,29 @@ fn expand(manifest: Manifest, kind: Kind) -> TokenStream {
 
     let gc = crate::paths::core();
     let feature = crate::paths::feature();
-    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+    let (_, type_generics, where_clause) = generics.split_for_impl();
+    let mut manifest_generics = generics.clone();
+    for provided in &provides {
+        manifest_generics.make_where_clause().predicates.push(syn::parse_quote!(#provided: ::core::clone::Clone + 'static));
+    }
+    let (impl_generics, _, manifest_where_clause) = manifest_generics.split_for_impl();
+    let outputs = quote!(#feature::declarations);
+    let provided_fields: Vec<_> = (exports.len() + feeds.len()..exports.len() + feeds.len() + provides.len())
+        .map(syn::Index::from).collect();
+    let template = if generics.params.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            #gc::__private::inventory::submit! {
+                #outputs::TemplateManifest {
+                    name: ::core::concat!(::core::module_path!(), "::", ::core::stringify!(#name)),
+                    exports: &[#(::core::stringify!(#exports)),*],
+                    feeds: &[#(::core::stringify!(#feeds)),*],
+                    provides: &[#(::core::stringify!(#provides)),*],
+                }
+            }
+        }
+    };
 
     let declared = if holds_nothing {
         quote! {
@@ -236,9 +258,22 @@ fn expand(manifest: Manifest, kind: Kind) -> TokenStream {
 
     quote! {
         #declared
+        #template
 
-        impl #impl_generics #feature::Manifest for #name #type_generics #where_clause {
+        impl #impl_generics #feature::Manifest for #name #type_generics #manifest_where_clause {
             type Exports = (#(#exports,)*);
+
+            fn outputs() -> ::std::vec::Vec<#outputs::Port> {
+                ::std::vec![
+                    #(#outputs::Port::of::<#exports>(#outputs::Channel::State),)*
+                    #(#outputs::Port::of::<#feeds>(#outputs::Channel::Feed),)*
+                    #(#outputs::Port::of::<#provides>(#outputs::Channel::Service),)*
+                ]
+            }
+
+            fn publish_dependencies(&self, cx: &#feature::ScopeContext) {
+                #(#feature::given::publish_dependency(cx, self.#provided_fields.clone(), ::core::any::type_name::<Self>());)*
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ mod search;
 mod storage;
 mod sync;
 
-pub use storage::{DiskStorage, startup};
+pub use storage::{StorageConfig, StoragePlugin, startup};
 
 pub use board::{Add, Board, ClearCompleted, Import, Remove, Rename, StopImport, Toggle, Undo};
 pub use persistence::{SaveState, Storage};
@@ -128,7 +128,6 @@ fn todo_app(app: &mut FeatureBuilder, repository: Repository) -> anyhow::Result<
         .0;
     let clock = app.state::<Clock>().plain();
     app.repeat(Duration::from_secs(1), move || clock.push(()));
-    app.provide(snapshots.feed());
     Ok(TodoApp(
         board,
         activity,
@@ -140,9 +139,7 @@ fn todo_app(app: &mut FeatureBuilder, repository: Repository) -> anyhow::Result<
 }
 
 pub fn configure(app: &mut FeatureBuilder, repository: Repository) -> anyhow::Result<()> {
-    let final_save = repository.clone();
-    app.on_cleanup(move || (final_save.save)(final_save.pending.borrow().clone()));
-    app.provide(repository);
+    app.plugin::<StoragePlugin>(StorageConfig::Existing(repository))?;
     app.install::<TodoApp>()?;
     Ok(())
 }
@@ -204,4 +201,12 @@ pub fn status(save: &SaveState, sync: &SyncState) -> String {
         SyncState::Failed(error) => format!("Sync failed: {error}"),
     };
     format!("{saving} · {syncing}")
+}
+
+#[cfg(test)]
+mod declarations {
+    #[test]
+    fn the_application_contracts_are_complete_before_installation() {
+        guinea::app::validate_declarations();
+    }
 }

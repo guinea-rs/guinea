@@ -318,8 +318,8 @@ fn a_scope_opens_one_feed_of_a_type_and_the_second_names_the_first(h: &mut Harne
 fn a_feed_argument_is_taken_from_a_segment_above_and_not_from_beside(h: &mut Harness) {
     h.install::<scanning::Scanning>(&()).unwrap();
 
-    let refused = installed(h.install::<watching::Watching>(&())).unwrap_err();
-    assert!(refused.contains("Feed<feeds::Report>"), "{refused}");
+    let refused = catch_unwind(AssertUnwindSafe(|| h.install::<watching::Watching>(&()))).err().map(said).unwrap();
+    insta::assert_snapshot!(refused.replace('\\', "/"));
 }
 
 #[guinea::test(iterations = 1)]
@@ -331,10 +331,10 @@ fn within_a_segment_a_feed_is_handed_on_by_value(h: &mut Harness) {
 }
 
 #[guinea::test(iterations = 1)]
-fn an_optional_feed_nothing_above_opened_is_none(h: &mut Harness) {
+fn an_optional_feed_with_a_declared_but_unreachable_provider_panics(h: &mut Harness) {
     let alone = h.child();
-    assert_eq!(installed(alone.install::<glancing::Glancing>(&())), Ok(()));
-    assert_eq!(alone.state::<Seen>().0, [] as [u32; 0]);
+    let refused = catch_unwind(AssertUnwindSafe(|| alone.install::<glancing::Glancing>(&()))).err().map(said).unwrap();
+    insta::assert_snapshot!(refused.replace('\\', "/"));
     alone.leave();
 
     h.install::<scanning::Scanning>(&()).unwrap();
@@ -346,14 +346,8 @@ fn an_optional_feed_nothing_above_opened_is_none(h: &mut Harness) {
 #[guinea::test(iterations = 1)]
 fn what_is_missing_is_named_at_once_services_and_feeds_alike(h: &mut Harness) {
     let page = h.child();
-    let refused = installed(page.install::<needing::Needing>(&())).unwrap_err();
-
-    assert!(
-        refused.contains("Needing")
-            && refused.contains("Greeting")
-            && refused.contains("Feed<feeds::Report>"),
-        "{refused}"
-    );
+    let refused = catch_unwind(AssertUnwindSafe(|| page.install::<needing::Needing>(&()))).err().map(said).unwrap();
+    insta::assert_snapshot!(refused.replace('\\', "/"));
     assert!(!needing::RAN.get());
 }
 

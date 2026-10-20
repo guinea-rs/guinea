@@ -1,0 +1,7 @@
+---
+source: crates/guinea/tests/given.rs
+expression: "refused.replace('\\\\', \"/\")"
+---
+  × Invalid guinea composition
+  ╰─▶   × plugin given::dependency_fixture::Fixture<given::Volume> at crates/guinea/tests/support/dependencies.rs:7:1
+        ╰─▶   × service `given::Volume` is already provided by `given::plugins::Quiets`

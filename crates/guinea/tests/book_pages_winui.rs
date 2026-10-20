@@ -203,3 +203,64 @@ mod shell {
     }
     //@show-end
 }
+
+mod dependencies {
+    use super::*;
+    use guinea::winui::{Layout, LayoutCx, layout};
+
+    //@show winui: installation dependencies
+    #[derive(Clone)]
+    pub struct PageSettings(pub u32);
+
+    feature! {
+        pub Configuration {
+            provides { PageSettings }
+        }
+    }
+
+    #[installs]
+    fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+        Ok(Configuration(PageSettings(3)))
+    }
+
+    pub struct ConfiguredPage {
+        step: u32,
+    }
+
+    #[page]
+    impl Page for ConfiguredPage {
+        fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+            Ok(Self { step: settings.0 })
+        }
+
+        fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+            TextBlock::new().text(format!("page {}", self.step)).into()
+        }
+    }
+    //@show-end
+
+    struct ConfiguredLayout(u32);
+
+    #[layout]
+    impl Layout for ConfiguredLayout {
+        fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+            Ok(Self(settings.0))
+        }
+
+        fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+            StackPanel::new().children((
+                TextBlock::new().text(format!("layout {}", self.0)),
+                cx.mount::<ConfiguredPage>(&()),
+            )).into()
+        }
+    }
+
+    #[guinea::test]
+    fn page_and_layout_receive_declared_application_outputs(h: &mut Harness) {
+        guinea::app::validate_declarations();
+        h.app(|app| app.install::<Configuration>()).unwrap();
+        let layout = Mounted::<ConfiguredLayout>::mount(h.segment(), ()).unwrap();
+        assert!(layout.find_text("layout 3").is_some());
+        assert!(layout.find_text("page 3").is_some());
+    }
+}

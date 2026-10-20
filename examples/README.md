@@ -58,15 +58,15 @@ text entry.
 | Streams and cancellation | Import consumer handles each arriving task |
 | Request/reply and timeout | Local upload service answers the sync client |
 | Timers | Application uptime and the save debounce |
-| Plugin and cleanup | `DiskStorage` supplies a repository and closes the store |
+| Plugin and cleanup | `StoragePlugin` supplies a repository and closes the disk store |
 | Routing and lifetime | Keyed task pages, details, history and kept page state |
 
 ## Persistence and plugin boundary
 
-`DiskStorage` is a small plugin defined **in this example**, not
+`StoragePlugin` is a small plugin defined **in this example**, not
 `guinea-plugin-store`. It uses the published amethystate 0.27 typed struct API.
-The external store plugin's migration is not published yet; these examples
-do not depend on a sibling checkout or an unavailable Git revision.
+Keeping this plugin local makes its complete contract visible. These examples
+do not depend on a sibling checkout or an external plugin's Git revision.
 
 Each backend uses a separate JSON store under the platform's configuration
 directory, selected by `StoreBuilder::located` for application `guinea-todo`

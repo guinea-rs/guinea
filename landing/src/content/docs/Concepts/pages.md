@@ -151,18 +151,94 @@ it creates the page through `Default`. With no declared `Params`, it uses
 `#[page]` and `#[layout]` also resolve dependencies declared as arguments
 after `cx` in `install`, just as `#[installs]` does for a feature. For example,
 `fn install(cx: &Install, store: Store) -> anyhow::Result<Self>` receives a
-clone of the `Store` registered with `app.provide(store)`. There is no need
-to call `cx.service::<Store>()` manually.
+clone of the `Store` returned under a feature's or plugin's `provides`
+declaration. No manual registration or service locator is involved.
 
 A plain `Store` argument is required: if it was not provided, installation
-returns an error before entering the method body. An `Option<Store>` argument
-is optional and receives `None` when the service is absent. Apply a fallback
+panics before entering the method body. An `Option<Store>` argument
+receives `None` only when there is no declared provider. If a provider is
+declared but its output is unavailable, installation panics instead. Apply a fallback
 explicitly in the body if needed, for example with `unwrap_or_default()`.
 
 These arguments do not replace the page's or layout's `Params`: values passed
 when mounting remain available through `cx.params()`. Resolving a service does
 not install a feature automatically; the body still calls `cx.install` for
-the features the page or layout needs.
+the features the page or layout needs. See [declaration validation](../plugins/#declaration-validation).
+
+::::backends
+:::winui
+<!-- shown: winui: installation dependencies -->
+```rust
+#[derive(Clone)]
+pub struct PageSettings(pub u32);
+
+feature! {
+    pub Configuration {
+        provides { PageSettings }
+    }
+}
+
+#[installs]
+fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+    Ok(Configuration(PageSettings(3)))
+}
+
+pub struct ConfiguredPage {
+    step: u32,
+}
+
+#[page]
+impl Page for ConfiguredPage {
+    fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+        Ok(Self { step: settings.0 })
+    }
+
+    fn view(&self, _cx: &mut PageCx<'_, '_, Self>) -> View {
+        TextBlock::new().text(format!("page {}", self.step)).into()
+    }
+}
+```
+<!-- /shown -->
+:::
+:::egui
+<!-- shown: egui: installation dependencies -->
+```rust
+#[derive(Clone)]
+pub struct PageSettings(pub u32);
+
+feature! {
+    pub Configuration {
+        provides { PageSettings }
+    }
+}
+
+#[installs]
+fn configuration(_app: &mut FeatureBuilder) -> anyhow::Result<Configuration> {
+    Ok(Configuration(PageSettings(3)))
+}
+
+pub struct ConfiguredPage {
+    step: u32,
+}
+
+#[page]
+impl Page for ConfiguredPage {
+    fn install(_cx: &Install, settings: PageSettings) -> anyhow::Result<Self> {
+        Ok(Self { step: settings.0 })
+    }
+
+    fn render(&mut self, cx: &mut PageCx<'_, Self>) {
+        cx.ui().label(format!("page {}", self.step));
+    }
+}
+```
+<!-- /shown -->
+:::
+::::
+
+Install `Configuration` with `app.install::<Configuration>()?` before
+opening `ConfiguredPage`. A layout declares its own inputs in the same way;
+it does not need to forward application dependencies to its child pages.
 
 ## A layout
 

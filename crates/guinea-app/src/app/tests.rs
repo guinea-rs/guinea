@@ -58,8 +58,7 @@ feature! {
 #[installs]
 fn startup(app: &mut FeatureBuilder) -> anyhow::Result<Startup> {
     trace("startup");
-    let Settings(store) = app.plugin::<Settings>("db")?;
-    app.provide(store);
+    app.plugin::<Settings>("db")?;
     Ok(Startup)
 }
 
@@ -100,44 +99,32 @@ fn a_plugin_hands_back_what_it_built() {
 }
 
 #[test]
-fn a_plugin_installed_twice_is_two_copies_each_handed_to_whoever_the_application_says() {
+fn a_plugin_cannot_publish_the_same_service_twice() {
     let mut app = builder();
 
-    let built = (|| {
-        let Settings(user) = app.plugin::<Settings>("settings")?;
-        let Settings(internal) = app.plugin::<Settings>("state")?;
-        app.plugin::<Remembering>(internal)?;
-        anyhow::Ok(user)
-    })()
-    .map_err(|error| format!("{error:#}"));
-
-    assert_eq!(built, Ok(Store("settings")));
-    assert_eq!(taken(), ["settings", "state", "state"]);
+    app.plugin::<Settings>("settings").unwrap();
+    let duplicate = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.plugin::<Settings>("state")));
+    assert!(duplicate.is_err());
+    assert_eq!(taken(), ["settings"]);
 }
 
 #[test]
-fn what_a_plugin_hands_back_is_not_provided_until_the_application_provides_it() {
+fn what_a_plugin_declares_is_published_automatically() {
     let mut app = builder();
 
-    let store = app.plugin::<Settings>("settings").map(|Settings(store)| store);
-    let before = app.scope.service::<Store>();
-    if let Ok(store) = store {
-        app.provide(store);
-    }
-
-    assert_eq!(before, None);
-    assert_eq!(app.scope.service::<Store>(), Some(Store("settings")));
+    app.plugin::<Settings>("settings").unwrap();
+    assert_eq!(guinea_core::__private::dependency::<Store>(app.scope), Some(Store("settings")));
 }
 
 #[test]
 fn every_copy_of_a_plugin_is_listed() {
     let mut app = builder();
-    let _ = app.plugin::<Settings>("settings");
-    let _ = app.plugin::<Settings>("state");
+    let _ = app.plugin::<Tidy>(());
+    let _ = app.plugin::<Tidy>(());
 
     assert_eq!(
         app.scope.kept::<super::registry::Plugins, _>(|plugins| plugins.ids()),
-        Some(vec![name::<Settings>(), name::<Settings>()])
+        Some(vec![name::<Tidy>(), name::<Tidy>()])
     );
 }
 
@@ -156,7 +143,7 @@ fn a_feature_may_install_plugins_and_provide_what_they_hand_back() {
     let mut app = builder();
     app.install::<Startup>().unwrap();
 
-    assert_eq!(app.scope.service::<Store>().map(|store| store.0), Some("db"));
+    assert_eq!(guinea_core::__private::dependency::<Store>(app.scope).map(|store| store.0), Some("db"));
 }
 
 #[test]
@@ -202,8 +189,7 @@ fn greets(_app: &mut PluginBuilder) -> anyhow::Result<Greets> {
 #[test]
 fn a_feature_installs_without_a_router_and_reaches_the_services() {
     let (host, ()) = start("test", |app| {
-        let Greets(greeting) = app.plugin::<Greets>(())?;
-        app.provide(greeting);
+        app.plugin::<Greets>(())?;
         Ok(())
     })
     .expect("install");
@@ -211,7 +197,7 @@ fn a_feature_installs_without_a_router_and_reaches_the_services() {
     let window = Root::under(&host.context());
     let scope = window
         .install(|ctx| {
-            assert_eq!(ctx.scope.service::<Greeting>().map(|greeting| greeting.0), Some("hello"));
+            assert_eq!(guinea_core::__private::dependency::<Greeting>(ctx.scope).map(|greeting| greeting.0), Some("hello"));
             ctx.subscribe(|_: Ping| trace("pinged"));
             Ok(())
         })

@@ -1,0 +1,7 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: "errors(&[provider]).unwrap()"
+---
+  × Invalid guinea declarations
+  ╰─▶   × feature guinea_app::feature::declarations::tests::Settings at fixture.rs:42:1
+        ╰─▶   × duplicate Service output `guinea_app::feature::declarations::tests::Store`

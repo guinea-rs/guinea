@@ -1,0 +1,11 @@
+---
+source: crates/guinea-app/src/feature/declarations.rs
+expression: report
+---
+  × Invalid guinea declarations
+  ├─▶   × feature guinea_app::feature::declarations::tests::Settings at fixture.rs:42:1
+  │     ╰─▶   × conflicting providers of `guinea_app::feature::declarations::tests::Store`
+  │           ╰─▶   × feature guinea_app::feature::declarations::tests::Application at fixture.rs:42:1
+  ╰─▶   × feature guinea_app::feature::declarations::tests::Application at fixture.rs:42:1
+        ╰─▶   × conflicting providers of `guinea_app::feature::declarations::tests::Store`
+              ╰─▶   × feature guinea_app::feature::declarations::tests::Settings at fixture.rs:42:1

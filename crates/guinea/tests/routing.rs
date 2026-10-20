@@ -57,8 +57,7 @@ mod provided {
     #[test]
     fn a_page_s_feature_takes_what_the_application_provided_from_a_plugin() {
         let (host, ()) = guinea::app::start("test", |app| {
-            let Greets(greeting) = app.plugin::<Greets>(())?;
-            app.provide(greeting);
+            app.plugin::<Greets>(())?;
             Ok(())
         })
         .expect("install");
@@ -68,14 +67,12 @@ mod provided {
     }
 
     #[test]
-    fn a_page_under_an_application_that_provided_nothing_gets_a_plain_error_not_a_panic() {
+    fn a_page_with_an_unavailable_declared_dependency_panics() {
         let host = GuineaHost::new();
-        let err = mount(&Root::under(&host.context())).expect_err("nothing provided the service");
-
-        assert!(
-            format!("{err:#}").contains("Greeting"),
-            "the error should name the missing service, got: {err:#}"
-        );
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mount(&Root::under(&host.context()))))
+            .err().expect("missing dependencies are composition errors");
+        let message = panic.downcast_ref::<String>().unwrap();
+        insta::assert_snapshot!(message.replace('\\', "/"));
     }
 }
 

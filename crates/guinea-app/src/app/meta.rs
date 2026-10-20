@@ -53,7 +53,6 @@ impl AppMeta {
 /// fn app(app: &mut FeatureBuilder) -> anyhow::Result<Window> {
 ///     let meta = app_meta!();
 ///     app.plugin::<SingleInstancePlugin>(meta.clone())?;
-///     app.provide(meta.clone());
 ///     Ok(Window::of::<Shell>().title(meta.window_title))
 /// }
 /// ```

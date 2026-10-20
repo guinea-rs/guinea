@@ -26,6 +26,16 @@ pub use harness::{Act, Harness, Segment, TestApp, check, check_exclusive};
 
 pub use host::{AppContext, GuineaHost};
 
+/// Checks the linked installer contracts without running their bodies.
+/// Backend startup calls this before entering the application function.
+///
+/// # Panics
+///
+/// On contradictory declarations, with a diagnostic tree and source locations.
+pub fn validate_declarations() {
+    crate::feature::declarations::validate();
+}
+
 /// Builds the application with `app` in a new [`GuineaHost`], for a backend
 /// adapter's `run`, once its UI thread is ready: the application's function
 /// installs plugins and features in the order it is written and returns its
@@ -45,6 +55,7 @@ pub fn start<W>(
     backend: &'static str,
     app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<W>,
 ) -> anyhow::Result<(GuineaHost, W)> {
+    validate_declarations();
     if guinea_core::ui_thread::on_ui_thread() == Some(false) {
         anyhow::bail!(
             "installed off the UI thread: the dispatcher runs work on another thread, \

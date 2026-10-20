@@ -1,0 +1,46 @@
+---
+source: crates/guinea-app/tests/context_services.rs
+expression: "(signatures, manifests)"
+---
+(
+    [
+        (
+            "|| < Generic < Dependency > as :: guinea_app :: app :: AppFeature > ::\ndeclaration().expect(\"macro declaration\")",
+            "fn generic < Dependency : Default + 'static > (_app : & mut FeatureBuilder,)\n-> anyhow :: Result < Generic < Dependency > >",
+        ),
+        (
+            "|| < GenericPlugin < Dependency > as :: guinea_app :: app :: Plugin > ::\ndeclaration().expect(\"macro declaration\")",
+            "fn generic_plugin < Dependency : Default + 'static >\n(_app : & mut PluginBuilder, fail : bool,) -> anyhow :: Result < GenericPlugin\n< Dependency > >",
+        ),
+        (
+            "|| < Observing < Dependency > as :: guinea_app :: feature :: Feature > ::\ndeclaration().expect(\"macro declaration\")",
+            "fn observing < Dependency : 'static >\n(_cx : & Install, dependency : Rc < Dependency > ,) -> anyhow :: Result <\nObserving < Dependency > >",
+        ),
+    ],
+    [
+        (
+            "context_services::Generic",
+            [],
+            [],
+            [
+                "Rc < Dependency >",
+            ],
+        ),
+        (
+            "context_services::GenericPlugin",
+            [],
+            [],
+            [
+                "Rc < Dependency >",
+            ],
+        ),
+        (
+            "context_services::Observing",
+            [],
+            [],
+            [
+                "Observed < Dependency >",
+            ],
+        ),
+    ],
+)

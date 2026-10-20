@@ -22,6 +22,15 @@ use super::given::Lookup;
 /// things the same way: claim state and drive it, answer actions, watch other
 /// state, hear the bus, spawn actors, run timers. What only a window has - its
 /// place in a chain, leaving and waking - is the window context's own.
+///
+/// Dependencies are installer arguments, not context lookups.
+///
+/// ```compile_fail
+/// use guinea_app::feature::ScopeContext;
+/// fn lookup(cx: &ScopeContext) {
+///     let _ = cx.service::<String>();
+/// }
+/// ```
 #[derive(Clone)]
 pub struct ScopeContext {
     pub(crate) scope: Scope,
@@ -31,24 +40,36 @@ pub struct ScopeContext {
 }
 
 impl ScopeContext {
+    pub(crate) fn prepare(&self, declaration: Option<super::declarations::Declaration>) {
+        let Some(declaration) = declaration else { return; };
+        super::declarations::note(self.scope, &declaration);
+        super::given::check_named(declaration.name, self.scope, &declaration.inputs, declaration.source);
+        let mut seen = std::collections::HashSet::new();
+        for output in &declaration.outputs {
+            if !seen.insert((output.id, output.channel)) {
+                let report = crate::diagnostic::Diagnostic::new("Invalid guinea declarations")
+                    .with_related(vec![super::declarations::provider_diagnostic(&declaration).with_related(vec![
+                        crate::diagnostic::Diagnostic::new(format!("duplicate {:?} output `{}`", output.channel, output.name)),
+                    ])]).render();
+                panic!("{report}");
+            }
+            if output.channel == super::declarations::Channel::Service
+                && let Some(first) = guinea_core::__private::dependency_provider(self.scope, output.id)
+            {
+                let report = crate::diagnostic::Diagnostic::new("Invalid guinea composition")
+                    .with_related(vec![super::declarations::provider_diagnostic(&declaration).with_related(vec![
+                        crate::diagnostic::Diagnostic::new(format!("service `{}` is already provided by `{first}`", output.name)),
+                    ])]).render();
+                panic!("{report}");
+            }
+        }
+    }
     /// A context for `scope`'s own section.
     pub fn new(scope: Scope) -> Self {
         Self {
             scope,
             section: scope.section(),
         }
-    }
-
-    /// A clone of the application's provided service, or `None` if it was
-    /// not provided. Available through `Install` and the application and
-    /// plugin builders as well, for extension traits implemented by plugins.
-    /// Returning a handle from a plugin does not provide it automatically.
-    ///
-    /// # Panics
-    ///
-    /// When this context's scope is gone.
-    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
-        self.scope.service::<T>()
     }
 
     /// This context for `section`, and the scope it is in.
@@ -219,13 +240,25 @@ pub trait Feature: Sized + 'static {
     /// implemented by hand leaves it unknown and loses only the source link.
     const DECLARED: Option<Declared> = None;
 
+    #[doc(hidden)]
+    fn declaration() -> Option<super::declarations::Declaration> { None }
+
+    #[doc(hidden)]
+    fn publish_dependencies(&self, _cx: &ScopeContext) {}
+
     fn install(cx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self>;
 }
 
-/// What `feature!` or `plugin!` declares: what it exports. `#[installs]` and
-/// `#[builds]` read [`Exports`](Feature::Exports) from here.
+/// What `feature!` or `plugin!` declares: state exports, feeds and provided
+/// dependencies. Installation macros read and publish the declared outputs.
 pub trait Manifest {
     type Exports: Exported;
+
+    #[doc(hidden)]
+    fn outputs() -> Vec<super::declarations::Port> { Vec::new() }
+
+    #[doc(hidden)]
+    fn publish_dependencies(&self, _cx: &ScopeContext) {}
 }
 
 impl FeatureInitContext {
@@ -247,6 +280,8 @@ impl FeatureInitContext {
             panic!("`{who}` is already installed in this scope - a scope installs a feature once");
         }
 
+        self.scope_cx.prepare(F::declaration());
+
         let section = self.scope.open_section(Some(who), F::DECLARED);
         let cx = FeatureInitContext {
             scope_cx: self.scope_cx.in_section(section),
@@ -254,7 +289,11 @@ impl FeatureInitContext {
         };
 
         let installed = F::install(&cx, params)
-            .and_then(|installed| settle::<F, F::Exports>(self.scope, who).map(|()| installed));
+            .and_then(|installed| {
+                settle::<F, F::Exports>(self.scope, who)?;
+                installed.publish_dependencies(&cx.scope_cx);
+                Ok(installed)
+            });
         if installed.is_err() {
             section.withdraw();
         }

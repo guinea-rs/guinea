@@ -38,9 +38,7 @@ fn memory_store(_app: &mut PluginBuilder, theme: &'static str) -> anyhow::Result
 //@show plugins: application wiring
 fn app(app: &mut FeatureBuilder) -> anyhow::Result<Store> {
     let MemoryStore(user) = app.plugin::<MemoryStore>("dark")?;
-    let MemoryStore(internal) = app.plugin::<MemoryStore>("light")?;
-    app.provide(user);
-    Ok(internal)
+    Ok(user)
 }
 //@show-end
 
@@ -71,34 +69,61 @@ fn appearance(cx: &Install, store: Store) -> anyhow::Result<Appearance> {
 
 //@show plugins: testing application wiring
 #[guinea::test]
-fn the_application_chooses_which_store_its_pages_receive(h: &mut Harness) {
-    let internal = h.app(app).unwrap();
+fn the_application_shares_its_declared_store_with_pages(h: &mut Harness) {
+    let store = h.app(app).unwrap();
     h.install::<Appearance>(&()).unwrap();
 
     assert_eq!(h.state::<Theme>().0, "dark");
-    assert_eq!(internal.get("theme").as_deref(), Some("light"));
+    assert_eq!(store.get("theme").as_deref(), Some("dark"));
 
-    internal.set("theme", "blue");
+    store.set("theme", "blue");
     let page = h.child();
     page.install::<Appearance>(&()).unwrap();
-    assert_eq!(page.state::<Theme>().0, "dark");
+    assert_eq!(page.state::<Theme>().0, "blue");
 }
 //@show-end
 
-//@show plugins: returned is not provided
-#[test]
-fn returning_a_service_does_not_publish_it() {
-    let mut app = TestApp::new();
-    let MemoryStore(store) = app.plugin::<MemoryStore>("dark").unwrap();
-
-    assert!(app.service::<Store>().is_none());
-    app.provide(store);
-    assert_eq!(
-        app.service::<Store>().unwrap().get("theme").as_deref(),
-        Some("dark")
-    );
+//@show plugins: declared services are published
+#[guinea::test]
+fn declared_services_are_published_automatically(h: &mut Harness) {
+    h.plugin::<MemoryStore>("dark").unwrap();
+    h.install::<Appearance>(&()).unwrap();
+    assert_eq!(h.state::<Theme>().0, "dark");
 }
 //@show-end
+
+//@show plugins: application outputs
+#[derive(Clone)]
+pub struct AppName(pub &'static str);
+
+feature! {
+    pub Application {
+        provides { AppName }
+    }
+}
+
+#[installs]
+fn application(app: &mut FeatureBuilder) -> anyhow::Result<Application> {
+    app.plugin::<MemoryStore>("dark")?;
+    Ok(Application(AppName("guinea")))
+}
+//@show-end
+
+feature! { Named {} }
+
+#[installs]
+fn named(_cx: &Install, name: AppName) -> anyhow::Result<Named> {
+    assert_eq!(name.0, "guinea");
+    Ok(Named)
+}
+
+#[guinea::test]
+fn application_features_publish_their_declared_outputs(h: &mut Harness) {
+    h.app(|app| app.install::<Application>()).unwrap();
+    h.install::<Named>(&()).unwrap();
+    h.install::<Appearance>(&()).unwrap();
+    assert_eq!(h.state::<Theme>().0, "dark");
+}
 
 //@show plugins: registering cleanup
 plugin! {

@@ -6,6 +6,7 @@
 //! `guinea`'s `run`.
 
 extern crate self as guinea_app;
+mod diagnostic;
 
 pub mod app;
 pub mod feature;

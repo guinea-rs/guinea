@@ -3,89 +3,57 @@ use guinea_core::__private::Exported;
 
 use super::builder::{FeatureBuilder, PluginBuilder};
 
-/// Reusable, application-agnostic: the application knows the plugin, never the
-/// other way round.
-///
-/// Written as a feature is: `plugin!` lists what it exports to every window,
-/// the feeds it opens and what it provides to the application, and a
-/// `#[builds]` function builds it from its parameters:
+/// A reusable component whose declared outputs become available after a
+/// successful build. The first argument after the builder is configuration;
+/// subsequent arguments are declared dependencies, passed by clone.
 ///
 /// ```
-/// use guinea_app::app::PluginBuilder;
+/// use guinea_app::app::{PluginBuilder, start};
 /// use guinea_macros::{builds, plugin};
 ///
-/// #[derive(Clone, Debug, PartialEq)]
-/// pub struct Store(&'static str);
+/// #[derive(Clone)]
+/// struct Store(&'static str);
 ///
-/// plugin! {
-///     pub Settings {
-///         provides { Store }
-///     }
-/// }
+/// plugin! { Settings { provides { Store } } }
 ///
 /// #[builds]
 /// fn settings(_app: &mut PluginBuilder, file: &'static str) -> anyhow::Result<Settings> {
 ///     Ok(Settings(Store(file)))
 /// }
-/// # fn main() -> anyhow::Result<()> {
-/// # let (_host, Settings(store)) =
-/// #     guinea_app::app::start("doc", |app| app.plugin::<Settings>("settings.db"))?;
-/// # assert_eq!(store, Store("settings.db"));
-/// # Ok(())
-/// # }
-/// ```
 ///
-/// What it needs from another plugin it is handed in its parameters, and the
-/// application takes apart what it built. Nothing it provides is in the
-/// application's scope until the application
-/// [`provide`](FeatureBuilder::provide)s it, so a plugin may be installed more
-/// than once - two stores, say - and the application decides which one its
-/// windows see:
-///
-/// ```
-/// # use guinea_app::app::PluginBuilder;
-/// # use guinea_macros::{builds, plugin};
-/// use guinea_app::app::FeatureBuilder;
-/// use guinea_app::app::roots::Root;
-/// # #[derive(Clone, Debug, PartialEq)]
-/// # pub struct Store(&'static str);
-/// # plugin! { pub Settings { provides { Store } } }
-/// # #[builds]
-/// # fn settings(_app: &mut PluginBuilder, file: &'static str) -> anyhow::Result<Settings> {
-/// #     Ok(Settings(Store(file)))
-/// # }
-///
-/// plugin! {
-///     pub Remembering {}
-/// }
+/// plugin! { Remembering {} }
 ///
 /// #[builds]
-/// fn remembering(_app: &mut PluginBuilder, _store: Store) -> anyhow::Result<Remembering> {
+/// fn remembering(_app: &mut PluginBuilder, (): (), store: Store) -> anyhow::Result<Remembering> {
+///     assert_eq!(store.0, "settings.db");
 ///     Ok(Remembering)
 /// }
 ///
-/// fn app(app: &mut FeatureBuilder) -> anyhow::Result<()> {
-///     let Settings(user) = app.plugin::<Settings>("settings.db")?;
-///     let Settings(internal) = app.plugin::<Settings>("state.db")?;
-///     app.plugin::<Remembering>(internal)?;
-///     app.provide(user);
-///     Ok(())
-/// }
 /// # fn main() -> anyhow::Result<()> {
-/// # let (host, ()) = guinea_app::app::start("doc", app)?;
-///
-/// let window = Root::under(&host.context());
-/// assert_eq!(window.scope().service::<Store>(), Some(Store("settings.db")));
+/// let (_host, ()) = start("doc", |app| {
+///     app.plugin::<Settings>("settings.db")?;
+///     app.plugin::<Remembering>(())?;
+///     Ok(())
+/// })?;
 /// # Ok(())
 /// # }
 /// ```
+///
+/// Providing a type twice is a composition bug and panics before the second
+/// builder runs. Distinct dependencies need distinct wrapper types.
+/// Resource failures remain ordinary installation errors.
 pub trait Plugin: Sized + 'static {
+    #[doc(hidden)]
+    fn declaration() -> Option<crate::feature::declarations::Declaration> { None }
     /// What it is built with, by value: its configuration, and what it is
     /// handed of other plugins. `()` for one built with nothing.
     type Params;
 
     /// What every window may read: what `plugin!` lists.
     type Exports: Exported;
+
+    #[doc(hidden)]
+    fn publish_dependencies(&self, _cx: &crate::feature::ScopeContext) {}
 
     fn build(app: &mut PluginBuilder, params: Self::Params) -> anyhow::Result<Self>;
 }
@@ -134,11 +102,16 @@ pub trait Plugin: Sized + 'static {
 /// # }
 /// ```
 pub trait AppFeature: Sized + 'static {
+    #[doc(hidden)]
+    fn declaration() -> Option<crate::feature::declarations::Declaration> { None }
     /// What every window may read: what `feature!` lists.
     type Exports: Exported;
 
     /// Where the feature was written. `#[installs]` fills it in.
     const DECLARED: Option<Declared> = None;
+
+    #[doc(hidden)]
+    fn publish_dependencies(&self, _cx: &crate::feature::ScopeContext) {}
 
     fn install(app: &mut FeatureBuilder) -> anyhow::Result<Self>;
 }

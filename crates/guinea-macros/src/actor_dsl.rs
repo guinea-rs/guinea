@@ -492,7 +492,7 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
         subscribes,
     } = manifest;
 
-    let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
     let private = quote!(#gc::__private);
 
     let bus_marker = format_ident!("__GuineaBus");
@@ -530,15 +530,20 @@ fn expand(manifest: Manifest) -> syn::Result<TokenStream> {
             if !seen.insert(key) {
                 return None;
             }
-            Some(quote! { impl #private::Allows<#msg, #target> for #flow_marker {} })
+            Some(quote! {
+                impl #impl_generics #private::Allows<#msg, #target>
+                    for #flow_marker #type_generics #where_clause {}
+            })
         })
         .collect();
 
     let (flow_ty, flow_decl) = if declares_flow {
         (
-            quote!(#flow_marker),
+            quote!(#flow_marker #type_generics),
             quote! {
-                pub struct #flow_marker;
+                pub struct #flow_marker #impl_generics (
+                    ::core::marker::PhantomData<fn() -> #self_ty>
+                ) #where_clause;
                 #(#allow_impls)*
             },
         )

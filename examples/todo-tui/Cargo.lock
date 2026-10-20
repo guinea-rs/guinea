@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "guinea-app",
  "guinea-core",
@@ -688,7 +688,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -731,15 +731,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.31.0"
+version = "0.31.1"
 
 [[package]]
 name = "guinea-meta"
-version = "0.31.0"
+version = "0.31.1"
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.31.0"
+version = "0.31.1"
 dependencies = [
  "pin-project-lite",
  "serde_json",

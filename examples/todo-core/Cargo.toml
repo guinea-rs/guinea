@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 guinea = { path = "../../crates/guinea", default-features = false, features = ["own-runtime"] }
 anyhow = "1"
-amethystate = { version = "0.26", features = ["json"] }
+amethystate = { version = "0.27", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["time", "sync"] }
 

@@ -64,7 +64,7 @@ text entry.
 ## Persistence and plugin boundary
 
 `DiskStorage` is a small plugin defined **in this example**, not
-`guinea-plugin-store`. It uses the published amethystate 0.26 typed struct API.
+`guinea-plugin-store`. It uses the published amethystate 0.27 typed struct API.
 The external store plugin's migration is not published yet; these examples
 do not depend on a sibling checkout or an unavailable Git revision.
 

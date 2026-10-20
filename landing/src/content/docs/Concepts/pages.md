@@ -331,7 +331,7 @@ fn the_about_button_moves_the_window(h: &mut Harness) {
 
 ```toml
 [dev-dependencies]
-guinea = { version = "0.30", features = ["harness"] }
+guinea = { version = "0.31", features = ["harness"] }
 ```
 
 The window returned by `app` can also be tested directly, including its

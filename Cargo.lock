@@ -90,9 +90,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "amethystate"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "820ccca7522b69d5d452b591619ca6c5697e3db0a04d5e512811de627905ed2c"
+checksum = "acd876de674add2f18eb295fa1bc1d0bbe3c91c1001e7cc62cc3d2188bd47b2a"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -118,9 +118,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "904a5c3a60e047fe4dbc17f7aa7223baffa85a865b6f7e0e3ba6f19ec2bc27c8"
+checksum = "1127bc9e5c518e83ab215f4423d0aa1f86c68feab1c2013bfdd21f998bc99d1a"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -138,9 +138,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "795323e17d9012439e319a582146145640507052a47bb4210100aa1f55444e47"
+checksum = "89c0613dac778c6a97a4bd049f1f792c00fab40f7b569d553d9a99b195cc92a2"
 dependencies = [
  "amethystate-macros-core",
  "darling 0.23.0",
@@ -152,9 +152,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfbf7a03e107929e1971d1675da2384617818d4a452ffc0dfa92d3b4cdd4c5cb"
+checksum = "6dba1a1ec16c47847bcd8cb53c2c9199fe7cdb461e0f36b47ec3adcd88b7a827"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -2443,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2467,7 +2467,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2480,14 +2480,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "guinea-core"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2524,7 +2524,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-iced"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "elsa",
@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "guinea-core",
  "guinea-macros",
@@ -2562,11 +2562,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta"
-version = "0.30.0"
+version = "0.31.0"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "guinea-codegen",
  "serde",
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2590,7 +2590,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2617,7 +2617,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-codegen",
@@ -2629,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-fixture"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2640,7 +2640,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "pin-project-lite",
  "serde_json",
@@ -2651,7 +2651,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.30.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -8625,3 +8625,7 @@ dependencies = [
  "syn 3.0.3",
  "winnow 1.0.4",
 ]
+
+[[patch.unused]]
+name = "windows-canvas-pre"
+version = "0.105.0"

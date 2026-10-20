@@ -69,7 +69,7 @@ fn configured_polling(cx: &Install<Field<u64>>) -> anyhow::Result<ConfiguredPoll
 
 Тест открывает хранилище в памяти публичным API `StoreBuilder`,
 создаёт `RefreshSettings` и использует сгенерированный аксессор.
-Пример использует amethystate 0.26 с фичей `memory`:
+Пример использует amethystate 0.27 с фичей `memory`:
 
 <!-- shown: periods: changing an amethystate field rearms the timer -->
 ```rust
@@ -99,10 +99,9 @@ fn changing_an_amethystate_field_restarts_the_timer(h: &mut Harness) {
 
 ### Переходник к текущему API таймера
 
-Отдельный адаптер `amethystate-guinea` тоже пока использует прежний
-`guinea_app::timers::Changing`. Его `.changing()` нельзя без изменений
-подставить вместо текущего `guinea::sources::Changing`. Поэтому в примере
-используется небольшой локальный переходник:
+Пример реализует `guinea::sources::Changing` непосредственно для поля
+amethystate. Этот локальный переходник показывает, как читать текущее
+значение и сохранять подписку на изменения:
 
 <!-- shown: periods: an amethystate field adapter -->
 ```rust

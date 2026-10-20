@@ -69,7 +69,7 @@ restarts the timer's wait; the feature does not need reinstalling.
 
 The test opens an in-memory store with the public `StoreBuilder` API,
 opens `RefreshSettings` and uses its generated accessor. This example uses
-amethystate 0.26 with the `memory` feature:
+amethystate 0.27 with the `memory` feature:
 
 <!-- shown: periods: changing an amethystate field rearms the timer -->
 ```rust
@@ -99,10 +99,9 @@ The test checks this timing, not persistence to disk.
 
 ### Bridge to the current timer API
 
-The separate `amethystate-guinea` adapter also targets the older
-`guinea_app::timers::Changing` API. Its `.changing()` is not yet a drop-in
-replacement for the current `guinea::sources::Changing`. The example
-therefore uses this local bridge:
+The example implements `guinea::sources::Changing` directly for an
+amethystate field. This local bridge shows how to read the current value
+and keep the change subscription alive:
 
 <!-- shown: periods: an amethystate field adapter -->
 ```rust

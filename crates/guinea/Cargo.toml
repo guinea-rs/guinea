@@ -57,7 +57,7 @@ harness = ["test-utils", "guinea-winui?/harness", "guinea-eframe?/harness"]
 workspace = true
 
 [dev-dependencies]
-amethystate = { version = "0.26", features = ["memory"] }
+amethystate = { version = "0.27", features = ["memory"] }
 anyhow.workspace = true
 guinea-router.workspace = true
 tempfile.workspace = true

@@ -69,9 +69,12 @@ jobs:
           shared-key: package
           save-if: false
 
-      - name: Package and build what is about to be published
+      - name: Build all release targets
+        run: cargo build --workspace --all-targets
+
+      - name: Package the unpublished workspace versions
         run: >
-          cargo package --workspace --exclude xtask --exclude guinea-slint-fixture
+          cargo package --workspace --exclude xtask --exclude guinea-slint-fixture --no-verify
           --config .cargo/package.toml
 
   publish:

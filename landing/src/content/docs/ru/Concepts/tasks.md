@@ -503,7 +503,120 @@ fn session_cleanup_can_finish_after_its_page_leaves(h: &mut Harness) {
 
 ## Работа без ответа
 
-`detached()` означает отсутствие ответа, а не независимость от времени
-жизни актора. Если для такой задачи выбрана политика пересечения,
-линии нужно дать явное имя: типа ответа, по которому можно было бы
-её определить, здесь нет.
+Допустим, страница отправляет диагностический отчёт. Показывать результат
+отправки не нужно: задача должна выполнить действие и закончиться,
+не посылая актору новое сообщение. Для этого есть `detached()`.
+Его фьючер возвращает `()`, отдельный обработчик ответа не нужен.
+
+В примере канал изображает принимающий отчёты сервис, а секундное ожидание —
+задержку отправки. `Reports` считает запросы на отправку, не ответы сервиса:
+
+<!-- shown: tasks: reporting without an actor reply -->
+```rust
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Reports(pub u32);
+
+#[reducer]
+fn reports(this: &mut Reports, _: ()) {
+    this.0 += 1;
+}
+
+pub struct SendReport(pub String);
+pub struct ReportUpload;
+
+struct Reporting {
+    push: Push<Reports>,
+    outgoing: tokio::sync::mpsc::UnboundedSender<String>,
+}
+
+actor! {
+    Reporting {
+        handlers { SendReport }
+    }
+}
+
+#[handler]
+fn send_report(In(this, SendReport(text), cx): In<Reporting, SendReport>) {
+    this.push.send(());
+    let outgoing = this.outgoing.clone();
+    cx.task()
+        .lane::<ReportUpload>()
+        .latest()
+        .detached()
+        .spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let _ = outgoing.send(text);
+        });
+}
+
+feature! {
+    pub ReportSending {
+        exports { Reports }
+    }
+}
+
+#[installs]
+fn report_sending(
+    cx: &Install<tokio::sync::mpsc::UnboundedSender<String>>,
+) -> anyhow::Result<ReportSending> {
+    let (reports, _) = cx.state::<Reports>().driven_by(|push| Reporting {
+        push,
+        outgoing: cx.params().clone(),
+    });
+    Ok(ReportSending(reports))
+}
+```
+<!-- /shown -->
+
+Если пользователь запросил новый отчёт до отправки предыдущего, `latest()`
+отменяет старую отправку. `ReportUpload` — пустой тип, которым мы назвали
+эту группу задач. Здесь `.lane::<ReportUpload>()` обязателен: без ответа
+guinea не может взять его тип за имя линии. Для другой группы задач выбери
+другой тип, чтобы они не отменяли друг друга.
+
+<!-- shown: tasks: only the newest detached report is sent -->
+```rust
+#[guinea::test]
+fn a_new_detached_report_replaces_the_old_one_without_an_actor_reply(h: &mut Harness) {
+    let (outgoing, mut received) = tokio::sync::mpsc::unbounded_channel();
+    h.install::<ReportSending>(&outgoing).unwrap();
+    let dispatch = h.dispatch::<Reports>();
+    dispatch.emit(SendReport("old".into()));
+    h.settled();
+    h.advance(Duration::from_millis(500));
+    dispatch.emit(SendReport("new".into()));
+    h.settled();
+    h.advance(Duration::from_millis(500));
+    assert!(received.try_recv().is_err());
+    h.advance(Duration::from_millis(500));
+    assert_eq!(received.try_recv(), Ok("new".into()));
+    assert!(received.try_recv().is_err());
+    assert_eq!(h.state::<Reports>().0, 2);
+}
+```
+<!-- /shown -->
+
+«Без ответа» не означает «продолжать после закрытия страницы». Задачей
+по-прежнему владеет актор: удаление его скоупа отменяет ещё не законченную
+отправку, что проверяется отдельно:
+
+<!-- shown: tasks: detached work is cancelled when its page leaves -->
+```rust
+#[guinea::test]
+fn leaving_cancels_a_detached_report_before_it_is_sent(h: &mut Harness) {
+    let (outgoing, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let page = h.child();
+    page.install::<ReportSending>(&outgoing).unwrap();
+    page.dispatch::<Reports>().emit(SendReport("report".into()));
+    h.settled();
+    page.leave();
+    h.advance(Duration::from_secs(1));
+    assert!(received.try_recv().is_err());
+    assert_eq!(h.stuck(), 0);
+}
+```
+<!-- /shown -->
+
+Если работа должна переживать страницу, установи её актор в скоупе,
+который живёт дольше, например в приложении. `detached()` само по себе
+время жизни работы не меняет.

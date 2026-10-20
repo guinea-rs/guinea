@@ -6,6 +6,9 @@
 
 </div>
 
+[Read the book](https://guinea-rs.github.io/guinea/introduction/) ·
+[Читать книгу на русском](https://guinea-rs.github.io/guinea/ru/introduction/)
+
 ### Why
 
 Rust has good toolkits and no application layer above them: a toolkit draws the screen,

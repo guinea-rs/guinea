@@ -493,6 +493,119 @@ because cancellation was requested.
 
 ## Work without a reply
 
-`detached()` means no answer is delivered. It does **not** detach work from
-the actor's lifetime. Under an overlap policy, detached work needs an
-explicitly named lane because it has no answer type to identify one.
+Suppose a page sends a diagnostic report. The UI does not need the outcome:
+the task should perform the operation and finish without sending another
+message to the actor. Use `detached()` for this. Its future returns `()`;
+there is no reply handler to implement.
+
+Here a channel stands in for the service receiving reports, and the
+one-second wait simulates sending latency. `Reports` counts send requests,
+not service replies:
+
+<!-- shown: tasks: reporting without an actor reply -->
+```rust
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Reports(pub u32);
+
+#[reducer]
+fn reports(this: &mut Reports, _: ()) {
+    this.0 += 1;
+}
+
+pub struct SendReport(pub String);
+pub struct ReportUpload;
+
+struct Reporting {
+    push: Push<Reports>,
+    outgoing: tokio::sync::mpsc::UnboundedSender<String>,
+}
+
+actor! {
+    Reporting {
+        handlers { SendReport }
+    }
+}
+
+#[handler]
+fn send_report(In(this, SendReport(text), cx): In<Reporting, SendReport>) {
+    this.push.send(());
+    let outgoing = this.outgoing.clone();
+    cx.task()
+        .lane::<ReportUpload>()
+        .latest()
+        .detached()
+        .spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let _ = outgoing.send(text);
+        });
+}
+
+feature! {
+    pub ReportSending {
+        exports { Reports }
+    }
+}
+
+#[installs]
+fn report_sending(
+    cx: &Install<tokio::sync::mpsc::UnboundedSender<String>>,
+) -> anyhow::Result<ReportSending> {
+    let (reports, _) = cx.state::<Reports>().driven_by(|push| Reporting {
+        push,
+        outgoing: cx.params().clone(),
+    });
+    Ok(ReportSending(reports))
+}
+```
+<!-- /shown -->
+
+If the user requests another report before the previous one is sent,
+`latest()` cancels the old send. `ReportUpload` is an empty marker type naming
+this group of tasks. `.lane::<ReportUpload>()` is required here: there is no
+reply type for guinea to use as the lane's name. Give a different group a
+different marker so they do not cancel each other's work.
+
+<!-- shown: tasks: only the newest detached report is sent -->
+```rust
+#[guinea::test]
+fn a_new_detached_report_replaces_the_old_one_without_an_actor_reply(h: &mut Harness) {
+    let (outgoing, mut received) = tokio::sync::mpsc::unbounded_channel();
+    h.install::<ReportSending>(&outgoing).unwrap();
+    let dispatch = h.dispatch::<Reports>();
+    dispatch.emit(SendReport("old".into()));
+    h.settled();
+    h.advance(Duration::from_millis(500));
+    dispatch.emit(SendReport("new".into()));
+    h.settled();
+    h.advance(Duration::from_millis(500));
+    assert!(received.try_recv().is_err());
+    h.advance(Duration::from_millis(500));
+    assert_eq!(received.try_recv(), Ok("new".into()));
+    assert!(received.try_recv().is_err());
+    assert_eq!(h.state::<Reports>().0, 2);
+}
+```
+<!-- /shown -->
+
+“No reply” does not mean “continue after the page closes.” The actor still
+owns the task: removing its scope cancels an unfinished send:
+
+<!-- shown: tasks: detached work is cancelled when its page leaves -->
+```rust
+#[guinea::test]
+fn leaving_cancels_a_detached_report_before_it_is_sent(h: &mut Harness) {
+    let (outgoing, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let page = h.child();
+    page.install::<ReportSending>(&outgoing).unwrap();
+    page.dispatch::<Reports>().emit(SendReport("report".into()));
+    h.settled();
+    page.leave();
+    h.advance(Duration::from_secs(1));
+    assert!(received.try_recv().is_err());
+    assert_eq!(h.stuck(), 0);
+}
+```
+<!-- /shown -->
+
+For work that must survive the page, install its actor in a longer-lived
+scope, such as the application's. `detached()` does not change its lifetime.

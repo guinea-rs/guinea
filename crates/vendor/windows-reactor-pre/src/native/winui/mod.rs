@@ -36,7 +36,6 @@ struct NativeTextBox {
     value: native::TextBox,
     event: Rc<RefCell<NativeTextEvent>>,
     observed_text: Rc<RefCell<Rc<str>>>,
-    set_count: Cell<usize>,
     _text_changed: windows_core::EventRevoker,
 }
 
@@ -90,6 +89,13 @@ type NativeStringEvent = NativeTextEvent;
 type NativeStringListEvent = NativeValueEvent<Vec<String>>;
 type NativeUnitEvent = NativeValueEvent<()>;
 
+/// Adapter state that generated native event handlers capture when they subscribe.
+#[derive(Clone, Copy)]
+struct EventContext<'a> {
+    event_queue: &'a Rc<NativeEventQueue>,
+    pending_focus_states: &'a Rc<RefCell<HashMap<ObjectId, ElementFocusState>>>,
+}
+
 enum GeneratedRevoker {
     Event(windows_core::EventRevoker),
     Property(PropertyChangedRevoker),
@@ -118,7 +124,7 @@ impl Drop for PropertyChangedRevoker {
     }
 }
 
-include!("generated.rs");
+include!("../generated.rs");
 
 struct QueuedEvent {
     object: ObjectId,
@@ -146,6 +152,7 @@ struct NativeContentDialogState {
     desired_open: bool,
     root: Option<native::XamlRoot>,
     loaded: Option<windows_core::EventRevoker>,
+    theme_changed: Option<windows_core::EventRevoker>,
     pending_generation: Option<u64>,
     suppress_generation: Option<u64>,
     queued: bool,
@@ -323,6 +330,7 @@ impl NativeContentDialogScheduler {
                 desired_open: false,
                 root: None,
                 loaded: None,
+                theme_changed: None,
                 pending_generation: None,
                 suppress_generation: None,
                 queued: false,
@@ -533,6 +541,7 @@ impl NativeContentDialogScheduler {
         state.retired = true;
         state.owner = None;
         state.loaded = None;
+        state.theme_changed = None;
         state.desired_open = false;
         let pending = state.pending_generation.is_some();
         let _ = state;
@@ -546,18 +555,21 @@ impl NativeContentDialogScheduler {
         }
     }
 
-    fn reset(&mut self) {
+    fn reset(&mut self) -> Vec<native::ContentDialog> {
+        let mut hide = Vec::new();
         for state in self.dialogs.values_mut() {
             state.desired_open = false;
             state.loaded = None;
+            state.theme_changed = None;
             if let Some(generation) = state.pending_generation {
                 state.suppress_generation = Some(generation);
-                _ = state.value.Hide();
+                hide.push(state.value.clone());
             }
         }
         for root in &mut self.roots {
             root.schedule.queue.clear();
         }
+        hide
     }
 }
 
@@ -1073,7 +1085,6 @@ pub enum WinUiError {
     InvalidRelation(ObjectId, RelationId),
     InvalidMutation(RelationId),
     InvalidEvent(ObjectId, EventId),
-    StateMismatch(ObjectId),
     MissingContract(ObjectType, RelationId),
     IndexOverflow(usize),
     ChildNotFound(ObjectId),
@@ -1513,19 +1524,33 @@ fn set_implicit_scale(element: &native::UIElement, value: f64) -> Result<(), Win
     Ok(())
 }
 
-fn set_scale_transition(
+fn set_translation_transition(
     element: &native::UIElement,
     duration: Option<Duration>,
 ) -> Result<(), WinUiError> {
+    let transition = vector_transition(duration)?;
+    element.SetTranslationTransition(transition.as_ref())?;
+    Ok(())
+}
+
+fn vector_transition(
+    duration: Option<Duration>,
+) -> Result<Option<native::Vector3Transition>, WinUiError> {
     let Some(duration) = duration else {
-        return element
-            .SetScaleTransition(None::<&native::Vector3Transition>)
-            .map_err(Into::into);
+        return Ok(None);
     };
     let duration = TimeSpan::try_from(duration).map_err(|_| WinUiError::InvalidDuration)?;
     let transition = native::Vector3Transition::new()?;
     transition.SetDuration(duration)?;
-    element.SetScaleTransition(&transition)?;
+    Ok(Some(transition))
+}
+
+fn set_scale_transition(
+    element: &native::UIElement,
+    duration: Option<Duration>,
+) -> Result<(), WinUiError> {
+    let transition = vector_transition(duration)?;
+    element.SetScaleTransition(transition.as_ref())?;
     Ok(())
 }
 
@@ -1684,7 +1709,10 @@ impl Drop for WinUiAdapter {
             _ = retirement.timer.Stop();
         }
         self.retirements.clear();
-        self.event_queue.content_dialogs.borrow_mut().reset();
+        let hide = self.event_queue.content_dialogs.borrow_mut().reset();
+        for dialog in hide {
+            _ = dialog.Hide();
+        }
         self.event_queue.events.borrow_mut().clear();
         self.observations.clear();
         for target in self.menus.keys().copied().collect::<Vec<_>>() {
@@ -1725,7 +1753,7 @@ pub struct NativeWindow {
     state: Rc<NativeWindowState>,
     actual_theme_changed: Option<windows_core::EventRevoker>,
     closed: Option<windows_core::EventRevoker>,
-    published_title: bool,
+    published_title: Option<String>,
     published_visuals: bool,
     size_changed: Option<windows_core::EventRevoker>,
     placement_changed: Option<windows_core::EventRevoker>,
@@ -1791,7 +1819,7 @@ impl Clone for NativeWindow {
             state: Rc::clone(&self.state),
             actual_theme_changed: None,
             closed: None,
-            published_title: self.published_title,
+            published_title: self.published_title.clone(),
             published_visuals: self.published_visuals,
             size_changed: None,
             placement_changed: None,
@@ -1813,22 +1841,15 @@ impl NativeWindow {
         Ok(handle)
     }
 
-    pub fn set_title(&self, title: &str) -> Result<(), WinUiError> {
-        self.state.window.SetTitle(title).map_err(Into::into)
-    }
-
     pub(crate) fn apply_publication(
         &mut self,
         title: Option<&str>,
         visuals: Option<&WindowVisuals>,
         initial: bool,
     ) -> Result<(), WinUiError> {
-        if let Some(title) = title {
-            self.set_title(title)?;
-            self.published_title = true;
-        } else if self.published_title {
-            self.set_title("")?;
-            self.published_title = false;
+        if self.published_title.as_deref() != title {
+            self.state.window.SetTitle(title.unwrap_or_default())?;
+            self.published_title = title.map(str::to_owned);
         }
 
         if let Some(visuals) = visuals {
@@ -1862,15 +1883,27 @@ impl NativeWindow {
         self.size_changed = None;
         self.size_changed = observer
             .map(|observer| {
+                let window = self
+                    .state
+                    .window
+                    .cast::<native::IWindow2>()?
+                    .AppWindow()?
+                    .cast::<native::IAppWindow2>()?;
+                let hwnd = self.raw_handle()?;
                 self.state.root_element.SizeChanged(move |_, args| {
-                    let Some(args) = args.as_ref() else {
+                    if args.as_ref().is_none() {
                         return;
-                    };
-                    match args.NewSize() {
-                        Ok(size) => observer(WindowSize {
-                            width: f64::from(size.width),
-                            height: f64::from(size.height),
-                        }),
+                    }
+                    // Root layout can exclude a border pixel from the native client area.
+                    match window.ClientSize() {
+                        Ok(size) => {
+                            let dpi = unsafe { native::GetDpiForWindow(hwnd.cast()) }.max(96);
+                            let dips = 96.0 / f64::from(dpi);
+                            observer(WindowSize {
+                                width: f64::from(size.width) * dips,
+                                height: f64::from(size.height) * dips,
+                            });
+                        }
                         Err(error) => report_error(error),
                     }
                 })
@@ -1919,6 +1952,9 @@ impl NativeWindow {
 
     fn apply_visuals(&mut self, visuals: &WindowVisuals, initial: bool) -> Result<(), WinUiError> {
         let changes = window_visual_changes(&self.visuals, visuals);
+        if !initial && !changes.any() {
+            return Ok(());
+        }
         let window_2 = self.state.window.cast::<native::IWindow2>()?;
         let app_window = window_2.AppWindow()?;
         let mut hwnd = None;
@@ -2030,12 +2066,13 @@ impl NativeWindow {
         {
             let dpi = unsafe { native::GetDpiForWindow(window_handle()?.cast()) }.max(96);
             let pixels = |dips: f64| (dips * f64::from(dpi) / 96.0).round() as i32;
-            app_window
-                .cast::<native::IAppWindow2>()?
-                .ResizeClient(native::SizeInt32 {
+            resize_window_client(
+                &app_window,
+                native::SizeInt32 {
                     width: pixels(width),
                     height: pixels(height),
-                })?;
+                },
+            )?;
         }
 
         self.visuals = visuals.clone();
@@ -2110,6 +2147,23 @@ impl NativeWindow {
     }
 }
 
+fn resize_window_client(
+    window: &native::AppWindow,
+    size: native::SizeInt32,
+) -> windows_core::Result<()> {
+    // ResizeClient includes the native caption even when XAML extends into the title bar.
+    let outer = window.Size()?;
+    let inner = window.cast::<native::IAppWindow2>()?.ClientSize()?;
+    window.Resize(native::SizeInt32 {
+        width: size
+            .width
+            .saturating_add(outer.width.saturating_sub(inner.width)),
+        height: size
+            .height
+            .saturating_add(outer.height.saturating_sub(inner.height)),
+    })
+}
+
 #[derive(Clone, Copy)]
 struct WindowVisualChanges {
     backdrop: bool,
@@ -2117,6 +2171,12 @@ struct WindowVisualChanges {
     constraints: bool,
     icon: bool,
     theme: bool,
+}
+
+impl WindowVisualChanges {
+    fn any(self) -> bool {
+        self.backdrop || self.client_size || self.constraints || self.icon || self.theme
+    }
 }
 
 fn window_visual_changes(previous: &WindowVisuals, next: &WindowVisuals) -> WindowVisualChanges {
@@ -2146,17 +2206,17 @@ fn clear_window_icon(hwnd: *mut core::ffi::c_void) {
     }
 }
 
-include!("winui/hosting.rs");
+include!("hosting.rs");
 
-#[cfg(any(test, feature = "test"))]
-#[path = "../test_support/native/winui.rs"]
+#[cfg(feature = "test")]
+#[path = "../../test_support/native/winui.rs"]
 mod test_support;
 
-include!("winui/objects.rs");
-include!("winui/events.rs");
-include!("winui/relations.rs");
+include!("objects.rs");
+include!("events.rs");
+include!("relations.rs");
 
-include!("winui/adapter.rs");
+include!("adapter.rs");
 
 fn relation_contract(
     kind: ObjectType,
@@ -2327,5 +2387,5 @@ fn set_grid_definitions(
 }
 
 #[cfg(test)]
-#[path = "../tests/native/winui.rs"]
+#[path = "../../tests/native/winui.rs"]
 mod tests;

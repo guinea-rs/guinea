@@ -143,12 +143,14 @@ impl Page for Tasks {
         let nav = cx.navigate::<Screen>();
         let mut children = vec![
             TextBlock::new().text("New task").into(),
-            TextBox::new(&self.title)
+            TextBox::new()
+                .text(&self.title)
                 .on_text_changed(cx.on(|text: Rc<str>| TaskMsg::Title(text.to_string())))
                 .into(),
             button("Add task", cx.on(|()| TaskMsg::Add)),
             TextBlock::new().text("Search").into(),
-            TextBox::new(&self.query)
+            TextBox::new()
+                .text(&self.query)
                 .on_text_changed(cx.on(|text: Rc<str>| TaskMsg::Query(text.to_string())))
                 .into(),
         ];
@@ -241,7 +243,8 @@ impl Page for Details {
             .spacing(8.0)
             .children(vec![
                 TextBlock::new().text(format!("Task {}", self.id)).into(),
-                TextBox::new(&self.title)
+                TextBox::new()
+                    .text(&self.title)
                     .on_text_changed(cx.on(|text: Rc<str>| DetailMsg::Title(text.to_string())))
                     .into(),
                 button("Back", move || {

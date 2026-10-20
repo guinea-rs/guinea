@@ -22,12 +22,19 @@ impl ComponentHost<WinUiAdapter> {
 
 impl WinUiAdapter {
     fn apply_mutations(&mut self, mutations: &[Mutation]) -> Result<(), WinUiError> {
+        let mut initializing = HashSet::new();
         for mutation in mutations {
             match mutation {
-                Mutation::Create { object, kind } => self.create(*object, *kind)?,
-                Mutation::Replace { object, kind } => self.replace(*object, *kind)?,
+                Mutation::Create { object, kind } => {
+                    self.create(*object, *kind)?;
+                    initializing.insert(*object);
+                }
+                Mutation::Replace { object, kind } => {
+                    self.replace(*object, *kind)?;
+                    initializing.insert(*object);
+                }
                 Mutation::SetProperties { object, set, clear } => {
-                    self.set_properties(*object, set, clear)?;
+                    self.set_properties(*object, set, clear, initializing.remove(object))?;
                 }
                 Mutation::SetEvents { object, set, clear } => {
                     self.set_events(*object, set, clear)?;
@@ -214,7 +221,8 @@ impl Adapter for WinUiAdapter {
     type Error = WinUiError;
 
     fn preview_native_events(&self, events: &mut Vec<NativeEvent>) {
-        events.extend(
+        NativeEvent::preview_prefix(
+            events,
             self.event_queue
                 .events
                 .borrow()

@@ -12,7 +12,6 @@ they are. It is markdown in this repository:
 [`landing/src/content/docs/introduction.md`](landing/src/content/docs/introduction.md)
 
 Per-item reference is rustdoc: `cargo doc --open` for the working tree.
-`TODO.md` holds what is decided and not done, and what is not decided yet.
 
 ## Layout
 
@@ -49,8 +48,7 @@ cargo build -p guinea --no-default-features
 
 ## Releases
 
-Each release tag has notes in `release-notes/<tag>.md`. The publish workflow
-checks that they exist and creates the corresponding GitHub Release only
+The publish workflow creates a GitHub Release with generated notes only
 after crate publication succeeds. Update the workspace version and internal
 dependency requirements together; do not tag a release before its checks pass.
 

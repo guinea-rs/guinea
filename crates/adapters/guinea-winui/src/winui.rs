@@ -530,7 +530,7 @@ pub trait Page: Sized + 'static {
     ///     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
     ///         StackPanel::new()
     ///             .children((
-    ///                 TextBox::new(&self.name).on_text_changed(cx.on(Msg::Named)),
+    ///                 TextBox::new().text(self.name.clone()).on_text_changed(cx.on(Msg::Named)),
     ///                 TextBlock::new().text(format!("hello, {}", self.name)),
     ///             ))
     ///             .into()

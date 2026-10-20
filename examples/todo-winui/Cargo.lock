@@ -3486,7 +3486,7 @@ checksum = "9b39de7c7fe78858b0144c50c3fc000bab3be17d5e9b85b1053871693c7f7415"
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.104.1"
+version = "0.105.0"
 dependencies = [
  "windows-collections",
  "windows-core",

@@ -47,11 +47,24 @@ cargo xtask docs --check
 cargo build -p guinea --no-default-features
 ```
 
+## Releases
+
+Each release tag has notes in `release-notes/<tag>.md`. The publish workflow
+checks that they exist and creates the corresponding GitHub Release only
+after crate publication succeeds. Update the workspace version and internal
+dependency requirements together; do not tag a release before its checks pass.
+
 ## Working on the book
 
 Two locales over the same tree: English at `landing/src/content/docs/`, Russian
 under `ru/` beside it. A page added to one belongs in the other, and a change
 to one lands with the change to the other.
+
+The book has two parts: **Application layer** (backend-independent logic,
+state, communication and resource lifetimes) and **Backend integration**
+(windows, pages/layouts, mounting, routing and rendering). The explicit
+sidebar in `landing/astro.config.mjs` defines their reading order; add a new
+chapter there, in its part. Existing `concepts/` URLs remain stable.
 
 **Code in the book is not written in the book.** A page asks for a block by
 name:
@@ -98,7 +111,7 @@ container directive per backend inside `::::backends`:
 The tabs are `landing/src/backends.mjs`; the reader's choice holds across the
 page and the next visit. The documented backends are WinUI and egui. Their
 examples live in `book_<page>_<backend>.rs` in the facade, under the backend's
-feature; CI builds the egui ones with `--features eframe`.
+feature; CI runs the egui ones with `--features eframe,harness`.
 
 Diagrams are Mermaid fences, not ASCII art: an agent reads a graph from text
 reliably and a two-dimensional picture of one badly. ASCII is for trees.

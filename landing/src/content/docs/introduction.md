@@ -4,29 +4,37 @@ sidebar:
   order: 1
 ---
 
-Rust has good toolkits and no application layer above them: a toolkit draws
-the screen, and how the application around it is built is left to each
-project. The answers differ, but every application past a demo meets the same
-problems:
+A GUI toolkit provides windows, controls and input handling. An application
+also needs state, background work, navigation and saved settings. Each project
+has to decide how those fit together with its interface.
 
-- messages forwarded through layers to where they are handled;
-- request ids, so a late answer does not overwrite a newer one;
-- setup, teardown and refetching written by hand for every screen;
-- one huge state everything reaches into, and no tests for it;
-- settings saved and synced by hand.
+As the application grows, the same questions come up:
+
+- How does a user action reach its handler without a chain of forwarded
+  messages?
+- How do you prevent an old request's answer from overwriting a newer result?
+- Who stops a screen's tasks and subscriptions when the user closes it?
+- Where does state shared by several screens belong?
+- How do you test application logic without starting the interface?
+- How do you save settings and report their changes?
+
+guinea provides a structure for that application. It connects the interface
+to application logic and manages resource lifetimes. The interface itself
+stays in the chosen toolkit: WinUI, iced, egui, ratatui or Slint.
 
 ## What guinea is
 
-MVI for a whole application:
+guinea is built around MVI: user actions, application state and presentation
+are separate, and changes follow a defined path.
 
-- **Intent** - a page emits what the user asked for, and changes only its own
-  view state;
-- **Model** - a reducer, the one place a state changes, driven by an actor that
-  decides;
-- **View** - the page, written the way its toolkit works: WinUI, iced, egui,
-  ratatui or Slint.
+- **Intent** - an action a page sends on the user's behalf: add a task,
+  refresh a list, save a document.
+- **Model** - state and the logic that changes it. An actor handles actions,
+  and a reducer applies the updates it prepares to the state.
+- **View** - a page that reads the state and builds the interface using its
+  toolkit.
 
-A click goes around one loop:
+When an action needs background work, the flow looks like this:
 
 ```mermaid
 flowchart LR
@@ -38,36 +46,67 @@ flowchart LR
         task[background task]
         reducer[reducer]
     end
-    page -->|"action (Intent)"| actor
+    page -->|"Dispatch::emit"| actor
     actor -->|spawns| task
     task -->|answer| actor
     actor -->|push| reducer
     reducer -->|state| page
 ```
 
-1. The page emits an action - what the user asked for, not what to change.
-2. The actor of the feature that owns the state decides what it means. Slow
-   work - a request, a file - runs as a background task, and its answer comes
-   back to the actor as one more message.
-3. The actor pushes an update to the reducer, the one place the state changes.
-4. The page reads the state and draws again.
+1. The page sends an action through `Dispatch::emit`.
+2. The actor handles it and starts a background task, such as a server request
+   or a file read. The result comes back to the actor as a message.
+3. The actor sends an update, and the reducer changes the state.
+4. The page reads the result and updates the interface.
 
-What only the page cares about - which tab is open, what is typed in a filter -
-does not go around the loop: the page keeps it itself.
+A simple action needs no background task: the actor can send an update
+straight away. Data that only the page needs stays in the page's own struct.
+A filter's text or a selected tab need not pass through an actor and reducer.
 
-The application is built out of pages. Everything lives in a scope - the
-application's, a window's, a layout's, a page's - and goes with it: what a page
-set up ends when the user leaves it, with nothing to tear down by hand.
+## State and lifetime
 
-State lives with the screen that needs it, and is shared by installing it
-higher up - in a layout, or in the application. A page reads what it installed
-itself, what a layout above it exports, and what the application provides;
-anything else is not in reach, and a test sets up exactly that and no more.
+Application logic is grouped into **features**. A feature installs its state,
+handlers, subscriptions and background work into a **scope**, an area with a
+defined lifetime. Applications, windows, layouts and pages have their own
+scopes.
+
+Removing a page's scope releases its resources: background tasks are
+cancelled, timers stop and subscriptions end. Resources managed by guinea
+need no separate teardown code.
+
+Where a feature is installed determines who can read its state and how long
+it lives. A list used by one page can be installed on that page. Several
+pages share it through their common layout; several windows, through the
+application.
+
+A page reads its own features' state, the exports of parent layouts and the
+data the application provides. A test supplies those same dependencies: it
+can install the feature, send an action and check the result without the
+rest of the application.
+
+## Two layers
+
+The book has two parts:
+
+- **Application layer** — [scopes](../concepts/scopes/),
+  [features and state](../concepts/features/), plugins, actors, communication
+  and background work. These rules do not depend on the GUI toolkit.
+- **Backend integration** — [pages and layouts](../concepts/pages/) and
+  [interface composition](../concepts/composition/): attaching application
+  logic to windows, reading state from the UI, routing, mounting and
+  redraws. Examples use backend tabs and call out differences rather than
+  assuming every adapter has the same API.
+
+Start with the application layer to define behavior and test it without a
+window. Use the integration part when connecting that behavior to a toolkit.
+An application-layer example may mention a page as a resource owner; the
+toolkit-specific mounting and rendering code belongs in the second part.
 
 ## A first look
 
-A counter: the state, the reducer that is the only place it changes, the actor
-that decides what goes into it, and the feature that installs the two.
+Here is a counter feature. `Count` holds the value, the reducer adds a number
+to it, and the `Counting` actor handles the `Add` action. The `counter`
+function creates the state and actor when the feature is installed.
 
 <!-- shown: introduction: a feature -->
 ```rust
@@ -111,8 +150,9 @@ fn counter(cx: &Install) -> anyhow::Result<Counter> {
 ```
 <!-- /shown -->
 
-A test installs the feature with nothing around it, sends what a page would,
-and reads what came out. No window, no event loop.
+A test installs the counter and sends two `Add` actions, just as a page
+would. Once the actions have been processed, it checks `Count`. No window
+or GUI event loop is needed.
 
 <!-- shown: introduction: a test -->
 ```rust

@@ -1,10 +1,11 @@
-#![cfg(feature = "eframe")]
-#![allow(dead_code)]
+#![cfg(all(feature = "eframe", feature = "harness"))]
 
-//! The egui examples on the book's page about pages and layouts, compiled.
+//! The egui examples on the book's page about pages and layouts, run.
 //! `cargo xtask docs` copies what is between the marks into it.
 
 use guinea::prelude::*;
+use guinea::app::Harness;
+use guinea::eframe::harness::Mounted;
 
 mod counting {
     use super::*;
@@ -121,14 +122,37 @@ mod shell {
     //@show-end
 
     //@show egui: an application
-    use guinea::eframe::{Window, run};
+    use guinea::eframe::Window;
 
     fn app(_app: &mut FeatureBuilder) -> anyhow::Result<Window> {
         Ok(Window::of::<Shell>().title("Counter").at(Place::Counter))
     }
 
-    fn main() -> anyhow::Result<()> {
-        run(app)
+    //@show-end
+
+    //@show egui: testing a page
+    #[guinea::test]
+    fn adds_the_step_it_was_told(h: &mut Harness) {
+        let mut page = Mounted::window(h, Window::of::<CounterPage>());
+
+        page.click_text("Bigger");
+        page.click_text("Add");
+
+        assert!(page.has_text("2 by 2"));
+    }
+    //@show-end
+
+    //@show egui: testing an application
+    #[guinea::test]
+    fn the_about_button_moves_the_window(h: &mut Harness) {
+        let window = h.app(app).unwrap();
+        let mut shell = Mounted::window(h, window);
+        assert!(shell.has_text("0 by 1"));
+
+        shell.click_text("About");
+
+        assert!(shell.has_text("guinea"));
+        assert!(!shell.has_text("0 by 1"));
     }
     //@show-end
 }

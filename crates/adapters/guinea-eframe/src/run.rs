@@ -41,8 +41,8 @@ pub const MAIN: &str = "main";
 pub struct Window {
     title: String,
     options: eframe::NativeOptions,
-    root: Root,
-    start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
+    pub(crate) root: Root,
+    pub(crate) start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
 }
 
 /// The layout a window roots at.

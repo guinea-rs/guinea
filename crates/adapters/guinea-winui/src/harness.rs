@@ -1338,16 +1338,47 @@ impl<'h, R: Routable> Mounted<'h, R> {
     /// # });
     /// ```
     pub fn routed<L: Mountable<Params = ()>>(harness: &'h Harness, initial: R) -> anyhow::Result<Self> {
+        Self::from_window(harness, Window::of::<L>().at(initial))
+    }
+
+    /// Mounts the actual window returned by the application's setup function.
+    /// It must declare a navigator over `R` with `Window::at`.
+    ///
+    /// ```
+    /// use guinea_app::app::Harness;
+    /// use guinea_winui::{Layout, LayoutCx, Routable, Window, layout};
+    /// use guinea_winui::harness::Mounted;
+    /// use windows_reactor::{TextBlock, View};
+    ///
+    /// #[derive(Clone, PartialEq, Debug, Routable)]
+    /// enum Route { Home }
+    ///
+    /// #[derive(Default)]
+    /// struct Shell;
+    ///
+    /// #[layout]
+    /// impl Layout for Shell {
+    ///     fn view(&self, _cx: &mut LayoutCx<'_, '_, Self>) -> View {
+    ///         TextBlock::new().text("Home").into()
+    ///     }
+    /// }
+    ///
+    /// let harness = Harness::new(0);
+    /// let window = Window::of::<Shell>().at(Route::Home);
+    /// let mounted = Mounted::<Route>::from_window(&harness, window).unwrap();
+    /// assert!(mounted.find_text("Home").is_some());
+    /// ```
+    pub fn from_window(harness: &'h Harness, window: Window) -> anyhow::Result<Self> {
         let rooted = Rooted {
             app: harness.application(),
-            window: Window::of::<L>().at(initial),
+            window,
         };
 
         let owner = next_owner();
         let built = host(owner, component::<Shown>(ROOT, View::component::<Chrome>(rooted)));
 
         let host = built.map_err(|refused| {
-            anyhow::anyhow!("mounting a window of {}: {refused}", std::any::type_name::<L>())
+            anyhow::anyhow!("mounting a window over {}: {refused}", std::any::type_name::<R>())
         })?;
 
         let (window, navigator) = WINDOW

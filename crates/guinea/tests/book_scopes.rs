@@ -2,6 +2,7 @@
 //! copies what is between the marks into it.
 
 use std::cell::Cell;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -128,5 +129,44 @@ fn what_a_page_claims_is_not_seen_above_it(h: &mut Harness) {
 
     assert_eq!(page.scope().owner_of::<Draft>(), Some(page.scope()));
     assert_eq!(h.segment().scope().owner_of::<Draft>(), None);
+}
+//@show-end
+
+//@show scopes: a temporary cache belongs to the page
+feature! {
+    pub PreviewCache {}
+}
+
+#[installs]
+fn preview_cache(cx: &Install<Path>) -> anyhow::Result<PreviewCache> {
+    let cache = tempfile::Builder::new()
+        .prefix("previews-")
+        .tempdir_in(cx.params())?;
+    cx.on_teardown(move || drop(cache));
+    Ok(PreviewCache)
+}
+//@show-end
+
+//@show scopes: leaving deletes the temporary cache
+#[guinea::test]
+fn leaving_a_page_deletes_its_temporary_cache(h: &mut Harness) {
+    let parent = tempfile::tempdir().unwrap();
+    let page = h.child();
+    page.install::<PreviewCache>(parent.path()).unwrap();
+
+    let entries: Vec<_> = std::fs::read_dir(parent.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let cache = &entries[0];
+    let thumbnail = cache.join("thumbnail.bin");
+    std::fs::write(&thumbnail, b"preview").unwrap();
+    assert!(thumbnail.exists());
+
+    page.leave();
+
+    assert!(!cache.exists());
+    assert!(parent.path().exists());
 }
 //@show-end

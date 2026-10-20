@@ -4,9 +4,12 @@ sidebar:
   order: 1
 ---
 
-Everything a feature sets up - its state, its actors, their timers and
-background work, what it hears on the bus - lives in a **scope**, and goes
-when the scope goes. Scopes form a tree that follows the screen:
+A **scope** determines how long resources live. Features installed in it
+register state, actors, timers, background tasks and subscriptions. Removing
+the scope releases those resources.
+
+Applications, windows, layouts and pages have their own scopes, arranged in
+a tree:
 
 ```mermaid
 flowchart TD
@@ -17,17 +20,22 @@ flowchart TD
     app --> settings[window: settings]
 ```
 
-The application's scope lives as long as the process. A window's lives while
-the window is open. A layout's and a page's live while the router has them
-mounted: navigating away from a page removes its scope, and everything under
-it, children first.
+The application's scope lives with its `GuineaHost`. The backend creates
+window scopes beneath it; mounting layouts and pages adds further levels.
+Removing a parent removes its whole subtree, children before parents.
 
-An application does not create scopes. The router does, as the user moves
-around; what the application decides is **where each feature is installed**.
+Navigating away normally removes a page's scope. A page mounted with `keep`
+instead keeps its scope asleep until it is needed again. The examples below
+do not use `keep`.
 
-## Installed higher, shared below
+When working with pages, mounting creates the scopes for you. You choose
+where each feature is installed. That choice determines its resources'
+lifetime and who can read its state.
 
-A layout installs a feature the pages under it all need:
+## Shared state in a parent scope
+
+A feature used by several pages can be installed in their common layout.
+For example, every mail page can read the unread count:
 
 <!-- shown: scopes: a feature the layout installs -->
 ```rust
@@ -71,9 +79,9 @@ fn inbox(cx: &Install) -> anyhow::Result<Inbox> {
 ```
 <!-- /shown -->
 
-`exports { Unread }` is what makes `Unread` readable below. A page under the
-layout reads it and acts on it as if it were its own, and the actions go to
-the feature that owns it:
+`exports { Unread }` makes `Unread` readable from child scopes. The page reads
+the layout's state and gets a dispatcher for its owning feature, so the same
+`Mailbox` handles the `Arrived` action:
 
 <!-- shown: scopes: a page reads what the layout exports -->
 ```rust
@@ -91,12 +99,15 @@ fn a_page_reads_what_the_layout_above_exports(h: &mut Harness) {
 ```
 <!-- /shown -->
 
-In a test the harness stands in for the tree: `h` is the layout and
-`h.child()` a page under it, with no window and no router.
+In this test, `h` represents the layout's scope and `h.child()` creates a
+child scope for the page. The harness checks state access without a window
+or router.
 
-## Leaving ends it
+## Removing a scope stops its work
 
-A page installs what only it needs. This one saves a draft every second:
+Install the draft-editing feature on the page itself. The example simulates
+autosaving with a timer that increments `saved` every second. It does not
+write a file: the behavior under test is the timer's lifetime.
 
 <!-- shown: scopes: a feature the page installs -->
 ```rust
@@ -112,8 +123,9 @@ fn composing(cx: &Install<Rc<Cell<u32>>>) -> anyhow::Result<Composing> {
 ```
 <!-- /shown -->
 
-Nothing in it says when to stop. The timer belongs to the page's scope, and
-leaving the page removes the scope:
+Installation starts the timer without keeping a handle to stop it. The
+page's scope owns it. Check that the counter stops advancing once that scope
+is removed:
 
 <!-- shown: scopes: leaving a page ends what it started -->
 ```rust
@@ -138,16 +150,84 @@ fn leaving_a_page_ends_what_it_started(h: &mut Harness) {
 ```
 <!-- /shown -->
 
-The same holds for everything else the page set up: its actors are disposed,
-their background work is cancelled, its subscriptions are dropped. The layout
-above carries on untouched. There is no teardown to write and none to forget.
-For something guinea does not know about - a handle from another library -
-`cx.on_teardown` runs a closure when the scope goes.
+Removing the scope also disposes its actors, cancels their background work
+and ends its subscriptions. The parent keeps running: the test's `Inbox`
+feature still handles `Arrived`.
 
-## Nothing goes up
+## Keeping an external resource until the page leaves
 
-Reading only goes down. What a page claims, the layout above it cannot see,
-and neither can a page beside it:
+Suppose a page creates thumbnails in a temporary directory. They are needed
+while the page is open, but should be deleted when it leaves. The `tempfile`
+crate provides `TempDir`, which removes its directory and contents when
+dropped. guinea does not know about this object unless you give it ownership.
+
+<!-- shown: scopes: a temporary cache belongs to the page -->
+```rust
+feature! {
+    pub PreviewCache {}
+}
+
+#[installs]
+fn preview_cache(cx: &Install<Path>) -> anyhow::Result<PreviewCache> {
+    let cache = tempfile::Builder::new()
+        .prefix("previews-")
+        .tempdir_in(cx.params())?;
+    cx.on_teardown(move || drop(cache));
+    Ok(PreviewCache)
+}
+```
+<!-- /shown -->
+
+`cx.params()` supplies the parent directory; installation creates a separate
+cache beneath it. This example needs `tempfile` in the application's
+dependencies.
+
+Leaving `cache` as a local variable would delete the directory as soon as
+installation returns. Instead, the `move` closure takes ownership of the
+`TempDir`, and `cx.on_teardown` keeps the closure until the scope is removed.
+Calling it drops the guard and lets `tempfile` perform its cleanup.
+
+The test writes a file there and checks that leaving removes the cache and
+its contents, but not the parent directory:
+
+<!-- shown: scopes: leaving deletes the temporary cache -->
+```rust
+#[guinea::test]
+fn leaving_a_page_deletes_its_temporary_cache(h: &mut Harness) {
+    let parent = tempfile::tempdir().unwrap();
+    let page = h.child();
+    page.install::<PreviewCache>(parent.path()).unwrap();
+
+    let entries: Vec<_> = std::fs::read_dir(parent.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let cache = &entries[0];
+    let thumbnail = cache.join("thumbnail.bin");
+    std::fs::write(&thumbnail, b"preview").unwrap();
+    assert!(thumbnail.exists());
+
+    page.leave();
+
+    assert!(!cache.exists());
+    assert!(parent.path().exists());
+}
+```
+<!-- /shown -->
+
+The feature's returned value is not kept by the test. The scope owns the
+cleanup, so the cache still survives installation. The same pattern works
+for a subscription guard from another library: move it into the teardown
+closure and drop it there. If the library instead requires an explicit
+`unsubscribe` or `close` call, make that call in the closure.
+
+## Looking up state
+
+A read starts in the page's own scope. If the state is not there, lookup
+walks through its ancestors to the nearest scope that exports it. It never
+searches children or siblings. The draft is therefore available on the page
+but not in its parent layout:
 
 <!-- shown: scopes: what a page claims is not seen above it -->
 ```rust
@@ -162,17 +242,11 @@ fn what_a_page_claims_is_not_seen_above_it(h: &mut Harness) {
 ```
 <!-- /shown -->
 
-So when two pages need the same state, it goes into the layout they share,
-and when two windows do, into the application. The rule of thumb: install a
-feature in the lowest scope that is above everyone who reads it. Lower, and
-someone cannot reach it; higher, and it outlives the screen it was for.
+For shared state, choose the readers' nearest common ancestor: a layout for
+several pages, or the application for several windows. Installed lower, the
+feature's state is out of reach of some readers. Installed higher, its
+resources live longer than needed.
 
-That is also what keeps a test small. A page can reach only what it installed,
-what the layouts above export and what the application provides, so a test
-sets up exactly that and nothing else.
-
-## For plugin and backend authors
-
-A `Scope` is a name, not an owner: it is `Copy`, and the `ScopeTree` holds what
-each scope keeps. Holding a `Scope` does not keep it alive, and a removed
-scope's name never comes back - `is_alive` says whether it is still there.
+A page test supplies those same dependencies: its own features, the ancestor
+exports it uses and the application data it needs. Other windows and sibling
+pages need not be created.

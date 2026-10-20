@@ -1,5 +1,5 @@
 :root {
-	--sl-font: 'Chakra Petch', system-ui, sans-serif;
+	--sl-font: system-ui, sans-serif;
 
 	--sl-color-accent-low: #3d2413;
 	--sl-color-accent: #c06a2e;
@@ -56,6 +56,51 @@
 	background: var(--guinea-sprite) 0 0 / 64px 16px;
 	image-rendering: pixelated;
 	animation: guinea-run-small 0.4s steps(4) infinite;
+}
+
+.sl-markdown-content pre.mermaid {
+	background: transparent;
+	border: 0;
+}
+
+pre.mermaid svg .node rect,
+pre.mermaid svg .node polygon,
+pre.mermaid svg .node path {
+	fill: var(--sl-color-gray-6) !important;
+	stroke: var(--sl-color-accent) !important;
+}
+
+pre.mermaid svg .cluster rect {
+	fill: transparent !important;
+	stroke: var(--sl-color-gray-4) !important;
+	stroke-dasharray: 5 4;
+}
+
+pre.mermaid svg .flowchart-link,
+pre.mermaid svg .edgePaths path {
+	stroke: var(--sl-color-gray-2) !important;
+}
+
+pre.mermaid svg marker path,
+pre.mermaid svg .arrowheadPath {
+	fill: var(--sl-color-gray-2) !important;
+	stroke: var(--sl-color-gray-2) !important;
+}
+
+pre.mermaid svg .nodeLabel,
+pre.mermaid svg .cluster-label,
+pre.mermaid svg .edgeLabel,
+pre.mermaid svg text {
+	color: var(--sl-color-white) !important;
+	fill: var(--sl-color-white) !important;
+}
+
+pre.mermaid svg .edgeLabel,
+pre.mermaid svg .edgeLabel p,
+pre.mermaid svg .edgeLabel rect,
+pre.mermaid svg .labelBkg {
+	background-color: var(--sl-color-bg) !important;
+	fill: var(--sl-color-bg) !important;
 }
 
 .backends {

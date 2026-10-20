@@ -1,5 +1,4 @@
 #![cfg(all(windows, feature = "winui"))]
-#![allow(dead_code)]
 
 //! The WinUI examples on the book's page about pages and layouts, run.
 //! `cargo xtask docs` copies what is between the marks into it.
@@ -181,14 +180,26 @@ mod shell {
     //@show-end
 
     //@show winui: an application
-    use guinea::winui::{Window, run};
+    use guinea::winui::Window;
 
     fn app(_app: &mut FeatureBuilder) -> anyhow::Result<Window> {
         Ok(Window::of::<Shell>().title("Counter").at(Place::Counter))
     }
 
-    fn main() -> anyhow::Result<()> {
-        run(app)
+    //@show-end
+
+    //@show winui: testing an application
+    #[guinea::test]
+    fn the_application_opens_at_its_declared_route(h: &mut Harness) {
+        let window = h.app(app).unwrap();
+        let mut shell = Mounted::<Place>::from_window(h, window).unwrap();
+        assert_eq!(shell.route(), Place::Counter);
+        assert!(shell.find_text("0 by 1").is_some());
+
+        shell.click_text("About").settle();
+
+        assert_eq!(shell.route(), Place::About);
+        assert!(shell.find_text("guinea").is_some());
     }
     //@show-end
 }

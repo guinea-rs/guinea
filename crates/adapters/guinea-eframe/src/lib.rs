@@ -17,6 +17,9 @@ extern crate self as guinea_eframe;
 
 mod run;
 
+#[cfg(feature = "harness")]
+pub mod harness;
+
 pub use run::{MAIN, Window, run};
 
 /// What `install` is handed. Re-exported because `#[page]` writes signatures

@@ -33,6 +33,9 @@ jobs:
             exit 1
           fi
 
+      - name: Release notes exist for the tag
+        run: test -s "release-notes/$GITHUB_REF_NAME.md"
+
   test:
     needs: version
     runs-on: windows-latest
@@ -69,9 +72,7 @@ jobs:
       - name: Package and build what is about to be published
         run: >
           cargo package --workspace --exclude xtask --exclude guinea-slint-fixture
-          --config "patch.crates-io.windows-window-pre.path='crates/vendor/windows-window-pre'"
-          --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
-          --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"
+          --config .cargo/package.toml
 
   publish:
     needs: [test, package]
@@ -143,3 +144,23 @@ jobs:
             done
             echo "::endgroup::"
           done
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Publish release notes for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "release-notes/$GITHUB_REF_NAME.md"

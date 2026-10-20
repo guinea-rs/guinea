@@ -4,16 +4,19 @@ sidebar:
   order: 2
 ---
 
-A feature holds what the application knows; a page shows it. A page is drawn
-the way its toolkit draws, so this is where the backends differ - the tabs
-below show the same counter on each. The rest of guinea is the same under all
-of them: what a page installs, what it reads, and when it goes.
+A page connects features to the interface: it installs the features it needs,
+reads their state and sends actions in response to input. How it describes
+the interface depends on the toolkit.
+
+This chapter implements the same counter on WinUI and egui. The tabs let
+you compare their code. Feature installation, state access and page
+lifetimes follow the same rules on both backends.
 
 ## A page
 
-A page is a struct, and the struct is the page's own state - what only this
-page has an opinion about, like the step it adds by. What a feature owns -
-the count - it reads.
+A page implements `Page`. Its struct holds the view's own data: here,
+`step` is the amount the button will add. The counter's value belongs to the
+`Counter` feature from the [introduction](../../introduction/).
 
 ::::backends
 :::winui
@@ -73,15 +76,19 @@ impl Page for CounterPage {
 ```
 <!-- /shown -->
 
-WinUI keeps a tree of controls and redraws what changed, so a page is written
-the Elm way:
+On WinUI, describing the interface and handling messages are separate:
 
-- **`view`** describes the page. `cx.read::<Count>()` hands back the state and
-  a `Dispatch` to act on the feature that owns it, and subscribes the page:
-  when `Count` changes, the page draws again.
+- **`view`** builds a `View` describing the interface. `cx.read::<Count>()`
+  returns the state and a `Dispatch` for its owning feature. It also
+  subscribes the page component to `Count`: when the state changes, guinea
+  requests a new view and Reactor updates the element tree.
 - **`update`** changes the page's own state. `cx.on(|()| Msg::Bigger)` turns a
-  widget's event into one of the page's messages, and the message arrives
-  here.
+  button event into `Msg::Bigger`. The handler increases `step`, and the
+  component calls `view` again.
+
+The `Add` button sends its action straight to the feature. Its handler
+outlives the call to `view`, so the closure captures `dispatch` and `step`
+with `move`. Both types implement `Copy`, so the values are copied into it.
 :::
 :::egui
 <!-- shown: egui: a page -->
@@ -115,31 +122,38 @@ impl Page for CounterPage {
 ```
 <!-- /shown -->
 
-egui draws every frame from scratch, so a page has no messages and no
-`update`: **`render`** takes `&mut self`, and the frame that sees the click is
-the frame that answers it. `cx.read::<Count>()` hands back the state and a
-`Dispatch`; there is nothing to subscribe to, because the next frame reads it
-again.
+On egui, **`render`** both builds the interface and handles input. It takes
+`&mut self`, so it can change the page's fields directly. `clicked()` reports
+a button click, which the code handles in that call. No separate page
+messages or `update` method are needed.
+
+`cx.read::<Count>()` returns the state and a `Dispatch`. Unlike WinUI, the
+read does not subscribe a component: `render` reads the current value again
+when building the next frame.
 :::
 ::::
 
-**`install`** runs once, when the page is mounted. What it installs lives in
-the page's scope and goes when the page does - see [Scopes](../scopes/). It
-returns the state the page starts with.
+**`install`** creates the page instance when it is first mounted. Here it
+installs `Counter` and returns a `CounterPage` whose initial step is `1`.
+Subsequent redraws do not repeat installation. The feature's resources live
+in the page's scope; see [Scopes](../scopes/).
 
-So there are two ways out of a click, and the choice says whose the state is.
-A click that changes what the page shows of itself changes the page's own
-state. A click that asks the domain for something goes to the feature through
-`dispatch.emit`, and comes back as a new state to read.
+The two buttons illustrate the distinction between page and feature state.
+`Bigger` changes the page's `step` field. `Add` sends `Add(step)` to the
+feature, which handles the action and updates `Count`.
 
-`#[page]` writes what is left out: a page with no `install` starts from
-`Default`, and a page with nothing to install needs no `Params`.
+`#[page]` fills in optional parts of the implementation. With no `install`,
+it creates the page through `Default`. With no declared `Params`, it uses
+`()`.
 
 ## A layout
 
-A layout draws what is around its pages and mounts one of them. Where the
-window is, is a route - an enum - and `cx.outlet` mounts the page for the
-current one.
+A layout implements `Layout`. It places shared interface elements and
+mounts child pages or layouts.
+
+Here `Shell` shows a navigation button and one of two pages. The `Place`
+enum describes the route. `cx.outlet` supplies the current route, and the
+layout's `match` chooses what to mount.
 
 ::::backends
 :::winui
@@ -208,34 +222,37 @@ impl Layout for Shell {
 ```
 <!-- /shown -->
 
-`cx.outlet` hands back the page's drawing instead of drawing it, so the layout
-decides where in its `ui` the page goes.
+On egui, `cx.outlet` returns a `Node` containing a deferred drawing call.
+`draw` executes it in the supplied `ui`, letting the layout choose where
+its child content appears.
 :::
 ::::
 
-`cx.navigate::<Place>()` is the navigator over `Place` nearest above, the one
-the window opened. Moving it mounts the page for the new place and removes the
-scope of the one that was there. A layout's `install` works the way a page's
-does, and what it installs, the pages under it share.
+`cx.navigate::<Place>()` looks for a navigator of that type in the current
+scope and its ancestors. Here the window creates it. Calling
+`nav.to(Place::About)` requests a route change. Once allowed, the next
+content build selects `About` through the outlet. `mount` reuses a page with
+the same type and equal parameters, or installs a new instance. Children no longer mounted
+are removed; those marked `keep` sleep instead.
+
+A layout's `install` works like a page's. Features installed in the layout
+can export state to its child pages.
 
 ## An application
 
-An application is a function that installs what the application needs and
-returns the window to open. `run` calls it, opens the window, and runs until
-it closes.
+The `app` function receives a `FeatureBuilder`. It installs shared features
+and plugins, provides application data and returns a declaration for the
+first window. This example has no shared dependencies, so it only creates
+the `Window`:
 
 ::::backends
 :::winui
 <!-- shown: winui: an application -->
 ```rust
-use guinea::winui::{Window, run};
+use guinea::winui::Window;
 
 fn app(_app: &mut FeatureBuilder) -> anyhow::Result<Window> {
     Ok(Window::of::<Shell>().title("Counter").at(Place::Counter))
-}
-
-fn main() -> anyhow::Result<()> {
-    run(app)
 }
 ```
 <!-- /shown -->
@@ -243,28 +260,29 @@ fn main() -> anyhow::Result<()> {
 :::egui
 <!-- shown: egui: an application -->
 ```rust
-use guinea::eframe::{Window, run};
+use guinea::eframe::Window;
 
 fn app(_app: &mut FeatureBuilder) -> anyhow::Result<Window> {
     Ok(Window::of::<Shell>().title("Counter").at(Place::Counter))
-}
-
-fn main() -> anyhow::Result<()> {
-    run(app)
 }
 ```
 <!-- /shown -->
 :::
 ::::
 
-`Window::of::<Shell>()` is the layout the window roots at, and `.at(..)` where
-its navigator starts. What the function installs with `app.install` lives in
-the application's scope, above every window.
+`Window::of::<Shell>()` selects the root layout. `.at(..)` configures the
+window to open a navigator at the initial route. Features installed with
+`app.install` live in the application scope, shared by its windows.
+
+The executable's entry point calls the backend's `run(app)` to open the
+window and enter its event loop. The tests below call `app` too, but mount
+the returned window without starting an operating-system event loop.
 
 ## Testing
 
-A page mounts without a window, under the same harness as a feature, and its
-drawing is read back as a tree.
+A backend harness runs page code without an operating-system window: it
+delivers input, runs the work caused by actions and checks the rendered
+result. It uses the same domain `Harness` as feature tests.
 
 ::::backends
 :::winui
@@ -283,11 +301,13 @@ fn adds_the_step_it_was_told(h: &mut Harness) {
 ```
 <!-- /shown -->
 
-`#[derive(guinea::Mark)]` and `.mark(..)` name the controls a test reaches
-for, so a test does not depend on their text or their place in the tree;
-`click_text` finds one by its text when that is simpler. `settle` runs
-everything the click set off - the action, the actor's turn, the push into the
-reducer, the page drawing again - in an order the seed decides.
+`#[derive(guinea::Mark)]` and `.mark(..)` name elements for tests. A button's
+name can stay the same when its label or position changes. `click_text`
+finds an element by its text instead.
+
+`settle` runs the work caused by the click: handling the action, updating
+the reducer and redrawing the page. The test seed determines background
+execution order so a failing run can be reproduced.
 
 A layout is tested the same way, started at a route:
 
@@ -311,11 +331,72 @@ fn the_about_button_moves_the_window(h: &mut Harness) {
 
 ```toml
 [dev-dependencies]
-guinea = { version = "0.31", features = ["harness"] }
+guinea = { version = "0.30", features = ["harness"] }
 ```
+
+The window returned by `app` can also be tested directly, including its
+initial route:
+
+<!-- shown: winui: testing an application -->
+```rust
+#[guinea::test]
+fn the_application_opens_at_its_declared_route(h: &mut Harness) {
+    let window = h.app(app).unwrap();
+    let mut shell = Mounted::<Place>::from_window(h, window).unwrap();
+    assert_eq!(shell.route(), Place::Counter);
+    assert!(shell.find_text("0 by 1").is_some());
+
+    shell.click_text("About").settle();
+
+    assert_eq!(shell.route(), Place::About);
+    assert!(shell.find_text("guinea").is_some());
+}
+```
+<!-- /shown -->
 :::
 :::egui
-egui has no harness for pages yet. The features behind a page are tested
-without it, the way [Scopes](../scopes/) shows.
+The egui harness runs frames without an operating-system window. It delivers
+pointer presses and releases to egui and reads the text from the shapes the
+page drew:
+
+<!-- shown: egui: testing a page -->
+```rust
+#[guinea::test]
+fn adds_the_step_it_was_told(h: &mut Harness) {
+    let mut page = Mounted::window(h, Window::of::<CounterPage>());
+
+    page.click_text("Bigger");
+    page.click_text("Add");
+
+    assert!(page.has_text("2 by 2"));
+}
+```
+<!-- /shown -->
+
+`click_text` clicks the center of the matching text, runs the domain's
+pending work and draws another frame. It fails if the text is missing or
+ambiguous. `has_text` checks what the latest frame drew.
+
+The same harness can mount the window returned by `app`. This checks the
+declared initial route and the layout's navigation button:
+
+<!-- shown: egui: testing an application -->
+```rust
+#[guinea::test]
+fn the_about_button_moves_the_window(h: &mut Harness) {
+    let window = h.app(app).unwrap();
+    let mut shell = Mounted::window(h, window);
+    assert!(shell.has_text("0 by 1"));
+
+    shell.click_text("About");
+
+    assert!(shell.has_text("guinea"));
+    assert!(!shell.has_text("0 by 1"));
+}
+```
+<!-- /shown -->
+
+Enable guinea's `eframe` and `harness` features to use
+`guinea::eframe::harness::Mounted`.
 :::
 ::::

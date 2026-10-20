@@ -1,5 +1,56 @@
 # TODO
 
+## Documenting the current application model
+
+The book should be sufficient to write a new application with a composed
+screen tree, background work and tests using the book and current public
+rustdoc, without opening guinea's implementation, internal tests or
+`__private`. Document current concepts and their guarantees, not a route
+from historical APIs. A migration guide and old-to-new API tables are not
+required.
+
+Covered by executable book examples:
+
+- Concepts/composition: nested routes, parameter identity, kept local fields,
+  explicit route restoration, independent charts, WinUI slot ownership and
+  local redraws, and failed installation retaining the previous page. The
+  egui variant explicitly does not claim a slot API or isolated redraws.
+- Concepts/lifecycle: a resource lifecycle matrix, ordinary replies and
+  direct/queued messages during sleep, latest/conflate during sleep,
+  cancellation on removal and registration-order feed catch-up on wake.
+- Concepts/advanced-tasks: factory snapshot/admission timing, admission before
+  the previous reply handler, and an explicit stateful conflating actor.
+  A generic async-context helper is covered; `Allows` still lacks a supported
+  public export, so fully generic send/spawn helpers remain an API gap.
+- Concepts/periods: dynamic waits, missing values, resetting deadlines,
+  sleep/wake before and after a deadline, and watcher teardown.
+
+Still missing:
+
+- Multiple independent navigation outlets, a complete leave-guard example,
+  and initial-mount failure handling.
+- A supported public `Allows` import for generic actor-context helpers.
+- An application-level replay protocol joining persisted history with live
+  events, and advanced source
+  failure/reconnect cases. Basic streams, bounded input, EOF, errors,
+  replacement, sleep and fixed timers are covered in Concepts/streams.
+- More RPC lifecycle cases and observable listeners. Concepts/rpc now
+  covers typed clients/answerers, fake answers, missing/sleeping/duplicate
+  answerers, timeout and client cancellation.
+- The separate semantic harness chapter is deferred by the user. Remaining
+  topics include scoped fake
+  dependencies, Act settling and semantic table interaction (items, bounds,
+  scrolling, clicks, size and drag).
+- Plugin-facing contracts: `Stop` and backend run/teardown, generic exported
+  state plus an explicitly passed persistence service, context extension
+  traits, and current window geometry/change/label/lifetime support by backend.
+  Devtools and devtools-protocol are explicitly outside this book's scope.
+- A current, version-matched public API reference, including feature-gated
+  harness/semantics, its build command and imports for runnable examples.
+
+Historical notes such as `plugins-0.31.md` are not the current model's
+reference. `docs/topology.md` is a rejected historical proposal.
+
 ## Devtools (guinea-plugins)
 
 ### The MCP server answers in JSON meant for a window

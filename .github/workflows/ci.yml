@@ -47,9 +47,9 @@ jobs:
         run: cargo test -p guinea-core
 
       # The book shows every page on each backend it documents; the facade's
-      # default build has only WinUI, so the egui examples are built here.
+      # default build has only WinUI, so the egui examples are run here.
       - name: Book examples on egui
-        run: cargo test -p guinea --features eframe --test book_pages_egui
+        run: cargo test -p guinea --features eframe,harness --test book_pages_egui --test book_composition_egui
 
       # The examples in the README and in doc comments are copied from tests
       # by `cargo xtask docs`; a page edited by hand, or a test changed without
@@ -76,9 +76,7 @@ jobs:
       - name: Package what publish would
         run: >
           cargo package --workspace --exclude xtask --exclude guinea-slint-fixture --no-verify
-          --config "patch.crates-io.windows-window-pre.path='crates/vendor/windows-window-pre'"
-          --config "patch.crates-io.windows-reactor-pre.path='crates/vendor/windows-reactor-pre'"
-          --config "patch.crates-io.windows-canvas-pre.path='crates/vendor/windows-canvas-pre'"
+          --config .cargo/package.toml
 
   examples:
     runs-on: windows-latest

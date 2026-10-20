@@ -124,7 +124,7 @@ jobs:
             echo "::group::cargo publish $crate"
             failures=0
             while true; do
-              if out=$(cargo publish "${which[@]}" --allow-dirty --no-verify 2>&1); then
+              if out=$(cargo publish "${which[@]}" --allow-dirty --no-verify --config .cargo/package.toml 2>&1); then
                 echo "$out"
                 break
               fi

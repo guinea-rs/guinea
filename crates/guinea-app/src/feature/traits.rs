@@ -39,6 +39,18 @@ impl ScopeContext {
         }
     }
 
+    /// A clone of the application's provided service, or `None` if it was
+    /// not provided. Available through `Install` and the application and
+    /// plugin builders as well, for extension traits implemented by plugins.
+    /// Returning a handle from a plugin does not provide it automatically.
+    ///
+    /// # Panics
+    ///
+    /// When this context's scope is gone.
+    pub fn service<T: Clone + 'static>(&self) -> Option<T> {
+        self.scope.service::<T>()
+    }
+
     /// This context for `section`, and the scope it is in.
     pub(crate) fn in_section(&self, section: Section) -> Self {
         Self {

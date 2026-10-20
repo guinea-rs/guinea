@@ -27,6 +27,12 @@ Covered by executable book examples:
 
 Still missing:
 
+- Concepts/periods: once the compatible store plugin exposes context settings,
+  replace the `Install<Field<u64>>` parameter with `cx.settings::<RefreshSettings>()`
+  and the handwritten `Milliseconds` adapter with amethystate's published
+  guinea adapter. Test real plugin installation, changing the period and
+  subscription cleanup, then regenerate both locales with `cargo xtask docs`.
+  Do not publish sibling changes or depend on an unpublished local checkout.
 - Multiple independent navigation outlets, a complete leave-guard example,
   and initial-mount failure handling.
 - A supported public `Allows` import for generic actor-context helpers.
@@ -322,12 +328,15 @@ Two halves to the plugins' contract:
 
 ### A todo app with everything in it
 
-`examples/` has the processes app, which shows guinea on a real workload but
-not every part of it at once. Write the canonical todo app, using all of it:
-routes with a deep link and a restored route, a guard that asks before leaving
-unsaved work, features that install and tear down with their pages, actors and
-background work, the store, localisation, devtools, and the harness testing
-all of it. What a newcomer reads first.
+`examples/` now has a shared todo application and five frontends. It exercises
+scoped features, reducers, actors, events, feeds, latest tasks, streams, RPC,
+timers, routing, kept pages and a small file-storage plugin; behavioral tests
+cover the shared application and supported UI harnesses.
+
+Still to add: deep links and restoring the route, localisation, devtools and
+the external store/window-state plugins once their compatible migration is
+published. WinUI and iced currently demonstrate the unsaved-title guard.
+See `examples/README.md` for the current coverage and backend differences.
 
 ### When there is nothing else to do: rewrite open source on guinea
 

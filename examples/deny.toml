@@ -8,6 +8,9 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained and has no successor release; it comes in through pulp under eframe, arboard and Slint, and is a build-time macro" },
     { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained with no safe upgrade; it comes in through Slint's text shaping, and moves when Slint does" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained with no safe upgrade; it comes in through fontdb under iced and Slint, and moves when they do" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant was merged into zbus 6; Slint's winit still requires the zbus 5 stack" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names was merged into zbus 6; Slint's winit still requires the zbus 5 stack" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive was merged into zbus 6; Slint's winit still requires the zbus 5 stack" },
 ]
 
 [bans]
@@ -55,6 +58,7 @@ exceptions = [
     { crate = "i-slint-core-macros", allow = ["LicenseRef-Slint-Royalty-free-2.0"] },
     { crate = "i-slint-renderer-femtovg", allow = ["LicenseRef-Slint-Royalty-free-2.0"] },
     { crate = "i-slint-renderer-skia", allow = ["LicenseRef-Slint-Royalty-free-2.0"] },
+    { crate = "i-slint-renderer-software", allow = ["LicenseRef-Slint-Royalty-free-2.0"] },
     { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
     { crate = "libfuzzer-sys", allow = ["NCSA"] },
 ]

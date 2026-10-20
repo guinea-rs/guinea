@@ -28,7 +28,7 @@ crates/guinea-codegen    for build.rs: inputs read and watched, files written on
 crates/adapters/*        backends: winui (the main one), iced, eframe, ratatui, slint
 crates/guinea            the facade users depend on: re-exports and the tests across crates
 crates/vendor/*          pre-release windows-rs crates the WinUI backend builds on
-examples/                applications, each its own workspace
+examples/                todo-core and five todo frontends, each its own workspace
 landing/                 the landing page and the book (Astro + Starlight)
 xtask/                   cargo xtask docs
 ```

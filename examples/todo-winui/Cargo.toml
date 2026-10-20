@@ -1,0 +1,23 @@
+[package]
+name = "todo-winui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+guinea = { path = "../../crates/guinea" }
+todo-core = { path = "../todo-core" }
+anyhow = "1"
+
+[dev-dependencies]
+guinea = { path = "../../crates/guinea", features = ["harness"] }
+
+[profile.dev]
+debug = 1
+incremental = false
+codegen-units = 256
+
+[profile.dev.package."*"]
+debug = 0

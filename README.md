@@ -9,6 +9,8 @@
 [Read the book](https://guinea-rs.github.io/guinea/introduction/) ·
 [Читать книгу на русском](https://guinea-rs.github.io/guinea/ru/introduction/)
 
+[Todo application on five backends](examples/README.md)
+
 ### Why
 
 Rust has good toolkits and no application layer above them: a toolkit draws the screen,

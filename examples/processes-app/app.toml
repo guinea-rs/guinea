@@ -1,9 +1,0 @@
-[app]
-name = "Processes"
-identifier = "dev.uniproc.guinea.processes"
-version = "0.1.0"
-publisher = "uniproc"
-
-[window]
-title = "guinea · processes"
-icon = "assets/icon.ico"

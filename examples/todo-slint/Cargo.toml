@@ -1,0 +1,25 @@
+[package]
+name = "todo-slint"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+guinea = { path = "../../crates/guinea", default-features = false, features = ["own-runtime", "slint-winit"] }
+todo-core = { path = "../todo-core" }
+slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+anyhow = "1"
+
+[dev-dependencies]
+guinea = { path = "../../crates/guinea", default-features = false, features = ["own-runtime", "slint-winit", "test-utils"] }
+i-slint-backend-testing = "1.17"
+
+[profile.dev]
+debug = 1
+incremental = false
+codegen-units = 256
+
+[profile.dev.package."*"]
+debug = 0

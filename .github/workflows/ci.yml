@@ -86,12 +86,12 @@ jobs:
       fail-fast: false
       matrix:
         example:
-          - processes-core
-          - processes-app
-          - processes-tui
-          - processes-eframe
-          - processes-iced
-          - processes-slint
+          - todo-core
+          - todo-winui
+          - todo-tui
+          - todo-egui
+          - todo-iced
+          - todo-slint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

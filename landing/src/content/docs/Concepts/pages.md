@@ -146,6 +146,24 @@ feature, which handles the action and updates `Count`.
 it creates the page through `Default`. With no declared `Params`, it uses
 `()`.
 
+## Dependencies during installation
+
+`#[page]` and `#[layout]` also resolve dependencies declared as arguments
+after `cx` in `install`, just as `#[installs]` does for a feature. For example,
+`fn install(cx: &Install, store: Store) -> anyhow::Result<Self>` receives a
+clone of the `Store` registered with `app.provide(store)`. There is no need
+to call `cx.service::<Store>()` manually.
+
+A plain `Store` argument is required: if it was not provided, installation
+returns an error before entering the method body. An `Option<Store>` argument
+is optional and receives `None` when the service is absent. Apply a fallback
+explicitly in the body if needed, for example with `unwrap_or_default()`.
+
+These arguments do not replace the page's or layout's `Params`: values passed
+when mounting remain available through `cx.params()`. Resolving a service does
+not install a feature automatically; the body still calls `cx.install` for
+the features the page or layout needs.
+
 ## A layout
 
 A layout implements `Layout`. It places shared interface elements and

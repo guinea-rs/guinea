@@ -40,6 +40,14 @@ installed itself, what a layout above it exports, and what the application provi
 anything else is not in reach, and a test sets up exactly that and no more.
 Settings go to [amethystate](https://github.com/guinea-rs/amethystate).
 
+### Architecture
+
+<img src="https://raw.githubusercontent.com/guinea-rs/guinea/master/crates/guinea/assets/architecture.svg" alt="Guinea architecture: GUI integration, application composition, scoped feature logic, testing and observability, connected to application-specific behavior" width="100%" />
+
+Toolkits draw the interface; guinea connects it to scope-owned application logic.
+Plugins and features declare what they need and provide. Scopes determine where
+those values are visible and when their resources are released.
+
 What an application needs besides its pages - a settings store, the window's geometry
 remembered, localisation, a single instance, devtools - comes as
 [plugins](https://github.com/guinea-rs/guinea-plugins).

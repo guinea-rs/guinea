@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="1056" viewBox="0 0 1040 1056" role="img" aria-labelledby="title description">
+  <title id="title">Guinea application architecture</title>
+  <desc id="description">GUI toolkits connect through Guinea's backend integration. Plugins, application features and local features declare inputs and outputs. Features group actors, reducer-backed state and background work. Scopes define visibility and resource lifetimes. Testing and observability span these responsibilities. Guinea provides the infrastructure; application-specific code defines the behavior and domain rules.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#b7b8b4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f1eee6; }
+      .heading { font-size: 25px; font-weight: 650; }
+      .label { font-size: 21px; font-weight: 600; }
+      .body { font-size: 19px; }
+      .small { font-size: 17px; fill: #b7b8b4; }
+      .accent { fill: #f2bb8d; }
+      .panel { fill: #252b2d; stroke: #384144; stroke-width: 1; }
+      .inner { fill: #273632; stroke: #42544b; stroke-width: 1; }
+      .link { fill: none; stroke: #b7b8b4; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1040" height="1056" rx="22" fill="#171b1d"/>
+
+  <rect class="panel" x="40" y="24" width="960" height="80" rx="16"/>
+  <text class="heading" x="520" y="58" text-anchor="middle">GUI toolkits</text>
+  <text class="body" x="520" y="86" text-anchor="middle">iced · egui · Slint · WinUI · ratatui</text>
+
+  <path class="link" d="M 520 110 V 148" marker-start="url(#arrow)"/>
+  <text class="small" x="548" y="134">native rendering &amp; input</text>
+
+  <rect x="24" y="158" width="992" height="736" rx="20" fill="#1d2926" stroke="#42544b"/>
+  <text class="heading accent" x="48" y="195">guinea · application layer</text>
+
+  <rect class="panel" x="48" y="216" width="704" height="88" rx="12"/>
+  <text class="label" x="400" y="249" text-anchor="middle">Backend integration</text>
+  <text class="body" x="400" y="279" text-anchor="middle">Windows · Pages · Layouts · Routing · Mounting</text>
+
+  <rect class="panel" x="48" y="326" width="704" height="102" rx="12"/>
+  <text class="label" x="400" y="358" text-anchor="middle">Application composition</text>
+  <text class="body" x="400" y="388" text-anchor="middle">Plugins → Application → Features</text>
+  <text class="small" x="400" y="412" text-anchor="middle">Declared inputs &amp; outputs · dependency validation</text>
+
+  <rect class="inner" x="48" y="450" width="704" height="300" rx="12"/>
+  <text class="label" x="400" y="483" text-anchor="middle">Features group application logic</text>
+
+  <rect class="panel" x="68" y="504" width="180" height="80" rx="10"/>
+  <text class="label" x="158" y="539" text-anchor="middle">Actions</text>
+  <text class="small" x="158" y="566" text-anchor="middle">UI intentions</text>
+
+  <rect class="panel" x="310" y="504" width="180" height="80" rx="10"/>
+  <text class="label" x="400" y="539" text-anchor="middle">Actors</text>
+  <text class="small" x="400" y="566" text-anchor="middle">Handlers</text>
+
+  <rect class="panel" x="552" y="504" width="180" height="80" rx="10"/>
+  <text class="label" x="642" y="539" text-anchor="middle">State</text>
+  <text class="small" x="642" y="566" text-anchor="middle">Reducers</text>
+
+  <path class="link" d="M 250 545 H 302"/>
+  <path class="link" d="M 492 545 H 544"/>
+  <text class="small" x="400" y="614" text-anchor="middle">UI sends actions · UI reads state</text>
+
+  <rect class="panel" x="68" y="636" width="664" height="92" rx="10"/>
+  <text class="body" x="400" y="670" text-anchor="middle">Tasks · Timers · Streams</text>
+  <text class="body" x="400" y="701" text-anchor="middle">Event bus · Feeds · Local RPC</text>
+
+  <rect class="panel" x="776" y="216" width="216" height="534" rx="12"/>
+  <text class="small accent" x="884" y="249" text-anchor="middle">Across the layers</text>
+
+  <text class="label" x="884" y="302" text-anchor="middle">Testing</text>
+  <text class="body" x="884" y="339" text-anchor="middle">Harness</text>
+  <text class="small" x="884" y="370" text-anchor="middle">Seeded scheduling</text>
+  <text class="small" x="884" y="398" text-anchor="middle">Virtual time</text>
+  <text class="small" x="884" y="426" text-anchor="middle">Backend harnesses</text>
+
+  <path d="M 800 460 H 968" stroke="#42544b"/>
+
+  <text class="label" x="884" y="502" text-anchor="middle">Observability</text>
+  <text class="body" x="884" y="539" text-anchor="middle">Inspect &amp; marks</text>
+  <text class="body" x="884" y="573" text-anchor="middle">Causal trace</text>
+  <text class="body" x="884" y="607" text-anchor="middle">tracing events</text>
+
+  <rect x="48" y="772" width="944" height="98" rx="12" fill="#354037" stroke="#6b7253"/>
+  <text class="label accent" x="520" y="805" text-anchor="middle">Scopes · ownership &amp; visibility</text>
+  <text class="body" x="520" y="834" text-anchor="middle">Application → Window → Layout → Page</text>
+  <text class="small" x="520" y="858" text-anchor="middle">Resource lifetime · sleep / wake · cancellation &amp; cleanup</text>
+
+  <path class="link" d="M 520 902 V 940" marker-start="url(#arrow)"/>
+
+  <rect class="panel" x="40" y="950" width="960" height="76" rx="16"/>
+  <text class="heading" x="520" y="981" text-anchor="middle">Application-specific logic</text>
+  <text class="body" x="520" y="1009" text-anchor="middle">What your application does</text>
+</svg>

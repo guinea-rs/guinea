@@ -1,0 +1,5 @@
+Microsoft.UI.Xaml.Controls.ScrollViewer::{get_HorizontalOffset,get_VerticalOffset,get_ViewportWidth,get_ViewportHeight,get_ExtentWidth,get_ExtentHeight,ChangeViewWithOptionalAnimation,add_ViewChanged,remove_ViewChanged}
+Microsoft.UI.Xaml.Controls.ScrollViewerViewChangedEventArgs::get_IsIntermediate
+Microsoft.UI.Xaml.FrameworkElement::{add_LayoutUpdated,remove_LayoutUpdated}
+Microsoft.UI.Xaml.UIElement::TransformToVisual
+Microsoft.UI.Xaml.Media.GeneralTransform::TransformPoint

@@ -233,6 +233,12 @@ struct NativeEventQueue {
 }
 
 enum ObservationSubscription {
+    ScrollViewer {
+        _view: windows_core::EventRevoker,
+        _layout: windows_core::EventRevoker,
+        _size: windows_core::EventRevoker,
+        _loaded: windows_core::EventRevoker,
+    },
     SwapChainPanel {
         _rendering: windows_core::EventRevoker,
         _scale: windows_core::EventRevoker,
@@ -2217,6 +2223,9 @@ include!("events.rs");
 include!("relations.rs");
 
 include!("adapter.rs");
+
+#[cfg(all(test, feature = "test"))]
+mod scroll_tests;
 
 fn relation_contract(
     kind: ObjectType,

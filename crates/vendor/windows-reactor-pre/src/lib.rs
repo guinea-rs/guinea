@@ -97,7 +97,8 @@ use reference::*;
 pub use reference::*;
 pub use reference::{
     AnyElement, CompatibleElementRef, CompositionHostEvent, ElementObservation, ElementRef,
-    FocusError, IntegrationError, ReferenceElement, SwapChainPanelBinding, SwapChainPanelEvent,
+    FocusError, IntegrationError, ReferenceElement, ScrollViewerMetrics, SwapChainPanelBinding,
+    SwapChainPanelEvent,
 };
 pub use window::*;
 pub use windows_time::{DateTime, TimeSpan};

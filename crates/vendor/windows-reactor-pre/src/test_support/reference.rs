@@ -10,8 +10,6 @@ impl ImperativeRequest {
     pub(crate) fn object(&self) -> ObjectId {
         match self {
             Self::Focus { object, .. }
-            | Self::ObserveScrollViewer { object, .. }
-            | Self::ChangeScrollViewerView { object, .. }
             | Self::InitializeWebView2 { object, .. }
             | Self::ObserveSwapChainPanel { object, .. }
             | Self::RequestSwapChainPanelFrame { object, .. }

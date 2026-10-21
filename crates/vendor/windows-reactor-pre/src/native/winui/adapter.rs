@@ -566,82 +566,6 @@ impl Adapter for WinUiAdapter {
                     },
                 );
             }
-            ImperativeRequest::ObserveScrollViewer {
-                object,
-                observation,
-                callback,
-            } => {
-                let Some(Handle::Generated(GeneratedHandle::ScrollViewer(control))) =
-                    self.handles.get(&object)
-                else {
-                    return Ok(());
-                };
-                let viewer = control.cast::<super::scroll_bindings::ScrollViewer>()?;
-                let framework = control.cast::<native::IFrameworkElement>()?;
-                let layout_framework =
-                    control.cast::<super::scroll_bindings::IFrameworkElement>()?;
-                let previous = Cell::new(None);
-                let intermediate = Rc::new(Cell::new(false));
-                let current_intermediate = Rc::clone(&intermediate);
-                let errors = Rc::clone(&self.event_queue);
-                let snapshot_viewer = viewer.clone();
-                let notify: Rc<dyn Fn()> = Rc::new(move || {
-                    match scroll_viewer_metrics(&snapshot_viewer, current_intermediate.get()) {
-                        Ok(metrics) if previous.replace(Some(metrics)) != Some(metrics) => {
-                            callback.call(metrics);
-                        }
-                        Ok(_) => {}
-                        Err(error) => errors.errors.borrow_mut().push_back(error.into()),
-                    }
-                });
-                let view_notify = Rc::clone(&notify);
-                let view = viewer.ViewChanged(move |_, args| {
-                    if let Some(args) = args.as_ref()
-                        && let Ok(value) = args.IsIntermediate()
-                    {
-                        intermediate.set(value);
-                    }
-                    view_notify();
-                })?;
-                let layout_notify = Rc::clone(&notify);
-                let layout = layout_framework.LayoutUpdated(move |_, _| layout_notify())?;
-                let size_notify = Rc::clone(&notify);
-                let size = framework.SizeChanged(move |_, _| size_notify())?;
-                let loaded_notify = Rc::clone(&notify);
-                let loaded = framework.Loaded(move |_, _| loaded_notify())?;
-                self.observations.insert(
-                    (object, observation),
-                    ObservationSubscription::ScrollViewer {
-                        _view: view,
-                        _layout: layout,
-                        _size: size,
-                        _loaded: loaded,
-                    },
-                );
-                notify();
-            }
-            ImperativeRequest::ChangeScrollViewerView {
-                object,
-                vertical_offset,
-                disable_animation,
-                completion,
-            } => {
-                let result = match self.handles.get(&object) {
-                    Some(Handle::Generated(GeneratedHandle::ScrollViewer(control))) => control
-                        .cast::<super::scroll_bindings::ScrollViewer>()
-                        .and_then(|viewer| {
-                            viewer.ChangeViewWithOptionalAnimation(
-                                None,
-                                Some(vertical_offset),
-                                None,
-                                disable_animation,
-                            )
-                        })
-                        .map_err(integration_error),
-                    _ => Err(IntegrationError::Unavailable),
-                };
-                completion.call(result);
-            }
             ImperativeRequest::ObserveCompositionHost {
                 object,
                 observation,
@@ -767,19 +691,4 @@ impl Adapter for WinUiAdapter {
         }
         Ok(())
     }
-}
-
-fn scroll_viewer_metrics(
-    viewer: &super::scroll_bindings::ScrollViewer,
-    is_intermediate: bool,
-) -> windows_core::Result<ScrollViewerMetrics> {
-    Ok(ScrollViewerMetrics {
-        horizontal_offset: viewer.HorizontalOffset()?,
-        vertical_offset: viewer.VerticalOffset()?,
-        viewport_width: viewer.ViewportWidth()?,
-        viewport_height: viewer.ViewportHeight()?,
-        extent_width: viewer.ExtentWidth()?,
-        extent_height: viewer.ExtentHeight()?,
-        is_intermediate,
-    })
 }

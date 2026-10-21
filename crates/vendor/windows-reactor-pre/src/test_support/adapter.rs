@@ -1100,8 +1100,7 @@ impl Adapter for RecordingAdapter {
         }
         self.imperatives.push(request.clone());
         match request {
-            ImperativeRequest::Focus { completion, .. }
-            | ImperativeRequest::ChangeScrollViewerView { completion, .. } => {
+            ImperativeRequest::Focus { completion, .. } => {
                 completion.call(Ok(true));
             }
             ImperativeRequest::InitializeWebView2 { completion, .. } => {

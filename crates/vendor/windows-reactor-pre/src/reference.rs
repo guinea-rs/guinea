@@ -309,57 +309,6 @@ impl ElementRef<Image> {
     }
 }
 
-impl ElementRef<ScrollViewer> {
-    /// Reports an initial snapshot for each binding and changes to offsets, viewport,
-    /// extent, or the intermediate state. Layout-only changes are included; identical
-    /// snapshots are suppressed. Retain the returned handle to keep observing.
-    ///
-    /// The first snapshot may precede layout and contain zero dimensions. Dropping
-    /// the handle or detaching the reference prevents stale callbacks.
-    #[must_use]
-    pub fn observe_scroll_viewer(
-        &self,
-        callback: impl Fn(ScrollViewerMetrics) + 'static,
-    ) -> ElementObservation {
-        self.observe(ReferenceObservation::ScrollViewer(Callback::new(callback)))
-    }
-
-    /// Enqueues a native vertical scroll without changing horizontal offset or zoom.
-    ///
-    /// Returns whether the request was queued, not whether scrolling succeeded.
-    /// Completion reports the native acceptance result, not animation completion;
-    /// stale bindings report [`IntegrationError::Unavailable`]. An unqueued request
-    /// does not invoke completion. Observe metrics to follow animated scrolling.
-    #[must_use]
-    pub fn request_change_view(
-        &self,
-        vertical_offset: f64,
-        disable_animation: bool,
-        completion: impl Fn(Result<bool, IntegrationError>) + 'static,
-    ) -> bool {
-        self.enqueue(
-            move |object, binding, target| ImperativeRequest::ChangeScrollViewerView {
-                object,
-                vertical_offset,
-                disable_animation,
-                completion: current_completion(target, binding, completion),
-            },
-        )
-    }
-}
-
-/// Native ScrollViewer measurements in device-independent pixels.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ScrollViewerMetrics {
-    pub horizontal_offset: f64,
-    pub vertical_offset: f64,
-    pub viewport_width: f64,
-    pub viewport_height: f64,
-    pub extent_width: f64,
-    pub extent_height: f64,
-    pub is_intermediate: bool,
-}
-
 impl ElementRef<Grid> {
     #[must_use]
     pub fn observe_composition_host(
@@ -486,7 +435,6 @@ enum ReferenceObservation {
     SwapChainPanel(Callback<SwapChainPanelEvent>),
     ImageScale(Callback<f64>),
     CompositionHost(Callback<CompositionHostEvent>),
-    ScrollViewer(Callback<ScrollViewerMetrics>),
 }
 
 impl ObservationRegistration {
@@ -496,18 +444,6 @@ impl ObservationRegistration {
         binding: &ReferenceBinding,
     ) -> ImperativeRequest {
         match &self.kind {
-            ReferenceObservation::ScrollViewer(callback) => {
-                ImperativeRequest::ObserveScrollViewer {
-                    object: binding.object,
-                    observation: self.id,
-                    callback: current_observation(
-                        Rc::downgrade(target),
-                        binding.id,
-                        self.id,
-                        callback.clone(),
-                    ),
-                }
-            }
             ReferenceObservation::SwapChainPanel(callback) => {
                 ImperativeRequest::ObserveSwapChainPanel {
                     object: binding.object,
@@ -690,17 +626,6 @@ impl QueuedImperative {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImperativeRequest {
-    ObserveScrollViewer {
-        object: ObjectId,
-        observation: u64,
-        callback: Callback<ScrollViewerMetrics>,
-    },
-    ChangeScrollViewerView {
-        object: ObjectId,
-        vertical_offset: f64,
-        disable_animation: bool,
-        completion: Callback<Result<bool, IntegrationError>>,
-    },
     Focus {
         object: ObjectId,
         completion: Callback<Result<bool, FocusError>>,
@@ -753,11 +678,6 @@ pub enum ImperativeRequest {
 impl ImperativeRequest {
     fn observation_key(&self) -> Option<(ObjectId, u64)> {
         match self {
-            Self::ObserveScrollViewer {
-                object,
-                observation,
-                ..
-            } => Some((*object, *observation)),
             Self::ObserveSwapChainPanel {
                 object,
                 observation,
@@ -783,7 +703,7 @@ impl ImperativeRequest {
 
     pub(crate) fn complete_unavailable(&self) {
         match self {
-            Self::Focus { completion, .. } | Self::ChangeScrollViewerView { completion, .. } => {
+            Self::Focus { completion, .. } => {
                 completion.call(Err(IntegrationError::Unavailable));
             }
             Self::InitializeWebView2 { completion, .. } => {

@@ -18,14 +18,6 @@ use windows_core::{
 #[cfg_attr(not(feature = "test"), allow(dead_code))]
 mod bindings;
 
-#[allow(
-    non_camel_case_types,
-    non_snake_case,
-    non_upper_case_globals,
-    dead_code
-)]
-mod scroll_bindings;
-
 mod app;
 mod app_shim;
 mod bootstrap;

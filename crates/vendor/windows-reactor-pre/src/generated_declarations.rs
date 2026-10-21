@@ -2751,10 +2751,7 @@ impl From<Canvas> for View {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScrollViewer(Declaration);
-impl Sealed for ScrollViewer {}
-impl ReferenceElement for ScrollViewer {}
 impl ScrollViewer {
-    reference_methods!(ScrollViewer);
     pub fn new() -> Self {
         let declaration = Declaration::new(ObjectType::ScrollViewer);
         Self(declaration)

@@ -63,6 +63,7 @@ export default defineConfig({
           items: [
             { slug: 'concepts/scopes' },
             { slug: 'concepts/features' },
+            { slug: 'concepts/dependencies' },
             { slug: 'concepts/plugins' },
             { slug: 'concepts/tasks' },
             { slug: 'concepts/feeds' },

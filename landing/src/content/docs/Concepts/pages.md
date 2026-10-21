@@ -148,6 +148,9 @@ it creates the page through `Default`. With no declared `Params`, it uses
 
 ## Dependencies during installation
 
+For how dependencies pass from plugins through the application to pages,
+see [dependencies and application wiring](../dependencies/).
+
 `#[page]` and `#[layout]` also resolve dependencies declared as arguments
 after `cx` in `install`, just as `#[installs]` does for a feature. For example,
 `fn install(cx: &Install, store: Store) -> anyhow::Result<Self>` receives a

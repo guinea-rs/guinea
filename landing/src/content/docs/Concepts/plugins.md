@@ -11,6 +11,9 @@ not modules loaded at runtime.
 
 ## Declare the outputs
 
+For the shared model of inputs, outputs and scope visibility, see
+[dependencies and application wiring](../dependencies/).
+
 This in-memory store is a complete example of a plugin. `provides` lists
 the dependency it returns:
 

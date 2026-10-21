@@ -49,7 +49,7 @@ jobs:
       # The book shows every page on each backend it documents; the facade's
       # default build has only WinUI, so the egui examples are run here.
       - name: Book examples on egui
-        run: cargo test -p guinea --features eframe,harness --test book_pages_egui --test book_composition_egui
+        run: cargo test -p guinea --features eframe,harness --test book_pages_egui --test book_composition_egui --test book_dependencies_egui
 
       # The examples in the README and in doc comments are copied from tests
       # by `cargo xtask docs`; a page edited by hand, or a test changed without

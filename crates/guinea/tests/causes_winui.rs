@@ -193,20 +193,30 @@ impl Page for Services {
     }
 }
 
-/// Told something it already shows, and sends nothing for it.
 #[derive(Default)]
-pub struct Quiet;
+pub struct Quiet {
+    clicks: u32,
+}
 
 #[page]
 impl Page for Quiet {
     type Message = ();
 
-    fn update(&mut self, _message: (), _cx: &mut guinea::winui::UpdateCx<'_, Self>) {}
+    fn update(&mut self, _message: (), _cx: &mut guinea::winui::UpdateCx<'_, Self>) {
+        self.clicks += 1;
+    }
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        Button::new()
-            .on_click(cx.on_some(|()| None))
-            .content(TextBlock::new().text("same again"))
+        StackPanel::new()
+            .children((
+                Button::new()
+                    .on_click(cx.on(|()| ()))
+                    .content(TextBlock::new().text("send message")),
+                Button::new()
+                    .on_click(windows_reactor::Callback::new(|()| {}))
+                    .content(TextBlock::new().text("send nothing")),
+                TextBlock::new().text(format!("clicks {}", self.clicks)),
+            ))
             .into()
     }
 }
@@ -351,7 +361,7 @@ fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
     let mut app = Mounted::routed::<Shell>(h, Place::Quiet).unwrap();
     app.settle();
 
-    let act = app.click_text("same again");
+    let act = app.click_text("send nothing");
     app.settle();
 
     assert!(
@@ -359,6 +369,18 @@ fn a_callback_that_sends_nothing_redraws_nothing(h: &mut Harness) {
         "{:#?}",
         act.chain().points()
     );
+}
+
+#[guinea::test(iterations = 4)]
+fn a_direct_callback_delivers_its_message_and_records_the_redraw(h: &mut Harness) {
+    let mut app = Mounted::routed::<Shell>(h, Place::Quiet).unwrap();
+    app.settle();
+
+    let act = app.click_text("send message");
+    app.settle();
+
+    assert!(app.find_text("clicks 1").is_some());
+    assert!(act.chain().has(rendered("Quiet")), "{:#?}", act.chain().points());
 }
 
 #[guinea::test(iterations = 4)]

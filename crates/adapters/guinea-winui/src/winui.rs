@@ -1522,20 +1522,6 @@ impl<P: Page> PageCx<'_, '_, P> {
         self.cx.callback(move |payload| Signal::Node(message(payload)))
     }
 
-    /// [`on`](Self::on), for an event that is not always news: `None` sends
-    /// nothing and redraws nothing.
-    pub fn on_some<T>(&self, message: impl Fn(T) -> Option<P::Message> + 'static) -> Callback<T>
-    where
-        T: 'static,
-    {
-        let sender = self.cx.sender();
-        Callback::new(move |payload| {
-            if let Some(message) = message(payload) {
-                let _gone = !sender.send(Signal::Node(message));
-            }
-        })
-    }
-
     /// Opens `window` as a window of its own - see [`crate::window`].
     ///
     /// Deferred rather than immediate, and the deferral is the reactor's rule
@@ -1641,19 +1627,6 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
         T: 'static,
     {
         self.cx.callback(move |payload| Signal::Node(message(payload)))
-    }
-
-    /// See [`PageCx::on_some`].
-    pub fn on_some<T>(&self, message: impl Fn(T) -> Option<L::Message> + 'static) -> Callback<T>
-    where
-        T: 'static,
-    {
-        let sender = self.cx.sender();
-        Callback::new(move |payload| {
-            if let Some(message) = message(payload) {
-                let _gone = !sender.send(Signal::Node(message));
-            }
-        })
     }
 
     /// Mounts `S` - a page or a layout - under this layout, with `params`.

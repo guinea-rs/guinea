@@ -52,6 +52,15 @@ The publish workflow creates a GitHub Release with generated notes only
 after crate publication succeeds. Update the workspace version and internal
 dependency requirements together; do not tag a release before its checks pass.
 
+A release request includes publishing the standard GitHub Release, not just
+pushing a version commit or a tag. The release body must contain meaningful
+notes: the changes, their user-facing effects, and migration steps for breaking
+API changes. GitHub's generated Full Changelog link alone is not release notes.
+Use the publish workflow to create the release, then fill its body on GitHub;
+do not create local release-notes files. Verify crate
+publication and the published, non-draft GitHub Release before reporting the
+release as complete, and give the user its link.
+
 ## Working on the book
 
 Two locales over the same tree: English at `landing/src/content/docs/`, Russian

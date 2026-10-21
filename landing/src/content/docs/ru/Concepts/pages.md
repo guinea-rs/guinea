@@ -427,7 +427,7 @@ fn the_about_button_moves_the_window(h: &mut Harness) {
 
 ```toml
 [dev-dependencies]
-guinea = { version = "0.31", features = ["harness"] }
+guinea = { version = "0.32", features = ["harness"] }
 ```
 
 Можно проверить и само окно, которое вернула функция `app`, включая

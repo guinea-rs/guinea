@@ -8,7 +8,7 @@ use guinea::prelude::*;
 use guinea::sources::Changing;
 
 //@show periods: declaring refresh settings
-use amethystate::{Field, amethystate};
+use amethystate::{Field, Store, amethystate};
 
 #[amethystate(prefix = "refresh")]
 pub struct RefreshSettings {
@@ -42,21 +42,36 @@ feature! {
 }
 
 #[installs]
-fn configured_polling(cx: &Install<Field<u64>>) -> anyhow::Result<ConfiguredPolling> {
+fn configured_polling(cx: &Install, store: Store) -> anyhow::Result<ConfiguredPolling> {
+    let settings = RefreshSettings::try_new_with(&store)?;
     let count = cx.state::<Count>().plain();
-    let period = Period::follows(Milliseconds(cx.params().clone()), Duration::from_millis);
+    let period = Period::follows(Milliseconds(settings.interval_ms()), Duration::from_millis);
     cx.repeat(period, move || count.push(()));
     Ok(ConfiguredPolling(count))
+}
+//@show-end
+
+//@show periods: a store for the example
+plugin! {
+    pub MemoryStore {
+        provides { Store }
+    }
+}
+
+#[builds]
+fn memory_store(_app: &mut PluginBuilder) -> anyhow::Result<MemoryStore> {
+    let store = amethystate::StoreBuilder::in_memory().build()?;
+    Ok(MemoryStore(store))
 }
 //@show-end
 
 //@show periods: changing an amethystate field rearms the timer
 #[guinea::test]
 fn changing_an_amethystate_field_restarts_the_timer(h: &mut Harness) {
-    let store = amethystate::StoreBuilder::in_memory().build().unwrap();
+    let MemoryStore(store) = h.plugin::<MemoryStore>(()).unwrap();
     let settings = RefreshSettings::new_with(&store);
     let interval = settings.interval_ms();
-    h.install::<ConfiguredPolling>(&interval).unwrap();
+    h.install::<ConfiguredPolling>(&()).unwrap();
     h.settled();
     h.advance(Duration::from_millis(500));
 
@@ -67,15 +82,24 @@ fn changing_an_amethystate_field_restarts_the_timer(h: &mut Harness) {
     h.advance(Duration::from_millis(500));
     assert_eq!(h.state::<Count>().0, 1);
     assert_eq!(interval.get(), 2000);
+    h.advance(Duration::from_millis(1999));
+    assert_eq!(h.state::<Count>().0, 1);
+    h.advance(Duration::from_millis(1));
+    assert_eq!(h.state::<Count>().0, 2);
 }
 //@show-end
 
+#[test]
+fn the_timer_example_has_valid_dependency_declarations() {
+    guinea::app::validate_declarations();
+}
+
 #[guinea::test]
 fn an_amethystate_write_from_another_thread_rearms_the_timer(h: &mut Harness) {
-    let store = amethystate::StoreBuilder::in_memory().build().unwrap();
+    let MemoryStore(store) = h.plugin::<MemoryStore>(()).unwrap();
     let settings = RefreshSettings::new_with(&store);
     let interval = settings.interval_ms();
-    h.install::<ConfiguredPolling>(&interval).unwrap();
+    h.install::<ConfiguredPolling>(&()).unwrap();
     h.settled();
     let written = interval.clone();
     std::thread::spawn(move || written.set(250)).join().unwrap();
@@ -157,7 +181,7 @@ impl Changing for Interval {
 }
 //@show-end
 
-//@show periods: installing a dynamic timer
+//@show periods: counting refreshes
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Count(pub u32);
 
@@ -165,7 +189,9 @@ pub struct Count(pub u32);
 fn count(this: &mut Count, _: ()) {
     this.0 += 1;
 }
+//@show-end
 
+//@show periods: installing a dynamic timer
 feature! {
     pub Polling {
         exports { Count }

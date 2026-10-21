@@ -61,8 +61,8 @@ windows-core = "0.100.0"
 # --- UI Stack (the other backends) ---
 # Without their defaults, which pick a renderer: that is the application's
 # choice. Each adapter names the features it needs.
-eframe = { version = "0.36", default-features = false }
-egui = "0.36"
+eframe = { version = "0.37", default-features = false }
+egui = "0.37"
 iced = { version = "0.14", default-features = false }
 elsa = "1.11"
 ratatui = "0.30"
@@ -76,7 +76,7 @@ windows-sys = "0.61"
 proc-macro2 = "1.0"
 proc-macro-crate = "3.0"
 quote = "1.0"
-syn = "2.0"
+syn = "3.0"
 winnow = "1.0"
 
 # --- Async ---
@@ -87,7 +87,7 @@ pin-project-lite = "0.2"
 # --- Serialization & Data ---
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-toml = "0.9.8"
+toml = "1.1.4"
 slotmap = "1.1.1"
 
 # --- Logging & Diagnostics ---

@@ -30,3 +30,15 @@ default-target = "x86_64-pc-windows-msvc"
 targets = []
 features = ["reactor"]
 no-default-features = true
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
+debug = 0

@@ -6,4 +6,4 @@
 # runtime that no longer sat next to the binary. Nothing here needs nightly:
 # there is not a single `#![feature]` in the workspace.
 [toolchain]
-channel = "1.95.0"
+channel = "1.99.1"

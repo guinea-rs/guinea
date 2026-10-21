@@ -1,5 +1,9 @@
 # One todo application, five backends
 
+The examples inherit the repository's pinned Rust 1.99.1 toolchain. Their
+standalone workspaces disable debug information in dev, test, release and bench
+builds; symbols are opt-in for debugging or profiling.
+
 `todo-core` owns the application. The other crates draw it with WinUI,
 egui, iced, ratatui or Slint. Each is a separate workspace and has its own
 lockfile, so testing one backend does not enable another backend's features.

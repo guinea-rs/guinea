@@ -13,9 +13,18 @@ ratatui = "0.30"
 anyhow = "1"
 
 [profile.dev]
-debug = 1
+debug = 0
 incremental = false
 codegen-units = 256
 
 [profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
 debug = 0

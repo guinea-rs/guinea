@@ -35,6 +35,15 @@ xtask/                   cargo xtask docs
 Plugins - settings, window geometry, localisation, devtools - live in
 [guinea-plugins](https://github.com/guinea-rs/guinea-plugins).
 
+## Toolchain and build profiles
+
+Ordinary local and CI builds use the exact Rust 1.99.1 toolchain, including
+standalone examples and vendored workspaces. The published MSRV remains 1.95;
+MSRV validation is a separate compatibility check, not the normal compiler.
+Dev, test, release and bench profiles disable debug information (`debug = 0`).
+Enable symbols explicitly for a debugging or profiling session only; do not
+change global cache settings or remove existing build artifacts as part of this.
+
 ## Checks
 
 What CI runs, and what a change should pass before it is pushed:

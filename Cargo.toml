@@ -119,6 +119,7 @@ shown = { git = "https://github.com/guinea-rs/shown", tag = "v0.2.0" }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [profile.release]
+debug = 0
 opt-level = "s"
 lto = true
 codegen-units = 1
@@ -126,9 +127,15 @@ strip = true
 split-debuginfo = "packed"
 
 [profile.dev]
-debug = 1
+debug = 0
 incremental = true
 codegen-units = 256
 
 [profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.bench]
 debug = 0

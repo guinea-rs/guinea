@@ -32,3 +32,15 @@ windows-window = { package = "windows-window-pre", version = "0.104.0", path = "
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"
 targets = []
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
+debug = 0

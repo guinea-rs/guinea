@@ -1601,3 +1601,6 @@ fn bool_of(value: Option<&PropertyValue>) -> Option<bool> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

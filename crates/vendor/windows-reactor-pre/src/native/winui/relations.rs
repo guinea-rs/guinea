@@ -26,14 +26,12 @@ impl WinUiAdapter {
                 parent.value.SetContent(&child_element)?;
                 parent.content = Some(child);
             }
-            (Handle::TextBox(parent), RelationId::Header) => {
-                parent.value.SetHeader(&child_element)?;
-            }
             (Handle::Data(parent), RelationId::Content) => {
                 let properties =
                     parent.cast::<IMap<HSTRING, IInspectable>>()?;
                 let content: IInspectable = child_element.cast()?;
                 properties.Insert(&data_content_key, &content)?;
+                properties.Insert(&self.data_text_visibility_key, &data_string("Collapsed"))?;
             }
             _ => return Err(WinUiError::InvalidRelation(parent, relation)),
         }
@@ -51,7 +49,6 @@ impl WinUiAdapter {
             return Err(WinUiError::ChildNotFound(child));
         }
         let data_content_key = self.data_content_key.clone();
-        let data_text_key = self.data_text_key.clone();
         match (self.handle(parent)?, relation) {
             (Handle::Generated(value), relation) => {
                 value
@@ -64,14 +61,11 @@ impl WinUiAdapter {
                 parent.value.SetContent(&content)?;
                 parent.content = None;
             }
-            (Handle::TextBox(parent), RelationId::Header) => {
-                parent.value.SetHeader(None::<&IInspectable>)?;
-            }
             (Handle::Data(parent), RelationId::Content) => {
                 let properties =
                     parent.cast::<IMap<HSTRING, IInspectable>>()?;
-                let text = properties.Lookup(&data_text_key)?;
-                properties.Insert(&data_content_key, &text)?;
+                properties.Insert(&data_content_key, None)?;
+                properties.Insert(&self.data_text_visibility_key, &data_string("Visible"))?;
             }
             _ => return Err(WinUiError::InvalidRelation(parent, relation)),
         }
@@ -157,7 +151,12 @@ impl WinUiAdapter {
             .map(|selection| self.selection_item_is_selected(child, selection))
             .transpose()?
             .unwrap_or(false);
-        let feedback = self.begin_selection_feedback(parent, selection);
+        let tracked = selection_item.is_some()
+            || reorder_event(self.kind(parent)?, relation).is_some();
+        let identity = tracked
+            .then(|| self.item_identity(parent, relation, child))
+            .transpose()?;
+        let feedback = self.suppress_selection(parent, relation, selection)?;
         let result = (|| {
             match relation_contract(self.kind(parent)?, relation)?.realization {
                 Realization::Owned => {
@@ -174,15 +173,16 @@ impl WinUiAdapter {
                 }
             }
             self.owners.insert(child, (parent, relation));
-            if let (Some(selection), Some(value)) = (selection_item, child_value.as_ref()) {
-                self.event_queue
-                    .selection_items
-                    .borrow_mut()
-                    .push(NativeSelectionItem {
+            if let Some(identity) = identity {
+                self.event_queue.items.borrow_mut().insert(
+                    child,
+                    NativeItem {
                         owner: parent,
-                        object: child,
-                        value: value.clone(),
-                    });
+                        identity,
+                    },
+                );
+            }
+            if let (Some(selection), Some(value)) = (selection_item, child_value.as_ref()) {
                 if child_selected {
                     self.write_selected_item(parent, selection, Some(value))?;
                 } else if let Some(selected) = selected.as_ref() {
@@ -191,7 +191,7 @@ impl WinUiAdapter {
             }
             Ok(())
         })();
-        self.finish_selection_feedback(parent, feedback);
+        self.release_selection(parent, feedback);
         result
     }
 
@@ -219,7 +219,7 @@ impl WinUiAdapter {
                     .and_then(|value| value.cast::<IInspectable>().map_err(Into::into))
             })
             .transpose()?;
-        let feedback = self.begin_selection_feedback(parent, selection);
+        let feedback = self.suppress_selection(parent, relation, selection)?;
         let result = (|| {
             match relation_contract(self.kind(parent)?, relation)?.realization {
                 Realization::Owned => {
@@ -245,20 +245,16 @@ impl WinUiAdapter {
                 }
             }
             self.owners.remove(&child);
-            if let Some(selection) = selection {
-                self.event_queue
-                    .selection_items
-                    .borrow_mut()
-                    .retain(|item| item.object != child);
-                if let Some(selected) = selected.as_ref()
-                    && child_value.as_ref() != Some(selected)
-                {
-                    self.write_selected_item(parent, selection, Some(selected))?;
-                }
+            self.event_queue.items.borrow_mut().remove(&child);
+            if let Some(selection) = selection
+                && let Some(selected) = selected.as_ref()
+                && child_value.as_ref() != Some(selected)
+            {
+                self.write_selected_item(parent, selection, Some(selected))?;
             }
             Ok(())
         })();
-        self.finish_selection_feedback(parent, feedback);
+        self.release_selection(parent, feedback);
         result
     }
 
@@ -270,11 +266,11 @@ impl WinUiAdapter {
         children: &[ObjectId],
     ) -> Result<(), WinUiError> {
         let selection = selection_for_relation(self.kind(parent)?, relation);
-        let selected = selection
+        let mut selected = selection
             .map(|selection| self.read_selected_item(parent, selection))
             .transpose()?
             .flatten();
-        let feedback = self.begin_selection_feedback(parent, selection);
+        let feedback = self.suppress_selection(parent, relation, selection)?;
         let result = (|| {
             match relation_contract(self.kind(parent)?, relation)?.realization {
                 Realization::Owned if !self.has_retirements(parent, relation) => {
@@ -323,11 +319,6 @@ impl WinUiAdapter {
                     }
                 }
                 Realization::Structural => {
-                    let tree = self.tree_owner(parent)?;
-                    let template = self.tree_template()?;
-                    let tree2 = tree.cast::<native::ITreeView2>()?;
-                    tree2.SetItemTemplate(None::<&native::DataTemplate>)?;
-                    tree.cast::<native::IUIElement>()?.UpdateLayout()?;
                     let values = self.tree_nodes(parent)?;
                     for movement in moves {
                         let child = self.tree_node(movement.child)?;
@@ -348,7 +339,6 @@ impl WinUiAdapter {
                         };
                         values.InsertAt(index, &child)?;
                     }
-                    tree2.SetItemTemplate(&template)?;
                 }
                 Realization::Container => {
                     let values = self.items(parent)?;
@@ -365,6 +355,10 @@ impl WinUiAdapter {
                             if !values.IndexOf(&child, &mut previous)? {
                                 return Err(WinUiError::ChildNotFound(movement.child));
                             }
+                            let moved = self.reissue_data_item(movement.child)?;
+                            if selected.as_ref() == Some(&child) {
+                                selected = Some(moved.clone());
+                            }
                             values.RemoveAt(previous)?;
                             let index = if let Some(before) = movement.before {
                                 let before = self.inspectable(before)?;
@@ -376,7 +370,7 @@ impl WinUiAdapter {
                             } else {
                                 values.Size()?
                             };
-                            values.InsertAt(index, &child)?;
+                            values.InsertAt(index, &moved)?;
                         }
                     }
                 }
@@ -386,7 +380,7 @@ impl WinUiAdapter {
             }
             Ok(())
         })();
-        self.finish_selection_feedback(parent, feedback);
+        self.release_selection(parent, feedback);
         result?;
         let active = children.iter().copied().collect::<HashSet<_>>();
         debug_assert_eq!(
@@ -413,22 +407,54 @@ impl WinUiAdapter {
         )
     }
 
-    fn begin_selection_feedback(
+    /// Drops the owner's selection notifications while Reactor mutates a relation whose children
+    /// carry the selection, or whose index the same batch writes afterwards.
+    fn suppress_selection(
         &self,
         owner: ObjectId,
+        relation: RelationId,
         selection: Option<SelectionContract>,
-    ) -> Option<EventId> {
-        let event = selection.map(|selection| selection.event)?;
-        self.event_queue
-            .feedback
-            .borrow_mut()
-            .begin(owner, event, FeedbackExpectation::Suppressed);
-        Some(event)
+    ) -> Result<Option<EventId>, WinUiError> {
+        let event = match selection {
+            Some(selection) => Some(selection.event),
+            None => self.index_event(owner, IndexItems::Relation(relation))?,
+        };
+        if let Some(event) = event {
+            self.event_queue
+                .feedback
+                .borrow_mut()
+                .suppress(owner, event);
+        }
+        Ok(event)
     }
 
-    fn finish_selection_feedback(&self, owner: ObjectId, event: Option<EventId>) {
+    /// The owner's index event when the batch being applied writes the index after `items`.
+    pub(super) fn index_event(
+        &self,
+        owner: ObjectId,
+        items: IndexItems,
+    ) -> Result<Option<EventId>, WinUiError> {
+        Ok(index_for_items(self.kind(owner)?, items)
+            .filter(|contract| self.index_writes.contains(&(owner, contract.property)))
+            .map(|contract| contract.event))
+    }
+
+    fn release_selection(&self, owner: ObjectId, event: Option<EventId>) {
         if let Some(event) = event {
-            self.event_queue.feedback.borrow_mut().finish(owner, event);
+            self.event_queue.feedback.borrow_mut().release(owner, event);
+        }
+    }
+
+    fn item_identity(
+        &self,
+        parent: ObjectId,
+        relation: RelationId,
+        child: ObjectId,
+    ) -> Result<usize, WinUiError> {
+        match relation_contract(self.kind(parent)?, relation)?.realization {
+            Realization::Owned => com_identity(&self.ui_element(child)?),
+            Realization::Structural => com_identity(&self.tree_node(child)?),
+            Realization::Container => com_identity(&self.inspectable(child)?),
         }
     }
 
@@ -486,10 +512,8 @@ impl WinUiAdapter {
                 .ok_or(WinUiError::MissingObject(object))?
             {
                 Handle::Generated(value) => value.kind(),
-                Handle::TextBox(_) => ObjectType::TextBox,
                 Handle::TreeView(_) => ObjectType::TreeView,
                 Handle::TreeNode(_) => ObjectType::TreeNode,
-                Handle::ListView(_) => ObjectType::ListView,
                 Handle::Data(_) => ObjectType::DataItem,
             },
         )
@@ -502,11 +526,32 @@ impl WinUiAdapter {
             .ok_or(WinUiError::MissingObject(object))?
         {
             Handle::Generated(value) => value.ui_element(),
-            Handle::TextBox(value) => Ok(value.value.cast()?),
             Handle::TreeView(value) => Ok(value.value.cast()?),
-            Handle::ListView(value) => Ok(value.value.cast()?),
             Handle::TreeNode(_) | Handle::Data(_) => Err(WinUiError::InvalidObject(object)),
         }
+    }
+
+    /// Replaces a data item's native object before Reactor moves it within `Items`. WinUI keeps the
+    /// removed entry's container bound to the old object until its next layout pass, and a
+    /// selection write in the same batch can prepare a container for the moved item first. The old
+    /// object releases its content so the two containers never claim the same element.
+    fn reissue_data_item(&mut self, object: ObjectId) -> Result<IInspectable, WinUiError> {
+        let Some(Handle::Data(previous)) = self.handles.get(&object) else {
+            return Err(WinUiError::InvalidObject(object));
+        };
+        let previous = previous.clone();
+        let values = previous
+            .First()?
+            .map(|pair| Ok((pair.Key()?, pair.Value().ok())))
+            .collect::<Result<BTreeMap<_, _>, WinUiError>>()?;
+        previous.Insert(&self.data_content_key, None)?;
+        let value: IObservableMap<HSTRING, IInspectable> = values.into();
+        let inspectable: IInspectable = value.cast()?;
+        if let Some(item) = self.event_queue.items.borrow_mut().get_mut(&object) {
+            item.identity = com_identity(&inspectable)?;
+        }
+        self.handles.insert(object, Handle::Data(value));
+        Ok(inspectable)
     }
 
     fn inspectable(&self, object: ObjectId) -> Result<IInspectable, WinUiError> {
@@ -563,50 +608,26 @@ impl WinUiAdapter {
         }
     }
 
-    fn tree_owner(&self, object: ObjectId) -> Result<native::TreeView, WinUiError> {
-        let mut current = object;
-        loop {
-            match self
-                .handles
-                .get(&current)
-                .ok_or(WinUiError::MissingObject(current))?
-            {
-                Handle::TreeView(tree) => return Ok(tree.value.clone()),
-                Handle::TreeNode(_) => {
-                    current = self
-                        .owners
-                        .get(&current)
-                        .map(|(parent, _)| *parent)
-                        .ok_or(WinUiError::StillOwned(current))?;
-                }
-                _ => return Err(WinUiError::InvalidObject(current)),
-            }
-        }
-    }
-
     fn items(&self, object: ObjectId) -> Result<native::ItemCollection, WinUiError> {
         match self
             .handles
             .get(&object)
             .ok_or(WinUiError::MissingObject(object))?
         {
-            Handle::ListView(value) => Ok(value.value.cast::<native::IItemsControl>()?.Items()?),
+            Handle::Generated(GeneratedHandle::ListView(value)) => {
+                Ok(value.value.cast::<native::IItemsControl>()?.Items()?)
+            }
             _ => Err(WinUiError::InvalidObject(object)),
         }
     }
 
     fn set_data_text(&mut self, object: ObjectId, text: &str) -> Result<(), WinUiError> {
-        let content_key = self.data_content_key.clone();
         let text_key = self.data_text_key.clone();
         let Handle::Data(value) = self.handle(object)? else {
             return Err(WinUiError::InvalidObject(object));
         };
         let properties = value.cast::<IMap<HSTRING, IInspectable>>()?;
-        let text: IInspectable = windows_reference::IReference::from(HSTRING::from(text)).into();
-        properties.Insert(&text_key, &text)?;
-        if !properties.HasKey(&content_key)? {
-            properties.Insert(&content_key, &text)?;
-        }
+        properties.Insert(&text_key, &data_string(text))?;
         Ok(())
     }
 
@@ -614,9 +635,11 @@ impl WinUiAdapter {
         if let Some(template) = &self.tree_template {
             return Ok(template.clone());
         }
+        // A ContentPresenter root would take its text content as its own DataContext, so the
+        // binding would stop following the node: renamed or recycled items kept stale text.
         let template = native::XamlReader::Load(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>\
-             <ContentPresenter Content='{Binding Content}'/>\
+             <ContentControl IsTabStop='False' Content='{Binding Content}'/>\
              </DataTemplate>",
         )?
         .cast::<native::DataTemplate>()?;
@@ -630,7 +653,11 @@ impl WinUiAdapter {
         }
         let template = native::XamlReader::Load(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>\
+             <Grid>\
+             <TextBlock HorizontalAlignment='Left' Text='{Binding [Text]}' \
+             Visibility='{Binding [TextVisibility]}'/>\
              <ContentPresenter Content='{Binding [Content]}'/>\
+             </Grid>\
              </DataTemplate>",
         )?
         .cast::<native::DataTemplate>()?;
@@ -669,6 +696,7 @@ impl WinUiAdapter {
                 .push_back(QueuedNativeEvent {
                     observation: None,
                     event: None,
+                    record: false,
                     retirement: Some(RetirementCompletion { root }),
                     realization: None,
                 });
@@ -739,66 +767,88 @@ impl WinUiAdapter {
         if let Some(request) = queued.realization {
             return Some(NativeEvent::realization(request));
         }
+        // Native handlers queue reorders without an order; reading it here keeps queued
+        // notifications from replaying an order that a later render has already replaced.
+        let mut observation = queued.observation.clone();
+        let mut order = None;
+        if let Some(Observation::Reorder {
+            object,
+            relation,
+            children,
+        }) = &mut observation
+        {
+            if !self.handles.contains_key(object) {
+                return None;
+            }
+            let native = self.native_children(*object, *relation).unwrap();
+            children.clone_from(&native);
+            order = Some(EventPayload::Items(native));
+        }
         let event = queued.event.as_ref().and_then(|queued| {
-            if queued.event == EventId::MenuItemInvoked {
-                let menu = self.menus.get(&queued.object)?;
-                return (menu.revision == queued.revision).then(|| {
-                    EventDispatch::new(
-                        queued.object,
-                        queued.event,
-                        EventValue::Key(menu.menu.on_click.clone()),
-                        queued.payload.clone(),
-                    )
-                });
-            }
-            if queued.event == EventId::CommandInvoked {
-                let flyout = self.command_bar_flyouts.get(&queued.object)?;
-                return (flyout.revision == queued.revision).then(|| {
-                    EventDispatch::new(
-                        queued.object,
-                        queued.event,
-                        EventValue::Key(flyout.flyout.on_click.clone()),
-                        queued.payload.clone(),
-                    )
-                });
-            }
-            let callback = match (self.handles.get(&queued.object), queued.event) {
-                (Some(Handle::TextBox(text_box)), EventId::TextChanged) => {
-                    let event = text_box.event.borrow();
-                    (event.revision == queued.revision)
-                        .then(|| event.callback.clone().map(EventValue::String))
-                        .flatten()
+            let callback = match (&queued.handler, queued.event) {
+                (QueuedHandler::Presentation(revision), EventId::MenuItemInvoked) => {
+                    let menu = self.menus.get(&queued.object)?;
+                    (menu.revision == *revision).then(|| EventValue::Key(menu.menu.on_click.clone()))
                 }
-                (Some(Handle::ListView(list)), EventId::SelectionChanged) => {
-                    let event = list.selection_changed.borrow();
-                    (event.revision == queued.revision)
-                        .then(|| event.callback.clone().map(EventValue::SelectionIndex))
-                        .flatten()
+                (QueuedHandler::Presentation(revision), EventId::CommandInvoked) => {
+                    let flyout = self.command_bar_flyouts.get(&queued.object)?;
+                    (flyout.revision == *revision)
+                        .then(|| EventValue::Key(flyout.flyout.on_click.clone()))
                 }
-                (Some(Handle::TreeView(tree)), EventId::ItemInvoked) => {
-                    let event = tree.item_invoked.borrow();
-                    (event.revision == queued.revision)
-                        .then(|| event.callback.clone().map(EventValue::String))
-                        .flatten()
+                (QueuedHandler::Callback { callback, live }, _) => {
+                    live.get().then(|| callback.clone())
                 }
-                (Some(Handle::ListView(list)), EventId::DragItemsCompleted) => {
-                    let event = list.drag_items_completed.borrow();
-                    (event.revision == queued.revision)
-                        .then(|| event.callback.clone().map(EventValue::StringList))
-                        .flatten()
+                (QueuedHandler::Presentation(_), event) => {
+                    unreachable!("{event:?} has no presentation")
                 }
-                (Some(Handle::Generated(handle)), event) => {
-                    handle.event_callback(event, queued.revision)
-                }
-                _ => None,
             }?;
             Some(EventDispatch::new(
                 queued.object,
                 queued.event,
                 callback,
-                queued.payload.clone(),
+                order.unwrap_or_else(|| queued.payload.clone()),
             ))
         });
-        Some(NativeEvent::new(queued.observation.clone(), event))
+        Some(match observation {
+            Some(observation) if queued.record => NativeEvent::record(observation),
+            observation => NativeEvent::new(observation, event),
+        })
     }
+
+    /// Returns the registered children of a reorderable relation in native order.
+    fn native_children(
+        &self,
+        object: ObjectId,
+        relation: RelationId,
+    ) -> Result<Vec<ObjectId>, WinUiError> {
+        let identities = match relation_contract(self.kind(object)?, relation)?.realization {
+            Realization::Owned => {
+                let values = self.owned_collection(object, relation)?;
+                (0..values.size()?)
+                    .map(|index| com_identity(&values.get_at(index)?))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            Realization::Container => {
+                let values = self.items(object)?;
+                (0..values.Size()?)
+                    .map(|index| com_identity(&values.GetAt(index)?))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            Realization::Structural => return Err(WinUiError::InvalidRelation(object, relation)),
+        };
+        let items = self.event_queue.items.borrow();
+        let registered = items
+            .iter()
+            .filter(|(_, item)| item.owner == object)
+            .map(|(child, item)| (item.identity, *child))
+            .collect::<HashMap<_, _>>();
+        Ok(identities
+            .iter()
+            .filter_map(|identity| registered.get(identity).copied())
+            .collect())
+    }
+}
+
+fn data_string(value: &str) -> IInspectable {
+    windows_reference::IReference::from(HSTRING::from(value)).into()
 }

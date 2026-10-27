@@ -21,7 +21,7 @@ pub struct RecordingAdapter {
     content_dialog_owners: HashMap<ObjectId, ObjectId>,
     content_dialog_states: HashMap<ObjectId, RecordedContentDialog>,
     record_batches: bool,
-    validate_batches: bool,
+    read_reorders: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +92,7 @@ impl RecordingAdapter {
             content_dialog_owners: HashMap::new(),
             content_dialog_states: HashMap::new(),
             record_batches: false,
-            validate_batches: true,
+            read_reorders: false,
         }
     }
 
@@ -100,8 +100,18 @@ impl RecordingAdapter {
         self.record_batches = record;
     }
 
-    pub fn validate_batches(&mut self, validate: bool) {
-        self.validate_batches = validate;
+    /// Reports reorders in the recorded native order when they are processed, as the WinUI
+    /// adapter does, rather than the queued order.
+    pub fn read_reorders(&mut self, read: bool) {
+        self.read_reorders = read;
+    }
+
+    fn native_event(&self, event: NativeEvent) -> NativeEvent {
+        if self.read_reorders {
+            event.read_reorder(|object, relation| Some(self.children(object, relation)?.to_vec()))
+        } else {
+            event
+        }
     }
 
     pub fn batches(&self) -> &[Vec<Mutation>] {
@@ -110,6 +120,12 @@ impl RecordingAdapter {
 
     pub fn object_count(&self) -> usize {
         self.objects.len()
+    }
+
+    pub(crate) fn focus(&mut self, object: ObjectId) -> bool {
+        assert!(self.objects.contains_key(&object));
+        self.focuses.push(object);
+        true
     }
 
     pub fn focuses(&self) -> &[ObjectId] {
@@ -250,6 +266,19 @@ impl RecordingAdapter {
         self.native_events.push_back(NativeEvent::event(event));
     }
 
+    /// Moves recorded children the way a user drag moves native items, without a mutation.
+    pub fn move_children(&mut self, parent: ObjectId, relation: RelationId, order: &[ObjectId]) {
+        let Ok(RecordedRelation::Many(children)) = self.relation_mut(parent, relation) else {
+            panic!("{relation:?} is not a recorded collection");
+        };
+        let mut current = children.clone();
+        let mut next = order.to_vec();
+        current.sort_unstable_by_key(|object| (object.index(), object.generation()));
+        next.sort_unstable_by_key(|object| (object.index(), object.generation()));
+        assert_eq!(current, next);
+        children.copy_from_slice(order);
+    }
+
     pub fn queue_native_event(
         &mut self,
         observation: Option<Observation>,
@@ -257,6 +286,12 @@ impl RecordingAdapter {
     ) {
         self.native_events
             .push_back(NativeEvent::new(observation, event));
+    }
+
+    /// Queues the native state Reactor's own write produced, as the WinUI adapter reads it back.
+    pub fn queue_record(&mut self, observation: Observation) {
+        self.native_events
+            .push_back(NativeEvent::record(observation));
     }
 
     pub fn queue_realization(&mut self, request: RealizationRequest) {
@@ -1010,10 +1045,6 @@ impl Runtime<RecordingAdapter> {
         self.adapter_mut().record_batches(record);
     }
 
-    pub fn validate_batches(&mut self, validate: bool) {
-        self.adapter_mut().validate_batches(validate);
-    }
-
     pub fn complete_retirement(&mut self, root: ObjectId) -> bool {
         self.adapter_mut().complete_retirement(root)
     }
@@ -1040,10 +1071,6 @@ impl ComponentHost<RecordingAdapter> {
         self.runtime_mut_internal().record_batches(record);
     }
 
-    pub fn validate_batches(&mut self, validate: bool) {
-        self.runtime_mut_internal().validate_batches(validate);
-    }
-
     pub fn queue_event(&mut self, event: EventDispatch) {
         self.runtime_mut_internal().queue_event(event);
     }
@@ -1060,44 +1087,30 @@ impl Default for RecordingAdapter {
 }
 
 impl Adapter for RecordingAdapter {
-    type Error = AdapterError;
-
-    fn preview_native_events(&self, events: &mut Vec<NativeEvent>) {
-        NativeEvent::preview_prefix(events, self.native_events.iter().cloned());
+    fn peek_native_event(&self) -> Option<NativeEvent> {
+        let event = self.native_events.front()?;
+        Some(self.native_event(event.clone()))
     }
 
     fn pop_native_event(&mut self) -> Option<NativeEvent> {
-        self.native_events.pop_front()
+        let event = self.native_events.pop_front()?;
+        Some(self.native_event(event))
     }
 
-    fn validate(&self, mutations: &[Mutation]) -> Result<(), Self::Error> {
-        if !self.validate_batches {
-            return Ok(());
-        }
-        let mut candidate = self.clone();
-        candidate.apply_batch(mutations)
+    fn peek_native_dispatch(&self) -> Option<NativeEvent> {
+        let event = self.native_events.iter().find(|event| event.dispatches())?;
+        Some(self.native_event(event.clone()))
     }
 
-    fn apply(&mut self, mutations: &[Mutation]) -> Result<(), Self::Error> {
-        self.apply_batch(mutations)?;
+    fn apply(&mut self, mutations: &[Mutation]) {
+        self.apply_batch(mutations).unwrap();
         if self.record_batches {
             self.batches.push(mutations.to_vec());
         }
-        Ok(())
     }
 
-    fn focus(&mut self, object: ObjectId) -> Result<bool, Self::Error> {
-        if !self.objects.contains_key(&object) {
-            return Err(AdapterError::MissingObject(object));
-        }
-        self.focuses.push(object);
-        Ok(true)
-    }
-
-    fn imperative(&mut self, request: ImperativeRequest) -> Result<(), Self::Error> {
-        if !self.objects.contains_key(&request.object()) {
-            return Err(AdapterError::MissingObject(request.object()));
-        }
+    fn imperative(&mut self, request: ImperativeRequest) {
+        assert!(self.objects.contains_key(&request.object()));
         self.imperatives.push(request.clone());
         match request {
             ImperativeRequest::Focus { completion, .. } => {
@@ -1107,6 +1120,7 @@ impl Adapter for RecordingAdapter {
                 completion.call(Err(IntegrationError::Unavailable));
             }
             ImperativeRequest::RequestSwapChainPanelFrame { completion, .. }
+            | ImperativeRequest::Notify { completion, .. }
             | ImperativeRequest::SetSwapChain { completion, .. }
             | ImperativeRequest::SetNativeImageSource { completion, .. }
             | ImperativeRequest::SetCompositionChildVisual { completion, .. } => {
@@ -1114,6 +1128,5 @@ impl Adapter for RecordingAdapter {
             }
             _ => {}
         }
-        Ok(())
     }
 }

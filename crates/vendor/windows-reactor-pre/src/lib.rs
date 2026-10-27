@@ -36,10 +36,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak as SyncWeak};
 use std::time::Duration;
 
+use application::ApplicationCommand;
 pub use application::{
     Application, ApplicationContext, ApplicationView, ApplicationViewContext, NotifyIcon,
 };
-use application::{ApplicationCommand, application_error};
 pub(crate) use sealed::Sealed;
 
 #[cfg(any(test, feature = "test"))]
@@ -96,8 +96,10 @@ use reference::*;
 #[cfg(any(test, feature = "test"))]
 pub use reference::*;
 pub use reference::{
-    AnyElement, CompatibleElementRef, CompositionHostEvent, ElementObservation, ElementRef,
-    FocusError, IntegrationError, ReferenceElement, SwapChainPanelBinding, SwapChainPanelEvent,
+    AnyElement, AutomationNotification, AutomationNotificationKind,
+    AutomationNotificationProcessing, CompatibleElementRef, CompositionHostEvent,
+    ElementObservation, ElementRef, FocusError, IntegrationError, ReferenceElement,
+    SwapChainPanelBinding, SwapChainPanelEvent,
 };
 pub use window::*;
 pub use windows_time::{DateTime, TimeSpan};

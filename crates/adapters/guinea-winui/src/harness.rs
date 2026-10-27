@@ -146,14 +146,14 @@ fn sender<S: 'static, M: 'static>(owner: u64) -> Sender<M> {
 /// A host with no window for `root`, recording every batch it applies - a
 /// list says how long it is only in the batch that sets its source. What it
 /// creates is `owner`'s.
-fn host(owner: u64, root: ComponentNode) -> Result<ComponentHost<RecordingAdapter>, String> {
+fn host(owner: u64, root: ComponentNode) -> ComponentHost<RecordingAdapter> {
     let mut adapter = RecordingAdapter::new();
     adapter.record_batches(true);
 
-    let host = ComponentHost::mount(adapter, [root]).map_err(|refused| format!("{refused:?}"))?;
+    let host = ComponentHost::mount(adapter, [root]);
     claim(owner);
 
-    Ok(host)
+    host
 }
 
 fn next_owner() -> u64 {
@@ -350,8 +350,7 @@ impl<'h, S: Mountable> Mounted<'h, S> {
         let view = crate::winui::drawn(cx.__scope());
 
         let owner = next_owner();
-        let host = host(owner, component::<Shown>(ROOT, wrap(view)))
-            .map_err(|refused| anyhow::anyhow!("mounting {}: {refused}", std::any::type_name::<S>()))?;
+        let host = host(owner, component::<Shown>(ROOT, wrap(view)));
 
         let mut mounted = Self {
             harness: segment.harness(),
@@ -1092,10 +1091,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     /// One pass of what the window would do between frames: deliver the
     /// events waiting for the page, then let its components update and draw.
     fn turn(&mut self) -> usize {
-        let drained = self
-            .host
-            .drain(TURNS)
-            .unwrap_or_else(|error| panic!("running the page's components: {error:?}"));
+        let drained = self.host.drain(TURNS);
         let measured = self.measure();
         claim(self.owner);
 
@@ -1375,11 +1371,7 @@ impl<'h, R: Routable> Mounted<'h, R> {
         };
 
         let owner = next_owner();
-        let built = host(owner, component::<Shown>(ROOT, View::component::<Chrome>(rooted)));
-
-        let host = built.map_err(|refused| {
-            anyhow::anyhow!("mounting a window over {}: {refused}", std::any::type_name::<R>())
-        })?;
+        let host = host(owner, component::<Shown>(ROOT, View::component::<Chrome>(rooted)));
 
         let (window, navigator) = WINDOW
             .with(|kept| kept.borrow_mut().take())

@@ -5,19 +5,9 @@ mod window_placement;
 
 enum Handle {
     Generated(GeneratedHandle),
-    TextBox(NativeTextBox),
     TreeView(NativeTreeView),
     TreeNode(NativeTreeNode),
-    ListView(NativeListView),
     Data(IObservableMap<HSTRING, IInspectable>),
-}
-
-struct NativeListView {
-    value: native::ListView,
-    selection_changed: Rc<RefCell<NativeSelectionIndexEvent>>,
-    drag_items_completed: Rc<RefCell<NativeStringListEvent>>,
-    _selection_changed: windows_core::EventRevoker,
-    _drag_items_completed: windows_core::EventRevoker,
 }
 
 struct NativeTreeView {
@@ -32,38 +22,66 @@ struct NativeTreeNode {
     content: Option<ObjectId>,
 }
 
-struct NativeTextBox {
-    value: native::TextBox,
-    event: Rc<RefCell<NativeTextEvent>>,
-    observed_text: Rc<RefCell<Rc<str>>>,
-    _text_changed: windows_core::EventRevoker,
+struct NativeValueEvent<T> {
+    subscription: Option<NativeSubscription<T>>,
 }
 
-struct NativeValueEvent<T> {
-    revision: u64,
-    callback: Option<Callback<T>>,
+/// A subscribed native event. Replacing the callback keeps the subscription; removing it ends the
+/// subscription and invalidates occurrences still queued or pending under it.
+struct NativeSubscription<T> {
+    callback: Callback<T>,
+    live: Rc<Cell<bool>>,
 }
 
 impl<T> Default for NativeValueEvent<T> {
     fn default() -> Self {
-        Self {
-            revision: 0,
-            callback: None,
+        Self { subscription: None }
+    }
+}
+
+impl<T> NativeValueEvent<T> {
+    fn set(&mut self, callback: Option<Callback<T>>) {
+        match (&mut self.subscription, callback) {
+            (Some(subscription), Some(callback)) => subscription.callback = callback,
+            (_, callback) => {
+                if let Some(subscription) = self.subscription.take() {
+                    subscription.live.set(false);
+                }
+                self.subscription = callback.map(|callback| NativeSubscription {
+                    callback,
+                    live: Rc::new(Cell::new(true)),
+                });
+            }
         }
+    }
+
+    /// The handler for an occurrence firing now under the current subscription.
+    fn handler(&self) -> Option<QueuedHandler>
+    where
+        Callback<T>: IntoEventValue,
+    {
+        self.subscription
+            .as_ref()
+            .map(|subscription| QueuedHandler::Callback {
+                callback: subscription.callback.clone().into_event_value(),
+                live: Rc::clone(&subscription.live),
+            })
     }
 }
 
 struct NativeRoutedValueEvent<T> {
-    revision: u64,
     callback: Option<RoutedCallback<T>>,
 }
 
 impl<T> Default for NativeRoutedValueEvent<T> {
     fn default() -> Self {
-        Self {
-            revision: 0,
-            callback: None,
-        }
+        Self { callback: None }
+    }
+}
+
+impl<T> NativeRoutedValueEvent<T> {
+    fn set(&mut self, callback: Option<RoutedCallback<T>>) {
+        self.callback = callback;
     }
 }
 
@@ -81,12 +99,12 @@ type NativeOptionalF64Event = NativeValueEvent<Option<f64>>;
 type NativeOptionalTimeSpanEvent = NativeValueEvent<Option<TimeSpan>>;
 type NativeNavigationViewDisplayModeEvent = NativeValueEvent<NavigationViewDisplayMode>;
 type NativePointerEventInfoEvent = NativeValueEvent<PointerEventInfo>;
+type NativeKeyEvent = NativeValueEvent<Key>;
 type NativeKeyEventInfoEvent = NativeRoutedValueEvent<KeyEventInfo>;
+type NativeKeysEvent = NativeValueEvent<Vec<Key>>;
 type NativeSelectionEvent = NativeValueEvent<Option<Rc<str>>>;
 type NativeSelectionIndexEvent = NativeValueEvent<Option<usize>>;
-type NativeTextEvent = NativeValueEvent<Rc<str>>;
-type NativeStringEvent = NativeTextEvent;
-type NativeStringListEvent = NativeValueEvent<Vec<String>>;
+type NativeStringEvent = NativeValueEvent<Rc<str>>;
 type NativeUnitEvent = NativeValueEvent<()>;
 
 /// Adapter state that generated native event handlers capture when they subscribe.
@@ -124,26 +142,108 @@ impl Drop for PropertyChangedRevoker {
     }
 }
 
+macro_rules! generated_collection {
+    ($($item:ident),*) => {
+        enum GeneratedCollection {
+            Visual(native::UIElementCollection),
+            Inspectable(IVector<IInspectable>),
+            $($item(IVector<native::$item>),)*
+        }
+
+        impl GeneratedCollection {
+            fn size(&self) -> Result<u32, WinUiError> {
+                match self {
+                    Self::Visual(value) => value.Size().map_err(Into::into),
+                    Self::Inspectable(value) => value.Size().map_err(Into::into),
+                    $(Self::$item(value) => value.Size().map_err(Into::into),)*
+                }
+            }
+
+            fn get_at(&self, index: u32) -> Result<native::UIElement, WinUiError> {
+                match self {
+                    Self::Visual(value) => value.GetAt(index).map_err(Into::into),
+                    Self::Inspectable(value) => Ok(value.GetAt(index)?.cast()?),
+                    $(Self::$item(value) => Ok(value.GetAt(index)?.cast()?),)*
+                }
+            }
+
+            fn insert_at(&self, index: u32, child: &native::UIElement) -> Result<(), WinUiError> {
+                match self {
+                    Self::Visual(value) => value.InsertAt(index, child).map_err(Into::into),
+                    Self::Inspectable(value) => value
+                        .InsertAt(index, &child.cast::<IInspectable>()?)
+                        .map_err(Into::into),
+                    $(Self::$item(value) => value
+                        .InsertAt(index, &child.cast::<native::$item>()?)
+                        .map_err(Into::into),)*
+                }
+            }
+
+            fn index_of(&self, child: &native::UIElement) -> Result<Option<u32>, WinUiError> {
+                let mut index = 0;
+                let found = match self {
+                    Self::Visual(value) => value.IndexOf(child, &mut index)?,
+                    Self::Inspectable(value) => {
+                        value.IndexOf(&child.cast::<IInspectable>()?, &mut index)?
+                    }
+                    $(Self::$item(value) => {
+                        value.IndexOf(&child.cast::<native::$item>()?, &mut index)?
+                    })*
+                };
+                Ok(found.then_some(index))
+            }
+
+            fn remove_at(&self, index: u32) -> Result<(), WinUiError> {
+                match self {
+                    Self::Visual(value) => value.RemoveAt(index).map_err(Into::into),
+                    Self::Inspectable(value) => value.RemoveAt(index).map_err(Into::into),
+                    $(Self::$item(value) => value.RemoveAt(index).map_err(Into::into),)*
+                }
+            }
+        }
+    };
+}
+
 include!("../generated.rs");
+
+/// Image load results that describe the current source; a source change discards queued results.
+const IMAGE_SOURCE_EVENTS: [EventId; 2] = [EventId::ImageOpened, EventId::ImageFailed];
 
 struct QueuedEvent {
     object: ObjectId,
     event: EventId,
-    revision: u64,
+    handler: QueuedHandler,
     payload: EventPayload,
+}
+
+enum QueuedHandler {
+    /// The callback subscribed when the native event fired. Delivering to it keeps an occurrence
+    /// queued behind a render from being lost when that render replaces the callback. `live`
+    /// is cleared when the subscription ends, so removing or re-adding the event, or replacing
+    /// the control, drops the occurrence.
+    Callback {
+        callback: EventValue,
+        live: Rc<Cell<bool>>,
+    },
+    /// The menu or command bar flyout presentation that raised the click. Callback-only updates
+    /// keep the presentation, so the click resolves to the current `on_click`.
+    Presentation(u64),
 }
 
 struct QueuedNativeEvent {
     observation: Option<Observation>,
     event: Option<QueuedEvent>,
+    /// The observation records native state that Reactor's own write produced.
+    record: bool,
     retirement: Option<RetirementCompletion>,
     realization: Option<RealizationRequest>,
 }
 
-struct NativeSelectionItem {
+/// A child of a selection or reorder relation, keyed by native COM identity so event handlers can
+/// map native items back to objects.
+struct NativeItem {
     owner: ObjectId,
-    object: ObjectId,
-    value: IInspectable,
+    identity: usize,
 }
 
 struct NativeContentDialogState {
@@ -224,10 +324,10 @@ struct NativeContentDialogScheduler {
 #[derive(Default)]
 struct NativeEventQueue {
     events: RefCell<VecDeque<QueuedNativeEvent>>,
-    errors: RefCell<VecDeque<WinUiError>>,
     feedback: RefCell<FeedbackState>,
-    selection_items: RefCell<Vec<NativeSelectionItem>>,
+    items: RefCell<HashMap<ObjectId, NativeItem>>,
     waker: RefCell<Option<Rc<dyn Fn()>>>,
+    realizer: RefCell<Option<Rc<dyn Fn()>>>,
     wake_pending: Cell<bool>,
     content_dialogs: RefCell<NativeContentDialogScheduler>,
 }
@@ -257,16 +357,46 @@ struct WebViewInitialization {
 }
 
 impl NativeEventQueue {
-    fn observe(&self, object: ObjectId, event: EventId, observation: Observation) -> bool {
-        self.feedback
-            .borrow_mut()
-            .observe(object, event, observation)
+    fn reports(&self, object: ObjectId, event: EventId) -> bool {
+        self.feedback.borrow().reports(object, event)
+    }
+
+    /// Drops queued events and observations for an object whose control was replaced.
+    fn discard_object(&self, object: ObjectId) {
+        self.events.borrow_mut().retain(|queued| {
+            queued
+                .event
+                .as_ref()
+                .is_none_or(|event| event.object != object)
+                && queued
+                    .observation
+                    .as_ref()
+                    .is_none_or(|observation| observation.object() != object)
+        });
+    }
+
+    /// Drops queued occurrences of an object's events whose source has been replaced.
+    fn discard_events(&self, object: ObjectId, events: &[EventId]) {
+        self.events.borrow_mut().retain(|queued| {
+            queued
+                .event
+                .as_ref()
+                .is_none_or(|event| event.object != object || !events.contains(&event.event))
+        });
+    }
+
+    fn item_object(&self, owner: ObjectId, value: &IInspectable) -> Option<ObjectId> {
+        let identity = com_identity(value).ok()?;
+        self.items.borrow().iter().find_map(|(object, item)| {
+            (item.owner == owner && item.identity == identity).then_some(*object)
+        })
     }
 
     fn queue(&self, observation: Option<Observation>, event: Option<QueuedEvent>) {
         self.events.borrow_mut().push_back(QueuedNativeEvent {
             observation,
             event,
+            record: false,
             retirement: None,
             realization: None,
         });
@@ -278,11 +408,23 @@ impl NativeEventQueue {
         events.push_back(QueuedNativeEvent {
             observation: None,
             event: None,
+            record: false,
             retirement: None,
             realization: Some(request),
         });
         drop(events);
         WinUiAdapter::schedule_event_wake(self);
+    }
+
+    /// Applies the realizations at the front of the native queue before returning a realized
+    /// element so that layout measures its content. Queued native events, messages, and the
+    /// realizations behind them wait for the queued wake, as does all work when a window or
+    /// application driver is already active.
+    fn realize_now(&self) {
+        let realizer = self.realizer.borrow().clone();
+        if let Some(realizer) = realizer {
+            realizer();
+        }
     }
 }
 
@@ -905,7 +1047,23 @@ impl IVectorChangedEventArgs_Impl for NativeVirtualChangedEventArgs_Impl {
 
 #[derive(Default)]
 struct RealizedShells {
-    pool: RefCell<ShellPool<native::ContentControl>>,
+    pool: RefCell<ShellPool<RealizedShell>>,
+}
+
+/// A pooled container and its COM identity, which `recycle` uses to find the shell that WinUI
+/// returns.
+#[derive(Clone)]
+struct RealizedShell {
+    control: native::ContentControl,
+    identity: usize,
+}
+
+impl RealizedShell {
+    fn new() -> Result<Self, windows_core::Error> {
+        let control = native::ContentControl::new()?;
+        let identity = com_identity(&control)?;
+        Ok(Self { control, identity })
+    }
 }
 
 struct ShellPool<T> {
@@ -958,14 +1116,14 @@ impl<T: Clone> ShellPool<T> {
     }
 }
 
-impl ShellPool<native::ContentControl> {
+impl ShellPool<RealizedShell> {
     fn recycle(
         &mut self,
         element: &native::UIElement,
     ) -> Result<Option<RealizedContainer>, windows_core::Error> {
+        let identity = com_identity(element)?;
         let Some((container, shell)) = self.shells.iter().find_map(|(container, shell)| {
-            (shell.cast::<native::UIElement>().as_ref() == Ok(element))
-                .then(|| (*container, shell.clone()))
+            (shell.identity == identity).then(|| (*container, shell.control.clone()))
         }) else {
             return Ok(None);
         };
@@ -982,8 +1140,8 @@ impl ShellPool<native::ContentControl> {
 
 impl RealizedShells {
     fn take(&self) -> Result<(RealizedContainer, native::UIElement), windows_core::Error> {
-        let (container, shell) = self.pool.borrow_mut().take(native::ContentControl::new)?;
-        Ok((container, shell.cast()?))
+        let (container, shell) = self.pool.borrow_mut().take(RealizedShell::new)?;
+        Ok((container, shell.control.cast()?))
     }
 
     fn recycle(
@@ -1010,9 +1168,9 @@ impl RealizedShells {
             };
         };
         if let Some(content) = content {
-            shell.SetContent(content)
+            shell.control.SetContent(content)
         } else {
-            shell.SetContent(None::<&IInspectable>)
+            shell.control.SetContent(None::<&IInspectable>)
         }
     }
 
@@ -1038,6 +1196,7 @@ impl native::IElementFactory_Impl for NativeElementFactory_Impl {
             index,
             source_revision: self.source_revision.get(),
         });
+        self.queue.realize_now();
         Ok(element)
     }
 
@@ -1092,7 +1251,6 @@ pub enum WinUiError {
     InvalidReplacement(ObjectId),
     InvalidDuration,
     DuplicateWindowRoot(ObjectId),
-    UnknownTreeNode(usize),
     Native(windows_core::Error),
 }
 
@@ -1163,39 +1321,63 @@ struct ImageSubscription {
     _callback: Option<Rc<dyn Fn(bool)>>,
 }
 
-struct ImageKey(ImageSourceValue);
+/// Native image sources shared by a window's controls.
+///
+/// A URI source lives while a control uses it. A source decoded from [`EncodedImage`] bytes lives
+/// while the app holds those bytes, so controls that leave and return render without decoding
+/// again. Clones of an `EncodedImage` share its allocation and therefore one source.
+struct ImageCache<T = NativeImageSource> {
+    uris: HashMap<Rc<str>, Weak<T>>,
+    bytes: HashMap<(usize, usize, bool), (Option<SyncWeak<[u8]>>, Rc<T>)>,
+}
 
-impl PartialEq for ImageKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+impl<T> Default for ImageCache<T> {
+    fn default() -> Self {
+        Self {
+            uris: HashMap::new(),
+            bytes: HashMap::new(),
+        }
     }
 }
 
-impl Eq for ImageKey {}
-
-impl std::hash::Hash for ImageKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(&self.0).hash(state);
-        match &self.0 {
-            ImageSourceValue::Uri(value) => value.hash(state),
-            ImageSourceValue::Encoded(value) | ImageSourceValue::Svg(value) => {
-                // Hash a bounded sample; equality compares the full bytes.
-                let bytes = value.as_bytes();
-                bytes.len().hash(state);
-                for byte in bytes.iter().step_by(bytes.len() / 64 + 1) {
-                    byte.hash(state);
+impl<T> ImageCache<T> {
+    fn get_or_insert<E>(
+        &mut self,
+        source: &ImageSourceValue,
+        create: impl FnOnce() -> Result<T, E>,
+    ) -> Result<Rc<T>, E> {
+        match source {
+            ImageSourceValue::Uri(uri) => {
+                if let Some(image) = self.uris.get(uri).and_then(Weak::upgrade) {
+                    return Ok(image);
                 }
+                let image = Rc::new(create()?);
+                self.uris.insert(Rc::clone(uri), Rc::downgrade(&image));
+                Ok(image)
+            }
+            ImageSourceValue::Encoded(bytes) | ImageSourceValue::Svg(bytes) => {
+                let key = (
+                    bytes.as_bytes().as_ptr() as usize,
+                    bytes.as_bytes().len(),
+                    matches!(source, ImageSourceValue::Svg(_)),
+                );
+                if let Some((_, image)) = self.bytes.get(&key) {
+                    return Ok(Rc::clone(image));
+                }
+                let image = Rc::new(create()?);
+                self.bytes
+                    .insert(key, (bytes.downgrade(), Rc::clone(&image)));
+                Ok(image)
             }
         }
     }
-}
 
-impl GeneratedImage {
-    fn invalidate_source_events(&self) {
-        for event in [&self.image_opened, &self.image_failed] {
-            let mut event = event.borrow_mut();
-            event.revision = event.revision.wrapping_add(1);
-        }
+    /// Drops URI sources no control uses and byte sources whose bytes the app has released.
+    fn prune(&mut self) {
+        self.uris.retain(|_, image| image.strong_count() != 0);
+        // Holding a weak reference keeps the allocation, and so its key, from being reused.
+        self.bytes
+            .retain(|_, (owner, _)| owner.as_ref().is_none_or(|owner| owner.strong_count() != 0));
     }
 }
 
@@ -1362,19 +1544,12 @@ fn load_encoded_image(
     let writer = native::DataWriter::CreateDataWriter(&output)?;
     writer.WriteBytes(value.as_bytes())?;
     let store = writer.StoreAsync()?;
-    if let Err(error) = store.when(move |result| {
-        let result = (|| {
-            result?;
-            writer.DetachStream()?;
-            stream.Seek(0)?;
-            load(&stream)
-        })();
-        if let Err(error) = result {
-            report_error(error);
-        }
-    }) {
-        return Err(error.into());
-    }
+    store.when(move |result| {
+        result.unwrap();
+        writer.DetachStream().unwrap();
+        stream.Seek(0).unwrap();
+        load(&stream).unwrap();
+    })?;
     Ok(())
 }
 
@@ -1404,7 +1579,7 @@ fn build_menu_items(
                         Some(QueuedEvent {
                             object: target,
                             event: EventId::MenuItemInvoked,
-                            revision,
+                            handler: QueuedHandler::Presentation(revision),
                             payload: EventPayload::Key(clicked_key.clone()),
                         }),
                     );
@@ -1603,7 +1778,6 @@ fn xaml_scale(element: &native::UIElement) -> windows_core::Result<f64> {
 fn observe_xaml_scale(
     element: &native::UIElement,
     changed: &Rc<RefCell<Option<windows_core::EventRevoker>>>,
-    errors: &Rc<NativeEventQueue>,
     callback: Callback<f64>,
 ) -> windows_core::Result<()> {
     let root = match element.XamlRoot() {
@@ -1612,17 +1786,8 @@ fn observe_xaml_scale(
         Err(error) => return Err(error),
     };
     callback.call(root.RasterizationScale()?);
-    let callback_root = callback;
-    let callback_errors = Rc::clone(errors);
     changed.replace(Some(root.Changed(move |sender, _| {
-        let result = sender
-            .as_ref()
-            .ok_or_else(windows_core::Error::empty)
-            .and_then(|sender| sender.RasterizationScale());
-        match result {
-            Ok(scale) => callback_root.call(scale),
-            Err(error) => callback_errors.errors.borrow_mut().push_back(error.into()),
-        }
+        callback.call(sender.as_ref().unwrap().RasterizationScale().unwrap());
     })?));
     Ok(())
 }
@@ -1630,13 +1795,18 @@ fn observe_xaml_scale(
 pub struct WinUiAdapter {
     handles: HashMap<ObjectId, Handle>,
     image_subscriptions: HashMap<ObjectId, ImageSubscription>,
-    images: HashMap<ImageKey, Weak<NativeImageSource>>,
+    images: ImageCache,
     released_images: Vec<Rc<NativeImageSource>>,
     owners: HashMap<ObjectId, (ObjectId, RelationId)>,
+    /// Index properties written by the batch being applied. Reactor writes an index after the
+    /// items it indexes change, so selection moves caused by those changes are not reported.
+    index_writes: HashSet<(ObjectId, PropertyId)>,
+    live_regions: HashSet<ObjectId>,
     tree_template: Option<native::DataTemplate>,
     list_template: Option<native::DataTemplate>,
     data_content_key: HSTRING,
     data_text_key: HSTRING,
+    data_text_visibility_key: HSTRING,
     event_queue: Rc<NativeEventQueue>,
     retirements: HashMap<ObjectId, NativeRetirement>,
     virtual_items: HashMap<ObjectId, NativeVirtualItems>,
@@ -1672,13 +1842,16 @@ impl Default for WinUiAdapter {
         Self {
             handles: HashMap::new(),
             image_subscriptions: HashMap::new(),
-            images: HashMap::new(),
+            images: ImageCache::default(),
             released_images: Vec::new(),
             owners: HashMap::new(),
+            index_writes: HashSet::new(),
+            live_regions: HashSet::new(),
             tree_template: None,
             list_template: None,
             data_content_key: HSTRING::from("Content"),
             data_text_key: HSTRING::from("Text"),
+            data_text_visibility_key: HSTRING::from("TextVisibility"),
             event_queue: Rc::new(NativeEventQueue::default()),
             retirements: HashMap::new(),
             virtual_items: HashMap::new(),
@@ -1811,6 +1984,7 @@ pub enum WindowTitleBarHeight {
     #[default]
     Standard,
     Tall,
+    Collapsed,
 }
 
 impl Clone for NativeWindow {
@@ -1895,17 +2069,13 @@ impl NativeWindow {
                         return;
                     }
                     // Root layout can exclude a border pixel from the native client area.
-                    match window.ClientSize() {
-                        Ok(size) => {
-                            let dpi = unsafe { native::GetDpiForWindow(hwnd.cast()) }.max(96);
-                            let dips = 96.0 / f64::from(dpi);
-                            observer(WindowSize {
-                                width: f64::from(size.width) * dips,
-                                height: f64::from(size.height) * dips,
-                            });
-                        }
-                        Err(error) => report_error(error),
-                    }
+                    let size = window.ClientSize().unwrap();
+                    let dpi = unsafe { native::GetDpiForWindow(hwnd.cast()) }.max(96);
+                    let dips = 96.0 / f64::from(dpi);
+                    observer(WindowSize {
+                        width: f64::from(size.width) * dips,
+                        height: f64::from(size.height) * dips,
+                    });
                 })
             })
             .transpose()?;
@@ -1931,17 +2101,12 @@ impl NativeWindow {
                         let Some(sender) = sender.as_ref() else {
                             return;
                         };
-                        match sender.ActualTheme() {
-                            Ok(theme) => {
-                                let scheme = match theme {
-                                    native::ElementTheme::Dark => ColorScheme::Dark,
-                                    _ => ColorScheme::Light,
-                                };
-                                if last.replace(scheme) != scheme {
-                                    observer(scheme);
-                                }
-                            }
-                            Err(error) => report_error(error),
+                        let scheme = match sender.ActualTheme().unwrap() {
+                            native::ElementTheme::Dark => ColorScheme::Dark,
+                            _ => ColorScheme::Light,
+                        };
+                        if last.replace(scheme) != scheme {
+                            observer(scheme);
                         }
                     })
             })
@@ -2114,10 +2279,8 @@ impl NativeWindow {
                     .cast::<native::IWindow2>()?
                     .AppWindow()?
                     .Changed(move |_, _| {
-                        if let Some(state) = state.upgrade()
-                            && let Err(error) = state.observe_placement()
-                        {
-                            report_error(error);
+                        if let Some(state) = state.upgrade() {
+                            state.observe_placement().unwrap();
                         }
                     })?,
             );
@@ -2130,18 +2293,13 @@ impl NativeWindow {
         self.state.window.Close().map_err(Into::into)
     }
 
-    pub fn set_closed(
-        &mut self,
-        callback: impl Fn() -> windows_core::Result<()> + 'static,
-    ) -> Result<(), WinUiError> {
+    pub fn set_closed(&mut self, callback: impl Fn() + 'static) -> Result<(), WinUiError> {
         let state = Rc::downgrade(&self.state);
         self.closed = Some(self.state.window.Closed(move |_, _| {
             if let Some(state) = state.upgrade() {
                 state.closed.set(true);
             }
-            if let Err(error) = callback() {
-                report_error(error);
-            }
+            callback();
         })?);
         Ok(())
     }
@@ -2213,10 +2371,12 @@ include!("hosting.rs");
 mod test_support;
 
 include!("objects.rs");
+include!("dependency.rs");
 include!("events.rs");
 include!("relations.rs");
 
 include!("adapter.rs");
+include!("automation.rs");
 
 fn relation_contract(
     kind: ObjectType,
@@ -2279,17 +2439,6 @@ fn native_selection_index(value: Option<usize>) -> Result<i32, WinUiError> {
         .map(|value| value.unwrap_or(-1))
 }
 
-fn selection_index(value: i32) -> Result<Option<usize>, windows_core::Error> {
-    match value {
-        -1 => Ok(None),
-        0.. => Ok(Some(value as usize)),
-        _ => Err(windows_core::Error::new(
-            HRESULT(0x80070057_u32 as i32),
-            "invalid negative selection index",
-        )),
-    }
-}
-
 fn native_number_box_value(value: Option<f64>) -> f64 {
     value.unwrap_or(f64::NAN)
 }
@@ -2304,6 +2453,86 @@ fn native_rating_value(value: Option<f64>) -> f64 {
 
 fn rating_value(value: f64) -> Option<f64> {
     (value != -1.0).then_some(value)
+}
+
+/// A text input whose app-controlled text can be rewritten while the user is typing.
+trait EditText {
+    fn edit_text(&self) -> windows_core::Result<String>;
+    fn set_edit_text(&self, text: &str) -> windows_core::Result<()>;
+    /// The TextBox that owns the caret, if the template has been applied.
+    fn edit_box(&self) -> Option<native::TextBox>;
+}
+
+impl EditText for native::TextBox {
+    fn edit_text(&self) -> windows_core::Result<String> {
+        self.Text()
+    }
+
+    fn set_edit_text(&self, text: &str) -> windows_core::Result<()> {
+        self.SetText(text)
+    }
+
+    fn edit_box(&self) -> Option<native::TextBox> {
+        Some(self.clone())
+    }
+}
+
+impl EditText for native::AutoSuggestBox {
+    fn edit_text(&self) -> windows_core::Result<String> {
+        self.Text()
+    }
+
+    fn set_edit_text(&self, text: &str) -> windows_core::Result<()> {
+        self.SetText(text)
+    }
+
+    fn edit_box(&self) -> Option<native::TextBox> {
+        find_text_box(&self.cast().ok()?)
+    }
+}
+
+/// Finds the template part named `TextBox`. Matching on the part name rather than the first
+/// TextBox descendant avoids picking an editor supplied through the header.
+fn find_text_box(object: &native::DependencyObject) -> Option<native::TextBox> {
+    let count = native::VisualTreeHelper::GetChildrenCount(object).ok()?;
+    (0..count).find_map(|index| {
+        let child = native::VisualTreeHelper::GetChild(object, index).ok()?;
+        child
+            .cast::<native::TextBox>()
+            .ok()
+            .filter(|text_box| {
+                text_box
+                    .cast::<native::IFrameworkElement>()
+                    .and_then(|element| element.Name())
+                    .is_ok_and(|name| name == "TextBox")
+            })
+            .or_else(|| find_text_box(&child))
+    })
+}
+
+/// Sets the text and keeps the caret and selection where the user left them, clamped to the new
+/// text. Without this, an app that rewrites each edit (for example to uppercase it) moves the
+/// caret to the end of the text after every keystroke.
+fn set_edit_text(value: &impl EditText, text: &str) -> Result<(), WinUiError> {
+    if value.edit_text()? == text {
+        return Ok(());
+    }
+    let selection = value
+        .edit_box()
+        .map(|edit| -> windows_core::Result<_> {
+            let start = edit.SelectionStart()?;
+            let length = edit.SelectionLength()?;
+            Ok((edit, start, length))
+        })
+        .transpose()?;
+    value.set_edit_text(text)?;
+    if let Some((edit, start, length)) = selection {
+        let text_length = i32::try_from(text.encode_utf16().count()).unwrap_or(i32::MAX);
+        let start = start.clamp(0, text_length);
+        edit.SetSelectionStart(start)?;
+        edit.SetSelectionLength(length.clamp(0, text_length - start))?;
+    }
+    Ok(())
 }
 
 fn read_rich_edit_text(value: &native::RichEditBox) -> windows_core::Result<Rc<str>> {
@@ -2322,12 +2551,18 @@ fn set_rich_edit_text(value: &native::RichEditBox, text: &str) -> Result<(), Win
         return Ok(());
     }
     let document = value.Document()?;
+    // Like `set_edit_text`, keep the caret and selection where the user left them. SetText moves
+    // them to the start, and the document clamps the restored range to the new text.
+    let selection = document.Selection()?.cast::<native::ITextRange>()?;
+    let start = selection.StartPosition()?;
+    let end = selection.EndPosition()?;
     let read_only = value.IsReadOnly()?;
     if read_only {
         value.SetIsReadOnly(false)?;
     }
     let write = document
         .SetText(native::TextSetOptions::None, text)
+        .and_then(|()| selection.SetRange(start, end))
         .map_err(WinUiError::from);
     let restore = if read_only {
         value.SetIsReadOnly(true).map_err(WinUiError::from)

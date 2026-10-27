@@ -1,6 +1,60 @@
 use super::*;
 
 #[test]
+fn image_cache_keeps_decoded_bytes_while_the_app_holds_them() {
+    let created = Cell::new(0);
+    let get = |cache: &mut ImageCache<u32>, source: &ImageSourceValue| {
+        cache
+            .get_or_insert(source, || {
+                created.set(created.get() + 1);
+                Ok::<_, ()>(created.get())
+            })
+            .unwrap()
+    };
+    let svg = |bytes: &[u8]| ImageSourceValue::Svg(EncodedImage::new(bytes.to_vec()));
+    let mut cache = ImageCache::default();
+
+    // Bytes the app holds stay decoded after their controls go away, and clones share them.
+    let bytes = EncodedImage::new(b"<svg/>".to_vec());
+    let held = ImageSourceValue::Svg(bytes.clone());
+    drop(get(&mut cache, &held));
+    cache.prune();
+    assert_eq!(*get(&mut cache, &ImageSourceValue::Svg(bytes.clone())), 1);
+
+    // Separate allocations decode separately, and dropping one does not release the other.
+    let copy = svg(b"<svg/>");
+    assert_eq!(*get(&mut cache, &copy), 2);
+    drop(copy);
+    cache.prune();
+    assert_eq!(*get(&mut cache, &held), 1);
+
+    // The same bytes as a bitmap are a different source.
+    assert_eq!(
+        *get(&mut cache, &ImageSourceValue::Encoded(bytes.clone())),
+        3
+    );
+
+    // Once the app drops the bytes, the source is released.
+    drop((held, bytes));
+    cache.prune();
+    assert!(cache.bytes.is_empty());
+
+    // Static bytes are always held.
+    let fixed = ImageSourceValue::Encoded(EncodedImage::from_static(b"png"));
+    drop(get(&mut cache, &fixed));
+    cache.prune();
+    assert_eq!(*get(&mut cache, &fixed), 4);
+
+    // URI sources live only while a control uses them.
+    let uri = ImageSourceValue::Uri(Rc::from("ms-appx:///icon.png"));
+    let shown = get(&mut cache, &uri);
+    assert_eq!(get(&mut cache, &uri), shown);
+    drop(shown);
+    cache.prune();
+    assert_eq!(*get(&mut cache, &uri), 6);
+}
+
+#[test]
 fn image_load_subscriptions_complete_once_and_do_not_retain_controls() {
     let state = ImageLoadState::default();
     let values = Rc::new(RefCell::new(Vec::new()));
@@ -45,7 +99,7 @@ fn native_queue_preview_uses_current_callback_and_preserves_order() {
         Some(QueuedEvent {
             object,
             event: EventId::MenuItemInvoked,
-            revision: 0,
+            handler: QueuedHandler::Presentation(0),
             payload: EventPayload::Key("stale".into()),
         }),
     );
@@ -55,45 +109,152 @@ fn native_queue_preview_uses_current_callback_and_preserves_order() {
         Some(QueuedEvent {
             object,
             event: EventId::MenuItemInvoked,
-            revision: 1,
+            handler: QueuedHandler::Presentation(1),
             payload: EventPayload::Key("current".into()),
         }),
     );
     adapter.event_queue.queue(Some(observation.clone()), None);
 
-    let mut preview = Vec::new();
-    adapter.preview_native_events(&mut preview);
-    assert_eq!(preview.len(), 3);
+    let stale = adapter.peek_native_event();
+    assert_eq!(stale, Some(NativeEvent::new(None, None)));
     assert_eq!(adapter.event_queue.events.borrow().len(), 4);
+    assert_eq!(adapter.pop_native_event(), stale);
+    assert_eq!(
+        adapter.pop_native_event(),
+        Some(NativeEvent::new(Some(observation.clone()), None))
+    );
 
     // Callback replacement preserves the menu presentation revision.
     adapter.menus.get_mut(&object).unwrap().menu.on_click = second.clone();
-    preview.clear();
-    adapter.preview_native_events(&mut preview);
-    assert_eq!(
-        preview,
-        [
-            NativeEvent::new(None, None),
-            NativeEvent::new(Some(observation.clone()), None),
-            NativeEvent::new(
-                None,
-                Some(EventDispatch::new(
-                    object,
-                    EventId::MenuItemInvoked,
-                    EventValue::Key(second),
-                    EventPayload::Key("current".into()),
-                )),
-            ),
-        ]
-    );
-    for expected in preview {
-        assert_eq!(adapter.pop_native_event(), Some(expected));
-    }
+    let current = Some(NativeEvent::new(
+        None,
+        Some(EventDispatch::new(
+            object,
+            EventId::MenuItemInvoked,
+            EventValue::Key(second),
+            EventPayload::Key("current".into()),
+        )),
+    ));
+    assert_eq!(adapter.peek_native_event(), current);
+    assert_eq!(adapter.pop_native_event(), current);
     assert_eq!(
         adapter.pop_native_event(),
         Some(NativeEvent::new(Some(observation), None))
     );
     assert_eq!(adapter.pop_native_event(), None);
+}
+
+#[test]
+fn native_queue_expired_report_keeps_only_its_observation() {
+    let object = ObjectId::test(1);
+    let values = Rc::new(RefCell::new(Vec::new()));
+    let callback = {
+        let values = Rc::clone(&values);
+        EventValue::String(Callback::new(move |value: Rc<str>| {
+            values.borrow_mut().push(value);
+        }))
+    };
+    let report = |value: &str, live: bool| QueuedNativeEvent {
+        observation: Some(Observation::SetProperty {
+            object,
+            property: Property {
+                id: PropertyId::Text,
+                value: PropertyValue::String(Rc::from(value)),
+            },
+        }),
+        event: Some(QueuedEvent {
+            object,
+            event: EventId::TextChanged,
+            handler: QueuedHandler::Callback {
+                callback: callback.clone(),
+                live: Rc::new(Cell::new(live)),
+            },
+            payload: EventPayload::String(Rc::from(value)),
+        }),
+        record: false,
+        retirement: None,
+        realization: None,
+    };
+    let mut adapter = WinUiAdapter::default();
+    // `on_text_changed` was removed and added again between the two reports.
+    adapter
+        .event_queue
+        .events
+        .borrow_mut()
+        .extend([report("Expired", false), report("Live", true)]);
+    let expected = Some(NativeEvent::new(
+        report("Live", true).observation,
+        Some(EventDispatch::new(
+            object,
+            EventId::TextChanged,
+            callback.clone(),
+            EventPayload::String(Rc::from("Live")),
+        )),
+    ));
+    let expired = Some(NativeEvent::new(report("Expired", false).observation, None));
+    assert_eq!(adapter.peek_native_event(), expired);
+    assert_eq!(adapter.pop_native_event(), expired);
+    assert_eq!(adapter.peek_native_event(), expected);
+    assert_eq!(adapter.pop_native_event(), expected);
+    assert_eq!(adapter.pop_native_event(), None);
+}
+
+#[test]
+fn image_source_change_discards_only_queued_load_results() {
+    let image = ObjectId::test(1);
+    let other = ObjectId::test(2);
+    let queue = NativeEventQueue::default();
+    let event = |object, event| QueuedEvent {
+        object,
+        event,
+        handler: QueuedHandler::Callback {
+            callback: EventValue::Unit(Callback::new(|()| {})),
+            live: Rc::new(Cell::new(true)),
+        },
+        payload: EventPayload::Unit,
+    };
+    queue.queue(None, Some(event(image, EventId::ImageOpened)));
+    queue.queue(None, Some(event(image, EventId::ImageFailed)));
+    queue.queue(None, Some(event(image, EventId::PointerPressed)));
+    queue.queue(None, Some(event(other, EventId::ImageOpened)));
+
+    queue.discard_events(image, &IMAGE_SOURCE_EVENTS);
+
+    let events = queue.events.borrow();
+    let remaining: Vec<_> = events
+        .iter()
+        .map(|queued| {
+            let event = queued.event.as_ref().unwrap();
+            (event.object, event.event)
+        })
+        .collect();
+    assert_eq!(
+        remaining,
+        [
+            (image, EventId::PointerPressed),
+            (other, EventId::ImageOpened)
+        ]
+    );
+}
+
+#[test]
+fn replacement_discards_queued_reorders_without_callbacks() {
+    let replaced = ObjectId::test(1);
+    let other = ObjectId::test(2);
+    let queue = NativeEventQueue::default();
+    let reorder = |object| Observation::Reorder {
+        object,
+        relation: RelationId::Items,
+        children: Vec::new(),
+    };
+    queue.queue(Some(reorder(replaced)), None);
+    queue.queue(Some(reorder(other)), None);
+
+    queue.discard_object(replaced);
+
+    let events = queue.events.borrow();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].observation, Some(reorder(other)));
 }
 
 #[test]
@@ -228,49 +389,6 @@ fn active_slot_reorder_rejects_missing_or_duplicate_active_identity() {
 
     assert!(simulate_active_slot_reorder(&mut current, &active, &[2, 3]).is_none());
     assert!(simulate_active_slot_reorder(&mut current, &active, &[2, 2]).is_none());
-}
-
-#[test]
-fn controlled_property_feedback_uses_exact_incumbent_clear_values() {
-    let cases = [
-        (
-            ObjectType::CheckBox,
-            PropertyId::IsChecked,
-            EventId::IsCheckedChanged,
-            PropertyValue::OptionalBool(Some(false)),
-        ),
-        (
-            ObjectType::ToggleButton,
-            PropertyId::IsChecked,
-            EventId::IsCheckedChanged,
-            PropertyValue::OptionalBool(Some(false)),
-        ),
-        (
-            ObjectType::Expander,
-            PropertyId::IsExpanded,
-            EventId::IsExpandedChanged,
-            PropertyValue::Bool(false),
-        ),
-        (
-            ObjectType::NavigationView,
-            PropertyId::IsPaneOpen,
-            EventId::IsPaneOpenChanged,
-            PropertyValue::Bool(true),
-        ),
-    ];
-
-    for (kind, property, event, value) in cases {
-        assert_eq!(
-            GeneratedHandle::feedback_expectation(kind, property, None),
-            Some((
-                event,
-                FeedbackExpectation::Exact(Property {
-                    id: property,
-                    value,
-                }),
-            ))
-        );
-    }
 }
 
 fn virtual_index(value: IInspectable) -> i32 {
@@ -484,14 +602,13 @@ fn window_visual_changes_detect_icon_removal() {
 }
 
 #[test]
-fn pointer_event_queue_preserves_payload_and_revision() {
+fn pointer_event_queue_preserves_payload_and_callback() {
     let mut runtime = Runtime::new(RecordingAdapter::default());
-    runtime.update(Border::new()).unwrap();
+    runtime.update(Border::new());
     let object = runtime.graph().root().unwrap();
-    let event = Rc::new(RefCell::new(NativePointerEventInfoEvent {
-        revision: 7,
-        callback: Some(Callback::new(|_| {})),
-    }));
+    let callback = Callback::new(|_| {});
+    let event = Rc::new(RefCell::new(NativePointerEventInfoEvent::default()));
+    event.borrow_mut().set(Some(callback.clone()));
     let event_queue = Rc::new(NativeEventQueue::default());
     let payload = PointerEventInfo {
         pointer_id: 42,
@@ -515,8 +632,69 @@ fn pointer_event_queue_preserves_payload_and_revision() {
     let event = queued[0].event.as_ref().unwrap();
     assert_eq!(event.object, object);
     assert_eq!(event.event, EventId::PointerReleased);
-    assert_eq!(event.revision, 7);
+    assert!(matches!(
+        &event.handler,
+        QueuedHandler::Callback {
+            callback: EventValue::PointerEventInfo(queued),
+            ..
+        } if *queued == callback
+    ));
     assert_eq!(event.payload, EventPayload::PointerEventInfo(payload));
+}
+
+#[test]
+fn queued_occurrences_follow_their_subscription() {
+    let object = ObjectId::test(1);
+    let first = Callback::new(|_: ()| {});
+    let second = Callback::new(|_: ()| {});
+    let third = Callback::new(|_: ()| {});
+    let event = Rc::new(RefCell::new(NativeUnitEvent::default()));
+    let mut adapter = WinUiAdapter::default();
+    let queue = |adapter: &WinUiAdapter| {
+        assert!(WinUiAdapter::queue_event(
+            &event,
+            &adapter.event_queue,
+            object,
+            EventId::Click,
+            None,
+            (),
+        ));
+    };
+    let delivered = |callback: &Callback<()>| {
+        Some(NativeEvent::new(
+            None,
+            Some(EventDispatch::new(
+                object,
+                EventId::Click,
+                EventValue::Unit(callback.clone()),
+                EventPayload::Unit,
+            )),
+        ))
+    };
+
+    // Replacing the callback keeps the subscription, so the occurrence reaches the callback
+    // subscribed when it fired.
+    event.borrow_mut().set(Some(first.clone()));
+    queue(&adapter);
+    event.borrow_mut().set(Some(second));
+    assert_eq!(adapter.pop_native_event(), delivered(&first));
+
+    // Removing the event ends the subscription even if it is re-added before delivery.
+    queue(&adapter);
+    event.borrow_mut().set(None);
+    event.borrow_mut().set(Some(third.clone()));
+    assert_eq!(
+        adapter.pop_native_event(),
+        Some(NativeEvent::new(None, None))
+    );
+
+    queue(&adapter);
+    assert_eq!(adapter.pop_native_event(), delivered(&third));
+
+    // An occurrence completing asynchronously captures its handler when the event fires.
+    let pending = event.borrow().handler().unwrap();
+    event.borrow_mut().set(None);
+    assert!(matches!(pending, QueuedHandler::Callback { live, .. } if !live.get()));
 }
 
 #[test]
@@ -567,59 +745,36 @@ fn selection_index_conversion_reports_overflow() {
 }
 
 #[test]
-fn generated_feedback_contracts_distinguish_exact_normalized_and_clear() {
-    let exact = GeneratedHandle::feedback_expectation(
-        ObjectType::ToggleSwitch,
-        PropertyId::IsOn,
-        Some(&PropertyValue::Bool(true)),
-    );
-    assert_eq!(
-        exact,
-        Some((
-            EventId::Toggled,
-            FeedbackExpectation::Exact(Property {
-                id: PropertyId::IsOn,
-                value: PropertyValue::Bool(true),
-            })
-        ))
-    );
-    assert_eq!(
-        GeneratedHandle::feedback_expectation(ObjectType::ToggleSwitch, PropertyId::IsOn, None,),
-        Some((
-            EventId::Toggled,
-            FeedbackExpectation::Exact(Property {
-                id: PropertyId::IsOn,
-                value: PropertyValue::Bool(false),
-            })
-        ))
-    );
-    assert_eq!(
-        GeneratedHandle::feedback_expectation(
+fn generated_feedback_pairs_written_properties_with_their_reporting_event() {
+    let cases = [
+        (
+            ObjectType::ToggleSwitch,
+            PropertyId::IsOn,
+            Some(EventId::Toggled),
+        ),
+        (
             ObjectType::Slider,
             PropertyId::Value,
-            Some(&PropertyValue::F64(0.5)),
+            Some(EventId::ValueChanged),
         ),
-        Some((
-            EventId::ValueChanged,
-            FeedbackExpectation::Normalized { observation: None }
-        ))
-    );
-    assert_eq!(
-        GeneratedHandle::feedback_expectation(
-            ObjectType::ProgressBar,
-            PropertyId::Value,
-            Some(&PropertyValue::F64(0.5)),
+        (
+            ObjectType::Slider,
+            PropertyId::Maximum,
+            Some(EventId::ValueChanged),
         ),
-        None
-    );
-    assert_eq!(
-        GeneratedHandle::feedback_expectation(ObjectType::RichEditBox, PropertyId::Document, None,),
-        Some((
-            EventId::TextChanged,
-            FeedbackExpectation::DeferredExact(Property {
-                id: PropertyId::Document,
-                value: PropertyValue::String(Rc::from("")),
-            })
-        ))
-    );
+        (
+            ObjectType::RichEditBox,
+            PropertyId::Document,
+            Some(EventId::TextChanged),
+        ),
+        (
+            ObjectType::NavigationView,
+            PropertyId::IsPaneOpen,
+            Some(EventId::IsPaneOpenChanged),
+        ),
+        (ObjectType::ProgressBar, PropertyId::Value, None),
+    ];
+    for (kind, property, event) in cases {
+        assert_eq!(reporting_event(kind, property), event);
+    }
 }

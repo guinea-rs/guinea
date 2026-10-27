@@ -1,10 +1,10 @@
 [package]
 name = "windows-canvas-pre"
-version = "0.105.0"
+version = "0.106.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
-description = "windows-canvas for windows-reactor-pre 0.105, published for guinea until windows-rs releases it"
+description = "windows-canvas for windows-reactor-pre 0.106, published for guinea until windows-rs releases it"
 repository = "https://github.com/guinea-rs/guinea"
 categories = ["os::windows-apis"]
 readme = "readme.md"
@@ -22,7 +22,7 @@ reactor = ["dep:windows-reactor"]
 [dependencies]
 windows-core = { version = "0.100.0", default-features = false }
 windows-numerics = { version = "0.100.0", default-features = false }
-windows-reactor = { package = "windows-reactor-pre", version = "0.105.0", path = "../windows-reactor-pre", optional = true }
+windows-reactor = { package = "windows-reactor-pre", version = "0.106.0", path = "../windows-reactor-pre", optional = true }
 windows-window = { package = "windows-window-pre", version = "0.104.0", path = "../windows-window-pre", optional = true }
 
 [package.metadata.docs.rs]

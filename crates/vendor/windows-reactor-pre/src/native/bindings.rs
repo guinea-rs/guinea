@@ -1,31 +1,31 @@
-windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPackageDependency(packagedependencyid : windows_core::PCWSTR, rank : i32, options : AddPackageDependencyOptions, packagedependencycontext : *mut PACKAGEDEPENDENCY_CONTEXT, packagefullname : *mut windows_core::PWSTR) -> windows_core::HRESULT);
-windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
-windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut u32, packagefullname : windows_core::PWSTR) -> i32);
-windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
+windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPackageDependency(packagedependencyid : windows_core::PCWSTR, rank : INT32, options : AddPackageDependencyOptions, packagedependencycontext : *mut PACKAGEDEPENDENCY_CONTEXT, packagefullname : *mut windows_core::PWSTR) -> windows_core::HRESULT);
+windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : LPVOID, dwcoinit : DWORD) -> windows_core::HRESULT);
+windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut UINT32, packagefullname : windows_core::PWSTR) -> LONG);
+windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> UINT);
 windows_core::link!("user32.dll" "system" fn GetKeyboardState(lpkeystate : PBYTE) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetMonitorInfoW(hmonitor : HMONITOR, lpmi : LPMONITORINFO) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
-windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
+windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> LONG);
 windows_core::link!("user32.dll" "system" fn GetWindowPlacement(hwnd : HWND, lpwndpl : *mut WINDOWPLACEMENT) -> windows_core::BOOL);
-windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : DWORD, lpmem : LPVOID) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn IsIconic(hwnd : HWND) -> windows_core::BOOL);
-windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : u32) -> i32);
-windows_core::link!("user32.dll" "system" fn MonitorFromRect(lprc : LPCRECT, dwflags : u32) -> HMONITOR);
-windows_core::link!("user32.dll" "system" fn MonitorFromWindow(hwnd : HWND, dwflags : u32) -> HMONITOR);
+windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : windows_core::PCWSTR, lpcaption : windows_core::PCWSTR, utype : UINT) -> i32);
+windows_core::link!("user32.dll" "system" fn MonitorFromRect(lprc : LPCRECT, dwflags : DWORD) -> HMONITOR);
+windows_core::link!("user32.dll" "system" fn MonitorFromWindow(hwnd : HWND, dwflags : DWORD) -> HMONITOR);
 windows_core::link!("user32.dll" "system" fn PostQuitMessage(nexitcode : i32));
-windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : u32, pdwtype : LPDWORD, pvdata : *mut core::ffi::c_void, pcbdata : LPDWORD) -> LSTATUS);
-windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
+windows_core::link!("advapi32.dll" "system" fn RegGetValueW(hkey : HKEY, lpsubkey : windows_core::PCWSTR, lpvalue : windows_core::PCWSTR, dwflags : DWORD, pdwtype : LPDWORD, pvdata : PVOID, pcbdata : LPDWORD) -> LSTATUS);
+windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : UINT, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetForegroundWindow(hwnd : HWND) -> windows_core::BOOL);
-windows_core::link!("user32.dll" "system" fn SetLayeredWindowAttributes(hwnd : HWND, crkey : COLORREF, balpha : u8, dwflags : u32) -> windows_core::BOOL);
+windows_core::link!("user32.dll" "system" fn SetLayeredWindowAttributes(hwnd : HWND, crkey : COLORREF, balpha : BYTE, dwflags : DWORD) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetProcessDpiAwarenessContext(value : DPI_AWARENESS_CONTEXT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetThreadDpiAwarenessContext(dpicontext : DPI_AWARENESS_CONTEXT) -> DPI_AWARENESS_CONTEXT);
 windows_core::link!("user32.dll" "system" fn SetWindowPlacement(hwnd : HWND, lpwndpl : *const WINDOWPLACEMENT) -> windows_core::BOOL);
-windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : u32) -> windows_core::BOOL);
-windows_core::link!("shell32.dll" "system" fn ShellExecuteW(hwnd : HWND, lpoperation : windows_core::PCWSTR, lpfile : windows_core::PCWSTR, lpparameters : windows_core::PCWSTR, lpdirectory : windows_core::PCWSTR, nshowcmd : i32) -> HINSTANCE);
+windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : UINT) -> windows_core::BOOL);
+windows_core::link!("shell32.dll" "system" fn ShellExecuteW(hwnd : HWND, lpoperation : windows_core::PCWSTR, lpfile : windows_core::PCWSTR, lpparameters : windows_core::PCWSTR, lpdirectory : windows_core::PCWSTR, nshowcmd : INT) -> HINSTANCE);
 windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 pub const APPMODEL_ERROR_NO_PACKAGE: i32 = 15700;
-pub type AddPackageDependencyOptions = u32;
+pub type AddPackageDependencyOptions = i32;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppBar(windows_core::IUnknown);
@@ -840,6 +840,7 @@ impl windows_core::RuntimeName for AutomationProperties {
 }
 unsafe impl Send for AutomationProperties {}
 unsafe impl Sync for AutomationProperties {}
+pub type BYTE = u8;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BitmapIcon(windows_core::IUnknown);
@@ -2848,7 +2849,7 @@ impl windows_core::RuntimeType for CornerRadius {
         b"struct(Microsoft.UI.Xaml.CornerRadius;f8;f8;f8;f8)",
     );
 }
-pub type CreatePackageDependencyOptions = u32;
+pub type CreatePackageDependencyOptions = i32;
 pub type DPI_AWARENESS_CONTEXT = *mut DPI_AWARENESS_CONTEXT__;
 pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4 as _;
 #[repr(C)]
@@ -2856,6 +2857,7 @@ pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4
 pub struct DPI_AWARENESS_CONTEXT__ {
     pub unused: i32,
 }
+pub type DWORD = u32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DataPackageOperation(pub u32);
@@ -8573,6 +8575,68 @@ impl windows_core::RuntimeType for ICoreWebView2InitializedEventArgs {
 pub struct ICoreWebView2InitializedEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(
+    IDXGIDeviceSubObject,
+    IDXGIDeviceSubObject_Vtbl,
+    0x3d3e0379_f9de_4d58_bb6c_18d62992f1a6
+);
+impl core::ops::Deref for IDXGIDeviceSubObject {
+    type Target = IDXGIObject;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(IDXGIDeviceSubObject, windows_core::IUnknown, IDXGIObject);
+#[repr(C)]
+pub struct IDXGIDeviceSubObject_Vtbl {
+    pub base__: IDXGIObject_Vtbl,
+    GetDevice: usize,
+}
+windows_core::imp::define_interface!(
+    IDXGIObject,
+    IDXGIObject_Vtbl,
+    0xaec22fb8_76f3_4639_9be0_28eb43a67a2e
+);
+windows_core::imp::interface_hierarchy!(IDXGIObject, windows_core::IUnknown);
+#[repr(C)]
+pub struct IDXGIObject_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    SetPrivateData: usize,
+    SetPrivateDataInterface: usize,
+    GetPrivateData: usize,
+    GetParent: usize,
+}
+windows_core::imp::define_interface!(
+    IDXGISwapChain,
+    IDXGISwapChain_Vtbl,
+    0x310d36a0_d2e7_4c0a_aa04_6a9d23b8886a
+);
+impl core::ops::Deref for IDXGISwapChain {
+    type Target = IDXGIDeviceSubObject;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    IDXGISwapChain,
+    windows_core::IUnknown,
+    IDXGIObject,
+    IDXGIDeviceSubObject
+);
+#[repr(C)]
+pub struct IDXGISwapChain_Vtbl {
+    pub base__: IDXGIDeviceSubObject_Vtbl,
+    Present: usize,
+    GetBuffer: usize,
+    SetFullscreenState: usize,
+    GetFullscreenState: usize,
+    GetDesc: usize,
+    ResizeBuffers: usize,
+    ResizeTarget: usize,
+    GetContainingOutput: usize,
+    GetFrameStatistics: usize,
+    GetLastPresentCount: usize,
+}
 pub const IDYES: i32 = 6;
 windows_core::imp::define_interface!(
     IDataPackageView,
@@ -11716,17 +11780,6 @@ impl IItemsRepeater {
             .ok()
         }
     }
-    pub(crate) fn GetOrCreateElement(&self, index: i32) -> windows_core::Result<UIElement> {
-        unsafe {
-            let mut result__ = core::mem::zeroed();
-            (windows_core::Interface::vtable(self).GetOrCreateElement)(
-                windows_core::Interface::as_raw(self),
-                index,
-                &mut result__,
-            )
-            .and_then(|| windows_core::imp::Type::from_abi(result__))
-        }
-    }
 }
 #[repr(C)]
 pub struct IItemsRepeater_Vtbl {
@@ -11741,21 +11794,6 @@ pub struct IItemsRepeater_Vtbl {
     pub SetItemTemplate: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
-    ) -> windows_core::HRESULT,
-    Layout: usize,
-    SetLayout: usize,
-    HorizontalCacheLength: usize,
-    SetHorizontalCacheLength: usize,
-    VerticalCacheLength: usize,
-    SetVerticalCacheLength: usize,
-    Background: usize,
-    SetBackground: usize,
-    GetElementIndex: usize,
-    TryGetElement: usize,
-    pub GetOrCreateElement: unsafe extern "system" fn(
-        *mut core::ffi::c_void,
-        i32,
-        *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
@@ -12707,6 +12745,8 @@ pub struct IMicaBackdropFactory_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
+pub type INT = i32;
+pub type INT32 = i32;
 windows_core::imp::define_interface!(
     INavigationView,
     INavigationView_Vtbl,
@@ -17108,14 +17148,14 @@ windows_core::imp::define_interface!(
 );
 windows_core::imp::interface_hierarchy!(ISwapChainPanelNative, windows_core::IUnknown);
 impl ISwapChainPanelNative {
-    pub(crate) unsafe fn SetSwapChain(
-        &self,
-        swapchain: *mut core::ffi::c_void,
-    ) -> windows_core::HRESULT {
+    pub(crate) unsafe fn SetSwapChain<P0>(&self, swapchain: P0) -> windows_core::HRESULT
+    where
+        P0: windows_core::Param<IDXGISwapChain>,
+    {
         unsafe {
             (windows_core::Interface::vtable(self).SetSwapChain)(
                 windows_core::Interface::as_raw(self),
-                swapchain as _,
+                swapchain.param().abi(),
             )
         }
     }
@@ -18668,6 +18708,16 @@ impl ITitleBar {
             .ok()
         }
     }
+    pub(crate) fn TemplateSettings(&self) -> windows_core::Result<TitleBarTemplateSettings> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TemplateSettings)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub(crate) fn BackRequested<F>(
         &self,
         handler: F,
@@ -18766,7 +18816,10 @@ pub struct ITitleBar_Vtbl {
     SetIsBackButtonEnabled: usize,
     IsPaneToggleButtonVisible: usize,
     SetIsPaneToggleButtonVisible: usize,
-    TemplateSettings: usize,
+    pub TemplateSettings: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub BackRequested: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -18834,6 +18887,35 @@ pub struct ITitleBarStatics_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
     pub IsPaneToggleButtonVisibleProperty: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ITitleBarTemplateSettings,
+    ITitleBarTemplateSettings_Vtbl,
+    0xbe19011a_4957_5332_98b8_1704401b6a0e
+);
+impl windows_core::RuntimeType for ITitleBarTemplateSettings {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl ITitleBarTemplateSettings {
+    pub(crate) fn IconElement(&self) -> windows_core::Result<IconElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IconElement)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct ITitleBarTemplateSettings_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub IconElement: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
@@ -20157,14 +20239,6 @@ impl IUIElement {
             .ok()
         }
     }
-    pub(crate) fn StartBringIntoView(&self) -> windows_core::Result<()> {
-        unsafe {
-            (windows_core::Interface::vtable(self).StartBringIntoView)(
-                windows_core::Interface::as_raw(self),
-            )
-            .ok()
-        }
-    }
     pub(crate) fn Focus(&self, value: FocusState) -> windows_core::Result<bool> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -20514,8 +20588,7 @@ pub struct IUIElement_Vtbl {
     UpdateLayout: usize,
     CancelDirectManipulations: usize,
     StartDragAsync: usize,
-    pub StartBringIntoView:
-        unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    StartBringIntoView: usize,
     StartBringIntoViewWithOptions: usize,
     TryInvokeKeyboardAccelerator: usize,
     pub Focus: unsafe extern "system" fn(
@@ -21196,25 +21269,22 @@ windows_core::imp::define_interface!(
 );
 windows_core::imp::interface_hierarchy!(IWindowNative, windows_core::IUnknown);
 impl IWindowNative {
-    pub(crate) unsafe fn WindowHandle(
-        &self,
-        hwnd: *mut *mut core::ffi::c_void,
-    ) -> windows_core::HRESULT {
+    pub(crate) unsafe fn WindowHandle(&self) -> windows_core::Result<HWND> {
         unsafe {
+            let mut result__ = core::mem::zeroed();
             (windows_core::Interface::vtable(self).WindowHandle)(
                 windows_core::Interface::as_raw(self),
-                hwnd as _,
+                &mut result__,
             )
+            .map(|| result__)
         }
     }
 }
 #[repr(C)]
 pub struct IWindowNative_Vtbl {
     pub base__: windows_core::IUnknown_Vtbl,
-    pub WindowHandle: unsafe extern "system" fn(
-        *mut core::ffi::c_void,
-        *mut *mut core::ffi::c_void,
-    ) -> windows_core::HRESULT,
+    pub WindowHandle:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut HWND) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IXamlBindingHelper,
@@ -22561,10 +22631,12 @@ impl windows_core::RuntimeType for KeyboardAcceleratorPlacementMode {
         b"enum(Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode;i4)",
     );
 }
+pub type LONG = i32;
 pub type LPARAM = isize;
 pub type LPCRECT = *const RECT;
 pub type LPDWORD = *mut u32;
 pub type LPMONITORINFO = *mut MONITORINFO;
+pub type LPVOID = *mut core::ffi::c_void;
 pub type LRESULT = isize;
 pub type LSTATUS = i32;
 pub const LWA_ALPHA: i32 = 2;
@@ -23107,10 +23179,10 @@ pub const MB_YESNO: i32 = 4;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MONITORINFO {
-    pub cbSize: u32,
+    pub cbSize: DWORD,
     pub rcMonitor: RECT,
     pub rcWork: RECT,
-    pub dwFlags: u32,
+    pub dwFlags: DWORD,
 }
 pub const MONITOR_DEFAULTTONEAREST: i32 = 2;
 #[repr(transparent)]
@@ -24170,7 +24242,7 @@ pub type PACKAGEDEPENDENCY_CONTEXT = *mut PACKAGEDEPENDENCY_CONTEXT__;
 pub struct PACKAGEDEPENDENCY_CONTEXT__ {
     pub unused: i32,
 }
-#[repr(C)]
+#[repr(C, packed(4))]
 #[derive(Clone, Copy)]
 pub struct PACKAGE_VERSION {
     pub Anonymous: PACKAGE_VERSION_0,
@@ -24183,7 +24255,7 @@ impl Default for PACKAGE_VERSION {
 #[repr(C, packed(4))]
 #[derive(Clone, Copy)]
 pub union PACKAGE_VERSION_0 {
-    pub Version: u64,
+    pub Version: UINT64,
     pub Anonymous: PACKAGE_VERSION_0_0,
 }
 impl Default for PACKAGE_VERSION_0 {
@@ -24191,24 +24263,25 @@ impl Default for PACKAGE_VERSION_0 {
         unsafe { core::mem::zeroed() }
     }
 }
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C, packed(4))]
+#[derive(Clone, Copy, Default)]
 pub struct PACKAGE_VERSION_0_0 {
-    pub Revision: u16,
-    pub Build: u16,
-    pub Minor: u16,
-    pub Major: u16,
+    pub Revision: USHORT,
+    pub Build: USHORT,
+    pub Minor: USHORT,
+    pub Major: USHORT,
 }
 pub type PBYTE = *mut u8;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct POINT {
-    pub x: i32,
-    pub y: i32,
+    pub x: LONG,
+    pub y: LONG,
 }
 pub type PSID = *mut core::ffi::c_void;
+pub type PVOID = *mut core::ffi::c_void;
 pub type PackageDependencyLifetimeKind = i32;
-pub type PackageDependencyProcessorArchitectures = u32;
+pub type PackageDependencyProcessorArchitectures = i32;
 pub const PackageDependencyProcessorArchitectures_Arm: PackageDependencyProcessorArchitectures = 8;
 pub const PackageDependencyProcessorArchitectures_Arm64: PackageDependencyProcessorArchitectures =
     16;
@@ -25178,10 +25251,10 @@ unsafe impl Sync for ProgressRing {}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RECT {
-    pub left: i32,
-    pub top: i32,
-    pub right: i32,
-    pub bottom: i32,
+    pub left: LONG,
+    pub top: LONG,
+    pub right: LONG,
+    pub bottom: LONG,
 }
 pub const RPC_E_CHANGED_MODE: windows_core::HRESULT = windows_core::HRESULT(0x80010106_u32 as _);
 pub const RRF_RT_REG_DWORD: i32 = 16;
@@ -29364,6 +29437,34 @@ impl windows_core::RuntimeType for TitleBarHeightOption {
     );
 }
 #[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TitleBarTemplateSettings(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    TitleBarTemplateSettings,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+windows_core::imp::required_hierarchy!(TitleBarTemplateSettings, DependencyObject);
+impl windows_core::RuntimeType for TitleBarTemplateSettings {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, ITitleBarTemplateSettings>();
+}
+unsafe impl windows_core::Interface for TitleBarTemplateSettings {
+    type Vtable = <ITitleBarTemplateSettings as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <ITitleBarTemplateSettings as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for TitleBarTemplateSettings {
+    type Target = ITitleBarTemplateSettings;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for TitleBarTemplateSettings {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.TitleBarTemplateSettings";
+}
+unsafe impl Send for TitleBarTemplateSettings {}
+unsafe impl Sync for TitleBarTemplateSettings {}
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TitleBarTheme(pub i32);
 impl TitleBarTheme {
@@ -30088,6 +30189,10 @@ impl windows_core::RuntimeName for UIElementCollection {
 }
 unsafe impl Send for UIElementCollection {}
 unsafe impl Sync for UIElementCollection {}
+pub type UINT = u32;
+pub type UINT32 = u32;
+pub type UINT64 = u64;
+pub type USHORT = u16;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Uri(windows_core::IUnknown);
@@ -30705,18 +30810,13 @@ unsafe impl Sync for VisualTreeHelper {}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct WINDOWPLACEMENT {
-    pub length: u32,
-    pub flags: u32,
-    pub showCmd: u32,
+    pub length: UINT,
+    pub flags: UINT,
+    pub showCmd: UINT,
     pub ptMinPosition: POINT,
     pub ptMaxPosition: POINT,
     pub rcNormalPosition: RECT,
 }
-pub const WINDOWSAPPSDK_RUNTIME_VERSION_BUILD: u32 = 1;
-pub const WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR: u32 = 2;
-pub const WINDOWSAPPSDK_RUNTIME_VERSION_MINOR: u32 = 5;
-pub const WINDOWSAPPSDK_RUNTIME_VERSION_REVISION: u32 = 0;
-pub const WINDOWSAPPSDK_RUNTIME_VERSION_UINT64: u64 = 562971428323328;
 pub const WM_SETICON: i32 = 128;
 pub const WM_SETTINGCHANGE: i32 = 26;
 pub const WM_THEMECHANGED: i32 = 794;

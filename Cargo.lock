@@ -2455,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2479,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2495,14 +2495,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "guinea-core"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-iced"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "elsa",
@@ -2553,7 +2553,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "guinea-core",
  "guinea-macros",
@@ -2577,11 +2577,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta"
-version = "0.32.0"
+version = "0.33.0"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "guinea-codegen",
  "serde",
@@ -2591,7 +2591,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2617,7 +2617,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2632,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-codegen",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-fixture"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "pin-project-lite",
  "serde_json",
@@ -2666,7 +2666,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.32.0"
+version = "0.33.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -8040,7 +8040,7 @@ dependencies = [
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.106.0"
+version = "0.107.0"
 dependencies = [
  "windows-collections 0.100.0",
  "windows-core 0.100.0",

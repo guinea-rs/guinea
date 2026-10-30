@@ -25,14 +25,17 @@ use guinea_core::mark::Mark;
 use guinea_core::scope::{Reducer, Scope};
 use guinea_router::navigator::{Navigator, Routable};
 use windows_reactor::{
-    Callback, ComponentHost, ComponentNode, CompositionHostEvent, ContentDialogResult,
-    EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
-    Observation, PointerEventInfo, Property, RealizationRequest,
-    RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange, View,
+    Callback, ComponentNode, CompositionHostEvent, ContentDialogResult, PointerEventInfo, View,
     component,
 };
+use windows_reactor::test::{
+    ComponentHost,
+    EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
+    Observation, Property, RealizationRequest,
+    RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange,
+};
 
-pub use windows_reactor::{ObjectId as NodeId, PropertyId, PropertyValue};
+pub use windows_reactor::test::{ObjectId as NodeId, PropertyId, PropertyValue};
 
 use crate::run::{Chrome, Rooted, Window};
 use crate::winui::{Mountable, Shown, Signal};
@@ -700,8 +703,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
         }
 
         let source_revision = self
-            .graph()
-            .virtual_source_revision(list)
+            .source_revision(list)
             .expect("a list has a source");
         let from = self.host.adapter().batches().len();
         self.host.queue_realization(RealizationRequest::Realize {
@@ -731,7 +733,18 @@ impl<'h, S: 'static> Mounted<'h, S> {
     }
 
     fn list(&self, under: NodeId) -> Option<NodeId> {
-        self.first(under, |node| self.graph().virtual_source_revision(node).is_some())
+        self.first(under, |node| self.source_revision(node).is_some())
+    }
+
+    fn source_revision(&self, node: NodeId) -> Option<u64> {
+        self.host.adapter().batches().iter().rev()
+            .flat_map(|batch| batch.iter().rev())
+            .find_map(|mutation| match mutation {
+                Mutation::SetVirtualSource { object, source_revision, .. } if *object == node => {
+                    Some(*source_revision)
+                }
+                _ => None,
+            })
     }
 
     /// What `node` holds, in order: what sits in each place it holds a child,

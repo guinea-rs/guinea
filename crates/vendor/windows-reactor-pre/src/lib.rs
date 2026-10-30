@@ -1,9 +1,5 @@
 #![doc = include_str!("../readme.md")]
 
-#[cfg(doctest)]
-#[doc = include_str!("../../../../docs/crates/windows-reactor.md")]
-mod guide {}
-
 #[cfg(any(test, feature = "test"))]
 #[path = "test_support/adapter.rs"]
 mod adapter;
@@ -43,22 +39,15 @@ pub use application::{
 pub(crate) use sealed::Sealed;
 
 #[cfg(any(test, feature = "test"))]
-pub use adapter::*;
-#[cfg(not(any(test, feature = "test")))]
+use adapter::*;
 use component::*;
-#[cfg(any(test, feature = "test"))]
-pub use component::*;
 pub use component::{
     CancellationToken, Component, ComponentCompletion, ComponentContext, ComponentNode,
     ComponentSender, ComponentTask, ComponentTimer, Context, EffectKey, LocalSender, ViewContext,
     WindowHandle, component, provide,
 };
-#[cfg(not(any(test, feature = "test")))]
 pub use declaration::generated_declarations::*;
-#[cfg(not(any(test, feature = "test")))]
 use declaration::*;
-#[cfg(any(test, feature = "test"))]
-pub use declaration::*;
 pub use declaration::{
     AcceleratorKey, AcceleratorModifiers, Brush, ButtonStyle, Callback, CharacterEventInfo, Color,
     CommandBarCommand, CommandBarFlyout, CommandBarFlyoutExt, ContentDialogExt,
@@ -72,29 +61,11 @@ pub use declaration::{
     ThemeTransition, Thickness, Tooltip, TooltipExt, TooltipPlacement, View, VirtualKey,
     VirtualSource, keyed,
 };
-#[cfg(not(any(test, feature = "test")))]
 use generated::*;
-#[cfg(any(test, feature = "test"))]
-pub use generated::*;
-#[cfg(not(any(test, feature = "test")))]
 use ir::*;
-#[cfg(any(test, feature = "test"))]
-pub use ir::*;
 pub use native::{App, AppCallback, AppContext, AppProxy, ScreenPoint, WindowTitleBarHeight};
-#[cfg(feature = "test")]
-pub use native::{
-    LiveRenderingSubscription, LiveTickSubscription, bring_live_virtual_index,
-    live_virtual_shell_counts, schedule_live_test_exit, subscribe_live_interval,
-    subscribe_live_rendering, subscribe_live_tick,
-};
-#[cfg(not(any(test, feature = "test")))]
 use reconcile::*;
-#[cfg(any(test, feature = "test"))]
-pub use reconcile::*;
-#[cfg(not(any(test, feature = "test")))]
 use reference::*;
-#[cfg(any(test, feature = "test"))]
-pub use reference::*;
 pub use reference::{
     AnyElement, AutomationNotification, AutomationNotificationKind,
     AutomationNotificationProcessing, CompatibleElementRef, CompositionHostEvent,
@@ -103,6 +74,29 @@ pub use reference::{
 };
 pub use window::*;
 pub use windows_time::{DateTime, TimeSpan};
+
+/// Internals for Reactor's own tests, benchmarks, and samples. Not a stable API.
+#[cfg(any(test, feature = "test"))]
+#[doc(hidden)]
+pub mod test {
+    // Compatibility for Guinea's recording harness; not a native API change.
+    pub use crate::declaration::{Property, SelectionChange};
+    pub use crate::reconcile::{Observation, RetainedGraph};
+    pub use crate::adapter::RecordingAdapter;
+    pub use crate::component::{ComponentDrain, ComponentHost};
+    pub use crate::declaration::{EventPayload, EventValue, PropertyValue};
+    pub use crate::generated::{EventId, ObjectType, PropertyId, RelationId};
+    #[cfg(feature = "test")]
+    pub use crate::native::{
+        LiveRenderingSubscription, LiveTickSubscription, schedule_live_test_exit,
+        subscribe_live_interval, subscribe_live_rendering,
+    };
+    pub use crate::reconcile::{
+        Adapter, EventDispatch, Mutation, ObjectId, RealizationRequest, RealizedContainer,
+        RetainedMemory, Runtime,
+    };
+    pub use crate::reference::ImperativeRequest;
+}
 
 #[cfg(test)]
 mod tests;

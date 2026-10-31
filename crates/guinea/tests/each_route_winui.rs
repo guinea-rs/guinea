@@ -45,10 +45,9 @@ pub struct App;
 #[layout]
 impl Layout for App {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let nav = cx.navigate::<Checked>();
-        cx.outlet(&nav, |place, cx| match place {
-            Checked::Shell(_) => cx.mount::<Shell>(&()),
-            Checked::Lost => cx.mount::<Lost>(&()),
+        cx.outlet::<Checked>(|place| match place {
+            Checked::Shell(_) => guinea::winui::mount::<Shell>(()),
+            Checked::Lost => guinea::winui::mount::<Lost>(()),
         })
     }
 }
@@ -59,13 +58,12 @@ pub struct Shell;
 #[layout]
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let nav = cx.navigate::<InShell>();
         let toolbar = cx.slot::<Toolbar>();
-        let page = cx.outlet(&nav, |place, cx| match place {
-            InShell::Good => cx.mount::<Good>(&()),
-            InShell::Bad => cx.mount::<Bad>(&()),
-            InShell::Numbered { pid } => cx.mount::<Numbered>(pid),
-            InShell::Wired { .. } => cx.mount::<Wired>(&()),
+        let page = cx.outlet::<InShell>(|place| match place {
+            InShell::Good => guinea::winui::mount::<Good>(()),
+            InShell::Bad => guinea::winui::mount::<Bad>(()),
+            InShell::Numbered { pid } => guinea::winui::mount::<Numbered>(pid.clone()),
+            InShell::Wired { .. } => guinea::winui::mount::<Wired>(()),
         });
 
         StackPanel::new().children((toolbar, page)).into()
@@ -153,11 +151,10 @@ mod clean {
     #[layout]
     impl Layout for Frame {
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let nav = cx.navigate::<Clean>();
             let toolbar = cx.slot::<Toolbar>();
-            let page = cx.outlet(&nav, |place, cx| match place {
-                Clean::Fine => cx.mount::<Fine>(&()),
-                Clean::Counted { pid } => cx.mount::<Counted>(pid),
+            let page = cx.outlet::<Clean>(|place| match place {
+                Clean::Fine => guinea::winui::mount::<Fine>(()),
+                Clean::Counted { pid } => guinea::winui::mount::<Counted>(pid.clone()),
             });
 
             StackPanel::new().children((toolbar, page)).into()

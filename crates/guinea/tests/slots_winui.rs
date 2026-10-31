@@ -90,14 +90,13 @@ impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         SHELL_DRAWN.set(SHELL_DRAWN.get() + 1);
 
-        let nav = cx.navigate::<Place>();
         let toolbar = cx.slot::<Toolbar>();
-        let page = cx.outlet(&nav, |place, cx| match place {
-            Place::Processes => cx.mount::<Processes>(&()),
-            Place::Services => cx.mount::<Services>(&()),
-            Place::Toggling => cx.mount::<Toggling>(&()),
-            Place::Footing => cx.mount::<Footing>(&()),
-            Place::Area(_) => cx.mount::<Area>(&()),
+        let page = cx.outlet::<Place>(|place| match place {
+            Place::Processes => guinea::winui::mount::<Processes>(()),
+            Place::Services => guinea::winui::mount::<Services>(()),
+            Place::Toggling => guinea::winui::mount::<Toggling>(()),
+            Place::Footing => guinea::winui::mount::<Footing>(()),
+            Place::Area(_) => guinea::winui::mount::<Area>(()),
         });
         let charts = cx.mount::<Charts>(&());
         let footer = cx.slot_or::<Footer>(charts);
@@ -135,10 +134,9 @@ impl Layout for Area {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         cx.fill::<Toolbar>(TextBlock::new().text("area tools").into());
 
-        let nav = cx.navigate::<InArea>();
-        cx.outlet(&nav, |place, cx| match place {
-            InArea::Deep => cx.mount::<Deep>(&()),
-            InArea::Plain => cx.mount::<Plain>(&()),
+        cx.outlet::<InArea>(|place| match place {
+            InArea::Deep => guinea::winui::mount::<Deep>(()),
+            InArea::Plain => guinea::winui::mount::<Plain>(()),
         })
     }
 }

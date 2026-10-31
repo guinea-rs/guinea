@@ -632,9 +632,9 @@ mod shell {
                         .on_click(cx.on(|()| ShellMsg::Toggle))
                         .content(TextBlock::new().text("Menu")),
                     side,
-                    cx.outlet(&nav, |place, cx| match place {
-                        Place::Home => cx.mount::<Home>(&()),
-                        Place::About => cx.mount::<About>(&()),
+                    cx.outlet::<Place>(|place| match place {
+                        Place::Home => guinea_winui::mount::<Home>(()),
+                        Place::About => guinea_winui::mount::<About>(()),
                     }),
                 ))
                 .into()
@@ -910,8 +910,7 @@ mod minding_the_layout {
         }
 
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-            let nav = cx.navigate::<Step>();
-            cx.outlet(&nav, |step, cx| cx.mount::<StepPage>(step))
+            cx.outlet::<Step>(|step| guinea_winui::mount::<StepPage>(step.clone()))
         }
     }
 
@@ -982,9 +981,9 @@ mod tab_strip {
                 .children((
                     tab("Processes", Tab::Processes),
                     tab("Services", Tab::Services),
-                    cx.outlet(&nav, |tab, cx| match tab {
-                        Tab::Processes => cx.mount::<Processes>(&()),
-                        Tab::Services => cx.mount::<Services>(&()),
+                    cx.outlet::<Tab>(|tab| match tab {
+                        Tab::Processes => guinea_winui::mount::<Processes>(()),
+                        Tab::Services => guinea_winui::mount::<Services>(()),
                     }),
                 ))
                 .into()

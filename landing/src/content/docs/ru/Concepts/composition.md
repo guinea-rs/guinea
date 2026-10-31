@@ -115,16 +115,16 @@ pub struct Shell {
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<Place>();
-        let about = nav.clone();
-        let workspace = nav.clone();
+        let about = nav;
+        let workspace = nav;
         let remember = self.last.clone();
         let restore = self.last.clone();
         let toolbar = cx.slot::<Toolbar>();
         let overlay = cx.slot::<Overlay>();
         let charts = cx.mount::<Charts>(&());
-        let content = cx.outlet(&nav, |place, cx| match place {
-            Place::Workspace(_) => cx.mount::<Workspace>(&()).keep(),
-            Place::About => cx.mount::<About>(&()),
+        let content = cx.outlet::<Place>(|place| match place {
+            Place::Workspace(_) => guinea::winui::mount::<Workspace>(()).keep(),
+            Place::About => guinea::winui::mount::<About>(()),
         });
         StackPanel::new()
             .children((
@@ -218,15 +218,15 @@ pub struct Workspace;
 impl Layout for Workspace {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<InWorkspace>();
-        let listing = nav.clone();
-        let settings = nav.clone();
-        let seven = nav.clone();
-        let eight = nav.clone();
-        let broken = nav.clone();
-        let content = cx.outlet(&nav, |place, cx| match place {
-            InWorkspace::Listing => cx.mount::<Listing>(&()).keep(),
-            InWorkspace::Details { pid } => cx.mount::<Details>(pid),
-            InWorkspace::Settings => cx.mount::<Settings>(&()),
+        let listing = nav;
+        let settings = nav;
+        let seven = nav;
+        let eight = nav;
+        let broken = nav;
+        let content = cx.outlet::<InWorkspace>(|place| match place {
+            InWorkspace::Listing => guinea::winui::mount::<Listing>(()).keep(),
+            InWorkspace::Details { pid } => guinea::winui::mount::<Details>(pid.clone()),
+            InWorkspace::Settings => guinea::winui::mount::<Settings>(()),
         });
         StackPanel::new()
             .children((
@@ -320,6 +320,12 @@ impl Page for Charts {
 Визуальное размещение не требует объединять их состояние с оболочкой.
 
 ## Параметры задают идентичность, а не изменяемые входы
+
+В WinUI `cx.outlet::<Route>(...)` находит ближайший навигатор для `Route`.
+Замыкание возвращает декларацию `mount::<Page>(params)`: она владеет параметрами
+и ничего не устанавливает, пока её не обработает outlet. Добавь `.keep()`,
+чтобы сохранять экземпляр, пока его маршрут неактивен. `cx.navigate::<Route>()`
+нужен отдельно для кнопок перехода или чтения текущего маршрута.
 
 Потомок определяется внутри своего монтирующего родителя типом
 и равными параметрами. Повторное монтирование того же типа с равными

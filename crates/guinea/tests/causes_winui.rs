@@ -126,13 +126,12 @@ impl Layout for Shell {
 
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let (load, _) = cx.read::<Load>();
-        let nav = cx.navigate::<Place>();
 
-        let page = cx.outlet(&nav, |place, cx| match place {
-            Place::Processes => cx.mount::<Processes>(&()),
-            Place::Services => cx.mount::<Services>(&()),
-            Place::Quiet => cx.mount::<Quiet>(&()),
-            Place::Watched => cx.mount::<Watched>(&()),
+        let page = cx.outlet::<Place>(|place| match place {
+            Place::Processes => guinea::winui::mount::<Processes>(()),
+            Place::Services => guinea::winui::mount::<Services>(()),
+            Place::Quiet => guinea::winui::mount::<Quiet>(()),
+            Place::Watched => guinea::winui::mount::<Watched>(()),
         });
         let status = cx.mount::<Status>(&());
         let footer = cx.slot_or::<Footer>(status);

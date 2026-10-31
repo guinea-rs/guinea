@@ -683,9 +683,9 @@ pub trait Page: Sized + 'static {
 ///                     .on_click(cx.on(|()| ShellMsg::Toggle))
 ///                     .content(TextBlock::new().text("Menu")),
 ///                 side,
-///                 cx.outlet(&nav, |place, cx| match place {
-///                     Place::Home => cx.mount::<Home>(&()),
-///                     Place::About => cx.mount::<About>(&()),
+///                 cx.outlet::<Place>(|place| match place {
+///                     Place::Home => guinea_winui::mount::<Home>(()),
+///                     Place::About => guinea_winui::mount::<About>(()),
 ///                 }),
 ///             ))
 ///             .into()
@@ -816,8 +816,7 @@ pub trait Layout: Sized + 'static {
     ///     }
     ///
     ///     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    ///         let nav = cx.navigate::<Step>();
-    ///         cx.outlet(&nav, |step, cx| cx.mount::<StepPage>(step))
+    ///         cx.outlet::<Step>(|step| guinea_winui::mount::<StepPage>(step.clone()))
     ///     }
     /// }
     ///
@@ -880,9 +879,9 @@ pub trait Layout: Sized + 'static {
     ///             .children((
     ///                 tab("Processes", Tab::Processes),
     ///                 tab("Services", Tab::Services),
-    ///                 cx.outlet(&nav, |tab, cx| match tab {
-    ///                     Tab::Processes => cx.mount::<Processes>(&()),
-    ///                     Tab::Services => cx.mount::<Services>(&()),
+    ///                 cx.outlet::<Tab>(|tab| match tab {
+    ///                     Tab::Processes => guinea_winui::mount::<Processes>(()),
+    ///                     Tab::Services => guinea_winui::mount::<Services>(()),
     ///                 }),
     ///             ))
     ///             .into()
@@ -987,6 +986,37 @@ pub fn install_layout<L: Layout>(ctx: &FeatureInitContext, params: &L::Params) -
     let node = L::install(&Install::new(ctx, params))?;
     stage_node(ctx, node, L::leaving);
     Ok(())
+}
+
+/// A deferred page or layout mount, including its owned parameters.
+#[must_use = "a mount declaration must be returned from an outlet"]
+pub struct Mount {
+    install: Box<dyn FnOnce(&Pass) -> anyhow::Result<Scope>>,
+    kept: bool,
+}
+
+/// Describes a child without installing it. The outlet supplies its scope.
+pub fn mount<S: Mountable>(params: S::Params) -> Mount {
+    Mount {
+        install: Box::new(move |pass| pass.mount::<S, _>(&params, |cx| S::install(cx, &params))),
+        kept: false,
+    }
+}
+
+impl Mount {
+    /// Keeps the child asleep when its route is left.
+    pub fn keep(mut self) -> Self {
+        self.kept = true;
+        self
+    }
+
+    fn install(self, pass: &Pass) -> anyhow::Result<Scope> {
+        let scope = (self.install)(pass)?;
+        if self.kept {
+            pass.keep(scope);
+        }
+        Ok(scope)
+    }
 }
 
 /// What a layout mounted: the child's view, or why it did not mount.
@@ -1648,7 +1678,7 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
         }
     }
 
-    /// What `nav` says is here, mounted by `draw`: the layout's `match` on
+    /// What the nearest navigator over `R` says is here, mounted by `draw`:
     /// its own level of the route.
     ///
     /// The layout redraws whenever `nav` moves, and `draw` is asked again.
@@ -1659,13 +1689,12 @@ impl<L: Layout> LayoutCx<'_, '_, L> {
     /// [`failure`](guinea_router::navigator::Navigator::failure).
     pub fn outlet<R: Routable>(
         &mut self,
-        nav: &Navigator<R>,
-        draw: impl FnOnce(&R, &mut Self) -> Child,
+        draw: impl FnOnce(&R) -> Mount,
     ) -> View {
-        watching(nav, self.scope, self.cx, self.subscribed);
+        let nav = self.navigate::<R>();
 
         let pass = self.pass.clone();
-        match pass.outlet(nav, |here| draw(here, self).mounted) {
+        match pass.outlet(&nav, |here| draw(here).install(&pass)) {
             Outlet::Here(scope) | Outlet::Held(scope) => drawn(scope),
             Outlet::Failed(error) => failed(&error),
             Outlet::Nowhere => Grid::new().into(),

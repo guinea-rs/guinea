@@ -1328,10 +1328,9 @@ impl<'h, R: Routable> Mounted<'h, R> {
     /// # #[layout]
     /// # impl Layout for Shell {
     /// #     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-    /// #         let nav = cx.navigate::<Route>();
-    /// #         cx.outlet(&nav, |route, cx| match route {
-    /// #             Route::Processes => cx.mount::<Processes>(&()),
-    /// #             Route::Services => cx.mount::<Services>(&()),
+    /// #         cx.outlet::<Route>(|route| match route {
+    /// #             Route::Processes => guinea_winui::mount::<Processes>(()),
+    /// #             Route::Services => guinea_winui::mount::<Services>(()),
     /// #         })
     /// #     }
     /// # }

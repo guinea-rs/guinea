@@ -113,16 +113,16 @@ pub struct Shell {
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<Place>();
-        let about = nav.clone();
-        let workspace = nav.clone();
+        let about = nav;
+        let workspace = nav;
         let remember = self.last.clone();
         let restore = self.last.clone();
         let toolbar = cx.slot::<Toolbar>();
         let overlay = cx.slot::<Overlay>();
         let charts = cx.mount::<Charts>(&());
-        let content = cx.outlet(&nav, |place, cx| match place {
-            Place::Workspace(_) => cx.mount::<Workspace>(&()).keep(),
-            Place::About => cx.mount::<About>(&()),
+        let content = cx.outlet::<Place>(|place| match place {
+            Place::Workspace(_) => guinea::winui::mount::<Workspace>(()).keep(),
+            Place::About => guinea::winui::mount::<About>(()),
         });
         StackPanel::new()
             .children((
@@ -214,15 +214,15 @@ pub struct Workspace;
 impl Layout for Workspace {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<InWorkspace>();
-        let listing = nav.clone();
-        let settings = nav.clone();
-        let seven = nav.clone();
-        let eight = nav.clone();
-        let broken = nav.clone();
-        let content = cx.outlet(&nav, |place, cx| match place {
-            InWorkspace::Listing => cx.mount::<Listing>(&()).keep(),
-            InWorkspace::Details { pid } => cx.mount::<Details>(pid),
-            InWorkspace::Settings => cx.mount::<Settings>(&()),
+        let listing = nav;
+        let settings = nav;
+        let seven = nav;
+        let eight = nav;
+        let broken = nav;
+        let content = cx.outlet::<InWorkspace>(|place| match place {
+            InWorkspace::Listing => guinea::winui::mount::<Listing>(()).keep(),
+            InWorkspace::Details { pid } => guinea::winui::mount::<Details>(pid.clone()),
+            InWorkspace::Settings => guinea::winui::mount::<Settings>(()),
         });
         StackPanel::new()
             .children((
@@ -316,6 +316,12 @@ be composed this way. Placement in the toolkit's visual tree does not
 require merging its state into the shell.
 
 ## Parameters are identity, not mutable inputs
+
+In WinUI, `cx.outlet::<Route>(...)` finds the nearest navigator for `Route`.
+Its closure returns a `mount::<Page>(params)` declaration: it owns its parameters
+and installs nothing until the outlet consumes it. Add `.keep()` to retain that
+instance while its route is inactive. Use `cx.navigate::<Route>()` separately
+when building navigation buttons or reading the current route.
 
 A child is identified within its mounting parent by its type and equal
 parameters. Mounting the same type with equal parameters reuses the same

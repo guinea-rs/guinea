@@ -58,6 +58,41 @@ fn opened() -> (ScopeTree, Navigator<Top>) {
 }
 
 #[test]
+fn copies_share_navigation_without_requiring_copy_routes() {
+    fn copy_handle<T: Copy>(value: T) -> (T, T) { (value, value) }
+    let (tree, navigator) = opened();
+    let (first, second) = copy_handle(navigator);
+    first.to(Top::Services);
+    assert_eq!(second.current(), Some(Top::Services));
+    assert!(navigator == Navigator::<Top>::find(tree.scope()).unwrap());
+    assert!(second.back());
+    assert_eq!(first.current(), Some(Top::Processes(Processes::List)));
+    let nested = Navigator::<Processes>::find(tree.scope()).unwrap();
+    let (nested, other) = copy_handle(nested);
+    nested.to(Processes::Settings);
+    assert_eq!(other.current(), Some(Processes::Settings));
+    assert_eq!(navigator.current(), Some(Top::Processes(Processes::Settings)));
+}
+
+#[test]
+fn copies_and_watches_do_not_keep_navigation_state_alive() {
+    let (tree, navigator) = opened();
+    let retained = Rc::new(());
+    let weak = Rc::downgrade(&retained);
+    let watching = navigator.watch(move || { let _ = &retained; });
+    let copied = navigator;
+    drop(tree);
+    assert!(weak.upgrade().is_none());
+    drop(watching);
+    let (other_tree, other) = opened();
+    other.to(Top::Logs);
+    assert!(copied != other);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| copied.current())).is_err());
+    assert_eq!(other.current(), Some(Top::Logs));
+    drop(other_tree);
+}
+
+#[test]
 fn a_navigator_is_found_below_where_it_was_opened_at_its_own_level_and_a_nested_one() {
     let (tree, _navigator) = opened();
     let below = tree.scope().child().child();

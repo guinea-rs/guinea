@@ -146,7 +146,7 @@ mod shell {
     impl Layout for Shell {
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<Place>();
-            let to_about = nav.clone();
+            let to_about = nav;
 
             StackPanel::new()
                 .children((
@@ -155,9 +155,9 @@ mod shell {
                         .on_click(move || {
                             let _ = to_about.to(Place::About);
                         }),
-                    cx.outlet(&nav, |place, cx| match place {
-                        Place::Counter => cx.mount::<CounterPage>(&()),
-                        Place::About => cx.mount::<About>(&()),
+                    cx.outlet::<Place>(|place| match place {
+                        Place::Counter => guinea::winui::mount::<CounterPage>(()),
+                        Place::About => guinea::winui::mount::<About>(()),
                     }),
                 ))
                 .into()

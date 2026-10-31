@@ -814,9 +814,9 @@ mod routed {
                     Button::new()
                         .on_click(nav.to_handler(TabRoute::Two))
                         .content(TextBlock::new().text("Two")),
-                    cx.outlet(&nav, |tab, cx| match tab {
-                        TabRoute::One => cx.mount::<One>(&()),
-                        TabRoute::Two => cx.mount::<Two>(&()),
+                    cx.outlet::<TabRoute>(|tab| match tab {
+                        TabRoute::One => guinea::winui::mount::<One>(()),
+                        TabRoute::Two => guinea::winui::mount::<Two>(()),
                     }),
                 ))
                 .into()
@@ -872,9 +872,9 @@ mod routed {
     impl Layout for Pane {
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<PaneRoute>();
-            let page = cx.outlet(&nav, |place, cx| match place {
-                PaneRoute::Home => cx.mount::<Home>(&()),
-                PaneRoute::Settings => cx.mount::<Settings>(&()),
+            let page = cx.outlet::<PaneRoute>(|place| match place {
+                PaneRoute::Home => guinea::winui::mount::<Home>(()),
+                PaneRoute::Settings => guinea::winui::mount::<Settings>(()),
             });
 
             NavigationView::new()
@@ -1082,11 +1082,11 @@ mod navigating {
                     Button::new()
                         .on_click(nav.to_handler(AppRoute::List))
                         .content(TextBlock::new().text("List")),
-                    cx.outlet(&nav, |place, cx| match place {
-                        AppRoute::List => cx.mount::<Area>(&()),
-                        AppRoute::KeptList => cx.mount::<KeptArea>(&()).keep(),
-                        AppRoute::Other => cx.mount::<Other>(&()),
-                        AppRoute::Draft => cx.mount::<Draft>(&()),
+                    cx.outlet::<AppRoute>(|place| match place {
+                        AppRoute::List => guinea::winui::mount::<Area>(()),
+                        AppRoute::KeptList => guinea::winui::mount::<KeptArea>(()).keep(),
+                        AppRoute::Other => guinea::winui::mount::<Other>(()),
+                        AppRoute::Draft => guinea::winui::mount::<Draft>(()),
                     }),
                 ))
                 .into()
@@ -1476,10 +1476,9 @@ mod two_of_a_kind {
     #[guinea::winui::layout]
     impl guinea::winui::Layout for Window {
         fn view(&self, cx: &mut guinea::winui::LayoutCx<'_, '_, Self>) -> View {
-            let nav = cx.navigate::<Where>();
-            cx.outlet(&nav, |place, cx| match place {
-                Where::Here => cx.mount::<Here>(&()),
-                Where::There => cx.mount::<There>(&()),
+            cx.outlet::<Where>(|place| match place {
+                Where::Here => guinea::winui::mount::<Here>(()),
+                Where::There => guinea::winui::mount::<There>(()),
             })
         }
     }

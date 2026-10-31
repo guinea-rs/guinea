@@ -152,23 +152,26 @@ pub enum Moved {
 /// Opened once, in the scope that holds it, and found from anywhere under
 /// that scope: at the route type it was opened with, or at any route type
 /// nested in it.
+///
+/// Copies do not keep the owning scope alive. Using a navigator after that
+/// scope is removed panics. The handle stays local to its UI thread.
 pub struct Navigator<T> {
-    root: Rc<dyn Navigates>,
-    route: PhantomData<T>,
+    scope: Scope,
+    index: usize,
+    route: PhantomData<Rc<T>>,
 }
+
+impl<T> Copy for Navigator<T> {}
 
 impl<T> Clone for Navigator<T> {
     fn clone(&self) -> Self {
-        Self {
-            root: self.root.clone(),
-            route: PhantomData,
-        }
+        *self
     }
 }
 
 impl<T> PartialEq for Navigator<T> {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.root, &other.root)
+        self.scope == other.scope && self.index == other.index
     }
 }
 
@@ -195,8 +198,8 @@ impl<T: Routable> Navigator<T> {
     /// A navigator over `T` held by `scope`, starting at `start` - or the one
     /// `scope` already holds, which keeps where it is.
     pub fn open(scope: Scope, start: T) -> Self {
-        if let Some(open) = held(scope, TypeId::of::<T>()) {
-            return Self::over(open);
+        if let Some((index, _)) = held(scope, TypeId::of::<T>()) {
+            return Self::over(scope, index);
         }
 
         let root: Rc<dyn Navigates> = Rc::new(Root {
@@ -219,13 +222,17 @@ impl<T: Routable> Navigator<T> {
         if !scope.keeps::<Held>() {
             scope.keep(Held::default());
         }
-        scope.kept::<Held, _>(|held| held.0.push(root.clone()));
+        let index = scope.kept::<Held, _>(|held| {
+            let index = held.0.len();
+            held.0.push(root.clone());
+            index
+        }).expect("the navigator scope is alive");
         observer::tell(scope, || Event::Navigated {
             scope: scope.id(),
             navigation: root.navigation(),
         });
 
-        Self::over(root)
+        Self::over(scope, index)
     }
 
     /// The navigator that serves `T` nearest above `from`, `from` itself
@@ -233,22 +240,25 @@ impl<T: Routable> Navigator<T> {
     pub fn find(from: Scope) -> Option<Self> {
         let level = TypeId::of::<T>();
         std::iter::successors(Some(from), Scope::parent)
-            .find_map(|scope| held(scope, level))
-            .map(Self::over)
+            .find_map(|scope| held(scope, level).map(|(index, _)| Self::over(scope, index)))
     }
 
-    fn over(root: Rc<dyn Navigates>) -> Self {
-        Self {
-            root,
-            route: PhantomData,
-        }
+    fn over(scope: Scope, index: usize) -> Self {
+        Self { scope, index, route: PhantomData }
+    }
+
+    #[track_caller]
+    fn root(&self) -> Rc<dyn Navigates> {
+        self.scope.try_kept::<Held, _>(|held| held.0.get(self.index).cloned())
+            .flatten()
+            .expect("the navigator's owning scope has been removed")
     }
 
     /// Where the window is at this level; `None` while it is somewhere this
     /// level is not part of.
     pub fn current(&self) -> Option<T> {
         let mut found = None;
-        self.root.current_at(TypeId::of::<T>(), &mut |at| {
+        self.root().current_at(TypeId::of::<T>(), &mut |at| {
             found = at.and_then(|at| at.downcast_ref::<T>()).cloned();
         });
         found
@@ -256,12 +266,12 @@ impl<T: Routable> Navigator<T> {
 
     /// Goes to `route`, remembering where it was.
     pub fn to(&self, route: T) -> Moved {
-        self.root.clone().go(TypeId::of::<T>(), Box::new(route))
+        self.root().go(TypeId::of::<T>(), Box::new(route))
     }
 
     /// A click handler that goes to `route` each time it is called.
     pub fn to_handler(&self, route: T) -> impl Fn() + Clone + 'static {
-        let navigator = self.clone();
+        let navigator = *self;
         move || {
             navigator.to(route.clone());
         }
@@ -269,62 +279,62 @@ impl<T: Routable> Navigator<T> {
 
     /// One step back, if there is one; whether it moved now.
     pub fn back(&self) -> bool {
-        self.root.clone().step(Step::Back)
+        self.root().step(Step::Back)
     }
 
     /// One step forward, undoing a [`back`](Self::back).
     pub fn forward(&self) -> bool {
-        self.root.clone().step(Step::Forward)
+        self.root().step(Step::Forward)
     }
 
     pub fn can_go_back(&self) -> bool {
-        self.root.can_step(Step::Back)
+        self.root().can_step(Step::Back)
     }
 
     pub fn can_go_forward(&self) -> bool {
-        self.root.can_step(Step::Forward)
+        self.root().can_step(Step::Forward)
     }
 
     /// The question a guard is waiting on, if there is one.
     pub fn pending(&self) -> Option<Ask> {
-        self.root.pending()
+        self.root().pending()
     }
 
     /// Answers the pending question; nothing when there is none.
     pub fn answer(&self, allowed: bool) {
-        self.root.answer(allowed);
+        self.root().answer(allowed);
     }
 
     /// Says that `owner`'s outlet at this level drew `child` for `at`: what
     /// is asked before a navigation takes it away.
     pub fn rendered(&self, owner: Scope, child: Scope, at: &T) {
-        self.root
+        self.root()
             .rendered(TypeId::of::<T>(), owner, child, Box::new(at.clone()));
     }
 
     /// What `owner`'s outlet at this level drew last, while it stands.
     pub fn drawn(&self, owner: Scope) -> Option<Scope> {
-        self.root.drawn(TypeId::of::<T>(), owner)
+        self.root().drawn(TypeId::of::<T>(), owner)
     }
 
     /// Says that what the window moved to could not be mounted: it goes back
     /// to where it was, and keeps why for [`failure`](Self::failure).
     pub fn failed(&self, error: anyhow::Error) {
-        self.root.failed(error);
+        self.root().failed(error);
     }
 
     /// Why the last place it moved to could not be mounted, until it next
     /// moves.
     pub fn failure(&self) -> Option<String> {
-        self.root.failure()
+        self.root().failure()
     }
 
     /// Runs `heard` after every move, and whenever a guard's question comes
     /// or goes, until the returned watch is dropped.
     pub fn watch(&self, heard: impl Fn() + 'static) -> Watching {
-        let id = self.root.watch(Rc::new(heard));
+        let id = self.root().watch(Rc::new(heard));
         Watching {
-            root: Rc::downgrade(&self.root),
+            root: Rc::downgrade(&self.root()),
             id,
         }
     }
@@ -354,12 +364,12 @@ impl<T: Routable> Asking for Navigator<T> {
     }
 }
 
-fn held(scope: Scope, level: TypeId) -> Option<Rc<dyn Navigates>> {
+fn held(scope: Scope, level: TypeId) -> Option<(usize, Rc<dyn Navigates>)> {
     if !scope.keeps::<Held>() {
         return None;
     }
     scope
-        .kept::<Held, _>(|held| held.0.iter().find(|root| root.serves(level)).cloned())
+        .kept::<Held, _>(|held| held.0.iter().enumerate().find(|(_, root)| root.serves(level)).map(|(index, root)| (index, root.clone())))
         .flatten()
 }
 

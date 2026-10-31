@@ -45,12 +45,11 @@ struct Shell;
 #[layout]
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let nav = cx.navigate::<Place>();
-        cx.outlet(&nav, |place, cx| match place {
-            Place::Process { pid } => cx.mount::<Process>(pid),
-            Place::Editor => cx.mount::<Editor>(&()),
-            Place::Viewer => cx.mount::<Viewer>(&()),
-            Place::Unreachable => cx.mount::<Unreachable>(&()),
+        cx.outlet::<Place>(|place| match place {
+            Place::Process { pid } => guinea::winui::mount::<Process>(pid.clone()),
+            Place::Editor => guinea::winui::mount::<Editor>(()),
+            Place::Viewer => guinea::winui::mount::<Viewer>(()),
+            Place::Unreachable => guinea::winui::mount::<Unreachable>(()),
         })
     }
 }

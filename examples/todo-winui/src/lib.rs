@@ -50,10 +50,10 @@ impl Layout for Shell {
         navigation.push(button("Activity", nav.to_handler(Screen::Activity)));
         let summary = cx.mount::<Summary>(&()).into();
         let tools = cx.slot::<EditorTools>();
-        let content = cx.outlet(&nav, |route, cx| match route {
-            Screen::Tasks { filter } => cx.mount::<Tasks>(filter).keep(),
-            Screen::Detail { id } => cx.mount::<Details>(id),
-            Screen::Activity => cx.mount::<Journal>(&()),
+        let content = cx.outlet::<Screen>(|route| match route {
+            Screen::Tasks { filter } => guinea::winui::mount::<Tasks>(filter.clone()).keep(),
+            Screen::Detail { id } => guinea::winui::mount::<Details>(id.clone()),
+            Screen::Activity => guinea::winui::mount::<Journal>(()),
         });
         StackPanel::new()
             .spacing(12.0)

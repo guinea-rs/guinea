@@ -2,6 +2,60 @@ use super::*;
 use crate::{Layout, LayoutCx, Page, PageCx, Routable, layout, page};
 use windows_reactor::{EncodedImage, Image, StackPanel};
 
+thread_local! {
+    static OWNED_INSTALLS: RefCell<Vec<String>> = RefCell::default();
+}
+
+#[derive(Clone, Debug, PartialEq, Routable)]
+enum OwnedRoute { Details { name: String }, Empty }
+
+#[derive(Default)]
+struct OwnedShell;
+
+#[layout]
+impl Layout for OwnedShell {
+    fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
+        cx.outlet::<OwnedRoute>(|route| match route {
+            OwnedRoute::Details { name } => crate::mount::<OwnedPage>(name.clone()).keep(),
+            OwnedRoute::Empty => crate::mount::<First>(()),
+        })
+    }
+}
+
+struct OwnedPage(String);
+
+#[page]
+impl Page for OwnedPage {
+    type Params = String;
+    fn install(cx: &crate::Install<String>) -> anyhow::Result<Self> {
+        OWNED_INSTALLS.with_borrow_mut(|names| names.push(cx.params().clone()));
+        Ok(Self(cx.params().clone()))
+    }
+    fn view(&self, _: &mut PageCx<'_, '_, Self>) -> View {
+        windows_reactor::TextBlock::new().text(&self.0).into()
+    }
+}
+
+#[test]
+fn deferred_mount_owns_params_and_keeps_the_same_route_instance() {
+    guinea_app::app::check(4, |h| {
+        OWNED_INSTALLS.with_borrow_mut(Vec::clear);
+        let declaration = crate::mount::<OwnedPage>(String::from("unused"));
+        OWNED_INSTALLS.with_borrow(|names| assert!(names.is_empty()));
+        drop(declaration);
+        let mut page = Mounted::routed::<OwnedShell>(h, OwnedRoute::Details { name: "first".into() }).unwrap();
+        let nav = page.navigator::<OwnedRoute>();
+        nav.to(OwnedRoute::Empty);
+        page.settle();
+        nav.to(OwnedRoute::Details { name: "first".into() });
+        page.settle();
+        OWNED_INSTALLS.with_borrow(|names| assert_eq!(names, &["first"]));
+        nav.to(OwnedRoute::Details { name: "second".into() });
+        page.settle();
+        OWNED_INSTALLS.with_borrow(|names| assert_eq!(names, &["first", "second"]));
+    });
+}
+
 #[derive(Clone, Debug, PartialEq, Routable)]
 enum Route {
     First,
@@ -14,10 +68,9 @@ struct Shell;
 #[layout]
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let navigation = cx.navigate::<Route>();
-        cx.outlet(&navigation, |route, cx| match route {
-            Route::First => cx.mount::<First>(&()),
-            Route::Second => cx.mount::<Second>(&()),
+        cx.outlet::<Route>(|route| match route {
+            Route::First => crate::mount::<First>(()),
+            Route::Second => crate::mount::<Second>(()),
         })
     }
 }

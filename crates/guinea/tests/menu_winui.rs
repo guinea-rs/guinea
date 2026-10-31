@@ -36,9 +36,9 @@ impl Layout for Shell {
             })
             .collect::<Vec<View>>();
 
-        let page = cx.outlet(&nav, |place, cx| match place {
-            Menu::Processes => cx.mount::<Processes>(&()),
-            Menu::Services => cx.mount::<Services>(&()),
+        let page = cx.outlet::<Menu>(|place| match place {
+            Menu::Processes => guinea::winui::mount::<Processes>(()),
+            Menu::Services => guinea::winui::mount::<Services>(()),
         });
 
         StackPanel::new()

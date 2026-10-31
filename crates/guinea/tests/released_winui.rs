@@ -84,13 +84,12 @@ pub struct Frame;
 #[layout]
 impl Layout for Frame {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
-        let nav = cx.navigate::<Place>();
-        cx.outlet(&nav, |place, cx| match place {
-            Place::Listening => cx.mount::<Listening>(&()),
-            Place::Menu => cx.mount::<Menu>(&()),
-            Place::Elsewhere => cx.mount::<Elsewhere>(&()),
-            Place::Reading => cx.mount::<PingArea>(&()),
-            Place::Quiet => cx.mount::<QuietArea>(&()),
+        cx.outlet::<Place>(|place| match place {
+            Place::Listening => guinea::winui::mount::<Listening>(()),
+            Place::Menu => guinea::winui::mount::<Menu>(()),
+            Place::Elsewhere => guinea::winui::mount::<Elsewhere>(()),
+            Place::Reading => guinea::winui::mount::<PingArea>(()),
+            Place::Quiet => guinea::winui::mount::<QuietArea>(()),
         })
     }
 }

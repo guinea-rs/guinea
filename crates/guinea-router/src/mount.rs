@@ -118,7 +118,7 @@ impl Pass {
             scope_cx: guinea_app::feature::ScopeContext::new(scope),
             cursor: 0,
         };
-        if let Err(error) = install(&cx) {
+        if let Err(error) = scope.track_allocations(|| install(&cx)) {
             scope.remove();
             let name = crate::observability::short(std::any::type_name::<S>());
             return Err(error.context(format!("{name} did not mount")));

@@ -41,6 +41,7 @@ harness = false
 # The test queue for `invoke_on_ui`, and the seeded executor whose clock is a
 # paused tokio runtime - which is tokio's `test-util`.
 test-utils = ["tokio/test-util"]
+allocations = ["guinea-trace/allocations"]
 
 
 

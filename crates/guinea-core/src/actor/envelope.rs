@@ -34,5 +34,10 @@ where
         actor: short_type_name::<A>(),
         message: short_type_name::<M>(),
     });
+    #[cfg(feature = "allocations")]
+    return addr.home().scope().track_allocations(|| {
+        A::handle(In(actor, message, Cx::new(addr.clone())));
+    });
+    #[cfg(not(feature = "allocations"))]
     A::handle(In(actor, message, Cx::new(addr.clone())));
 }

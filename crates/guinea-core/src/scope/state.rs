@@ -315,7 +315,7 @@ impl Scope {
 
         {
             let mut state = state.borrow_mut();
-            Rc::make_mut(&mut state).reduce(update);
+            self.track_allocations(|| Rc::make_mut(&mut state).reduce(update));
         }
 
         self.moved::<R>();

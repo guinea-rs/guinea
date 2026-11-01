@@ -49,6 +49,7 @@ own-runtime = ["guinea-app/own-runtime"]
 # `app::Harness` with `#[guinea::test]`, which run what those spawn in an
 # order a seed decides.
 test-utils = ["guinea-app/test-utils"]
+allocations = ["guinea-core/allocations"]
 # `test-utils`, and each enabled backend's own harness - WinUI and egui -
 # without naming the backend's crate.
 harness = ["test-utils", "guinea-winui?/harness", "guinea-eframe?/harness"]

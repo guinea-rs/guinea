@@ -37,6 +37,8 @@ pub(super) struct Node {
 /// is removed is torn down after the tree lets go of it.
 #[derive(Default)]
 pub(super) struct ScopeData {
+    #[cfg(feature = "allocations")]
+    pub(super) allocations: std::cell::OnceCell<crate::trace::allocations::Group>,
     pub(super) state: States,
     pub(super) features: Features,
     pub(super) lifetime: Lifetime,
@@ -209,13 +211,16 @@ impl ScopeTree {
         let (tree, root) = Tree::rooted();
         let tree = Rc::new(RefCell::new(tree));
 
-        Self {
+        let owned = Self {
             root: Scope {
                 tree: register(&tree),
                 node: root,
             },
             _tree: tree,
-        }
+        };
+        #[cfg(feature = "allocations")]
+        let _group = owned.root.allocation_group();
+        owned
     }
 
     /// The scope at the top of the tree.

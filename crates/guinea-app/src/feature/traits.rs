@@ -288,7 +288,7 @@ impl FeatureInitContext {
             ..self.clone()
         };
 
-        let installed = F::install(&cx, params)
+        let installed = self.scope.track_allocations(|| F::install(&cx, params))
             .and_then(|installed| {
                 settle::<F, F::Exports>(self.scope, who)?;
                 installed.publish_dependencies(&cx.scope_cx);

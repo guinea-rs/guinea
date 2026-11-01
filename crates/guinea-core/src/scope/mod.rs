@@ -67,6 +67,36 @@ impl ScopeId {
 }
 
 impl Scope {
+    /// Runs synchronous work attributed to this scope when allocation
+    /// profiling is enabled. A removed scope does not establish a context.
+    /// Backend adapters can use this around installation and rendering.
+    pub fn track_allocations<R>(&self, work: impl FnOnce() -> R) -> R {
+        #[cfg(feature = "allocations")]
+        if let Some(group) = self.allocation_group() {
+            return group.run(work);
+        }
+        work()
+    }
+
+    #[cfg(feature = "allocations")]
+    pub fn allocation_group(&self) -> Option<crate::trace::allocations::Group> {
+        if !crate::trace::allocations::is_enabled() {
+            return None;
+        }
+        let data = self.data()?;
+        if let Some(group) = data.allocations.get() {
+            return Some(group.clone());
+        }
+        let parent = self.parent().and_then(|parent| parent.allocation_group());
+        let group = crate::trace::allocations::Group::new(
+            self.id().get(),
+            parent.as_ref(),
+            self.tree_sink()?,
+        )?;
+        let _installed = data.allocations.set(group.clone());
+        Some(group)
+    }
+
     /// How a tool names this scope.
     pub fn id(&self) -> ScopeId {
         use slotmap::Key;
@@ -121,6 +151,8 @@ impl Scope {
             scope: child.id(),
             parent: Some(self.id()),
         });
+        #[cfg(feature = "allocations")]
+        let _group = child.allocation_group();
         child
     }
 
@@ -141,8 +173,20 @@ impl Scope {
         };
         for (node, data) in detached {
             let gone = self.named(node);
-            data.held.let_go(gone);
-            observer::tell(gone, || Event::ScopeClosed { scope: gone.id() });
+            #[cfg(feature = "allocations")]
+            let group = data.allocations.get().cloned();
+            let cleanup = || {
+                data.held.let_go(gone);
+                observer::tell(gone, || Event::ScopeClosed { scope: gone.id() });
+                drop(data);
+            };
+            #[cfg(feature = "allocations")]
+            if let Some(group) = group {
+                group.run(cleanup);
+                group.close();
+                continue;
+            }
+            cleanup();
         }
     }
 

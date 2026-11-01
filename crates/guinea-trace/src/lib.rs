@@ -23,6 +23,9 @@ mod json;
 mod point;
 mod sink;
 
+#[cfg(feature = "allocations")]
+pub mod allocations;
+
 pub use json::{Json, json};
 pub use point::Point;
 pub use sink::{
@@ -132,13 +135,21 @@ pub fn mark(point: impl FnOnce() -> Point) -> Cause {
 /// Records a point caused by `parent`, for work that crossed a queue or a
 /// thread and brought its cause along.
 pub fn mark_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Cause {
+    mark_at(parent, now, point)
+}
+
+fn mark_at(
+    parent: Option<Cause>,
+    at: impl FnOnce() -> Duration,
+    point: impl FnOnce() -> Point,
+) -> Cause {
     let id = Cause::next();
     if is_recorded() {
         observed(|| {
             sink::emit(Trace::Mark(Record {
                 id,
                 parent,
-                at: now(),
+                at: at(),
                 point: point(),
             }));
         });
@@ -229,6 +240,8 @@ pub fn within<F: Future>(cause: Option<Cause>, future: F) -> Within<F> {
         carried: Carried {
             cause,
             sink: current_sink(),
+            #[cfg(feature = "allocations")]
+            allocations: allocations::current_group(),
         },
         future,
     }
@@ -253,6 +266,10 @@ impl<F: Future> Future for Within<F> {
     ) -> std::task::Poll<F::Output> {
         let this = self.project();
         let _carried = this.carried.resume();
+        #[cfg(feature = "allocations")]
+        if let Some(group) = &this.carried.allocations {
+            return group.run(|| this.future.poll(cx));
+        }
         this.future.poll(cx)
     }
 }
@@ -265,6 +282,8 @@ impl Sink {
             carried: Carried {
                 cause: None,
                 sink: Some(self.clone()),
+                #[cfg(feature = "allocations")]
+                allocations: allocations::current_group(),
             },
             future,
         }
@@ -275,6 +294,8 @@ impl Sink {
 /// thread: the point that causes what it does, and the sink it records into.
 #[derive(Clone, Debug, Default)]
 pub struct Carried {
+    #[cfg(feature = "allocations")]
+    allocations: Option<allocations::Group>,
     cause: Option<Cause>,
     sink: Option<Sink>,
 }
@@ -285,6 +306,8 @@ pub fn carry() -> Carried {
     Carried {
         cause: current(),
         sink: current_sink(),
+        #[cfg(feature = "allocations")]
+        allocations: allocations::current_group(),
     }
 }
 

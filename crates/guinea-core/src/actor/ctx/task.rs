@@ -1121,6 +1121,11 @@ fn launch<A: 'static>(
     }
 
     let start = starting(traced);
+    #[cfg(feature = "allocations")]
+    let start: Start = {
+        let scope = addr.home().scope();
+        Box::new(move |ticket| scope.track_allocations(|| start(ticket)))
+    };
 
     if kind == Kind::Parallel {
         start(Ticket::free(addr.cancellation()));

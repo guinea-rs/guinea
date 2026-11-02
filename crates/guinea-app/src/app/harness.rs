@@ -94,6 +94,16 @@ pub struct Harness {
 const HORIZON: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl Harness {
+    /// Starts experimental state recording for this application and all of
+    /// its child scopes. Values are captured only after explicitly selecting
+    /// detailed mode on the returned recorder.
+    pub fn record_states(
+        &self,
+        config: guinea_core::observability::state::Config,
+    ) -> guinea_core::observability::state::Recording {
+        guinea_core::observability::state::Recording::start(self.application_scope(), config)
+    }
+
     pub fn new(seed: u64) -> Self {
         let executor = guinea_core::__private::install(seed);
         let app = TestApp::new();

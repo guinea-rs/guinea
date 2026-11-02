@@ -1,0 +1,14 @@
+---
+source: crates/guinea/tests/state_recording.rs
+expression: all
+---
+[
+    "revision 1 (metadata only)",
+    "revision 2 (metadata only)",
+    "mode Normal -> Detailed",
+    "revision 3 Json(Object {\"Add\": Number(3)}): Json(Object {\"value\": Number(2)}) -> Json(Object {\"value\": Number(5)})",
+    "revision 4 Json(Object {\"Add\": Number(0)}): Json(Object {\"value\": Number(5)}) -> Json(Object {\"value\": Number(5)})",
+    "mode Detailed -> Normal",
+    "revision 5 (metadata only)",
+    "revision 6 (metadata only)",
+]

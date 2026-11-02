@@ -76,6 +76,16 @@ fn expand(function: &ItemFn) -> syn::Result<TokenStream> {
                 use #gc::__private::pick::{ViaDebug as _, ViaInspect as _, ViaNothing as _};
                 (&&&#gc::__private::pick::Probe(self)).show(at)
             }
+
+            fn snapshot(&self, limit: usize) -> #gc::observability::state::Snapshot {
+                use #gc::observability::state::__private::{ViaSerialize as _, ViaNothing as _};
+                (&&#gc::observability::state::__private::Probe(self)).capture(limit)
+            }
+
+            fn snapshot_update(update: &Self::Update, limit: usize) -> #gc::observability::state::Snapshot {
+                use #gc::observability::state::__private::{ViaSerialize as _, ViaNothing as _};
+                (&&#gc::observability::state::__private::Probe(update)).capture(limit)
+            }
         }
     })
 }

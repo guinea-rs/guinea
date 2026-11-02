@@ -11,6 +11,7 @@
 mod log_layer;
 pub(crate) mod observer;
 pub mod panels;
+pub mod state;
 
 use crate::trace::{self, Point};
 use crate::ui_thread::try_invoke_on_ui;

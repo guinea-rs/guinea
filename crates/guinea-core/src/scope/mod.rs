@@ -67,6 +67,24 @@ impl ScopeId {
 }
 
 impl Scope {
+    pub(crate) fn state_recording(&self) -> Option<crate::observability::state::Recording> {
+        self.read(|tree| {
+            tree.state_recording.as_ref().and_then(std::rc::Weak::upgrade)
+        })
+        .flatten()
+        .map(crate::observability::state::Recording::from_data)
+    }
+
+    pub(crate) fn record_states(&self, recording: &crate::observability::state::Recording) {
+        let tree = tree(self.tree).expect("recording states of a removed tree");
+        let mut tree = tree.borrow_mut();
+        assert!(
+            tree.state_recording.as_ref().and_then(std::rc::Weak::upgrade).is_none(),
+            "state recording is already active for this application"
+        );
+        tree.state_recording = Some(recording.downgrade());
+    }
+
     /// Runs synchronous work attributed to this scope when allocation
     /// profiling is enabled. A removed scope does not establish a context.
     /// Backend adapters can use this around installation and rendering.

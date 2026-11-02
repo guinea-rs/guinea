@@ -59,6 +59,7 @@ pub(super) struct Tree {
     pub(super) bus: Rc<EventBus>,
     /// Where what happens in the tree is recorded, for whoever observes it.
     pub(super) trace: Sink,
+    pub(super) state_recording: Option<std::rc::Weak<std::cell::RefCell<crate::observability::state::Data>>>,
     /// What redraws the tree, when something keeps what it drew.
     pub(super) drawing: Option<Rc<dyn Drawing>>,
 }
@@ -102,6 +103,7 @@ impl Tree {
             root,
             bus: Rc::new(EventBus::new()),
             trace: Sink::new(),
+            state_recording: None,
             drawing: None,
         };
         (tree, root)

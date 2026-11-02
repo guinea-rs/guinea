@@ -34,7 +34,7 @@ pub mod observability {
     pub use guinea_app::app::Observed;
     pub use guinea_core::observability::{
         AlreadyWatched, Batch, Event, LogLayer, Navigation, Rendering, Watching, is_observed,
-        layer, mark_anywhere, panels,
+        layer, mark_anywhere, panels, state,
     };
     pub use guinea_core::scope::ScopeId;
     pub use guinea_core::trace;

@@ -94,6 +94,18 @@ pub trait Reducer: Clone + Default + 'static {
     /// How devtools show it; `#[reducer]` writes it.
     #[doc(hidden)]
     fn show(&self, at: Inspector<'_>);
+
+    /// A bounded diagnostic snapshot, used only in detailed recording.
+    /// `#[reducer]` uses `Serialize` when the concrete type implements it.
+    #[doc(hidden)]
+    fn snapshot(&self, _: usize) -> crate::observability::state::Snapshot {
+        crate::observability::state::Snapshot::Unavailable
+    }
+
+    #[doc(hidden)]
+    fn snapshot_update(_: &Self::Update, _: usize) -> crate::observability::state::Snapshot {
+        crate::observability::state::Snapshot::Unavailable
+    }
 }
 
 /// Where a reducer's state lives: the current value, shared with whoever read
@@ -110,6 +122,7 @@ pub(super) struct States {
 }
 
 struct Cell {
+    revision: std::cell::Cell<u64>,
     state: Rc<dyn Any>,
     readers: RefCell<Vec<(u64, Rc<Watcher<dyn Any>>)>>,
     observers: RefCell<Vec<(u64, Rc<Watcher<dyn Fn(&dyn Any)>>)>>,
@@ -194,6 +207,7 @@ impl Cell {
 
     fn holding(state: Rc<dyn Any>) -> Self {
         Cell {
+            revision: std::cell::Cell::new(0),
             state,
             readers: RefCell::new(Vec::new()),
             observers: RefCell::new(Vec::new()),
@@ -311,11 +325,50 @@ impl Scope {
             .is_observed(TypeId::of::<R>())
             .then(|| Box::new(update.clone()) as Box<dyn Any>);
         let (state, _) = data.state.slot::<R>();
+        let revision = {
+            let cells = data.state.cells.borrow();
+            let cell = cells.get(&TypeId::of::<R>()).expect("the state was just created");
+            cell.revision.get() + 1
+        };
         drop(data);
 
+        let recording = self.state_recording();
+        let capture = recording.as_ref().and_then(|recording| recording.capture_limit());
+        let context = recording
+            .as_ref()
+            .map(|_| (crate::trace::current(), crate::trace::now()));
         {
             let mut state = state.borrow_mut();
+            let snapshots = capture.map(|limit| {
+                (state.snapshot(limit), R::snapshot_update(&update, limit), limit)
+            });
             self.track_allocations(|| Rc::make_mut(&mut state).reduce(update));
+            self.alive("finishing a reducer update")
+                .state.cells.borrow()
+                .get(&TypeId::of::<R>())
+                .expect("the state is being updated")
+                .revision.set(revision);
+            if let Some(recording) = recording {
+                let (cause, at) = context.expect("a recorder establishes the capture context");
+                let snapshots = snapshots.map(|(before, update, limit)| {
+                    crate::observability::state::Snapshots {
+                        before,
+                        update,
+                        after: state.snapshot(limit),
+                    }
+                });
+                let entry = crate::observability::state::Reduction {
+                    scope: self.id(),
+                    reducer: std::any::type_name::<R>(),
+                    update: std::any::type_name::<R::Update>(),
+                    revision,
+                    at,
+                    cause,
+                    snapshots,
+                };
+                drop(state);
+                recording.reduced(*self, entry);
+            }
         }
 
         self.moved::<R>();

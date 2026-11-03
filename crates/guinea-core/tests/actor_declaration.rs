@@ -41,3 +41,49 @@ fn a_message_with_two_type_arguments_is_one_message() {
     assert!((edges[0].target)().ends_with("Loaded<alloc::string::String, u32>"));
     assert_eq!(shape.publishes.len(), 1);
 }
+
+#[test]
+fn a_send_keeps_its_call_site_and_handling_keeps_its_declaration() {
+    use guinea_core::{
+        actor::{Addr, Handler},
+        scope::ScopeTree,
+        trace::{self, Point, Trace},
+    };
+    use std::{cell::RefCell, rc::Rc};
+    let tree = ScopeTree::new();
+    let sink = trace::sink_of(tree.scope()).unwrap();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let output = seen.clone();
+    let _observer = sink.observe(move |trace| {
+        if let Trace::Begin(record) | Trace::Mark(record) = trace {
+            output.borrow_mut().push(record.clone());
+        }
+    });
+    let _current = trace::record_into(&sink);
+    let addr = Addr::new(Cache, &guinea_core::__private::Home::new(tree.scope()));
+    let sent_line = line!() + 1;
+    addr.send(Load);
+    let seen = seen.borrow();
+    let sent = seen
+        .iter()
+        .find(|record| matches!(record.point, Point::Send { .. }))
+        .unwrap();
+    assert_eq!(
+        (sent.location.file, sent.location.line),
+        (file!(), sent_line)
+    );
+    let handled = seen
+        .iter()
+        .find(|record| matches!(record.point, Point::Handle { .. }))
+        .unwrap();
+    let declared = <Cache as Handler<Load>>::DECLARED.unwrap();
+    assert_eq!(
+        handled.location,
+        trace::CodeLocation {
+            file: declared.file,
+            line: declared.line,
+            column: declared.column,
+            crate_dir: Some(declared.crate_dir),
+        }
+    );
+}

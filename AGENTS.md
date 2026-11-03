@@ -29,7 +29,9 @@ crates/guinea            the facade users depend on: re-exports and the tests ac
 crates/vendor/*          pre-release windows-rs crates the WinUI backend builds on
 examples/                todo-core and five todo frontends, each its own workspace
 landing/                 the landing page and the book (Astro + Starlight)
-xtask/                   cargo xtask docs
+xtask/                   docs sync, profiling and the local Perfetto viewer
+tools/perfetto/          typed Perfetto plugin, SQL templates and pinned UI build
+tools/guinea-profile/    standalone recording, conversion and Perfetto viewer
 ```
 
 Plugins - settings, window geometry, localisation, devtools - live in
@@ -43,6 +45,27 @@ MSRV validation is a separate compatibility check, not the normal compiler.
 Dev, test, release and bench profiles disable debug information (`debug = 0`).
 Enable symbols explicitly for a debugging or profiling session only; do not
 change global cache settings or remove existing build artifacts as part of this.
+
+## Profiling and Perfetto
+
+Before recording or analyzing a profile, read
+[`tools/perfetto/AGENT_GUIDE.md`](tools/perfetto/AGENT_GUIDE.md).
+It covers recording modes, UI navigation, SQL, metric interpretation and evidence
+to include in an investigation.
+
+Use the standalone `guinea-profile` binary for recording and viewing:
+`guinea-profile record -- <executable> <arguments>` and
+`guinea-profile view <directory>`. It records CPU and Guinea events, merges them,
+serves stock Perfetto with the Guinea plugin and initializes dashboards. It never
+builds the application. `cargo xtask profile` only builds the reference todo
+application with symbols and delegates to this CLI; Cargo target options on that
+wrapper remain available. See the guide for installation and symbol settings.
+`--no-open` serves without opening a browser; `--no-ui` records only.
+Do not hand-assemble servers, dashboard JSON or environment-variable recipes.
+
+Windows requires WSL for the UI build and Windows Performance Toolkit for CPU
+recording. The package and its checks are documented in
+[`tools/perfetto/README.md`](tools/perfetto/README.md). UI text is English.
 
 ## Checks
 

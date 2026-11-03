@@ -4,14 +4,14 @@ use guinea::prelude::*;
 
 use crate::Snapshot;
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, serde::Serialize)]
 pub struct SearchResults {
     pub query: String,
     pub ids: Vec<u64>,
     pub pending: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub enum Update {
     Pending(String),
     Found(String, Vec<u64>),

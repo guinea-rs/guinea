@@ -62,6 +62,7 @@ impl Root {
     /// hands back.
     pub fn under(app: &AppContext) -> Self {
         let scope = app.0.scope.child();
+        scope.describe_allocations("role", "Window root", None);
         let id = open(scope);
 
         Self {

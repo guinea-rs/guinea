@@ -70,6 +70,7 @@ impl Dispatch {
     ///
     /// When its scope is gone: whoever still emits to a page that has left
     /// is holding on to it past its end.
+    #[track_caller]
     pub fn emit<M: 'static>(&self, action: M) {
         let Some(section) = self.at else { return };
 

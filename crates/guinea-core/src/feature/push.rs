@@ -53,6 +53,7 @@ impl<R: Reducer> Push<R> {
     ///
     /// When its scope is gone: whatever still pushes outlived the page it
     /// was pushing to.
+    #[track_caller]
     pub fn send(&self, update: R::Update) {
         crate::trace::mark(|| crate::trace::Point::Push {
             reducer: crate::short_type_name::<R>(),

@@ -8,15 +8,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod profile;
+
 const KINDS: &[&str] = &["shown"];
 const BOOK: &str = "landing/src/content/docs";
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
 
-    let result = match args.first().map(String::as_str) {
+    let result = match args.first().and_then(|arg| arg.to_str()) {
         Some("docs") => docs(args[1..].iter().any(|arg| arg == "--check")),
-        _ => Err(vec!["usage: cargo xtask docs [--check]".to_string()]),
+        Some("profile") => profile::run().map_err(|error| vec![error.to_string()]),
+        _ => Err(vec![
+            "usage: cargo xtask docs [--check] | profile --help".to_string(),
+        ]),
     };
 
     match result {

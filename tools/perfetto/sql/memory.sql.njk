@@ -1,0 +1,8 @@
+SELECT
+  (c.ts - trace_start()) / 1e6 AS time_ms,
+  c.value / 1048576.0 AS memory_mib,
+  t.name AS series
+FROM counter AS c
+JOIN counter_track AS t ON c.track_id = t.id
+WHERE t.name IN ({% include 'counters.sql.njk' %})
+ORDER BY time_ms, series;

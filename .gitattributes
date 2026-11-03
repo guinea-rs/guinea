@@ -1,0 +1,10 @@
+/tools/perfetto/build.sh text eol=lf
+/tools/perfetto/src/** text eol=lf
+/tools/perfetto/scripts/** text eol=lf
+/tools/perfetto/sql/** text eol=lf
+/tools/perfetto/package.json text eol=lf
+/tools/perfetto/package-lock.json text eol=lf
+/crates/guinea-trace/sql/top_cpu_actions.sql text eol=lf
+/crates/guinea-trace/sql/event_tracks.sql text eol=lf
+/crates/guinea-trace/sql/guinea/memory.sql text eol=lf
+/tools/guinea-profile/assets/** text eol=lf

@@ -115,6 +115,21 @@ impl Scope {
         Some(group)
     }
 
+    /// Supplies existing lexical metadata to optional allocation recording.
+    #[doc(hidden)]
+    pub fn describe_allocations(&self, kind: &'static str, name: &'static str, declared: Option<crate::actor::shape::Declared>) {
+        #[cfg(feature = "allocations")]
+        if let Some(group) = self.allocation_group() {
+            group.declare(crate::trace::allocations::Declaration {
+                kind, name,
+                file: declared.map(|site| site.file), line: declared.map(|site| site.line),
+                column: declared.map(|site| site.column), crate_dir: declared.map(|site| site.crate_dir),
+            });
+        }
+        #[cfg(not(feature = "allocations"))]
+        let _ = (kind, name, declared);
+    }
+
     /// How a tool names this scope.
     pub fn id(&self) -> ScopeId {
         use slotmap::Key;

@@ -18,3 +18,5 @@ guinea-winui = { path = "crates/adapters/guinea-winui" }
 windows-window-pre = { path = "crates/vendor/windows-window-pre" }
 windows-reactor-pre = { path = "crates/vendor/windows-reactor-pre" }
 windows-canvas-pre = { path = "crates/vendor/windows-canvas-pre" }
+
+guinea-profile = { path = "tools/guinea-profile" }

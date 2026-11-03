@@ -12,9 +12,22 @@ anyhow = "1"
 amethystate = { version = "0.27", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["time", "sync"] }
+tempfile = { version = "3", optional = true }
+
+[features]
+profile = ["guinea/test-utils", "guinea/allocations", "guinea/perfetto", "dep:tempfile", "dep:windows-sys"]
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", optional = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[[bin]]
+name = "todo-profile"
+path = "src/bin/profile.rs"
+required-features = ["profile"]
 
 [dev-dependencies]
 tempfile = "3"
+insta = "1"
 guinea = { path = "../../crates/guinea", default-features = false, features = ["own-runtime", "test-utils"] }
 
 [profile.dev]

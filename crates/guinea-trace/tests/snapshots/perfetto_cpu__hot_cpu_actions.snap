@@ -1,0 +1,12 @@
+---
+source: crates/guinea-trace/tests/perfetto_cpu.rs
+expression: "String::from_utf8(output.stdout).unwrap().replace('\\r', \"\")"
+---
+"action","samples","estimated_cpu_ms","process_cpu_percent","invocations","estimated_cpu_ms_per_invocation"
+"Refresh",1,2.000000,33.330000,1,2.000000
+"Sort",1,2.000000,33.330000,1,2.000000
+
+"cpu_samples"
+3
+
+"name","value"

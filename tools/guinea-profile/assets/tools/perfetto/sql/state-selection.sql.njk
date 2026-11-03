@@ -1,0 +1,9 @@
+WITH RECURSIVE causes(id) AS (
+  SELECT cause_id FROM guinea_state_causes WHERE slice_id = {{ event_id }}
+  UNION
+  SELECT c.cause_id FROM guinea_state_causes c JOIN causes parent ON c.parent_id = parent.id
+)
+SELECT *, COUNT(*) OVER () AS total_count
+FROM guinea_state_updates
+WHERE slice_id = {{ event_id }} OR cause_id IN (SELECT id FROM causes)
+ORDER BY ts, update_id LIMIT 100;

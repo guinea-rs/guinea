@@ -1,0 +1,26 @@
+-- Cause counters are exclusive: nested slices already own their allocations.
+WITH events AS (
+  SELECT
+    COALESCE(EXTRACT_ARG(arg_set_id, 'debug.guinea_kind'), name) AS kind,
+    COALESCE(
+      EXTRACT_ARG(arg_set_id, 'debug.message'),
+      EXTRACT_ARG(arg_set_id, 'debug.event'),
+      EXTRACT_ARG(arg_set_id, 'debug.reducer'),
+      EXTRACT_ARG(arg_set_id, 'debug.output'),
+      EXTRACT_ARG(arg_set_id, 'debug.name')
+    ) AS subject,
+    EXTRACT_ARG(arg_set_id, 'debug.actor') AS actor,
+    EXTRACT_ARG(arg_set_id, 'debug.memory_allocated_bytes') AS allocated
+  FROM slice
+  WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_id') IS NOT NULL
+), labeled AS (
+  SELECT kind || COALESCE(' · ' || subject, '')
+      || COALESCE(' → ' || actor, '') AS event,
+    allocated
+  FROM events
+)
+SELECT event, COUNT(*) AS occurrences,
+  COALESCE(SUM(allocated), 0) / 1048576.0 AS allocated_mib
+FROM labeled
+GROUP BY event
+ORDER BY allocated_mib DESC;

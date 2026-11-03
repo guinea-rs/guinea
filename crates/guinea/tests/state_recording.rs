@@ -197,6 +197,47 @@ fn harness_records_every_reduction_and_switches_capture_for_the_whole_app() {
     insta::assert_debug_snapshot!(all);
 }
 
+#[test]
+fn detailed_diffs_replay_and_noops_keep_their_own_revision_and_cause() {
+    let h = Harness::new(17);
+    h.install::<Counter>(&()).unwrap();
+    let recording = h.record_states(Config::default());
+    recording.set_mode(Mode::Detailed);
+    h.dispatch::<Count>().emit(Increase(3));
+    h.settled();
+    let reductions: Vec<_> = recording
+        .take()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Reduced(entry) => Some(entry),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reductions.len(), 2);
+    assert_ne!(reductions[0].id, reductions[1].id);
+    assert_eq!(reductions[0].cause, reductions[1].cause);
+    assert!(reductions[0].cause.is_some());
+    let mut summary = Vec::new();
+    for entry in reductions {
+        let snapshots = entry.snapshots.unwrap();
+        let (Snapshot::Json(before), Snapshot::Json(after), Snapshot::Json(patch)) =
+            (snapshots.before, snapshots.after, snapshots.diff)
+        else {
+            panic!("expected captured JSON");
+        };
+        let mut replay = before.clone();
+        let operations: json_patch::Patch = serde_json::from_value(patch.clone()).unwrap();
+        json_patch::patch(&mut replay, &operations).unwrap();
+        assert_eq!(replay, after);
+        summary.push(
+            serde_json::json!({"revision": entry.revision, "update": snapshots.update,
+            "before": before, "after": after, "patch": patch}),
+        );
+    }
+    insta::assert_debug_snapshot!("state_diff_replay", summary);
+}
+
 #[derive(Clone, Default)]
 struct Opaque;
 #[reducer]
@@ -325,4 +366,115 @@ fn recorded_values_survive_scope_removal_without_retaining_the_scope_or_state() 
         panic!("expected recorded value")
     };
     assert_eq!(after["value"], 9);
+}
+
+#[derive(Clone, Default, Serialize)]
+struct Flag(bool);
+#[reducer]
+fn flag(this: &mut Flag, value: bool) {
+    this.0 = value;
+}
+
+#[test]
+fn diff_has_its_own_byte_limit_and_does_not_claim_missing_values_are_unchanged() {
+    let tree = guinea_core::scope::ScopeTree::new();
+    let recording = Recording::start(
+        tree.scope(),
+        Config {
+            capacity: 16,
+            snapshot_bytes: 5,
+        },
+    );
+    recording.set_mode(Mode::Detailed);
+    tree.push::<Flag>(true);
+    let history = recording.take();
+    let Event::Reduced(entry) = &history.events[1] else {
+        panic!("expected reduction");
+    };
+    let snapshots = entry.snapshots.as_ref().unwrap();
+    assert_eq!(snapshots.before, Snapshot::Json(false.into()));
+    assert_eq!(snapshots.after, Snapshot::Json(true.into()));
+    assert_eq!(snapshots.diff, Snapshot::LimitExceeded);
+    tree.push::<Opaque>(());
+    let history = recording.take();
+    let Event::Reduced(entry) = &history.events[0] else {
+        panic!("expected reduction");
+    };
+    assert_eq!(
+        entry.snapshots.as_ref().unwrap().diff,
+        Snapshot::Unavailable
+    );
+}
+
+#[cfg(feature = "perfetto")]
+#[test]
+#[ignore = "requires official Trace Processor v59+ (TRACE_PROCESSOR)"]
+fn perfetto_keeps_payloads_off_the_timeline_and_links_them_to_each_reduction() {
+    let h = Harness::new(9);
+    h.install::<Counter>(&()).unwrap();
+    let sink = trace::sink_of(h.application_scope()).unwrap();
+    let trace_file = trace::perfetto::Recording::start(&sink, Vec::new()).unwrap();
+    let states = h.record_states(Config::default());
+    h.dispatch::<Count>().emit(Increase(2));
+    states.set_mode(Mode::Detailed);
+    h.dispatch::<Count>().emit(Increase(3));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("states.pftrace");
+    std::fs::write(&path, trace_file.finish().unwrap()).unwrap();
+    let selection = include_str!("../../../tools/perfetto/sql/state-selection.sql.njk");
+    let action_selection = selection.replace(
+        "{{ event_id }}",
+        "(SELECT MIN(slice_id) FROM guinea_state_causes)",
+    );
+    let single_selection = selection.replace(
+        "{{ event_id }}",
+        "(SELECT MAX(slice_id) FROM guinea_state_updates)",
+    );
+    let sql = format!(
+        "{}\nCREATE PERFETTO TABLE action_updates AS {};\nCREATE PERFETTO TABLE single_update AS {};\n{}",
+        include_str!("../../../tools/perfetto/sql/state-module.sql.njk"),
+        action_selection.trim().trim_end_matches(';'),
+        single_selection.trim().trim_end_matches(';'),
+        r#"
+      SELECT
+        (SELECT COUNT(*) FROM guinea_state_updates) = 4
+        AND (SELECT COUNT(*) FROM action_updates) = 2
+        AND (SELECT COUNT(*) FROM single_update WHERE change = 'unchanged') = 1
+        AND (SELECT COUNT(DISTINCT update_id) FROM guinea_state_updates) = 4
+        AND (SELECT COUNT(*) FROM guinea_state_updates WHERE payload IS NULL AND change = 'not_captured') = 2
+        AND (SELECT COUNT(*) FROM guinea_state_updates WHERE change = 'changed'
+          AND JSON_EXTRACT(payload, '$.before.value.value') = 2
+          AND JSON_EXTRACT(payload, '$.after.value.value') = 5
+          AND JSON_EXTRACT(payload, '$.diff.value[0].op') = 'replace'
+          AND JSON_EXTRACT(payload, '$.diff.value[0].path') = '/value') = 1
+        AND (SELECT COUNT(*) FROM guinea_state_updates WHERE change = 'unchanged'
+          AND JSON_ARRAY_LENGTH(JSON_EXTRACT(payload, '$.diff.value')) = 0) = 1
+        AND (SELECT COUNT(*) FROM guinea_state_updates u JOIN slice s ON s.id = u.cause_slice_id
+          WHERE EXTRACT_ARG(s.arg_set_id, 'debug.guinea_kind') = 'handle') = 4
+        AND NOT EXISTS (SELECT 1 FROM slice WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_kind') = 'state.payload')
+        AND NOT EXISTS (SELECT 1 FROM guinea_state_updates WHERE JSON_EXTRACT(payload, '$.before.value.secret') IS NOT NULL)
+      AS valid;
+    "#
+    );
+    let query = dir.path().join("states.sql");
+    std::fs::write(&query, sql).unwrap();
+    let result =
+        std::process::Command::new(std::env::var_os("TRACE_PROCESSOR").expect("TRACE_PROCESSOR"))
+            .args(["query", "--format", "csv", "-f"])
+            .arg(query)
+            .arg(path)
+            .output()
+            .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout)
+            .unwrap()
+            .trim()
+            .replace('\r', ""),
+        "\"valid\"\n1"
+    );
 }

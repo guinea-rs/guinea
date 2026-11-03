@@ -353,6 +353,7 @@ fn told_mounted(scope: Scope) {
     let Some(name) = name(scope) else {
         return;
     };
+    scope.describe_allocations("segment", name, written_at(scope));
     observer::tell(scope, || Event::Mounted {
         scope: scope.id(),
         name,
@@ -376,6 +377,9 @@ pub(crate) fn describe(scope: Scope, events: &mut Vec<Event>) {
 pub fn written(scope: Scope, declared: Option<Declared>) {
     if let Some(declared) = declared {
         scope.keep(Written(declared));
+        if let Some(name) = name(scope) {
+            scope.describe_allocations("segment", name, Some(declared));
+        }
     }
 }
 

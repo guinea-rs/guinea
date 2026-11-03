@@ -1,0 +1,23 @@
+[package]
+name = "guinea-profile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Record CPU samples, allocations and causal Guinea events in Perfetto"
+readme = "README.md"
+
+[dependencies]
+guinea-trace = { workspace = true, features = ["perfetto"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+flate2 = "1"
+clap = "4.6.7"
+
+tokio.workspace = true
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs"] }
+webbrowser = "1"
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,46 @@
+---
+source: crates/guinea-trace/tests/perfetto_cpu.rs
+expression: stacks
+---
+[
+    [
+        "app::main",
+        "[Guinea] ProcessesActor handles RemoteScanResult",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "[Guinea] ProcessesActor handles RemoteScanResult",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+    [
+        "app::main",
+        "guinea_core::actor::renamed_entry",
+        "environments_from_scan",
+    ],
+]

@@ -1,0 +1,6 @@
+SELECT
+  {% include 'scope-label.sql.njk' %} AS scope,
+  growth_bytes / 1048576.0 AS growth_mib
+FROM guinea_scope_memory_stats
+WHERE growth_bytes > 0
+ORDER BY growth_mib DESC LIMIT 20;

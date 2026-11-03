@@ -1,0 +1,44 @@
+---
+source: crates/guinea/tests/state_recording.rs
+expression: summary
+---
+[
+    Object {
+        "revision": Number(1),
+        "update": Object {
+            "status": String("json"),
+            "value": Object {
+                "Add": Number(3),
+            },
+        },
+        "before": Object {
+            "value": Number(0),
+        },
+        "after": Object {
+            "value": Number(3),
+        },
+        "patch": Array [
+            Object {
+                "op": String("replace"),
+                "path": String("/value"),
+                "value": Number(3),
+            },
+        ],
+    },
+    Object {
+        "revision": Number(2),
+        "update": Object {
+            "status": String("json"),
+            "value": Object {
+                "Add": Number(0),
+            },
+        },
+        "before": Object {
+            "value": Number(3),
+        },
+        "after": Object {
+            "value": Number(3),
+        },
+        "patch": Array [],
+    },
+]

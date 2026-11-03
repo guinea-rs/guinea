@@ -207,6 +207,7 @@ impl EventBus {
     /// bus.publish(Saved);
     /// assert_eq!(*heard.borrow(), ["first", "second"], "the one that joined meanwhile heard nothing");
     /// ```
+    #[track_caller]
     pub fn publish<M: Event>(&self, msg: M) {
         let _published = trace::enter(|| Point::Publish {
             event: short_type_name::<M>(),

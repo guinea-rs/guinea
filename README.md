@@ -56,6 +56,14 @@ guinea takes its ideas from Kotlin, Swift, gpui and Next.js. Its ownership is th
 Leptos and Dioxus arrived at - a tree of scopes owning `Copy` handles - put under
 toolkits that do not have one.
 
+### Profiling
+
+Install the standalone profiler with `cargo install --locked guinea-profile`.
+Run `guinea-profile record -- path/to/app` to record an instrumented executable
+with symbols, or `guinea-profile view path/to/recording` to reopen a session.
+It combines CPU samples, causal events and memory metrics in Perfetto, with
+opt-in reducer state diffs. See [setup and usage](tools/guinea-profile/README.md).
+
 > [!WARNING]
 > **guinea is young, and its API still moves between minor versions.**
 > WinUI is the backend a real application ([uniproc](https://github.com/uniproc-dev/uniproc)) runs on every day; the other four

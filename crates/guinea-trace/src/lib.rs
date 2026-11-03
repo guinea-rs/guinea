@@ -23,13 +23,16 @@ mod json;
 mod point;
 mod sink;
 
+#[cfg(feature = "perfetto")]
+pub mod perfetto;
+
 #[cfg(feature = "allocations")]
 pub mod allocations;
 
 pub use json::{Json, json};
 pub use point::Point;
 pub use sink::{
-    ELSEWHERE_LIMIT, Elsewhere, Observing, Recording, Sink, ThreadDefault, current_sink,
+    ELSEWHERE_LIMIT, Elsewhere, Observing, Recording, Sink, Streaming, ThreadDefault, current_sink,
     is_heard_here, is_observed, is_point_target, is_recorded, record_into, thread_default,
     thread_id,
 };
@@ -68,6 +71,29 @@ pub struct Record {
     /// Since the process first traced anything.
     pub at: Duration,
     pub point: Point,
+    /// Source code responsible for this point, when known.
+    pub location: CodeLocation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CodeLocation {
+    pub file: &'static str,
+    pub line: u32,
+    pub column: u32,
+    pub crate_dir: Option<&'static str>,
+}
+
+impl CodeLocation {
+    #[track_caller]
+    pub fn caller() -> Self {
+        let at = std::panic::Location::caller();
+        Self {
+            file: at.file(),
+            line: at.line(),
+            column: at.column(),
+            crate_dir: None,
+        }
+    }
 }
 
 /// What an observer is told.
@@ -76,7 +102,10 @@ pub enum Trace {
     /// A point that stays current until [`Trace::End`]: what happens inside it
     /// is caused by it.
     Begin(Record),
-    End { id: Cause, took: Duration },
+    End {
+        id: Cause,
+        took: Duration,
+    },
     /// A point with no extent: a send, a push, a spawn.
     Mark(Record),
 }
@@ -103,7 +132,7 @@ thread_local! {
 
 /// What is happening on this thread right now, if anything is.
 pub fn current() -> Option<Cause> {
-    CURRENT.with(Cell::get)
+    CURRENT.try_with(Cell::get).unwrap_or(None)
 }
 
 thread_local! {
@@ -120,6 +149,9 @@ thread_local! {
 /// the point that is open.
 fn observed<R>(recording: impl FnOnce() -> R) -> R {
     let started = Instant::now();
+    #[cfg(feature = "allocations")]
+    let done = allocations::observing(recording);
+    #[cfg(not(feature = "allocations"))]
     let done = recording();
 
     WATCHING.with(|watching| watching.set(watching.get() + started.elapsed()));
@@ -128,22 +160,26 @@ fn observed<R>(recording: impl FnOnce() -> R) -> R {
 }
 
 /// Records a point caused by whatever is current, without making it current.
+#[track_caller]
 pub fn mark(point: impl FnOnce() -> Point) -> Cause {
     mark_under(current(), point)
 }
 
 /// Records a point caused by `parent`, for work that crossed a queue or a
 /// thread and brought its cause along.
+#[track_caller]
 pub fn mark_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Cause {
     mark_at(parent, now, point)
 }
 
+#[track_caller]
 fn mark_at(
     parent: Option<Cause>,
     at: impl FnOnce() -> Duration,
     point: impl FnOnce() -> Point,
 ) -> Cause {
     let id = Cause::next();
+    let location = CodeLocation::caller();
     if is_recorded() {
         observed(|| {
             sink::emit(Trace::Mark(Record {
@@ -151,6 +187,7 @@ fn mark_at(
                 parent,
                 at: at(),
                 point: point(),
+                location,
             }));
         });
     }
@@ -159,12 +196,23 @@ fn mark_at(
 
 /// Records a point caused by whatever is current, and makes it current until
 /// the guard drops.
+#[track_caller]
 pub fn enter(point: impl FnOnce() -> Point) -> Entered {
     enter_under(current(), point)
 }
 
 /// [`enter`], with the cause given rather than taken from the thread.
+#[track_caller]
 pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Entered {
+    enter_under_at(parent, CodeLocation::caller(), point)
+}
+
+/// Records an interval at a declaration rather than at the recording adapter.
+pub fn enter_under_at(
+    parent: Option<Cause>,
+    location: CodeLocation,
+    point: impl FnOnce() -> Point,
+) -> Entered {
     let id = Cause::next();
 
     let begun = is_recorded().then(|| {
@@ -181,14 +229,21 @@ pub fn enter_under(parent: Option<Cause>, point: impl FnOnce() -> Point) -> Ente
                 parent,
                 at: begun.started,
                 point: point(),
+                location,
             }));
         });
         begun
     });
 
     let previous = CURRENT.with(|current| current.replace(Some(id)));
+    #[cfg(feature = "perfetto")]
+    perfetto::context_changed();
 
-    Entered { id, previous, begun }
+    Entered {
+        id,
+        previous,
+        begun,
+    }
 }
 
 /// An id for a point recorded later, by [`begin_as`]. For a point that is not
@@ -201,7 +256,9 @@ pub fn reserve() -> Cause {
 /// Records `point` as open, under `parent` and with an id [`reserve`] gave,
 /// without making it current: it is current wherever it is [`resume`]d, and
 /// closes at [`end`].
+#[track_caller]
 pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point) {
+    let location = CodeLocation::caller();
     if is_recorded() {
         observed(|| {
             sink::emit(Trace::Begin(Record {
@@ -209,6 +266,7 @@ pub fn begin_as(id: Cause, parent: Option<Cause>, point: impl FnOnce() -> Point)
                 parent,
                 at: now(),
                 point: point(),
+                location,
             }));
         });
     }
@@ -224,10 +282,13 @@ pub fn end(id: Cause, took: Duration) {
 /// Makes `cause` current until the guard drops, without recording anything:
 /// for code that continues a point recorded elsewhere.
 pub fn resume(cause: Option<Cause>) -> Resumed {
-    Resumed {
+    let resumed = Resumed {
         previous: CURRENT.with(|current| current.replace(cause)),
         _sink: None,
-    }
+    };
+    #[cfg(feature = "perfetto")]
+    perfetto::context_changed();
+    resumed
 }
 
 /// Runs `future` with `cause` current on whichever thread polls it, recording
@@ -318,10 +379,13 @@ impl Carried {
 
     /// Makes what was carried current here until the guard drops.
     pub fn resume(&self) -> Resumed {
-        Resumed {
+        let resumed = Resumed {
             previous: CURRENT.with(|current| current.replace(self.cause)),
             _sink: Some(sink::recording(self.sink.clone())),
-        }
+        };
+        #[cfg(feature = "perfetto")]
+        perfetto::context_changed();
+        resumed
     }
 }
 
@@ -349,6 +413,8 @@ impl Entered {
 impl Drop for Entered {
     fn drop(&mut self) {
         CURRENT.with(|current| current.set(self.previous));
+        #[cfg(feature = "perfetto")]
+        perfetto::context_changed();
 
         if let Some(begun) = self.begun
             && is_recorded()
@@ -374,6 +440,8 @@ pub struct Resumed {
 impl Drop for Resumed {
     fn drop(&mut self) {
         CURRENT.with(|current| current.set(self.previous));
+        #[cfg(feature = "perfetto")]
+        perfetto::context_changed();
     }
 }
 
@@ -454,7 +522,10 @@ mod tests {
                 other => panic!("only marks were recorded, not {other:?}"),
             })
             .collect();
-        assert!(at[0] <= between && between <= at[1], "{at:?} around {between:?}");
+        assert!(
+            at[0] <= between && between <= at[1],
+            "{at:?} around {between:?}"
+        );
     }
 
     /// Observing costs time, and it is spent inside whatever is open. Left
@@ -613,7 +684,9 @@ mod tests {
             let sink = sink.clone();
             std::thread::spawn(move || {
                 let _recording = record_into(&sink);
-                mark(|| Point::Push { reducer: "Elsewhere" });
+                mark(|| Point::Push {
+                    reducer: "Elsewhere",
+                });
             })
             .join()
             .expect("marking thread")

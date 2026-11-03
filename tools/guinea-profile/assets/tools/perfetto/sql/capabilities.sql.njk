@@ -1,0 +1,27 @@
+WITH capabilities AS (
+  SELECT
+    EXISTS (
+      SELECT 1 FROM stack_profile_frame
+      WHERE name GLOB '[[]Guinea] action *'
+    ) AS cpu,
+    EXISTS (
+      SELECT 1 FROM counter_track
+      WHERE name IN ({% include 'counters.sql.njk' %})
+    ) AS memory,
+    EXISTS (
+      SELECT 1 FROM metadata
+      WHERE name GLOB 'trace_attribute.rs.guinea.memory.sample.*'
+    ) AS scopes,
+    EXISTS (
+      SELECT 1 FROM slice
+      WHERE EXTRACT_ARG(arg_set_id, 'debug.memory_allocated_bytes') > 0
+    ) AS events
+)
+SELECT 'hot_actions' AS metric FROM capabilities WHERE cpu
+{% for metric in ['memory', 'peaks'] %}
+UNION ALL SELECT '{{ metric }}' FROM capabilities WHERE memory
+{% endfor %}
+{% for metric in ['retention', 'scopes', 'growth', 'churn'] %}
+UNION ALL SELECT '{{ metric }}' FROM capabilities WHERE scopes
+{% endfor %}
+UNION ALL SELECT 'events' FROM capabilities WHERE events;

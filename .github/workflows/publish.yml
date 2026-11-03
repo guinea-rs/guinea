@@ -118,6 +118,7 @@ jobs:
             guinea-slint
             guinea-winui
             guinea
+            guinea-profile
           )
           for crate in "${CRATES[@]}"; do
             case "$crate" in

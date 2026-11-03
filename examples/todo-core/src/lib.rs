@@ -4,6 +4,9 @@ mod search;
 mod storage;
 mod sync;
 
+#[cfg(feature = "profile")]
+pub mod profiling;
+
 pub use storage::{StorageConfig, StoragePlugin, startup};
 
 pub use board::{Add, Board, ClearCompleted, Import, Remove, Rename, StopImport, Toggle, Undo};
@@ -68,7 +71,7 @@ pub struct Changed {
     pub description: String,
 }
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, Serialize)]
 pub struct Activity(pub Vec<String>);
 
 #[reducer]

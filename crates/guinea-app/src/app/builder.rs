@@ -89,7 +89,9 @@ impl FeatureBuilder {
     /// fails publishes nothing and keeps nothing it set up.
     pub fn plugin<P: Plugin>(&mut self, params: P::Params) -> anyhow::Result<P> {
         let who = name::<P>();
-        self.inner.cx.prepare(P::declaration());
+        let declaration = P::declaration();
+        let declared = declaration.as_ref().map(|item| item.source);
+        self.inner.cx.prepare(declaration);
 
         let section = self.scope.open_section(None, None);
         let inner = self.inner.cx.in_section(section);
@@ -106,7 +108,10 @@ impl FeatureBuilder {
         self.inner.cx = outer;
 
         match &outcome {
-            Ok(_) => Plugins::mark(self.scope, who),
+            Ok(_) => {
+                self.scope.describe_allocations("plugin", who, declared);
+                Plugins::mark(self.scope, who);
+            }
             Err(_) => section.withdraw(),
         }
         outcome

@@ -36,6 +36,12 @@ fn scopes_preserve_allocation_origins_across_threads_and_removal() {
     assert_eq!(tree.id(), other_tree.id());
     assert_ne!(root_id, other_tree.allocation_group().unwrap().id());
     assert_eq!(stats(&profiler, first_id).parent, Some(root_id));
+    let declared = guinea_core::actor::shape::Declared {
+        file: file!(), line: line!(), column: column!(), crate_dir: env!("CARGO_MANIFEST_DIR"),
+    };
+    first.open_section(Some("fixture::Feature"), Some(declared));
+    assert_eq!(stats(&profiler, first_id).declarations[0].name, "fixture::Feature");
+    assert_eq!(stats(&profiler, first_id).declarations[0].file, Some(declared.file));
 
     let kept = first.track_allocations(|| Box::new([0_u8; 512]));
     assert_eq!(stats(&profiler, first_id).live_bytes, 512);
@@ -43,6 +49,7 @@ fn scopes_preserve_allocation_origins_across_threads_and_removal() {
     assert!(stats(&profiler, first_id).wrapped_live_bytes > 512);
     first.remove();
     assert!(stats(&profiler, first_id).closed);
+    assert_eq!(stats(&profiler, first_id).declarations[0].line, Some(declared.line));
     assert_eq!(stats(&profiler, first_id).live_bytes, 512);
     second.track_allocations(|| drop(kept));
     assert_eq!(stats(&profiler, first_id).live_bytes, 0);

@@ -327,37 +327,50 @@ impl Scope {
         let (state, _) = data.state.slot::<R>();
         let revision = {
             let cells = data.state.cells.borrow();
-            let cell = cells.get(&TypeId::of::<R>()).expect("the state was just created");
+            let cell = cells
+                .get(&TypeId::of::<R>())
+                .expect("the state was just created");
             cell.revision.get() + 1
         };
         drop(data);
 
         let recording = self.state_recording();
-        let capture = recording.as_ref().and_then(|recording| recording.capture_limit());
+        let capture = recording
+            .as_ref()
+            .and_then(|recording| recording.capture_limit());
         let context = recording
             .as_ref()
             .map(|_| (crate::trace::current(), crate::trace::now()));
         {
             let mut state = state.borrow_mut();
             let snapshots = capture.map(|limit| {
-                (state.snapshot(limit), R::snapshot_update(&update, limit), limit)
+                (
+                    state.snapshot(limit),
+                    R::snapshot_update(&update, limit),
+                    limit,
+                )
             });
             self.track_allocations(|| Rc::make_mut(&mut state).reduce(update));
             self.alive("finishing a reducer update")
-                .state.cells.borrow()
+                .state
+                .cells
+                .borrow()
                 .get(&TypeId::of::<R>())
                 .expect("the state is being updated")
-                .revision.set(revision);
+                .revision
+                .set(revision);
             if let Some(recording) = recording {
                 let (cause, at) = context.expect("a recorder establishes the capture context");
                 let snapshots = snapshots.map(|(before, update, limit)| {
-                    crate::observability::state::Snapshots {
+                    crate::observability::state::Snapshots::capture(
                         before,
                         update,
-                        after: state.snapshot(limit),
-                    }
+                        state.snapshot(limit),
+                        limit,
+                    )
                 });
                 let entry = crate::observability::state::Reduction {
+                    id: crate::trace::reserve(),
                     scope: self.id(),
                     reducer: std::any::type_name::<R>(),
                     update: std::any::type_name::<R::Update>(),

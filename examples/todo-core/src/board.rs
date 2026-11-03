@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use crate::{Changed, Snapshot, Todo};
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Board(pub Snapshot);
 
 #[reducer]

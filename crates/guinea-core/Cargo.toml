@@ -22,6 +22,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+json-patch = "4.2"
 slotmap.workspace = true
 
 [dev-dependencies]
@@ -42,6 +43,7 @@ harness = false
 # paused tokio runtime - which is tokio's `test-util`.
 test-utils = ["tokio/test-util"]
 allocations = ["guinea-trace/allocations"]
+perfetto = ["guinea-trace/perfetto"]
 
 
 

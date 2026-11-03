@@ -1,0 +1,13 @@
+---
+source: crates/guinea-trace/src/perfetto/cpu.rs
+expression: "expected.iter().map(|frame| &frame.name).collect::<Vec<_>>()"
+---
+[
+    "std::rt::lang_start",
+    "app::main",
+    "app::click<guinea_core::Dispatch>",
+    "[Guinea] action Add",
+    "[Guinea] Editor handles Add",
+    "app::Editor::add",
+    "app::commit",
+]

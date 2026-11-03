@@ -1,0 +1,3 @@
+SELECT EXISTS (
+  SELECT 1 FROM slice WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_kind') = 'state.update'
+) AS present;

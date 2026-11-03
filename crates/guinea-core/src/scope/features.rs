@@ -230,6 +230,7 @@ impl Scope {
         drop(sections);
 
         if let Some(name) = name {
+            self.describe_allocations("feature", name, declared);
             observer::tell(*self, || Event::Installed {
                 scope: self.id(),
                 name,

@@ -1,0 +1,8 @@
+SELECT
+  t.name AS series,
+  MAX(c.value) / 1048576.0 AS peak_mib
+FROM counter AS c
+JOIN counter_track AS t ON c.track_id = t.id
+WHERE t.name IN ({% include 'counters.sql.njk' %})
+GROUP BY t.name
+ORDER BY peak_mib DESC;

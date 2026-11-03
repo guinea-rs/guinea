@@ -8,3 +8,5 @@
 
 # Written next to whichever terminal front end is run.
 *.log
+
+/tools/perfetto/node_modules/

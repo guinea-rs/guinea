@@ -13,13 +13,35 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracking-allocator = { version = "0.4", optional = true }
+perfetto_protos = { version = "0.51.1", optional = true }
+protobuf = { version = "3.7.2", optional = true }
 
 [features]
 allocations = ["dep:tracking-allocator"]
+perfetto = ["dep:perfetto_protos", "dep:protobuf"]
 
 [dev-dependencies]
+insta.workspace = true
 tempfile.workspace = true
 dhat = "0.3.3"
+flate2 = "1"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true
+
+[[example]]
+name = "perfetto_allocations"
+required-features = ["perfetto", "allocations"]
+
+[[example]]
+name = "perfetto_cpu"
+required-features = ["perfetto"]

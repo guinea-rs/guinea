@@ -1,0 +1,69 @@
+---
+source: tests/profiling.rs
+expression: "&*surface.borrow()"
+---
+Surface {
+    actions: {
+        "board::Add",
+        "board::ClearCompleted",
+        "board::Rename",
+        "board::Toggle",
+        "board::Undo",
+        "search::Query",
+    },
+    handlers: {
+        (
+            "board::Editing",
+            "board::Add",
+        ),
+        (
+            "board::Editing",
+            "board::ClearCompleted",
+        ),
+        (
+            "board::Editing",
+            "board::Rename",
+        ),
+        (
+            "board::Editing",
+            "board::Toggle",
+        ),
+        (
+            "board::Editing",
+            "board::Undo",
+        ),
+        (
+            "persistence::Storage",
+            "persistence::Save",
+        ),
+        (
+            "persistence::Storage",
+            "todo_core::Changed",
+        ),
+        (
+            "search::Searching",
+            "search::Query",
+        ),
+        (
+            "search::Searching",
+            "search::Reindex",
+        ),
+        (
+            "todo_core::Journal",
+            "todo_core::Changed",
+        ),
+    },
+    reducers: {
+        "board::Board",
+        "persistence::SaveState",
+        "search::SearchResults",
+        "todo_core::Activity",
+    },
+    events: {
+        "todo_core::Changed",
+    },
+    tasks: {
+        "persistence::Save",
+        "search::Update",
+    },
+}

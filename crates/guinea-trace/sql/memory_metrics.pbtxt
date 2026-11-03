@@ -1,0 +1,14 @@
+metric_template_spec {
+  id_prefix: "guinea_scope_memory"
+  dimensions: "label"
+  dimensions: "group_id"
+  dimensions: "scope_id"
+  value_column_specs { name: "growth_bytes" unit: BYTES polarity: LOWER_IS_BETTER }
+  value_column_specs { name: "live_bytes" unit: BYTES polarity: LOWER_IS_BETTER }
+  value_column_specs { name: "retained_after_close_bytes" unit: BYTES polarity: LOWER_IS_BETTER }
+  value_column_specs { name: "churn_bytes" unit: BYTES polarity: LOWER_IS_BETTER }
+  query {
+    table { table_name: "guinea_scope_memory_stats" }
+    referenced_modules: "guinea.memory"
+  }
+}

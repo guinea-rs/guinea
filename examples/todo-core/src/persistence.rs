@@ -4,7 +4,7 @@ use guinea::prelude::*;
 
 use crate::{Changed, Repository, Snapshot};
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq, serde::Serialize)]
 pub enum SaveState {
     #[default]
     Clean,

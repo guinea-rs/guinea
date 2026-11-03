@@ -1,0 +1,21 @@
+CREATE PERFETTO TABLE guinea_state_causes AS
+SELECT id AS slice_id,
+  CAST(EXTRACT_ARG(arg_set_id, 'debug.guinea_id') AS INT) AS cause_id,
+  CAST(EXTRACT_ARG(arg_set_id, 'debug.guinea_parent') AS INT) AS parent_id
+FROM slice WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_id') IS NOT NULL;
+
+CREATE PERFETTO TABLE guinea_state_updates AS
+SELECT s.id AS slice_id, s.ts,
+  CAST(EXTRACT_ARG(s.arg_set_id, 'debug.update_id') AS INT) AS update_id,
+  EXTRACT_ARG(s.arg_set_id, 'debug.reducer') AS reducer,
+  EXTRACT_ARG(s.arg_set_id, 'debug.update') AS update_type,
+  CAST(EXTRACT_ARG(s.arg_set_id, 'debug.revision') AS INT) AS revision,
+  CAST(EXTRACT_ARG(s.arg_set_id, 'debug.scope') AS INT) AS scope_id,
+  EXTRACT_ARG(s.arg_set_id, 'debug.change') AS change,
+  c.parent_id AS cause_id, parent.slice_id AS cause_slice_id,
+  m.str_value AS payload
+FROM slice s
+JOIN guinea_state_causes c ON c.slice_id = s.id
+LEFT JOIN guinea_state_causes parent ON parent.cause_id = c.parent_id
+LEFT JOIN metadata m ON m.name = 'trace_attribute.rs.guinea.state.' || EXTRACT_ARG(s.arg_set_id, 'debug.update_id')
+WHERE EXTRACT_ARG(s.arg_set_id, 'debug.guinea_kind') = 'state.update';

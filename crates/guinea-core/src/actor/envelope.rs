@@ -30,7 +30,10 @@ pub(super) fn deliver<A, M: 'static>(actor: &mut A, addr: &Addr<A>, message: M, 
 where
     A: Handler<M>,
 {
-    let _handling = trace::enter_under(Some(cause), || Point::Handle {
+    let location = A::DECLARED.map(|site| trace::CodeLocation {
+        file: site.file, line: site.line, column: site.column, crate_dir: Some(site.crate_dir),
+    }).unwrap_or(trace::CodeLocation::caller());
+    let _handling = trace::enter_under_at(Some(cause), location, || Point::Handle {
         actor: short_type_name::<A>(),
         message: short_type_name::<M>(),
     });

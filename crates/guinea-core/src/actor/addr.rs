@@ -307,6 +307,7 @@ impl<A: 'static> Addr<A> {
     /// countdown.send(From(2));
     /// assert_eq!(countdown.inspect(None).preview, "Countdown([2, 1, 0])");
     /// ```
+    #[track_caller]
     pub fn send<M>(&self, msg: M)
     where
         M: 'static,
@@ -392,6 +393,7 @@ impl<A: 'static> Addr<A> {
     /// Sends `msg` as caused by `parent`: for a message whose cause crossed a
     /// thread or a background task to get here. An actor that is not busy
     /// handles it at once; a busy one queues it for after what it is doing.
+    #[track_caller]
     pub(crate) fn send_under<M>(&self, msg: M, parent: Option<Cause>)
     where
         M: 'static,

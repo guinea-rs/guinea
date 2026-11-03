@@ -1,0 +1,14 @@
+SELECT
+  (s.ts - trace_start()) / 1e6 AS time_ms,
+  s.live_bytes / 1048576.0 AS memory_mib,
+  COALESCE(t.label, 'scope ' || s.scope_id) || ' #' || s.group_id AS scope
+FROM guinea_scope_memory_samples AS s
+JOIN guinea_scope_memory_stats AS t USING (group_id)
+WHERE s.group_id IN (
+  SELECT group_id
+  FROM guinea_scope_memory_samples
+  GROUP BY group_id
+  ORDER BY MAX(live_bytes) DESC
+  LIMIT 8
+)
+ORDER BY time_ms, scope;

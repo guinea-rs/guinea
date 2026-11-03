@@ -16,6 +16,7 @@ use crate::{Cause, Point, Record, Trace};
 type Observer = Rc<dyn Fn(&Trace)>;
 
 type Ring = Arc<dyn Fn() + Send + Sync>;
+type Stream = Arc<dyn Fn(u32, std::time::Duration, &Trace) + Send + Sync>;
 
 /// Where the records of one tree go: to its observers, on the thread they
 /// observe from, and from every other thread into a queue they take.
@@ -27,8 +28,12 @@ type Ring = Arc<dyn Fn() + Send + Sync>;
 pub struct Sink(Arc<Shared>);
 
 struct Shared {
+    #[cfg(feature = "perfetto")]
+    contexts: Mutex<Vec<ContextCallback>>,
     /// How many observers it has, on every thread together.
     observers: AtomicUsize,
+    streaming: AtomicUsize,
+    streams: Mutex<Vec<Stream>>,
     elsewhere: Mutex<Queue>,
     ring: Mutex<Option<Ring>>,
 }
@@ -42,7 +47,11 @@ impl Default for Sink {
 impl Sink {
     pub fn new() -> Self {
         Self(Arc::new(Shared {
+            #[cfg(feature = "perfetto")]
+            contexts: Mutex::default(),
             observers: AtomicUsize::new(0),
+            streaming: AtomicUsize::new(0),
+            streams: Mutex::default(),
             elsewhere: Mutex::default(),
             ring: Mutex::default(),
         }))
@@ -84,7 +93,30 @@ impl Sink {
 
     /// Whether anything observes it, on any thread.
     pub fn is_observed(&self) -> bool {
-        self.0.observers.load(Ordering::Relaxed) > 0
+        self.0.observers.load(Ordering::Relaxed) > 0 || self.0.streaming.load(Ordering::Relaxed) > 0
+    }
+
+    /// Receives records synchronously on the thread that emits them, with its
+    /// id and the emission time on [`crate::now`]'s clock. Unlike [`Self::observe`],
+    /// this does not consume or depend on the bounded cross-thread queue.
+    /// Callbacks must not emit trace points themselves and should finish quickly:
+    /// their cost is paid by the application. Dropping the guard unsubscribes;
+    /// a callback already in flight may still finish afterwards.
+    pub fn stream(
+        &self,
+        callback: impl Fn(u32, std::time::Duration, &Trace) + Send + Sync + 'static,
+    ) -> Streaming {
+        let callback: Stream = Arc::new(callback);
+        self.0
+            .streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(callback.clone());
+        self.0.streaming.fetch_add(1, Ordering::Relaxed);
+        Streaming {
+            sink: self.clone(),
+            callback,
+        }
     }
 
     /// What other threads recorded into it since the last take.
@@ -92,7 +124,11 @@ impl Sink {
     /// Kept while it is observed, from the threads that do not observe it; a
     /// thread that observes it hears its own records and leaves none here.
     pub fn take_elsewhere(&self) -> Elsewhere {
-        let mut queue = self.0.elsewhere.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut queue = self
+            .0
+            .elsewhere
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let taken = std::mem::take(&mut *queue);
 
         Elsewhere {
@@ -114,7 +150,11 @@ impl Sink {
     }
 
     fn keep_elsewhere(&self, trace: Trace) {
-        let mut queue = self.0.elsewhere.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut queue = self
+            .0
+            .elsewhere
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
 
         if queue.records.len() == ELSEWHERE_LIMIT {
             queue.records.pop_front();
@@ -127,7 +167,12 @@ impl Sink {
         if !was_empty {
             return;
         }
-        let rung = self.0.ring.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let rung = self
+            .0
+            .ring
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         if let Some(rung) = rung {
             rung();
         }
@@ -138,6 +183,77 @@ impl Sink {
         if self.0.observers.fetch_sub(1, Ordering::Relaxed) == 1 {
             self.take_elsewhere();
         }
+    }
+}
+
+#[cfg(feature = "perfetto")]
+type ContextCallback = Arc<dyn Fn(u32, std::time::Duration, Option<Cause>) + Send + Sync>;
+
+#[cfg(feature = "perfetto")]
+pub(crate) struct ContextStreaming(Sink, ContextCallback);
+
+#[cfg(feature = "perfetto")]
+impl Drop for ContextStreaming {
+    fn drop(&mut self) {
+        self.0
+            .0
+            .contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|callback| !Arc::ptr_eq(callback, &self.1));
+    }
+}
+
+#[cfg(feature = "perfetto")]
+impl Sink {
+    pub(crate) fn stream_context(
+        &self,
+        callback: impl Fn(u32, std::time::Duration, Option<Cause>) + Send + Sync + 'static,
+    ) -> ContextStreaming {
+        let callback: ContextCallback = Arc::new(callback);
+        self.0
+            .contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(callback.clone());
+        ContextStreaming(self.clone(), callback)
+    }
+}
+
+#[cfg(feature = "perfetto")]
+pub(crate) fn context_changed() {
+    let Some(sink) = current_sink() else {
+        return;
+    };
+    let callbacks = sink
+        .0
+        .contexts
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if !callbacks.is_empty() {
+        let at = crate::now();
+        for callback in callbacks {
+            callback(thread_id(), at, crate::current());
+        }
+    }
+}
+
+/// A synchronous, cross-thread subscription made by [`Sink::stream`].
+pub struct Streaming {
+    sink: Sink,
+    callback: Stream,
+}
+
+impl Drop for Streaming {
+    fn drop(&mut self) {
+        self.sink
+            .0
+            .streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|callback| !Arc::ptr_eq(callback, &self.callback));
+        self.sink.0.streaming.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -197,7 +313,11 @@ impl Drop for Observing {
         let removed = HEARD
             .try_with(|heard| {
                 let mut list = heard.list.borrow_mut();
-                let left: Vec<Heard> = list.iter().filter(|heard| heard.id != id).cloned().collect();
+                let left: Vec<Heard> = list
+                    .iter()
+                    .filter(|heard| heard.id != id)
+                    .cloned()
+                    .collect();
                 let removed = left.len() < list.len();
                 *list = Rc::new(left);
                 removed
@@ -259,7 +379,10 @@ impl Drop for ThreadDefault {
         let previous = self.previous.take();
         let _gone = DEFAULT.try_with(|default| {
             let mut default = default.borrow_mut();
-            if default.as_ref().is_some_and(|current| current.is(&self.sink)) {
+            if default
+                .as_ref()
+                .is_some_and(|current| current.is(&self.sink))
+            {
                 *default = previous;
             }
         });
@@ -271,7 +394,12 @@ pub fn current_sink() -> Option<Sink> {
     INTO.try_with(|into| into.borrow().clone())
         .ok()
         .flatten()
-        .or_else(|| DEFAULT.try_with(|default| default.borrow().clone()).ok().flatten())
+        .or_else(|| {
+            DEFAULT
+                .try_with(|default| default.borrow().clone())
+                .ok()
+                .flatten()
+        })
 }
 
 fn current_is(test: impl Fn(&Sink) -> bool) -> bool {
@@ -354,7 +482,7 @@ struct Queue {
 }
 
 /// This thread, as [`Elsewhere`] names it: the operating system's id on
-/// Windows, what a stack sampler names it by; elsewhere a number this
+/// Windows and Linux, what a stack sampler names it by; elsewhere a number this
 /// process gives each thread once, from 1.
 pub fn thread_id() -> u32 {
     thread_local! {
@@ -373,7 +501,33 @@ fn os_thread_id() -> u32 {
     unsafe { GetCurrentThreadId() }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn os_thread_id() -> u32 {
+    // gettid has no arguments and returns the calling thread's positive kernel ID.
+    unsafe { libc::gettid() as u32 }
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn linux_thread_ids_match_the_kernel_on_each_thread() {
+    let main = thread_id();
+    assert_eq!(main, unsafe { libc::gettid() as u32 });
+    let worker = std::thread::spawn(|| {
+        let id = thread_id();
+        assert_eq!(id, unsafe { libc::gettid() as u32 });
+        id
+    })
+    .join()
+    .unwrap();
+    assert_ne!(main, worker);
+}
+
+#[cfg(feature = "perfetto")]
+pub(crate) fn native_thread_id() -> Option<u32> {
+    cfg!(any(windows, target_os = "linux")).then(thread_id)
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn os_thread_id() -> u32 {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
@@ -549,6 +703,9 @@ fn write(record: &Record) {
 }
 
 pub(crate) fn emit(trace: Trace) {
+    // Capture before any observer or logging work, including for Trace::End,
+    // whose `took` intentionally excludes observation overhead.
+    let emitted_at = crate::now();
     match &trace {
         Trace::Begin(record) | Trace::Mark(record) => write(record),
         Trace::End { id, took } => tracing::trace!(
@@ -561,6 +718,20 @@ pub(crate) fn emit(trace: Trace) {
     let Some(sink) = current_sink().filter(Sink::is_observed) else {
         return;
     };
+    if sink.0.streaming.load(Ordering::Relaxed) > 0 {
+        let callbacks = sink
+            .0
+            .streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        for callback in callbacks {
+            callback(thread_id(), emitted_at, &trace);
+        }
+    }
+    if sink.0.observers.load(Ordering::Relaxed) == 0 {
+        return;
+    }
     let heard = HEARD.try_with(|heard| heard.list.borrow().clone()).ok();
 
     let mut told = false;

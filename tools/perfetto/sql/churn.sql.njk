@@ -1,0 +1,6 @@
+SELECT
+  {% include 'scope-label.sql.njk' %} AS scope,
+  churn_bytes / 1048576.0 AS turnover_mib
+FROM guinea_scope_memory_stats
+WHERE churn_bytes > 0
+ORDER BY turnover_mib DESC LIMIT 20;

@@ -39,6 +39,7 @@ impl GuineaHost {
     /// A tree with nothing built in it yet.
     pub fn new() -> Self {
         let tree = ScopeTree::new();
+        tree.scope().describe_allocations("role", "Application", None);
         tree.scope().keep(Plugins::default());
         tree.scope().keep(Backend::default());
         let recorded = trace::thread_default(

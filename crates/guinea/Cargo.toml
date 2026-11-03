@@ -50,6 +50,7 @@ own-runtime = ["guinea-app/own-runtime"]
 # order a seed decides.
 test-utils = ["guinea-app/test-utils"]
 allocations = ["guinea-core/allocations"]
+perfetto = ["guinea-core/perfetto"]
 # `test-utils`, and each enabled backend's own harness - WinUI and egui -
 # without naming the backend's crate.
 harness = ["test-utils", "guinea-winui?/harness", "guinea-eframe?/harness"]
@@ -58,6 +59,8 @@ harness = ["test-utils", "guinea-winui?/harness", "guinea-eframe?/harness"]
 workspace = true
 
 [dev-dependencies]
+json-patch = "4.2"
+serde_json.workspace = true
 amethystate = { version = "0.27", features = ["memory"] }
 anyhow.workspace = true
 guinea-router.workspace = true

@@ -54,6 +54,7 @@ impl<A: 'static, M> Cx<A, M> {
     }
 
     /// Sends to this actor's own queue, handled once the current message is.
+    #[track_caller]
     pub fn send<Out>(&self, msg: Out)
     where
         Out: 'static,
@@ -63,6 +64,7 @@ impl<A: 'static, M> Cx<A, M> {
         self.addr.send(msg);
     }
 
+    #[track_caller]
     pub fn publish<E>(&self, msg: E)
     where
         E: Event + PublishedBy<A>,

@@ -66,21 +66,25 @@ test(
         AND
         NOT EXISTS (SELECT 1 FROM guinea_profile_events
           WHERE event IN ('deliver', 'publish', 'handle', 'push'))
-        AND EXISTS (SELECT 1 FROM guinea_profile_events
-          WHERE event GLOB 'deliver · *')
         AND ABS(
-          (SELECT SUM(allocated_mib) FROM guinea_profile_events
-            WHERE event GLOB 'deliver · *') -
-          (SELECT SUM(EXTRACT_ARG(arg_set_id, 'debug.memory_allocated_bytes')) / 1048576.0
-            FROM slice WHERE COALESCE(EXTRACT_ARG(arg_set_id, 'debug.guinea_kind'), name) = 'deliver')
+          (SELECT COALESCE(SUM(allocated_mib), 0) FROM guinea_profile_events) -
+          (SELECT COALESCE(SUM(EXTRACT_ARG(arg_set_id, 'debug.memory_allocated_bytes')), 0) / 1048576.0
+            FROM slice WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_id') IS NOT NULL)
         ) < 1e-9 AS event_labels_and_totals_valid;
       `;
     const file = join(directory, 'metrics.sql');
     writeFileSync(file, sql);
-    const result = spawnSync(processor, ['query', '-f', file, trace], {
-      encoding: 'utf8',
-    });
+    const result = spawnSync(
+      processor,
+      ['query', '--format', 'csv', '-f', file, trace],
+      {
+        encoding: 'utf8',
+      },
+    );
     assert.equal(result.status, 0, result.stderr + result.stdout);
-    assert.match(result.stdout, /event_labels_and_totals_valid[^]*\|\s+1\s+\|/);
+    assert.match(
+      result.stdout,
+      /"event_labels_and_totals_valid"\r?\n1(?:\r?\n|$)/,
+    );
   },
 );

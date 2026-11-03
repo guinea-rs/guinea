@@ -125,10 +125,17 @@ jobs:
               vendor/*) which=(--manifest-path "crates/$crate/Cargo.toml") ;;
               *) which=(-p "$crate") ;;
             esac
+            # Library packaging can resolve unpublished peers through patches.
+            # The installable CLI must instead lock registry dependencies: a
+            # patched lock file makes `cargo install --locked` fail downstream.
+            publish_config=(--config .cargo/package.toml)
+            if [ "$crate" = guinea-profile ]; then
+              publish_config=()
+            fi
             echo "::group::cargo publish $crate"
             failures=0
             while true; do
-              if out=$(cargo publish "${which[@]}" --allow-dirty --no-verify --config .cargo/package.toml 2>&1); then
+              if out=$(cargo publish "${which[@]}" --allow-dirty --no-verify "${publish_config[@]}" 2>&1); then
                 echo "$out"
                 break
               fi

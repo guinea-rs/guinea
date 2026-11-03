@@ -20,8 +20,22 @@ exec 9>"$checkout.lock"
 flock 9
 fingerprint="$(find "$integration/src" "$integration/scripts" "$integration/sql" -type f -print0 | sort -z | xargs -0 sha256sum; sha256sum "$integration/build.sh" "$integration/package-lock.json" "$integration/../../crates/guinea-trace/sql/top_cpu_actions.sql" "$integration/../../crates/guinea-trace/sql/event_tracks.sql" "$integration/../../crates/guinea-trace/sql/guinea/memory.sql")"
 dist="$checkout/out/guinea/ui/dist"
+content_key="$(printf '%s' "$fingerprint" | sha256sum | cut -d ' ' -f1)"
+published="$HOME/.cache/guinea-profile/ui-$revision-$content_key"
+if [ -f "$published/index.html" ]; then
+  if command -v wslpath >/dev/null; then wslpath -w "$published"; else printf "%s\n" "$published"; fi
+  exit 0
+fi
+publish_dist() {
+  local stage
+  stage="$(mktemp -d "${published}.tmp.XXXXXX")"
+  cp -a "$dist/." "$stage/"
+  mv "$stage" "$published"
+  if command -v wslpath >/dev/null; then wslpath -w "$published"; else printf "%s\n" "$published"; fi
+}
+
 if [ -f "$checkout/guinea-build-fingerprint" ] && [ -f "$dist/index.html" ] && [ "$(cat "$checkout/guinea-build-fingerprint")" = "$fingerprint" ]; then
-  if command -v wslpath >/dev/null; then wslpath -w "$dist"; else printf "%s\n" "$dist"; fi
+  publish_dist
   exit 0
 fi
 mkdir -p "$(dirname "$checkout")"
@@ -45,4 +59,4 @@ tools/gn gen --args='is_debug=false skip_buildtools_check=true' out/guinea >&2
 tools/ninja -C out/guinea -j 8 traceconv_wasm proto_utils_wasm trace_processor_memory64_wasm >&2
 ui/node ui/build.mjs --no-wasm --no-depscheck --only-wasm-memory64 --out out/guinea >&2
 printf '%s' "$fingerprint" > "$checkout/guinea-build-fingerprint"
-if command -v wslpath >/dev/null; then wslpath -w "$dist"; else printf "%s\n" "$dist"; fi
+publish_dist

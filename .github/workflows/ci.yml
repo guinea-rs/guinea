@@ -71,6 +71,9 @@ jobs:
           $env:GUINEA_TEST_TRACE = Join-Path $env:RUNNER_TEMP 'guinea-ui-test.pftrace'
           cargo run --locked -p guinea-trace --features perfetto,allocations --example perfetto_allocations -- $env:GUINEA_TEST_TRACE
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:GUINEA_EVENT_TEST_TRACE = Join-Path $env:RUNNER_TEMP 'guinea-event-only.pftrace'
+          cargo run --locked -p guinea-trace --features perfetto --example perfetto -- $env:GUINEA_EVENT_TEST_TRACE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm --prefix tools/perfetto test
 
       - name: Test guinea-core without the workspace's features

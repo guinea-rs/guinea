@@ -14,7 +14,7 @@ WITH capabilities AS (
     ) AS scopes,
     EXISTS (
       SELECT 1 FROM slice
-      WHERE EXTRACT_ARG(arg_set_id, 'debug.memory_allocated_bytes') > 0
+      WHERE EXTRACT_ARG(arg_set_id, 'debug.guinea_id') IS NOT NULL
     ) AS events
 )
 SELECT 'hot_actions' AS metric FROM capabilities WHERE cpu

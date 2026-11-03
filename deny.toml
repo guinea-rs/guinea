@@ -23,7 +23,8 @@ skip = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# Symbolication uses the security-fixed upstream revision pinned in Cargo.toml.
+allow-git = ["https://github.com/mstange/samply"]
 
 [sources.allow-org]
 github = ["guinea-rs", "uniproc-dev"]

@@ -86,6 +86,13 @@ export default class implements PerfettoPlugin {
                 }),
               ),
             ),
+            selected?.id === 'cpu'
+              ? m(
+                  'p',
+                  {style: {margin: '0', padding: '4px 8px', flexShrink: '0'}},
+                  'Captured sample counts are not CPU seconds. Windows event provenance must be established before converting counts to CPU time.',
+                )
+              : null,
             selected
               ? m(
                   'div',

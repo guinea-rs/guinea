@@ -18,6 +18,9 @@ tokio.workspace = true
 axum = "0.8"
 tower-http = { version = "0.6", features = ["fs"] }
 webbrowser = "1"
+# Intentionally no registry version: publishing must not silently select the vulnerable 0.8.1 release.
+wholesym = { git = "https://github.com/mstange/samply", rev = "dea56099bba34dfc5da4a8c9365d90b6eabffac7" }
+tar = "0.4"
 
 [dev-dependencies]
 tempfile.workspace = true

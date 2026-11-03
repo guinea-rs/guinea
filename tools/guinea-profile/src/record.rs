@@ -78,7 +78,7 @@ pub fn run(options: &ArgMatches, cache: &std::path::Path, viewer: &super::Viewer
         prepare_perfetto(&output)?;
         eprintln!("No Guinea trace: attach perfetto::from_env(&sink) in the application.");
     } else {
-        super::process(&output)?;
+        super::process(&output, cache, &super::symbol_options(options, &output))?;
         let session_path = output.join("session.json");
         let mut session: serde_json::Value =
             serde_json::from_reader(fs::File::open(&session_path)?)?;
@@ -182,13 +182,12 @@ fn record_command(
         symbols.push("*https://msdl.microsoft.com/download/symbols");
         command.env("_NT_SYMBOL_PATH", symbols);
     }
+    #[cfg(windows)]
+    command.arg("record").arg("--keep-etl");
+    #[cfg(not(windows))]
+    command.arg("record");
     command
-        .args([
-            "record",
-            "--save-only",
-            "--unstable-presymbolicate",
-            "--rate",
-        ])
+        .args(["--save-only", "--rate"])
         .arg(options.get_one::<u32>("rate").unwrap().to_string())
         .arg("--output")
         .arg(output.join("cpu.json.gz"));
@@ -273,12 +272,17 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
+        #[cfg(windows)]
+        assert!(
+            args.iter().any(|arg| arg == "--keep-etl"),
+            "recordings must retain ETL for recovery"
+        );
+        let args: Vec<_> = args.into_iter().filter(|arg| arg != "--keep-etl").collect();
         assert_eq!(
             args,
             [
                 "record",
                 "--save-only",
-                "--unstable-presymbolicate",
                 "--rate",
                 "250",
                 "--output",

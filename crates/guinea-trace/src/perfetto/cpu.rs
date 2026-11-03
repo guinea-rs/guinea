@@ -231,12 +231,100 @@ fn merge(
     };
     let mut intern = Intern::default();
     let mut packets = Vec::new();
-    for thread in profile["threads"]
+    let threads = profile["threads"]
         .as_array()
-        .ok_or("CPU profile has no threads")?
-    {
-        let pid = identifier(&thread["pid"]).ok_or("invalid CPU pid")?;
-        let tid = identifier(&thread["tid"]).ok_or("invalid CPU tid")?;
+        .ok_or("CPU profile has no threads")?;
+    // Samply disambiguates recycled OS identities as e.g. "2940.1".
+    // These identify distinct lifetimes, not the original native thread.
+    let mut ids = CpuIds::new(threads, contexts.keys().copied().chain([app_pid]));
+    for packet in &trace.packet {
+        if packet.has_track_descriptor() {
+            let track = packet.track_descriptor();
+            if let Some(thread) = track.thread.as_ref() {
+                ids.used.extend([thread.pid() as u32, thread.tid() as u32]);
+            }
+            if let Some(process) = track.process.as_ref() {
+                ids.used.insert(process.pid() as u32);
+            }
+        }
+    }
+    let mut descriptor_id = trace
+        .packet
+        .iter()
+        .filter(|p| p.has_track_descriptor())
+        .map(|p| p.track_descriptor().uuid())
+        .max()
+        .unwrap_or(0);
+    let mut described_processes: HashSet<_> = trace
+        .packet
+        .iter()
+        .filter(|p| p.has_track_descriptor())
+        .filter_map(|p| {
+            p.track_descriptor()
+                .process
+                .as_ref()
+                .map(|p| p.pid() as u32)
+        })
+        .collect();
+    for thread in threads {
+        let pid = ids.get(format!("process:{}", thread["pid"]), &thread["pid"])?;
+        let tid = ids.get(
+            format!("thread:{}:{}", thread["pid"], thread["tid"]),
+            &thread["tid"],
+        )?;
+        let native = identifier(&thread["pid"]).is_some() && identifier(&thread["tid"]).is_some();
+        if !described_processes.contains(&pid) {
+            if let Some(name) = thread["processName"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+            {
+                use perfetto_protos::{
+                    process_descriptor::ProcessDescriptor, track_descriptor::TrackDescriptor,
+                };
+                let mut process = ProcessDescriptor::new();
+                process.set_pid(pid as i32);
+                process.set_process_name(name.to_owned());
+                let mut track = TrackDescriptor::new();
+                descriptor_id = descriptor_id
+                    .checked_add(1)
+                    .ok_or("track id space exhausted")?;
+                track.set_uuid(descriptor_id);
+                track.process = Some(process).into();
+                let mut packet = TracePacket::new();
+                packet.set_track_descriptor(track);
+                packets.push(packet);
+                described_processes.insert(pid);
+            }
+        }
+        if !native {
+            use perfetto_protos::{
+                thread_descriptor::ThreadDescriptor, track_descriptor::TrackDescriptor,
+            };
+            let mut descriptor = ThreadDescriptor::new();
+            descriptor.set_pid(pid as i32);
+            descriptor.set_tid(tid as i32);
+            descriptor.set_thread_name(
+                thread["name"]
+                    .as_str()
+                    .unwrap_or("Samply thread")
+                    .to_owned(),
+            );
+            let mut track = TrackDescriptor::new();
+            descriptor_id = descriptor_id
+                .checked_add(1)
+                .ok_or("track id space exhausted")?;
+            track.set_uuid(descriptor_id);
+            track.thread = Some(descriptor).into();
+            let mut packet = TracePacket::new();
+            packet.set_track_descriptor(track);
+            packets.push(packet);
+            packets.push(super::attribute_packet(
+                &format!("rs.guinea.cpu.identity.{pid}.{tid}"),
+                &serde_json::json!({"pid":pid,"tid":tid,"samply_pid":thread["pid"],
+                    "samply_tid":thread["tid"],"name":thread["name"],"native_attribution":false})
+                .to_string(),
+            )?);
+        }
         let samples = &thread["samples"];
         let mut time = 0.0;
         for (index, stack) in samples["stack"]
@@ -261,7 +349,7 @@ fn merge(
                 continue;
             }
             let timestamp = cpu_origin + (time * 1e6).round() as u64;
-            let cause = if pid == app_pid {
+            let cause = if native && pid == app_pid {
                 timestamp.checked_sub(origin).and_then(|at| {
                     contexts.get(&tid).and_then(|entries| {
                         entries
@@ -345,6 +433,60 @@ fn merge(
         &((interval * 1e6).round() as u64).to_string(),
     )?);
     Ok(trace.write_to_bytes()?)
+}
+
+struct CpuIds {
+    used: HashSet<u32>,
+    synthetic: HashMap<String, u32>,
+    next: u32,
+}
+impl CpuIds {
+    fn new(threads: &[Value], reserved: impl IntoIterator<Item = u32>) -> Self {
+        let mut used: HashSet<_> = reserved.into_iter().collect();
+        used.extend(
+            threads
+                .iter()
+                .flat_map(|t| [identifier(&t["pid"]), identifier(&t["tid"])])
+                .flatten(),
+        );
+        Self {
+            used,
+            synthetic: HashMap::new(),
+            next: i32::MAX as u32,
+        }
+    }
+    fn get(&mut self, key: String, value: &Value) -> io::Result<u32> {
+        if let Some(native) = identifier(value) {
+            return Ok(native);
+        }
+        let valid = value
+            .as_str()
+            .and_then(|v| v.split_once('.'))
+            .is_some_and(|(base, suffix)| {
+                base.parse::<u32>().is_ok()
+                    && !suffix.is_empty()
+                    && suffix.bytes().all(|b| b.is_ascii_digit())
+            });
+        if !valid {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid CPU identity: {value}"),
+            ));
+        }
+        if let Some(id) = self.synthetic.get(&key) {
+            return Ok(*id);
+        }
+        while self.used.contains(&self.next) {
+            self.next = self
+                .next
+                .checked_sub(1)
+                .ok_or_else(|| io::Error::other("CPU identity space exhausted"))?;
+        }
+        let id = self.next;
+        self.used.insert(id);
+        self.synthetic.insert(key, id);
+        Ok(id)
+    }
 }
 
 fn identifier(value: &Value) -> Option<u32> {
@@ -462,6 +604,25 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn synthetic_ids_are_stable_collision_free_and_validate_suffixes() {
+        let mut ids = CpuIds::new(&[json!({"pid":1,"tid":i32::MAX})], [i32::MAX as u32 - 1]);
+        let first = ids.get("p1t7.1".into(), &json!("7.1")).unwrap();
+        assert_eq!(first, i32::MAX as u32 - 2);
+        assert_eq!(ids.get("p1t7.1".into(), &json!("7.1")).unwrap(), first);
+        assert_ne!(ids.get("p2t7.1".into(), &json!("7.1")).unwrap(), first);
+        assert_eq!(ids.get("native".into(), &json!(7)).unwrap(), 7);
+        for value in [
+            json!("7."),
+            json!("7.bad"),
+            json!(null),
+            json!(-1),
+            json!("7.1.2"),
+        ] {
+            assert!(ids.get("bad".into(), &value).is_err());
+        }
+    }
+
     fn frames(names: &[&str]) -> Vec<NativeFrame> {
         names
             .iter()
@@ -522,7 +683,7 @@ mod tests {
             .find(|clock| clock.clock_id() == 1)
             .unwrap()
             .timestamp();
-        let profile = json!({"meta":{"startTime":origin as f64 / 1e6,"interval":10},"threads":[{
+        let mut profile = json!({"meta":{"startTime":origin as f64 / 1e6,"interval":10},"threads":[{
             "pid":std::process::id(),"tid":7,
             "samples":{"time":[100],"stack":[2]},
             "stackTable":{"frame":[0,1,2],"prefix":[null,0,1]},
@@ -530,6 +691,19 @@ mod tests {
             "funcTable":{"name":[0,1,2],"resource":[-1,-1,-1]},
             "stringArray":["app::main","guinea_core::executor::run","app::work"]
         }]});
+        let original = profile["threads"][0].clone();
+        for tid in ["7.1", "7.2"] {
+            let mut recycled = original.clone();
+            recycled["tid"] = json!(tid);
+            recycled["name"] = json!(format!("Thread <{tid}>"));
+            profile["threads"].as_array_mut().unwrap().push(recycled);
+        }
+        let mut child = original.clone();
+        child["pid"] = json!(u32::MAX - 1);
+        child["tid"] = json!("7.3");
+        child["processName"] = json!("sampled-child.exe");
+        child["samples"] = json!({"stack":[],"time":[]});
+        profile["threads"].as_array_mut().unwrap().push(child);
         // None means a legacy execution without its own identity field. A
         // numeric native_id can differ from the trace-local tid.
         for (native, legacy, attributed) in [
@@ -576,10 +750,45 @@ mod tests {
                     .clone()
             };
             let projected = intern(&merged);
+            assert!(
+                merged
+                    .packet
+                    .iter()
+                    .filter(|p| p.has_track_descriptor())
+                    .filter_map(|p| p.track_descriptor().process.as_ref())
+                    .any(|p| p.pid() as u32 == u32::MAX - 1
+                        && p.process_name() == "sampled-child.exe")
+            );
             assert_eq!(
                 merged.packet.iter().filter(|p| p.has_perf_sample()).count(),
-                1
+                3
             );
+            let samples: Vec<_> = merged
+                .packet
+                .iter()
+                .filter(|p| p.has_perf_sample())
+                .map(|p| p.perf_sample())
+                .collect();
+            assert_eq!(samples[0].tid(), 7);
+            assert_ne!(samples[1].tid(), 7);
+            assert_ne!(samples[1].tid(), samples[2].tid());
+            for sample in &samples[1..] {
+                let stack = projected
+                    .callstacks
+                    .iter()
+                    .find(|s| s.iid() == sample.callstack_iid())
+                    .unwrap();
+                assert_eq!(stack.frame_ids.len(), 3);
+                for id in &stack.frame_ids {
+                    let frame = projected.frames.iter().find(|f| f.iid() == *id).unwrap();
+                    let name = projected
+                        .function_names
+                        .iter()
+                        .find(|n| n.iid() == frame.function_name_id())
+                        .unwrap();
+                    assert!(!name.str().starts_with(b"[Guinea]"));
+                }
+            }
             if attributed {
                 assert!(
                     projected

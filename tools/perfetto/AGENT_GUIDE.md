@@ -18,6 +18,7 @@ running directly from source, use `cargo run --locked -p guinea-profile -- ...`.
 | Small reference with state values and diffs | `cargo xtask profile -- 64 --state-details` |
 | Record without starting the viewer | `cargo xtask profile --no-ui` |
 | Serve without opening a browser | `cargo xtask profile --no-open` |
+| Recover and symbolize saved inputs | `guinea-profile process <source-directory> --output <new-directory>` |
 | Reopen a recording | `guinea-profile view <recording-directory>` |
 | Profile another application | `cargo xtask profile --manifest-path ../app/Cargo.toml -p app --bin app` |
 | Profile an existing executable | `guinea-profile record -- path/to/app.exe app-arguments` |
@@ -73,6 +74,16 @@ Useful files in a completed recording:
 Older recordings may lack newer files. Preserve them; absence is not permission
 to invent missing data. Reopening needs `combined.pftrace` and does not rerun the
 application. The viewer binds to loopback.
+
+`record` and `process` automatically symbolize recorded addresses. For recovery,
+use `process <source> --output <new-directory>`; never alter original IDs or hand
+assemble a sidecar to compensate for an importer failure. Supply `--executable`
+and repeatable `--symbol-dir` when binaries/PDBs have moved. Inspect
+`symbolication.json` for module identity failures, timeouts and partial resolution.
+Missing application symbols are errors unless `--allow-unresolved` was explicit.
+Windows recording preserves ETL for sampler/event-source investigations. Keep
+those originals too. Runtime UI builds now publish immutable distributions and
+stage bundled sources directly into WSL, independently of Windows drive mounts.
 
 ## Inspect in Perfetto
 
@@ -131,6 +142,14 @@ recover past values.
   scope can legitimately be owned elsewhere; it is a leak candidate, not proof.
 - A relative source path or unresolved address must remain explicit. Do not
   guess a function name, declaration or source location.
+
+For real Windows recordings, validate the sampling model before interpreting
+sample counts as CPU time. Nonzero `threadCPUDelta` alone does not establish
+uniform periodic sampling. The current `estimated_cpu_ms` and
+`process_cpu_percent` queries use sample counts and the nominal interval; keep
+those estimates unvalidated when the input's sample provenance is unknown.
+A wait function at a stack leaf is not by itself proof that the row should be
+dropped. Keep original ETL files, when available, for event-source analysis.
 
 ## Analyze with SQL
 

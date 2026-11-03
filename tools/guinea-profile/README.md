@@ -17,7 +17,27 @@ and refuses to overwrite processed output. `record` processes automatically;
 `view` only opens an existing `combined.pftrace`. Recording directories default
 to `profiles/<timestamp>-<pid>` under the caller's working directory. Application
 arguments are forwarded without a shell and the app inherits the working directory.
-Use `record --dry-run -- <executable> �` to inspect the launch command.
+Use `record --dry-run -- <executable> ...` to inspect the launch command.
+
+## Recovery without another recording
+
+```sh
+guinea-profile process saved-session --output recovered-session
+guinea-profile process saved-session --output recovered-session --executable path/to/app.exe --symbol-dir path/to/pdbs
+```
+
+`--output` must be new. CPU/Guinea inputs and optional session/sidecar files are
+copied unchanged. The saved session supplies the executable path when available.
+Symbolication runs automatically for both `record` and `process` using wholesym,
+with recorded module debug identities, local binaries/PDBs, symbol directories
+and the standard Windows symbol path/cache. It never fabricates symbol names.
+The application is processed first; `--symbol-timeout` sets a total lookup budget
+(default 120 seconds). Missing/incomplete application symbols fail conversion
+with a diagnostic; `--allow-unresolved` explicitly permits a partial result.
+System modules can have unavailable/private symbols and are reported as partial.
+`symbolication.json` records per-module resolved/unresolved counts and errors;
+`cpu.resolved.syms.json` contains generated symbols. Original sidecars are retained.
+Windows recordings keep ETL inputs (`--keep-etl`) for later source-event analysis.
 
 ## Symbols
 
@@ -46,10 +66,16 @@ Toolkit and may require elevation. The cache defaults to LOCALAPPDATA on Windows
 XDG_CACHE_HOME or HOME/.cache on Unix, under `guinea-profile`; override it with
 `--cache-dir`. System symbol downloads are cached there too.
 
+On Windows, packaged sources are streamed into WSL's native cache; viewing does
+not depend on WSL being able to mount the Windows cache drive. The build publishes
+an immutable UI distribution so another build cannot replace an open viewer's
+files. Guinea is included in the stock embedder's default plugin configuration.
+
 The binary embeds the pinned UI integration sources, SQL templates, dependency
 lockfile and Guinea SQL. No Guinea source checkout is needed. On first use it
-extracts them to `<cache-dir>/integration-<package-version>-<content-fingerprint>`;
-subsequent runs reuse that directory, restoring missing or changed files. The
+extracts them to a versioned content directory: under the configured cache on
+Unix, or WSL's native cache on Windows. Subsequent runs reuse these sources,
+restoring missing or changed files. The
 first UI build downloads the pinned upstream Perfetto checkout and dependencies,
 so network access and the build prerequisites are still required. On Windows the
 UI build runs under WSL. Upstream checkout and built UI caching are managed by
@@ -86,3 +112,15 @@ default: install GNU coreutils and a `flock` implementation and put their comman
 on PATH before building. The build script reports missing prerequisites before
 downloading Perfetto. Alternatively, `--ui-dir` serves a complete prebuilt UI
 without invoking the build script or requiring those tools.
+
+## Current development dependency and release gate
+
+The automatic symbolication implementation currently pins the official Samply
+upstream revision `dea56099bba34dfc5da4a8c9365d90b6eabffac7`.
+The latest registry wholesym 0.8.1 depends on an older vulnerable ruzstd through
+object; the pinned upstream uses fixed ruzstd 0.9.1. The dependency deliberately
+has no registry version requirement: packaging must fail rather than silently
+replace the fixed Git source with the old registry release. A new crates.io
+release requires safe published upstream dependencies or an explicitly agreed
+preview-package strategy. Until that is settled, these are local development
+changes, not an update to the published guinea-profile 0.35.0.

@@ -88,3 +88,26 @@ test(
     );
   },
 );
+
+test(
+  'event-only recording enables Guinea without memory counters or CPU aliases',
+  {skip: !process.env.TRACE_PROCESSOR || !process.env.GUINEA_EVENT_TEST_TRACE},
+  () => {
+    const result = spawnSync(
+      process.env.TRACE_PROCESSOR!,
+      [
+        'query',
+        '--format',
+        'csv',
+        process.env.GUINEA_EVENT_TEST_TRACE!,
+        renderCapabilities(),
+      ],
+      {encoding: 'utf8'},
+    );
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+      '"metric"',
+      '"events"',
+    ]);
+  },
+);

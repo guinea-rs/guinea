@@ -8,6 +8,7 @@ use std::{
 mod integration;
 mod profile_ui;
 mod record;
+mod symbols;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 struct Viewer {
     ui_dir: Option<PathBuf>,
@@ -17,6 +18,9 @@ struct Viewer {
 fn record_cli() -> Command {
     Command::new("record")
         .about("Record an existing executable with samply and Guinea, then open Perfetto")
+        .arg(symbol_timeout())
+        .arg(symbol_dirs())
+        .arg(allow_unresolved())
         .arg(
             Arg::new("output")
                 .long("output")
@@ -90,7 +94,21 @@ fn cli() -> Command {
             Command::new("process")
                 .visible_alias("merge")
                 .about("Combine CPU and Guinea recordings")
-                .arg(directory()),
+                .arg(directory())
+                .arg(
+                    Arg::new("output")
+                        .long("output")
+                        .value_parser(value_parser!(PathBuf))
+                        .help("New output directory; preserve all input files"),
+                )
+                .arg(
+                    Arg::new("executable")
+                        .long("executable")
+                        .value_parser(value_parser!(PathBuf)),
+                )
+                .arg(symbol_timeout())
+                .arg(symbol_dirs())
+                .arg(allow_unresolved()),
         )
         .subcommand(
             Command::new("view")
@@ -127,7 +145,28 @@ fn main() -> Result<()> {
     };
     match args.subcommand().unwrap() {
         ("record", options) => record::run(options, &cache, &viewer),
-        ("process", options) => process(options.get_one::<PathBuf>("directory").unwrap()),
+        ("process", options) => {
+            let input = options.get_one::<PathBuf>("directory").unwrap();
+            let output = options.get_one::<PathBuf>("output").unwrap_or(input);
+            if output != input {
+                if output.exists() {
+                    return Err("--output directory already exists".into());
+                }
+                fs::create_dir_all(output)?;
+                for name in [
+                    "cpu.json.gz",
+                    "guinea.pftrace",
+                    "cpu.json.syms.json",
+                    "session.json",
+                ] {
+                    let source = input.join(name);
+                    if source.is_file() {
+                        fs::copy(source, output.join(name))?;
+                    }
+                }
+            }
+            process(output, &cache, &symbol_options(options, output))
+        }
         ("view", options) => profile_ui::serve(
             options.get_one::<PathBuf>("directory").unwrap(),
             options.get_flag("no-open"),
@@ -136,7 +175,50 @@ fn main() -> Result<()> {
         _ => unreachable!(),
     }
 }
-fn process(directory: &Path) -> Result<()> {
+fn symbol_timeout() -> Arg {
+    Arg::new("symbol-timeout")
+        .long("symbol-timeout")
+        .default_value("120")
+        .value_parser(value_parser!(u32).range(1..))
+        .help("Total symbol lookup budget in seconds (application first)")
+}
+fn symbol_dirs() -> Arg {
+    Arg::new("symbol-dir")
+        .long("symbol-dir")
+        .action(ArgAction::Append)
+        .value_parser(value_parser!(PathBuf))
+}
+fn allow_unresolved() -> Arg {
+    Arg::new("allow-unresolved")
+        .long("allow-unresolved")
+        .action(ArgAction::SetTrue)
+        .help("Explicitly permit unresolved application frames; still write a symbolication report")
+}
+fn symbol_options(options: &clap::ArgMatches, directory: &Path) -> symbols::Options {
+    let executable = options
+        .get_one::<PathBuf>("executable")
+        .cloned()
+        .or_else(|| {
+            let session: serde_json::Value =
+                serde_json::from_reader(fs::File::open(directory.join("session.json")).ok()?)
+                    .ok()?;
+            session["executable"].as_str().map(PathBuf::from)
+        });
+    symbols::Options {
+        executable,
+        directories: options
+            .get_many::<PathBuf>("symbol-dir")
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect(),
+        allow_unresolved: options.get_flag("allow-unresolved"),
+        timeout: std::time::Duration::from_secs(u64::from(
+            *options.get_one::<u32>("symbol-timeout").unwrap(),
+        )),
+    }
+}
+fn process(directory: &Path, cache: &Path, options: &symbols::Options) -> Result<()> {
     if directory.join("combined.pftrace").exists()
         || directory.join("raw.pftrace").exists()
         || directory.join("cpu.perfetto.json.gz").exists()
@@ -152,6 +234,9 @@ fn process(directory: &Path) -> Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
+    let symbols = Some(symbols::resolve(
+        &profile, symbols, directory, cache, options,
+    )?);
     let guinea = fs::read(directory.join("guinea.pftrace"))?;
     let bytes = guinea_trace::perfetto::merge_cpu(&profile, symbols.as_ref(), &guinea)?;
     let raw = guinea_trace::perfetto::merge_cpu_raw(&profile, symbols.as_ref(), &guinea)?;

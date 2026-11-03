@@ -14,6 +14,10 @@ fn distribution(viewer: &super::Viewer) -> Result<PathBuf> {
         }
         return Ok(directory.clone());
     }
+    #[cfg(windows)]
+    if viewer.integration.is_none() {
+        return built_distribution(super::integration::wsl_build()?);
+    }
     let integration = match &viewer.integration {
         Some(directory) => directory.clone(),
         None => super::integration::extract(&viewer.cache)?,
@@ -46,6 +50,10 @@ fn distribution(viewer: &super::Viewer) -> Result<PathBuf> {
         command
     };
     let output = command.stderr(Stdio::inherit()).output()?;
+    built_distribution(output)
+}
+
+fn built_distribution(output: std::process::Output) -> Result<PathBuf> {
     if !output.status.success() {
         return Err("Perfetto UI build failed; see the build output above".into());
     }

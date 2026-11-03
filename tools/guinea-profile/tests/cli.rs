@@ -155,3 +155,59 @@ fn viewer_serves_prebuilt_ui_without_build_tools() {
         assert_eq!(response.split_once("\r\n\r\n").unwrap().1, body);
     }
 }
+
+#[test]
+fn missing_application_symbols_are_explicit_and_recovery_preserves_inputs() {
+    for allow in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("original");
+        fs::create_dir(&input).unwrap();
+        let output = temp.path().join("derived");
+        let sink = guinea_trace::Sink::new();
+        let recording = guinea_trace::perfetto::Recording::start(&sink, Vec::new()).unwrap();
+        fs::write(input.join("guinea.pftrace"), recording.finish().unwrap()).unwrap();
+        let start = guinea_trace::started_at()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            * 1000.;
+        let profile = serde_json::json!({"meta":{"startTime":start,"interval":10},"libs":[{"name":"app.exe","debugName":"app.pdb","codeId":"test"}],
+          "threads":[{"pid":std::process::id(),"tid":7,"samples":{"time":[1],"stack":[0]},
+          "stackTable":{"frame":[0],"prefix":[null]},"frameTable":{"func":[0],"address":[64]},
+          "funcTable":{"name":[0],"resource":[0]},"resourceTable":{"lib":[0]},"stringArray":["0x40"]}]});
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(&serde_json::to_vec(&profile).unwrap())
+            .unwrap();
+        let bytes = encoder.finish().unwrap();
+        fs::write(input.join("cpu.json.gz"), &bytes).unwrap();
+        let mut command = cli();
+        command
+            .arg("process")
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .args(["--executable", "app.exe"]);
+        if allow {
+            command.arg("--allow-unresolved");
+        }
+        let result = command.output().unwrap();
+        assert_eq!(
+            result.status.success(),
+            allow,
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("symbolication.json")).unwrap()).unwrap();
+        assert_eq!(report["modules"][0]["unresolved"], 1);
+        assert_eq!(report["modules"][0]["primary"], true);
+        assert_eq!(
+            report["modules"][0]["error"],
+            "recording has no valid module debug identity"
+        );
+        assert_eq!(output.join("combined.pftrace").exists(), allow);
+        assert_eq!(fs::read(input.join("cpu.json.gz")).unwrap(), bytes);
+        assert!(!input.join("symbolication.json").exists());
+    }
+}

@@ -67,14 +67,14 @@ export function sectionsFor(metrics: readonly MetricId[]): Section[] {
       items: [
         bar(
           'hot_actions',
-          'Hot Guinea actions · estimated CPU, ms',
+          'Hot Guinea actions · captured samples',
           'action',
-          'estimated_cpu_ms',
+          'samples',
           0,
         ),
         bar(
           'hot_actions',
-          'Process CPU share · %',
+          'Share of captured samples · %',
           'action',
           'process_cpu_percent',
           6,
@@ -83,9 +83,9 @@ export function sectionsFor(metrics: readonly MetricId[]): Section[] {
         ),
         bar(
           'hot_actions',
-          'Estimated CPU per invocation · ms',
+          'Action invocations',
           'action',
-          'estimated_cpu_ms_per_invocation',
+          'invocations',
           6,
           12,
           12,

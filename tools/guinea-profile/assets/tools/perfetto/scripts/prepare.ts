@@ -33,3 +33,16 @@ writeFileSync(
   join(destination, 'event-tracks-sql.ts'),
   `// Generated from SQL file.\nexport const eventTracksSql = ${JSON.stringify(sql('event_tracks.sql'))};\n`,
 );
+
+// Configure the stock embedder's default plugin list; lifecycle code is unchanged.
+const defaultsPath = join(checkout, 'ui/src/core/embedder/default_plugins.ts');
+const defaults = readFileSync(defaultsPath, 'utf8');
+if (!defaults.includes("'rs.guinea.Profile'")) {
+  const marker = 'export const defaultPlugins = [';
+  if (!defaults.includes(marker))
+    throw new Error('Pinned Perfetto default plugin configuration changed');
+  writeFileSync(
+    defaultsPath,
+    defaults.replace(marker, `${marker}\n  'rs.guinea.Profile',`),
+  );
+}

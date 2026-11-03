@@ -20,6 +20,52 @@ pub fn extract(cache: &Path) -> super::Result<PathBuf> {
     Ok(root.join("tools/perfetto"))
 }
 
+/// Stage packaged sources inside WSL, independent of Windows drive mounts.
+#[cfg(windows)]
+pub fn wsl_build() -> super::Result<std::process::Output> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let mut archive = tar::Builder::new(Vec::new());
+    for (name, bytes) in FILES {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append_data(&mut header, name, *bytes)?;
+    }
+    let archive = archive.into_inner()?;
+    let identity = format!("integration-{}-{FINGERPRINT}", env!("CARGO_PKG_VERSION"));
+    let mut child = Command::new("wsl")
+        .args([
+            "--exec",
+            "bash",
+            "-c",
+            r#"set -euo pipefail
+root="${XDG_CACHE_HOME:-$HOME/.cache}/guinea-profile/$1"
+mkdir -p "$root"
+exec 8>"$root.lock"
+flock 8
+tar -xf - -C "$root"
+bash "$root/tools/perfetto/build.sh"
+"#,
+            "guinea-profile",
+            &identity,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    let written = child.stdin.take().unwrap().write_all(&archive);
+    let output = child.wait_with_output()?;
+    // Prefer the useful WSL diagnostic over a broken pipe from an early exit.
+    if output.status.success() {
+        written?;
+    }
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

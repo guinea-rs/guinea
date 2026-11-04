@@ -29,21 +29,21 @@ dependencies = [
 
 [[package]]
 name = "addr2line"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1"
+dependencies = [
+ "fallible-iterator",
+ "gimli 0.31.1",
+]
+
+[[package]]
+name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5d307320b3181d6d7954e663bd7c774a838b8220fe0593c86d9fb09f498b4b"
 dependencies = [
  "gimli 0.32.3",
-]
-
-[[package]]
-name = "addr2line"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e567177890eb1617b1f774005b66b26b2377afd138a2ca37aae7d8f0c81429d4"
-dependencies = [
- "fallible-iterator",
- "gimli 0.34.0",
 ]
 
 [[package]]
@@ -1424,9 +1424,9 @@ checksum = "7704b5fdd17b18ae31c4c1da5a2e0305a2bf17b5249300a9ee9ed7b72114c636"
 
 [[package]]
 name = "cpp_demangle"
-version = "0.5.1"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0667304c32ea56cb4cd6d2d7c0cfe9a2f8041229db8c033af7f8d69492429def"
+checksum = "f2bb79cb74d735044c972aae58ed0aaa9a837e85b01106a54c39e42e97f62253"
 dependencies = [
  "cfg-if",
 ]
@@ -2343,6 +2343,7 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -2668,18 +2669,19 @@ dependencies = [
 
 [[package]]
 name = "gimli"
-version = "0.32.3"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
+checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
+dependencies = [
+ "fallible-iterator",
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "gimli"
-version = "0.34.0"
+version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"
-dependencies = [
- "stable_deref_trait",
-]
+checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
 name = "gl_generator"
@@ -2825,7 +2827,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2851,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2867,14 +2869,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "guinea-core"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2898,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2912,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-iced"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "elsa",
@@ -2926,7 +2928,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2942,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "guinea-core",
  "guinea-macros",
@@ -2950,11 +2952,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta"
-version = "0.35.0"
+version = "0.35.1"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "guinea-codegen",
  "serde",
@@ -2964,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-profile"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "axum",
  "clap",
@@ -2981,7 +2983,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2995,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3007,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3022,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-codegen",
@@ -3034,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-fixture"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea",
@@ -3045,7 +3047,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "dhat",
  "flate2",
@@ -3064,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.35.0"
+version = "0.35.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -4389,9 +4391,9 @@ dependencies = [
 
 [[package]]
 name = "linux-perf-data"
-version = "0.13.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79544deaf2626fe2d10e5f87af7b7fca93c0d0062fc6ec84fc24e463039c6750"
+checksum = "3ee44f48bb8d8ac1f6e55e294b211960d118c069863e7206913d138d2ddd6175"
 dependencies = [
  "byteorder",
  "linear-map",
@@ -5364,22 +5366,22 @@ dependencies = [
 
 [[package]]
 name = "object"
+version = "0.36.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
+dependencies = [
+ "flate2",
+ "memchr",
+ "ruzstd",
+]
+
+[[package]]
+name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "object"
-version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
-dependencies = [
- "flate2",
- "memchr",
- "ruzstd",
 ]
 
 [[package]]
@@ -5403,12 +5405,6 @@ name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
-
-[[package]]
-name = "openssl-probe"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "option-ext"
@@ -5579,9 +5575,9 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "pdb-addr2line"
-version = "0.12.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3263467eb4f7871a8bd6650fe7230de816d1f744e32e9a9754df9898d0540ce"
+checksum = "b2a2e496e34cd96a1bb26f681e5adb11c98f1e5378e294e60c06c0cf04c526ba"
 dependencies = [
  "bitflags 2.13.1",
  "elsa",
@@ -5593,9 +5589,9 @@ dependencies = [
 
 [[package]]
 name = "pdb2"
-version = "0.10.2"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de3f224d19bb81798f873b70b061e55154a6ff7c6bc892a91fbd37228d1d471d"
+checksum = "266b8733697ccc3aa405a9b2cf485a42746ad1cf73d3b0497b79b24f9e874a71"
 dependencies = [
  "fallible-iterator",
  "scroll",
@@ -5961,18 +5957,18 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
+checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
 dependencies = [
  "bytes",
 ]
 
 [[package]]
 name = "prost-derive"
-version = "0.14.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
+checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
  "itertools 0.13.0",
@@ -6697,81 +6693,9 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
-]
-
-[[package]]
-name = "reqwest"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
-dependencies = [
- "base64 0.23.1",
- "bytes",
- "futures-core",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "js-sys",
- "log",
- "percent-encoding",
- "pin-project-lite",
- "rustls",
- "rustls-pki-types",
- "rustls-platform-verifier",
- "sync_wrapper",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tower",
- "tower-http",
- "tower-service",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-streams 0.5.0",
- "web-sys",
-]
-
-[[package]]
-name = "reqwest-middleware"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07bc3f1384cffa4f274dad2d4ddd73aed32fed8f786d96c6be8aa4e5fd3c3b58"
-dependencies = [
- "anyhow",
- "async-trait",
- "http",
- "reqwest 0.13.5",
- "thiserror 2.0.20",
- "tower-service",
-]
-
-[[package]]
-name = "reqwest-retry"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe2412db2af7d2268e7a5406be0431f37d9eb67ff390f35b395716f5f06c2eaa"
-dependencies = [
- "anyhow",
- "async-trait",
- "futures",
- "getrandom 0.2.17",
- "http",
- "hyper",
- "reqwest 0.13.5",
- "reqwest-middleware",
- "retry-policies",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "wasmtimer",
 ]
 
 [[package]]
@@ -6789,15 +6713,6 @@ dependencies = [
  "tiny-skia 0.12.0",
  "usvg",
  "zune-jpeg",
-]
-
-[[package]]
-name = "retry-policies"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc05fbf560421a0357a750cbe78c7ca19d4923918490daabba313d5dbc871e47"
-dependencies = [
- "rand 0.10.3",
 ]
 
 [[package]]
@@ -6974,18 +6889,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-native-certs"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
-dependencies = [
- "openssl-probe",
- "rustls-pki-types",
- "schannel",
- "security-framework",
-]
-
-[[package]]
 name = "rustls-pki-types"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6994,33 +6897,6 @@ dependencies = [
  "web-time",
  "zeroize",
 ]
-
-[[package]]
-name = "rustls-platform-verifier"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
-dependencies = [
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "jni",
- "log",
- "once_cell",
- "rustls",
- "rustls-native-certs",
- "rustls-platform-verifier-android",
- "rustls-webpki",
- "security-framework",
- "security-framework-sys",
- "webpki-root-certs",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rustls-platform-verifier-android"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
@@ -7059,9 +6935,9 @@ dependencies = [
 
 [[package]]
 name = "ruzstd"
-version = "0.9.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
+checksum = "fad02996bfc73da3e301efe90b1837be9ed8f4a462b6ed410aa35d00381de89f"
 dependencies = [
  "twox-hash",
 ]
@@ -7082,50 +6958,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "samply-debugid"
-version = "0.1.0"
-source = "git+https://github.com/mstange/samply?rev=dea56099bba34dfc5da4a8c9365d90b6eabffac7#dea56099bba34dfc5da4a8c9365d90b6eabffac7"
-dependencies = [
- "debugid",
- "uuid",
-]
-
-[[package]]
-name = "samply-object"
-version = "0.1.0"
-source = "git+https://github.com/mstange/samply?rev=dea56099bba34dfc5da4a8c9365d90b6eabffac7#dea56099bba34dfc5da4a8c9365d90b6eabffac7"
-dependencies = [
- "debugid",
- "object 0.40.0",
- "samply-debugid",
- "uuid",
-]
-
-[[package]]
 name = "samply-symbols"
 version = "0.24.1"
-source = "git+https://github.com/mstange/samply?rev=dea56099bba34dfc5da4a8c9365d90b6eabffac7#dea56099bba34dfc5da4a8c9365d90b6eabffac7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97e73d38bb04a373dba1260af91d4b0010e84cecd92d20b8e9949a910d5b9cbb"
 dependencies = [
- "addr2line 0.27.1",
+ "addr2line 0.24.2",
  "bitflags 2.13.1",
  "cpp_demangle",
  "crc32fast",
  "debugid",
  "elsa",
  "flate2",
- "gimli 0.34.0",
+ "gimli 0.31.1",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
  "memchr",
  "msvc-demangler",
  "nom 7.1.3",
- "object 0.40.0",
+ "object 0.36.7",
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
- "samply-debugid",
- "samply-object",
  "scala-native-demangle",
  "srcsrv",
  "thiserror 2.0.20",
@@ -7141,15 +6996,6 @@ name = "scala-native-demangle"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a4416eddc0eaf31e04aa4039bd3db4288ea1ba613955d86cf9c310049c5d1e2"
-
-[[package]]
-name = "schannel"
-version = "0.1.30"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5"
-dependencies = [
- "windows-sys 0.61.2",
-]
 
 [[package]]
 name = "scoped-tls"
@@ -7186,29 +7032,6 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit 0.19.2",
  "tiny-skia 0.11.4",
-]
-
-[[package]]
-name = "security-framework"
-version = "3.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
-dependencies = [
- "bitflags 2.13.1",
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "libc",
- "security-framework-sys",
-]
-
-[[package]]
-name = "security-framework-sys"
-version = "2.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
-dependencies = [
- "core-foundation-sys",
- "libc",
 ]
 
 [[package]]
@@ -7811,7 +7634,7 @@ dependencies = [
  "fs4",
  "futures-util",
  "http",
- "reqwest 0.12.28",
+ "reqwest",
  "scopeguard",
  "thiserror 2.0.20",
  "tokio",
@@ -8478,9 +8301,13 @@ dependencies = [
 
 [[package]]
 name = "twox-hash"
-version = "2.1.5"
+version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "static_assertions",
+]
 
 [[package]]
 name = "type-map"
@@ -8887,19 +8714,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-streams"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
-dependencies = [
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "wasmtimer"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9082,15 +8896,6 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "url",
  "web-sys",
-]
-
-[[package]]
-name = "webpki-root-certs"
-version = "1.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]
@@ -9410,22 +9215,21 @@ dependencies = [
 [[package]]
 name = "wholesym"
 version = "0.8.1"
-source = "git+https://github.com/mstange/samply?rev=dea56099bba34dfc5da4a8c9365d90b6eabffac7#dea56099bba34dfc5da4a8c9365d90b6eabffac7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ea291707798a4b15f75d46418b6f7c5a044cce8d55e2f18584ccebcdb8b4354"
 dependencies = [
+ "async-compression",
  "bytes",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "debugid",
+ "flate2",
  "fs4",
  "futures-util",
  "http",
  "libc",
  "memmap2",
- "reqwest 0.13.5",
- "reqwest-middleware",
- "reqwest-retry",
- "rustls",
- "samply-debugid",
+ "reqwest",
  "samply-symbols",
  "scopeguard",
  "symsrv",
@@ -9434,7 +9238,6 @@ dependencies = [
  "uuid",
  "yoke",
  "yoke-derive",
- "zlib-rs",
 ]
 
 [[package]]

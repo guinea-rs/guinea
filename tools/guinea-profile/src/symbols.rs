@@ -89,10 +89,10 @@ async fn resolve_async(
             cache.join("symbols").display()
         ));
     for directory in &options.directories {
-        config = config.extra_symbol_directory(directory);
+        config = config.extra_symbols_directory(directory);
     }
     if let Some(parent) = options.executable.as_ref().and_then(|p| p.parent()) {
-        config = config.extra_symbol_directory(parent);
+        config = config.extra_symbols_directory(parent);
     }
     let manager = SymbolManager::with_config(config);
     let mut symbols = seed.unwrap_or_else(|| json!({"string_table":[],"data":[]}));
@@ -175,7 +175,7 @@ async fn resolve_async(
                                 symbols["string_table"]
                                     .as_array_mut()
                                     .unwrap()
-                                    .push(json!(map.resolve_symbol_name(info.symbol.name)));
+                                    .push(json!(info.symbol.name));
                                 let entry = &mut symbols["data"][entry_index];
                                 let symbol_index = entry["symbol_table"].as_array().unwrap().len();
                                 entry["symbol_table"]
@@ -254,7 +254,7 @@ mod tests {
                 .await
                 .unwrap();
             let manager = SymbolManager::with_config(
-                SymbolManagerConfig::default().extra_symbol_directory(temp.path()),
+                SymbolManagerConfig::default().extra_symbols_directory(temp.path()),
             );
             let map = manager
                 .load_symbol_map_for_binary_at_path(&exe, None)

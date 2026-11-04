@@ -5,6 +5,7 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
+    { id = "RUSTSEC-2026-0344", reason = "Accepted for guinea-profile symbolication: registry wholesym 0.8.1 requires object/ruzstd 0.7; remove when wholesym publishes the upstream ruzstd upgrade. Only process trusted binaries, symbols and recordings" },
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained and has no successor release; it comes in through pulp under eframe, arboard and Slint, and is a build-time macro" },
     { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained with no safe upgrade; it comes in through Slint's text shaping, and moves when Slint does" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained with no safe upgrade; it comes in through fontdb under iced and Slint, and moves when they do" },
@@ -23,8 +24,7 @@ skip = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# Symbolication uses the security-fixed upstream revision pinned in Cargo.toml.
-allow-git = ["https://github.com/mstange/samply"]
+allow-git = []
 
 [sources.allow-org]
 github = ["guinea-rs", "uniproc-dev"]

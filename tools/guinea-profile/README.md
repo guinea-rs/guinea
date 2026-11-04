@@ -113,14 +113,9 @@ on PATH before building. The build script reports missing prerequisites before
 downloading Perfetto. Alternatively, `--ui-dir` serves a complete prebuilt UI
 without invoking the build script or requiring those tools.
 
-## Current development dependency and release gate
+## Symbolication dependency
 
-The automatic symbolication implementation currently pins the official Samply
-upstream revision `dea56099bba34dfc5da4a8c9365d90b6eabffac7`.
-The latest registry wholesym 0.8.1 depends on an older vulnerable ruzstd through
-object; the pinned upstream uses fixed ruzstd 0.9.1. The dependency deliberately
-has no registry version requirement: packaging must fail rather than silently
-replace the fixed Git source with the old registry release. A new crates.io
-release requires safe published upstream dependencies or an explicitly agreed
-preview-package strategy. Until that is settled, these are local development
-changes, not an update to the published guinea-profile 0.35.0.
+The CLI uses registry wholesym 0.8.1. Its transitive ruzstd dependency is covered
+by RUSTSEC-2026-0344 (decompression resource exhaustion). This advisory is
+explicitly accepted for this release until wholesym publishes its upstream
+upgrade. Process trusted recordings, binaries and symbols.

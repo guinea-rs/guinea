@@ -7,6 +7,7 @@ struct Options {
     icons: bool,
     static_content: bool,
     tick: bool,
+    defer_selection: bool,
 }
 impl Options {
     fn read() -> Self {
@@ -16,6 +17,7 @@ impl Options {
             icons: !args.iter().any(|a| a == "--no-icons"),
             static_content: args.iter().any(|a| a == "--static-content"),
             tick: args.iter().any(|a| a == "--tick"),
+            defer_selection: args.iter().any(|a| a == "--defer-selection"),
         }
     }
 }
@@ -179,6 +181,7 @@ mod integrated {
     enum LayoutMsg {
         Redraw,
         Pane(bool),
+        Select(guinea::winui::Navigator<Route>, usize),
     }
     #[layout]
     impl Layout for Shell {
@@ -187,12 +190,17 @@ mod integrated {
             match msg {
                 LayoutMsg::Redraw => self.redraws += 1,
                 LayoutMsg::Pane(open) => self.closed = !open,
+                LayoutMsg::Select(nav, i) => {
+                    eprintln!("Deferred selection -> {i}");
+                    let _ = nav.to(route(i));
+                }
             }
         }
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let options = Options::read();
             let nav = cx.navigate::<Route>();
             let current = index(nav.current().as_ref());
+            eprintln!("Guinea render: selected={current}");
             let page: View = if options.static_content {
                 content(0)
             } else {
@@ -204,15 +212,21 @@ mod integrated {
                 })
                 .into()
             };
+            let on_select = if options.defer_selection {
+                cx.on(move |i| LayoutMsg::Select(nav, i))
+            } else {
+                Callback::new(move |i| {
+                    eprintln!("Direct selection -> {i}");
+                    let _ = nav.to(route(i));
+                })
+            };
             navigation(
                 &options,
                 current,
                 self.redraws,
                 !self.closed,
                 page,
-                Callback::new(move |i| {
-                    let _ = nav.to(route(i));
-                }),
+                on_select,
                 cx.on(|()| LayoutMsg::Redraw),
                 Callback::new(move |()| {
                     let _ = nav.to(route((current + 1) % 4));
@@ -240,7 +254,11 @@ mod integrated {
     pub fn run() -> anyhow::Result<()> {
         guinea::winui::run(|_| {
             Ok(Window::of::<Shell>()
-                .title("Navigation indicator scratchpad - Guinea")
+                .title(if Options::read().defer_selection {
+                    "Navigation indicator - Guinea - deferred selection"
+                } else {
+                    "Navigation indicator - Guinea - direct selection"
+                })
                 .at(Route::Processes))
         })
     }

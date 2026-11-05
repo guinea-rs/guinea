@@ -28,6 +28,26 @@ Change one variable at a time (close the previous fixture before the next run):
 | `--static-content` | Keep content fixed while selection changes; Guinea does not mount an outlet in this variant. |
 | `--no-icons` | Omit icons. Otherwise use constant FontIcon glyphs, without SVG processing. |
 | `--tick` | Raw Reactor only: trigger an update every second without changing selection. |
+| `--defer-selection` | Guinea only: send the native click as a layout message before calling the navigator, instead of navigating directly inside the selection callback. |
+
+Observation from the user: programmatic Next animates in both hosts (although
+the motion looks poor); manual item selection breaks animation only in Guinea.
+The earlier interpretation that both hosts failed was corrected. The
+`--defer-selection` variant isolates event-delivery timing; it is not yet a fix.
+
+The user then confirmed that `--guinea --defer-selection` preserves the animation
+on manual clicks. This variant keeps the same NavigationView declarations,
+controlled selection, route changes and outlet. It only sends a layout message
+before invoking the navigator, instead of invoking it in the selection callback.
+This establishes an event-delivery boundary that changes the symptom. It does not
+yet distinguish dispatch ordering, callback identity/rebinding, or native
+animation reentrancy as the underlying mechanism.
+
+Navigator source inspection shows that `commit` changes the current route before
+notifying watchers; the hypothesis that current() simply stays old until outlet
+mounting is not supported. The deferred run logged two layout renders per change,
+both with the new selection, so a second render alone is not sufficient evidence
+of the defect. Do not require consumers to add message forwarding as a final fix.
 
 In either mode, **Redraw same selection** updates unrelated footer text;
 **Next (programmatic)** changes the controlled selection through state/navigation.

@@ -19,6 +19,11 @@ to `profiles/<timestamp>-<pid>` under the caller's working directory. Applicatio
 arguments are forwarded without a shell and the app inherits the working directory.
 Use `record --dry-run -- <executable> ...` to inspect the launch command.
 
+On Windows, samply 0.13.1 ignores `--duration`: recording continues until the
+launched application exits. It is not a sampling cutoff or an application timeout.
+Close the application normally to finish recording and processing; this CLI does
+not terminate it at a deadline. The CLI warns when this option is supplied.
+
 ## Recovery without another recording
 
 ```sh

@@ -35,6 +35,7 @@ fn record_cli() -> Command {
         .arg(
             Arg::new("duration")
                 .long("duration")
+                .help("Recording limit in seconds where supported; ignored by samply 0.13.1 on Windows, which waits for the application to exit")
                 .value_parser(value_parser!(u32).range(1..)),
         )
         .arg(Arg::new("no-ui").long("no-ui").action(ArgAction::SetTrue))

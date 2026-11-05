@@ -47,6 +47,12 @@ pub fn run(options: &ArgMatches, cache: &std::path::Path, viewer: &super::Viewer
         eprintln!("{command:?}");
         return Ok(());
     }
+    #[cfg(windows)]
+    if options.get_one::<u32>("duration").is_some() {
+        eprintln!(
+            "Warning: --duration is not supported by samply 0.13.1 on Windows. Recording continues until the application exits; this option does not stop sampling or close the application."
+        );
+    }
     eprintln!("Profiling: {}", executable.display());
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;

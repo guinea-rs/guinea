@@ -85,6 +85,15 @@ Windows recording preserves ETL for sampler/event-source investigations. Keep
 those originals too. Runtime UI builds now publish immutable distributions and
 stage bundled sources directly into WSL, independently of Windows drive mounts.
 
+## Discover SQL reports from the installed CLI
+
+Run `guinea-profile reports` for the built-in report catalog, parameter contracts,
+units and caveats. Generate SQL with `guinea-profile sql cpu-hotspots --pid 1234
+--from 5s --to 20s` and pass stdout to the existing Perfetto MCP `execute_sql`.
+No filesystem search, external index or new MCP server is needed. The `allocations`
+report accepts `--group action` for nearest-action causal aggregation and retains
+background/missing-ancestry work separately. Samples are not CPU milliseconds.
+
 ## Inspect in Perfetto
 
 The **Guinea** sidebar entry opens dashboards. The **Guinea workspace** contains
@@ -92,7 +101,7 @@ the timeline tracks. These are different views of the same recording.
 
 | Question | Where to look |
 | --- | --- |
-| What happened and what caused it? | `Events · ...` timeline tracks; select an event and inspect its debug fields and causal links |
+| What happened and what caused it? | `Events Â· ...` timeline tracks; select an event and inspect its debug fields and causal links |
 | Where is the code? | `source_path`, `file`, `line`, `column`; handlers use available declaration metadata |
 | Which thread? | Thread name, Rust `ThreadId` and native OS ID on Windows/Linux |
 | Where did CPU samples land over time? | CPU flamechart |
@@ -100,11 +109,11 @@ the timeline tracks. These are different views of the same recording.
 | What about a particular interval? | Select an area on CPU tracks to aggregate that interval |
 | Which operations allocate? | `Events` dashboard: counts and allocation ranking |
 | How does memory evolve? | `Memory` and `Scopes` dashboards, plus memory counter tracks |
-| What did a reducer change? | Select `state · ...` or a causal message; open the bottom `State change` tab |
+| What did a reducer change? | Select `state Â· ...` or a causal message; open the bottom `State change` tab |
 
 Use the search field **inside Perfetto**, not the browser address bar. Commands
 can be selected with the mouse; do not depend on browser keyboard shortcuts.
-For example, search for `state · todo_core::board::Board` in a detailed reference
+For example, search for `state Â· todo_core::board::Board` in a detailed reference
 recording to locate state updates.
 
 `State change` offers **Diff**, **Update**, **Before**, **After** and **Go to cause**.

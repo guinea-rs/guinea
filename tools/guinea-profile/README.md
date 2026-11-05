@@ -127,3 +127,26 @@ The CLI uses registry wholesym 0.8.1. Its transitive ruzstd dependency is covere
 by RUSTSEC-2026-0344 (decompression resource exhaustion). This advisory is
 explicitly accepted for this release until wholesym publishes its upstream
 upgrade. Process trusted recordings, binaries and symbols.
+
+## Built-in SQL reports
+
+No checkout, index file, running viewer or MCP extension is required:
+
+```sh
+guinea-profile reports
+guinea-profile sql cpu-hotspots --pid 1234 --from 5s --to 20s
+guinea-profile sql cpu-compare --pid 1234 --from 5s --split 10s --to 20s
+guinea-profile sql cpu-uiautomation --automation exclude
+guinea-profile sql allocations --group action
+```
+
+Pass SQL stdout to the existing Perfetto MCP `execute_sql` tool or SQL query panel.
+`reports` documents every report, parameters, units and limitations. Templates are
+embedded in the executable and rendered with MiniJinja; IDs, durations and filter
+choices are validated. Generating SQL does not execute it or open a recording.
+
+CPU reports show captured samples, never CPU milliseconds; inclusive rows overlap.
+Time filters are relative to trace start, with an inclusive start and exclusive end.
+Allocation reports preserve missing measurements as NULL / `not recorded`, separate
+unattributed/background work, and can aggregate exclusive cause counters under the
+nearest recorded action. They report allocation volume, not retained memory.

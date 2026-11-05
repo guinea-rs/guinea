@@ -1,0 +1,41 @@
+---
+source: tools/guinea-profile/tests/reports.rs
+expression: "String::from_utf8(out.stdout).unwrap()"
+---
+-- Units: captured samples, never CPU milliseconds. Inclusive rows overlap.
+-- Times are relative to trace start; range is [from, to).
+WITH RECURSIVE selected AS (
+ SELECT s.id, s.ts, s.utid, s.callsite_id, t.tid, p.pid,
+ COALESCE(t.name, '[unnamed]') thread_name
+ FROM perf_sample s JOIN thread t USING(utid) LEFT JOIN process p USING(upid)
+ WHERE s.callsite_id IS NOT NULL
+  AND p.pid = 1234 
+  AND t.tid = 42 
+ AND s.ts >= (SELECT start_ts FROM trace_bounds) + 5000000000
+  AND s.ts < (SELECT start_ts FROM trace_bounds) + 20000000000 
+), stack AS (
+ SELECT id sample_id, callsite_id, 0 depth FROM selected
+ UNION ALL
+ SELECT a.sample_id, c.parent_id, a.depth+1 FROM stack a
+ JOIN stack_profile_callsite c ON c.id=a.callsite_id
+ WHERE c.parent_id IS NOT NULL AND a.depth < 2048
+), frames AS (
+ SELECT a.*, COALESCE(f.name, '[unresolved]') function,
+ COALESCE(m.name, '[unknown module]') module
+ FROM stack a JOIN stack_profile_callsite c ON c.id=a.callsite_id
+ JOIN stack_profile_frame f ON f.id=c.frame_id
+ LEFT JOIN stack_profile_mapping m ON m.id=f.mapping
+), marked AS (
+ SELECT sample_id, MAX(CASE WHEN LOWER(function) LIKE '%uiautomation%'
+ OR LOWER(module) LIKE '%uiautomation%' THEN 1 ELSE 0 END) automation
+ FROM frames GROUP BY sample_id
+), eligible AS (
+ SELECT s.* FROM selected s JOIN marked m ON m.sample_id=s.id
+  WHERE m.automation=0 
+)
+
+SELECT f.function, f.module,
+ COUNT(DISTINCT CASE WHEN depth=0 THEN f.sample_id END) self_samples,
+ COUNT(DISTINCT f.sample_id) inclusive_samples
+ FROM frames f JOIN eligible e ON e.id=f.sample_id
+ GROUP BY function,module ORDER BY inclusive_samples DESC, function, module LIMIT 50;

@@ -8,6 +8,7 @@ use std::{
 mod integration;
 mod profile_ui;
 mod record;
+mod reports;
 mod symbols;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 struct Viewer {
@@ -90,6 +91,11 @@ fn cli() -> Command {
                 .conflicts_with("integration")
                 .help("Prebuilt Perfetto UI, no source checkout or UI build required"),
         )
+        .subcommand(reports::command())
+        .subcommand(
+            Command::new("reports")
+                .about("List built-in SQL reports, parameters and interpretation"),
+        )
         .subcommand(record_cli())
         .subcommand(
             Command::new("process")
@@ -145,6 +151,14 @@ fn main() -> Result<()> {
         cache: cache.clone(),
     };
     match args.subcommand().unwrap() {
+        ("reports", _) => {
+            print!("{}", reports::catalog());
+            Ok(())
+        }
+        ("sql", options) => {
+            print!("{}", reports::render(options)?);
+            Ok(())
+        }
         ("record", options) => record::run(options, &cache, &viewer),
         ("process", options) => {
             let input = options.get_one::<PathBuf>("directory").unwrap();
@@ -166,7 +180,9 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            process(output, &cache, &symbol_options(options, output))
+            process(output, &cache, &symbol_options(options, output))?;
+            reports::hint();
+            Ok(())
         }
         ("view", options) => profile_ui::serve(
             options.get_one::<PathBuf>("directory").unwrap(),

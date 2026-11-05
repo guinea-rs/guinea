@@ -79,6 +79,7 @@ pub fn serve(recording: &Path, no_open: bool, viewer: &super::Viewer) -> Result<
         let port = listener.local_addr()?.port();
         let url = format!("http://127.0.0.1:{port}/#!/?url=http%3A%2F%2F127.0.0.1%3A{port}%2Fprofile%2Fcombined.pftrace&enablePlugins=rs.guinea.Profile");
         eprintln!("Perfetto: {url}\nCtrl+C stops the local viewer server.");
+        super::reports::hint();
         if !no_open { webbrowser::open(&url)?; }
         axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
         Ok(())

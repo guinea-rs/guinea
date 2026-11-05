@@ -1,0 +1,72 @@
+-- Allocation counters are exclusive per cause. Deduplicate causal IDs before grouping.
+
+-- Action attribution stops at the nearest action. Missing counters remain NULL.
+
+WITH RECURSIVE events AS (
+
+ SELECT CAST(EXTRACT_ARG(s.arg_set_id,'debug.guinea_id') AS INT) id,
+
+ MAX(CAST(EXTRACT_ARG(s.arg_set_id,'debug.guinea_parent') AS INT)) parent,
+
+ MAX(COALESCE(EXTRACT_ARG(s.arg_set_id,'debug.guinea_kind'),s.name)) kind,
+
+ MAX(COALESCE(EXTRACT_ARG(s.arg_set_id,'debug.message'),EXTRACT_ARG(s.arg_set_id,'debug.event'),EXTRACT_ARG(s.arg_set_id,'debug.reducer'),EXTRACT_ARG(s.arg_set_id,'debug.output'),s.name) || COALESCE(' -> ' || EXTRACT_ARG(s.arg_set_id,'debug.actor'),'')) operation,
+
+ MAX(EXTRACT_ARG(s.arg_set_id,'debug.memory_allocated_bytes')) allocated_bytes,
+
+ MAX(EXTRACT_ARG(s.arg_set_id,'debug.memory_freed_bytes')) freed_bytes,
+
+ MAX(CASE WHEN s.ts >= (SELECT start_ts FROM trace_bounds)+{{ start }}
+
+ {% if end is not none %} AND s.ts < (SELECT start_ts FROM trace_bounds)+{{ end }} {% endif %}
+
+ {% if pid is not none %} AND COALESCE(tp.pid,pp.pid)={{ pid }} {% endif %}
+
+ {% if tid is not none %} AND t.tid={{ tid }} {% endif %}
+
+ THEN 1 ELSE 0 END) selected
+
+ FROM slice s LEFT JOIN thread_track tt ON tt.id=s.track_id
+
+ LEFT JOIN thread t ON t.utid=tt.utid LEFT JOIN process tp ON tp.upid=t.upid
+
+ LEFT JOIN process_track pt ON pt.id=s.track_id LEFT JOIN process pp ON pp.upid=pt.upid
+
+ WHERE EXTRACT_ARG(s.arg_set_id,'debug.guinea_id') IS NOT NULL GROUP BY 1
+
+), ancestry(origin,id,depth) AS (
+
+ SELECT id,id,0 FROM events WHERE selected=1
+
+ UNION ALL
+
+ SELECT a.origin,e.parent,a.depth+1 FROM ancestry a JOIN events e ON e.id=a.id
+
+ WHERE e.kind!='action' AND e.parent IS NOT NULL AND a.depth<2048
+
+), nearest AS (
+
+ SELECT a.origin,e.operation FROM ancestry a JOIN events e ON e.id=a.id WHERE e.kind='action'
+
+), grouped AS (
+
+ SELECT {% if grouping == 'action' %} COALESCE(n.operation,'[no recorded action ancestor]') {% else %} e.kind || ' · ' || e.operation {% endif %} operation,
+
+ CASE WHEN n.origin IS NULL THEN 'background_or_missing_ancestry' ELSE 'action' END attribution,
+
+ e.allocated_bytes,e.freed_bytes
+
+ FROM events e LEFT JOIN nearest n ON n.origin=e.id WHERE e.selected=1
+
+)
+
+SELECT operation,attribution,COUNT(*) events,COUNT(allocated_bytes) measured_events,
+
+ CASE WHEN COUNT(allocated_bytes)=0 THEN 'not recorded'
+
+ WHEN COUNT(allocated_bytes)<COUNT(*) THEN 'partial' ELSE 'recorded' END allocation_status,
+
+ SUM(allocated_bytes) allocated_bytes,SUM(freed_bytes) freed_bytes
+
+ FROM grouped GROUP BY operation,attribution ORDER BY allocated_bytes DESC, operation, attribution LIMIT {{ limit }};
+

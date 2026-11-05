@@ -71,6 +71,7 @@ pub fn run(options: &ArgMatches, cache: &std::path::Path, viewer: &super::Viewer
     )?;
     let status = command.status()?;
     eprintln!("Recording: {}", output.display());
+    super::reports::hint();
     if !status.success() {
         return Err(
             format!("samply exited with {status}; partial files have been preserved").into(),

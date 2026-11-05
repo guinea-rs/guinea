@@ -1,0 +1,33 @@
+---
+source: tools/guinea-profile/tests/reports.rs
+expression: "String::from_utf8(out.stdout).unwrap()"
+---
+Built-in Perfetto SQL reports
+Generate: guinea-profile sql <report> [parameters]
+Execute stdout via Perfetto MCP execute_sql or the Perfetto SQL panel.
+No file discovery, trace loading, server or source checkout is required to generate SQL.
+
+Common: --pid <OS PID>, --tid <OS TID>, --from 5s --to 20s, --limit 50 (1..10000).
+Times are relative to trace start; intervals are [from,to). Default from=0s, to=trace end.
+CPU: --automation all|include|exclude selects samples with UIAutomation in any stack frame/module.
+This is a stack-name heuristic, not proof that automation caused all work in the interval.
+
+cpu-hotspots: self/inclusive samples per function and module.
+cpu-modules: self/inclusive samples per module.
+cpu-threads: captured sample counts per process/thread; preserves distinct thread lifetimes.
+cpu-compare: inclusive function samples before/after --split 10s; requires --to.
+  Shows raw delta_samples and samples/second in each interval (not CPU utilization).
+cpu-uiautomation: function samples on UIAutomation stack paths; defaults --automation include.
+allocations: exclusive allocated/freed bytes per Guinea operation.
+  --group operation (default) or action (nearest action plus causal descendants).
+  No recorded action ancestor is a separate group: background or missing ancestry.
+  Missing measurement = NULL / not recorded; mixed coverage = partial, never fabricated zero.
+  Time/thread filters apply to allocation-owning event starts, not allocation timestamps.
+  Action ancestry may cross threads and the selected interval. Freed bytes are measured at event end.
+
+CPU units are captured samples, NEVER CPU milliseconds. Inclusive rows overlap and cannot
+be summed across functions/modules. Recursive repeats count once per sample and function.
+Names require resolved symbols. Empty CPU results may mean no CPU samples or unmatched filters.
+Allocation totals are allocation volume, not retained/live memory. Events without observed
+completion may lack counters. Missing ancestry is not proof of background origin.
+Stack/causal traversal is bounded to 2048 levels; pid/tid reuse may match multiple lifetimes.

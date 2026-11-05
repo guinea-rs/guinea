@@ -20,6 +20,9 @@ tower-http = { version = "0.6", features = ["fs"] }
 webbrowser = "1"
 wholesym = "=0.8.1"
 tar = "0.4"
+minijinja = "2"
+humantime = "2"
 
 [dev-dependencies]
 tempfile.workspace = true
+insta.workspace = true

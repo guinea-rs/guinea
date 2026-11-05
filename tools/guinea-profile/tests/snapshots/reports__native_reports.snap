@@ -1,0 +1,23 @@
+---
+source: tools/guinea-profile/tests/reports.rs
+expression: results
+---
+cpu-hotspots
+"function","module","self_samples","inclusive_samples"
+"app::main","/[native]",0,2
+"app::work","/[native]",2,2
+cpu-modules
+"module","self_samples","inclusive_samples"
+"/[native]",2,2
+cpu-threads
+"pid","tid","thread_name","samples"
+1234,42,"[unnamed]",2
+cpu-compare
+"function","module","before_samples","after_samples","delta_samples","before_samples_per_second","after_samples_per_second"
+"app::main","/[native]",1,1,0,0.666667,0.666667
+"app::work","/[native]",1,1,0,0.666667,0.666667
+cpu-uiautomation
+"function","module","self_samples","inclusive_samples"
+allocations
+"operation","attribution","events","measured_events","allocation_status","allocated_bytes","freed_bytes"
+"action · Fixture","action",1,0,"not recorded","[NULL]","[NULL]"

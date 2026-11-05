@@ -1,0 +1,58 @@
+-- Units: captured samples, never CPU milliseconds. Inclusive rows overlap.
+-- Times are relative to trace start; range is [from, to).
+WITH RECURSIVE selected AS (
+ SELECT s.id, s.ts, s.utid, s.callsite_id, t.tid, p.pid,
+ COALESCE(t.name, '[unnamed]') thread_name
+ FROM perf_sample s JOIN thread t USING(utid) LEFT JOIN process p USING(upid)
+ WHERE s.callsite_id IS NOT NULL
+ {% if pid is not none %} AND p.pid = {{ pid }} {% endif %}
+ {% if tid is not none %} AND t.tid = {{ tid }} {% endif %}
+ AND s.ts >= (SELECT start_ts FROM trace_bounds) + {{ start }}
+ {% if end is not none %} AND s.ts < (SELECT start_ts FROM trace_bounds) + {{ end }} {% endif %}
+), stack AS (
+ SELECT id sample_id, callsite_id, 0 depth FROM selected
+ UNION ALL
+ SELECT a.sample_id, c.parent_id, a.depth+1 FROM stack a
+ JOIN stack_profile_callsite c ON c.id=a.callsite_id
+ WHERE c.parent_id IS NOT NULL AND a.depth < 2048
+), frames AS (
+ SELECT a.*, COALESCE(f.name, '[unresolved]') function,
+ COALESCE(m.name, '[unknown module]') module
+ FROM stack a JOIN stack_profile_callsite c ON c.id=a.callsite_id
+ JOIN stack_profile_frame f ON f.id=c.frame_id
+ LEFT JOIN stack_profile_mapping m ON m.id=f.mapping
+), marked AS (
+ SELECT sample_id, MAX(CASE WHEN LOWER(function) LIKE '%uiautomation%'
+ OR LOWER(module) LIKE '%uiautomation%' THEN 1 ELSE 0 END) automation
+ FROM frames GROUP BY sample_id
+), eligible AS (
+ SELECT s.* FROM selected s JOIN marked m ON m.sample_id=s.id
+ {% if automation == 'include' %} WHERE m.automation=1
+ {% elif automation == 'exclude' %} WHERE m.automation=0 {% endif %}
+)
+{% if report == 'cpu-hotspots' or report == 'cpu-uiautomation' %}
+SELECT f.function, f.module,
+ COUNT(DISTINCT CASE WHEN depth=0 THEN f.sample_id END) self_samples,
+ COUNT(DISTINCT f.sample_id) inclusive_samples
+ FROM frames f JOIN eligible e ON e.id=f.sample_id
+ GROUP BY function,module ORDER BY inclusive_samples DESC, function, module LIMIT {{ limit }};
+{% elif report == 'cpu-modules' %}
+SELECT f.module, COUNT(DISTINCT CASE WHEN depth=0 THEN f.sample_id END) self_samples,
+ COUNT(DISTINCT f.sample_id) inclusive_samples
+ FROM frames f JOIN eligible e ON e.id=f.sample_id
+ GROUP BY module ORDER BY inclusive_samples DESC, module LIMIT {{ limit }};
+{% elif report == 'cpu-threads' %}
+SELECT pid,tid,thread_name,COUNT(*) samples FROM eligible
+ GROUP BY pid,utid,tid,thread_name ORDER BY samples DESC, pid, tid LIMIT {{ limit }};
+{% elif report == 'cpu-compare' %}
+, counts AS (
+ SELECT function,module,
+ COUNT(DISTINCT CASE WHEN e.ts < (SELECT start_ts FROM trace_bounds)+{{ split }} THEN f.sample_id END) before_samples,
+ COUNT(DISTINCT CASE WHEN e.ts >= (SELECT start_ts FROM trace_bounds)+{{ split }} THEN f.sample_id END) after_samples
+ FROM frames f JOIN eligible e ON e.id=f.sample_id GROUP BY function,module
+)
+SELECT *,after_samples-before_samples delta_samples,
+ before_samples * 1e9 / ({{ split }}-{{ start }}) before_samples_per_second,
+ after_samples * 1e9 / ({{ end }}-{{ split }}) after_samples_per_second
+ FROM counts ORDER BY ABS(delta_samples) DESC, function, module LIMIT {{ limit }};
+{% endif %}

@@ -1,0 +1,8 @@
+---
+source: crates/guinea/tests/marks_winui.rs
+expression: "panic_text(|| { let _ = page.tree().find(Repeated::Run); })"
+---
+ambiguous mark "marks_winui::Repeated::Run": 2 matches in the search subtree
+  - /Border/StackPanel[0]/Border[2]/Button[0]
+  - /Border/StackPanel[0]/Border[3]/Button[0]
+Narrow the search with within()/at() or use distinct marks.

@@ -402,6 +402,18 @@ fn adds_the_step_it_was_told(h: &mut Harness) {
 name can stay the same when its label or position changes. `click_text`
 finds an element by its text instead.
 
+Derived names include the defining module, enum and variant, for example
+`app::performance::Marks::Memory`. A `Memory` variant in a sidebar enum is a
+different mark. Typed lookups need no extra prefixes; external tools using literal
+AutomationIds must use the qualified name (available through `Mark::name()`).
+
+A mark lookup must identify exactly one element in the selected subtree. Repeated
+marks in rows or cards are valid, but searching their common ancestor panics with
+all matching paths. Use `within(container)` or `at(node)` to select the intended
+container before finding or clicking its marked child. `find` returns `None` only
+when no element matches, not when a match is ambiguous.
+
+
 `settle` runs the work caused by the click: handling the action, updating
 the reducer and redrawing the page. The test seed determines background
 execution order so a failing run can be reproduced.

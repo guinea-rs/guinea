@@ -15,7 +15,7 @@ Node(
         ),
         Node(
           kind: "Button",
-          id: Some("Search"),
+          id: Some("harness_winui::Marks::Search"),
           children: [
             Node(
               kind: "TextBlock",

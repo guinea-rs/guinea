@@ -281,10 +281,21 @@ impl Node {
         self.first(&|node| node.text.as_deref() == Some(text))
     }
 
-    /// The first element here, depth first, that carries `mark`.
+    /// The unique element here carrying `mark`; panics on ambiguous matches.
     pub fn find(&self, mark: impl Mark) -> Option<&Node> {
         let name = mark.name();
-        self.first(&|node| node.id.as_deref() == Some(name))
+        let mut matches = Vec::new();
+        let mut pending = vec![(self, format!("/{}", self.kind))];
+        while let Some((node, path)) = pending.pop() {
+            if node.id.as_deref() == Some(name) { matches.push((node, path.clone())); }
+            for (index, child) in node.children.iter().enumerate().rev() {
+                pending.push((child, format!("{path}/{}[{index}]", child.kind)));
+            }
+        }
+        if matches.len() > 1 {
+            ambiguous_mark(name, &matches.iter().map(|(_, path)| path.clone()).collect::<Vec<_>>());
+        }
+        matches.first().map(|(node, _)| *node)
     }
 
     fn first(&self, test: &dyn Fn(&Node) -> bool) -> Option<&Node> {
@@ -530,7 +541,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     /// The first element, depth first, that carries `mark`.
     pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
-        self.first_marked(self.root()?, mark.name())
+        self.unique_marked(self.root()?, mark.name())
     }
 
     /// The first element, depth first, that shows `text`.
@@ -684,7 +695,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
     fn marked(&self, under: NodeId, mark: &impl Mark) -> NodeId {
         let name = mark.name();
-        self.first_marked(under, name)
+        self.unique_marked(under, name)
             .unwrap_or_else(|| panic!("nothing here is marked {name:?}:\n{:#?}", self.node(under)))
     }
 
@@ -1051,8 +1062,32 @@ impl<'h, S: 'static> Mounted<'h, S> {
         None
     }
 
-    fn first_marked(&self, under: NodeId, name: &str) -> Option<NodeId> {
-        self.first(under, |node| self.mark_of(node).as_deref() == Some(name))
+    fn unique_marked(&self, under: NodeId, name: &str) -> Option<NodeId> {
+        let mut matches = Vec::new();
+        let mut pending = vec![under];
+        while let Some(node) = pending.pop() {
+            if self.mark_of(node).as_deref() == Some(name) { matches.push(node); }
+            pending.extend(self.below(node).into_iter().rev());
+        }
+        if matches.len() > 1 {
+            let parents = self.parents();
+            let paths = matches.iter().map(|found| {
+                let mut parts = Vec::new();
+                let mut node = *found;
+                loop {
+                    let parent = parents.get(&node).copied();
+                    let index = parent.and_then(|parent| self.below(parent).iter().position(|child| *child == node)).unwrap_or(0);
+                    parts.push(format!("{:?}[{index}]", self.kind(node).unwrap()));
+                    if node == under { break; }
+                    let Some(parent) = parent else { break; };
+                    node = parent;
+                }
+                parts.reverse();
+                format!("/{}", parts.join("/"))
+            }).collect::<Vec<_>>();
+            ambiguous_mark(name, &paths);
+        }
+        matches.first().copied()
     }
 
     fn first_showing(&self, under: NodeId, text: &str) -> Option<NodeId> {
@@ -1139,7 +1174,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
 
         let mut sized = HashMap::new();
         for (name, width, height) in &self.sizes {
-            let Some(element) = self.first_marked(root, name) else {
+            let Some(element) = self.unique_marked(root, name) else {
                 continue;
             };
 
@@ -1551,7 +1586,7 @@ impl<'h, S: 'static> Within<'_, 'h, S> {
     }
 
     pub fn find(&self, mark: impl Mark) -> Option<NodeId> {
-        self.mounted.first_marked(self.root, mark.name())
+        self.mounted.unique_marked(self.root, mark.name())
     }
 
     pub fn find_text(&self, text: &str) -> Option<NodeId> {
@@ -1608,3 +1643,8 @@ fn bool_of(value: Option<&PropertyValue>) -> Option<bool> {
 
 #[cfg(test)]
 mod tests;
+
+fn ambiguous_mark(name: &str, paths: &[String]) -> ! {
+    panic!("ambiguous mark {name:?}: {} matches in the search subtree\n{}\nNarrow the search with within()/at() or use distinct marks.",
+        paths.len(), paths.iter().map(|path| format!("  - {path}")).collect::<Vec<_>>().join("\n"));
+}

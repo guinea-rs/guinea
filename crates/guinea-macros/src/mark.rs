@@ -9,6 +9,7 @@ pub(crate) fn derive_mark(input: DeriveInput) -> TokenStream {
             .to_compile_error();
     };
 
+    let mark_type = &input.ident;
     let mut arms = Vec::with_capacity(data.variants.len());
     for variant in &data.variants {
         if !matches!(variant.fields, Fields::Unit) {
@@ -18,7 +19,7 @@ pub(crate) fn derive_mark(input: DeriveInput) -> TokenStream {
 
         let ident = &variant.ident;
         let name = ident.to_string();
-        arms.push(quote!(Self::#ident => #name));
+        arms.push(quote!(Self::#ident => concat!(module_path!(), "::", stringify!(#mark_type), "::", #name)));
     }
 
     let gc = crate::paths::core();

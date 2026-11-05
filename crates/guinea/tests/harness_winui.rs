@@ -455,7 +455,7 @@ fn a_click_bubbles_through_every_listener_and_stops_at_a_button(h: &mut Harness)
 }
 
 #[guinea::test(iterations = 1)]
-#[should_panic(expected = "\"Remove\" cannot be clicked: it is inside a disabled Button")]
+#[should_panic(expected = "\"harness_winui::Marks::Remove\" cannot be clicked: it is inside a disabled Button")]
 fn a_disabled_button_does_not_take_the_click(h: &mut Harness) {
     let mut page = Mounted::<RowsPage>::mount(h.segment(),()).unwrap();
     page.item(0).click(Marks::Remove);
@@ -538,7 +538,7 @@ fn a_click_turns_a_switch_a_check_box_and_a_radio_button_over(h: &mut Harness) {
     );
 }
 
-/// A "…" button whose flyout holds a check box per chart, the way a sidebar
+/// A "â€¦" button whose flyout holds a check box per chart, the way a sidebar
 /// picks which charts it shows.
 #[derive(Default)]
 pub struct ChartsPage {
@@ -559,7 +559,7 @@ impl Page for ChartsPage {
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         StackPanel::new()
             .children((
-                Button::new().mark(Marks::Charts).content("…").flyout_with(Flyout::rich(
+                Button::new().mark(Marks::Charts).content("â€¦").flyout_with(Flyout::rich(
                     CheckBox::new()
                         .mark(Marks::ShowDisk)
                         .is_checked(self.disk)

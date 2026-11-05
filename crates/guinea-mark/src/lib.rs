@@ -3,8 +3,8 @@
 //! A crate of its own, depending on nothing, so that a widget library can take
 //! marks without taking guinea.
 //!
-//! One enum per application, derived: each variant is a name, written as the
-//! variant is.
+//! Derive an enum per page or widget. Its module, enum and variant form a
+//! qualified name, so equally named variants on different screens stay distinct.
 //!
 //! ```
 //! # mod guinea {
@@ -16,11 +16,13 @@
 //!     Search,
 //!     Kill,
 //! }
-//! # assert_eq!([Marks::Search.name(), Marks::Kill.name()], ["Search", "Kill"]);
+//! # assert!(Marks::Search.name().ends_with("::Marks::Search"));
+//! # assert_ne!(Marks::Search.name(), Marks::Kill.name());
 //! ```
 
 /// A name a backend puts on an element, where a test or a tool finds it again
-/// - the `AutomationId` on WinUI.
+/// - the `AutomationId` on WinUI. Derived names include module, enum and variant.
+/// Manual implementations own their namespacing contract.
 pub trait Mark: 'static {
     fn name(&self) -> &'static str;
 }

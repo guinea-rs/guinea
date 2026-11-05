@@ -313,9 +313,9 @@ impl Component for Chrome {
         let asking = input.window.start.as_ref().map(|start| {
             let navigator = start(window);
             let sender = cx.sender();
-            let watching = navigator.watch(Box::new(move || {
+            let watching = crate::question_watch::watch_questions(&navigator, move || {
                 let _gone = !sender.send(Heard::Navigation);
-            }));
+            });
             (navigator, watching)
         });
 

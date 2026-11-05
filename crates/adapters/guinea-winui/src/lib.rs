@@ -19,6 +19,7 @@ pub mod harness;
 mod mark;
 mod run;
 mod presentation;
+mod question_watch;
 mod slots;
 mod winui;
 

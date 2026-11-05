@@ -78,3 +78,47 @@ https://github.com/microsoft/microsoft-ui-xaml/blob/main/controls/dev/Navigation
 The source requires previous/next indicator elements, a template, and animations
 enabled. It also handles interrupted animations and delayed item realization;
 the inspected upstream main branch is context, not proof about the installed DLL.
+
+## Confirmed cause and correction
+
+The native recording establishes the following sequence on a manual click:
+
+1. WinUI selects Activity (object 16).
+2. Chrome receives the navigator's route-change notification before the layout.
+3. Reactor expands Chrome using the layout's cached View. That View still declares
+   Processes selected. The batch from component 1 writes object 14 true and
+   object 16 false.
+4. The layout's own refresh runs. Component 2 writes object 14 false and object
+   16 true. The selection has been reversed and restored during the animation.
+
+The same reversal was captured for Activity -> Services. Thus it is not tied to
+the first click, icons, item replacement, or outlet mounting failure. Programmatic
+navigation starts with the old native selection, so replaying that cached View
+does not cause the same reversal. Deferring the click through a layout message
+works because that layout renders its new selection before the ancestor refresh.
+
+Chrome needs navigator notifications to show/dismiss a guard question, not to
+render every route change. `question_watch::watch_questions` now notifies Chrome
+only when `pending()` changes. The layout keeps its normal navigation subscription.
+No consumer messages, vendor edits, or animation overrides are required.
+
+The control used the same instrumented Reactor and a copy of published
+guinea-winui 0.35.1 with only this observer change. Manual clicks then produced
+native selection observations and layout renders with no intervening IsSelected
+writes. The user confirmed that the fixed window looks normal.
+
+Diagnostic outputs (local, not published):
+
+- `target/nav-traced-direct.log`: native selection followed by Chrome reversal
+  and layout restoration.
+- `target/nav-traced-fixed.log`: native selection and layout render, no reversal.
+- `target/navigation-indicator-reactor-traced`: instrumented copy of the registry
+  Reactor, separate from the repository's unchanged vendor.
+- `target/navigation-indicator-guinea-fixed`: registry adapter with the observer
+  correction only, separate from unrelated development changes.
+
+Regression coverage checks that ordinary route changes do not refresh Chrome,
+guard questions still open and close on rejection/acceptance, and dropping the
+watch removes its notification. The runtime mechanism of cached-child replay is
+broader than this adapter's unnecessary subscription; this correction removes the
+confirmed Guinea trigger rather than changing Reactor's component semantics.

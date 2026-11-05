@@ -30,7 +30,10 @@ guinea-profile process saved-session --output recovered-session --executable pat
 copied unchanged. The saved session supplies the executable path when available.
 Symbolication runs automatically for both `record` and `process` using wholesym,
 with recorded module debug identities, local binaries/PDBs, symbol directories
-and the standard Windows symbol path/cache. It never fabricates symbol names.
+and the standard Windows symbol path/cache. Explicit `--symbol-dir` directories
+are checked locally before network symbol servers. A flat directory containing
+`<debug_name>` (for example `Microsoft.ui.xaml.pdb`) is sufficient; no symbol-server
+directory layout is required. It never fabricates symbol names.
 The application is processed first; `--symbol-timeout` sets a total lookup budget
 (default 120 seconds). Missing/incomplete application symbols fail conversion
 with a diagnostic; `--allow-unresolved` explicitly permits a partial result.

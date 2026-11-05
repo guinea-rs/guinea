@@ -42,9 +42,10 @@ fn addresses(profile: &Value) -> Vec<BTreeSet<u32>> {
                             .as_u64()
                             .and_then(|v| u32::try_from(v).ok()),
                     )
-                        && let Some(addresses) = result.get_mut(lib as usize) {
-                            addresses.insert(address);
-                        }
+                    && let Some(addresses) = result.get_mut(lib as usize)
+                {
+                    addresses.insert(address);
+                }
                 let Some(parent) = thread["stackTable"]["prefix"][stack as usize].as_u64() else {
                     break;
                 };
@@ -94,6 +95,15 @@ async fn resolve_async(
     if let Some(parent) = options.executable.as_ref().and_then(|p| p.parent()) {
         config = config.extra_symbols_directory(parent);
     }
+    // Explicit local directories must be tried before any network candidate.
+    let mut local_config = SymbolManagerConfig::default().respect_nt_symbol_path(false);
+    for directory in &options.directories {
+        local_config = local_config.extra_symbols_directory(directory);
+    }
+    if let Some(parent) = options.executable.as_ref().and_then(|p| p.parent()) {
+        local_config = local_config.extra_symbols_directory(parent);
+    }
+    let local_manager = SymbolManager::with_config(local_config);
     let manager = SymbolManager::with_config(config);
     let mut symbols = seed.unwrap_or_else(|| json!({"string_table":[],"data":[]}));
     if !symbols["string_table"].is_array() || !symbols["data"].is_array() {
@@ -149,13 +159,19 @@ async fn resolve_async(
                     lib["path"].as_str().map(PathBuf::from)
                 };
                 let load = async {
+                    if let Ok(map) = local_manager.load_symbol_map(debug_name, expected).await
+                        && map.debug_id() == expected
+                    {
+                        return Ok(map);
+                    }
                     if let Some(binary) = binary.as_ref().filter(|path| path.is_file())
                         && let Ok(map) = manager
                             .load_symbol_map_for_binary_at_path(binary, None)
                             .await
-                            && map.debug_id() == expected {
-                                return Ok(map);
-                            }
+                        && map.debug_id() == expected
+                    {
+                        return Ok(map);
+                    }
                     manager.load_symbol_map(debug_name, expected).await
                 };
                 match tokio::time::timeout(
@@ -298,6 +314,23 @@ mod tests {
         assert_eq!(report["modules"][0]["resolved"], 1);
         assert_eq!(report["modules"][0]["unresolved"], 0);
         assert_eq!(report["modules"][0]["error"], Value::Null);
+        // A detached flat PDB directory must resolve without a binary path or
+        // waiting for the default remote symbol server to reject this fixture.
+        let detached = temp.path().join("detached");
+        fs::create_dir(&detached).unwrap();
+        let mut profile = profile;
+        profile["libs"][0]["path"] = Value::Null;
+        let options = Options {
+            executable: None,
+            directories: vec![temp.path().to_path_buf()],
+            allow_unresolved: false,
+            timeout: Duration::from_secs(2),
+        };
+        let resolved = resolve(&profile, None, &detached, &detached, &options).unwrap();
+        assert_eq!(
+            resolved["string_table"][0],
+            "fixture::guinea_profile_fixture_symbol()"
+        );
     }
 
     #[test]

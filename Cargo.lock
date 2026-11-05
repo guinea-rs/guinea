@@ -3080,6 +3080,7 @@ dependencies = [
  "tracing",
  "windows-core 0.100.0",
  "windows-reactor-pre",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

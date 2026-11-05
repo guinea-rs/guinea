@@ -342,7 +342,13 @@ mod tests {
     fn a_window_on_an_unplugged_monitor_is_centred_on_the_primary_one() {
         let fitted = fit(window(800.0, 600.0, 2000.0, 100.0), &[PRIMARY]);
 
-        assert_eq!(fitted.size, Some(Size { width: 800.0, height: 600.0 }));
+        assert_eq!(
+            fitted.size,
+            Some(Size {
+                width: 800.0,
+                height: 600.0
+            })
+        );
         assert_eq!(fitted.position, Some(Position { x: 560.0, y: 220.0 }));
     }
 
@@ -350,7 +356,13 @@ mod tests {
     fn a_window_larger_than_its_monitor_is_shrunk_to_it_and_kept_on_it() {
         let fitted = fit(window(2400.0, 1400.0, -10.0, -10.0), &[PRIMARY]);
 
-        assert_eq!(fitted.size, Some(Size { width: 1920.0, height: 1040.0 }));
+        assert_eq!(
+            fitted.size,
+            Some(Size {
+                width: 1920.0,
+                height: 1040.0
+            })
+        );
         assert_eq!(fitted.position, Some(Position { x: 0.0, y: 0.0 }));
     }
 
@@ -363,11 +375,17 @@ mod tests {
 
     #[test]
     fn a_monitor_is_measured_at_its_own_scale() {
-        let fitted = fit(window(2000.0, 1000.0, 1920.0, 0.0), &[PRIMARY, RIGHT_AT_150]);
+        let fitted = fit(
+            window(2000.0, 1000.0, 1920.0, 0.0),
+            &[PRIMARY, RIGHT_AT_150],
+        );
 
         assert_eq!(
             fitted.size,
-            Some(Size { width: 2560.0 / 1.5, height: 1380.0 / 1.5 }),
+            Some(Size {
+                width: 2560.0 / 1.5,
+                height: 1380.0 / 1.5
+            }),
             "2560 by 1380 physical pixels are 1706.67 by 920 logical ones at 150%"
         );
         assert_eq!(fitted.position, Some(Position { x: 1920.0, y: 0.0 }));
@@ -375,11 +393,17 @@ mod tests {
 
     #[test]
     fn the_monitor_holding_most_of_the_title_bar_is_the_one() {
-        let fitted = fit(window(800.0, 600.0, 1800.0, 100.0), &[PRIMARY, RIGHT_AT_150]);
+        let fitted = fit(
+            window(800.0, 600.0, 1800.0, 100.0),
+            &[PRIMARY, RIGHT_AT_150],
+        );
 
         assert_eq!(
             fitted.position,
-            Some(Position { x: 1920.0, y: 100.0 }),
+            Some(Position {
+                x: 1920.0,
+                y: 100.0
+            }),
             "1080 of 1200 physical pixels of the edge are on the right monitor"
         );
     }
@@ -395,13 +419,99 @@ mod tests {
     fn a_size_without_a_position_is_still_shrunk_and_left_unplaced() {
         let fitted = fit(
             Geometry {
-                size: Some(Size { width: 4000.0, height: 300.0 }),
+                size: Some(Size {
+                    width: 4000.0,
+                    height: 300.0,
+                }),
                 ..Geometry::default()
             },
             &[PRIMARY],
         );
 
-        assert_eq!(fitted.size, Some(Size { width: 1920.0, height: 300.0 }));
+        assert_eq!(
+            fitted.size,
+            Some(Size {
+                width: 1920.0,
+                height: 300.0
+            })
+        );
         assert_eq!(fitted.position, None);
     }
+}
+
+#[derive(Clone)]
+struct Presentation(std::rc::Rc<PresentationState>);
+type PresentationListeners = std::cell::RefCell<std::collections::BTreeMap<u64, std::rc::Rc<dyn Fn(bool)>>>;
+struct PresentationState {
+    current: std::cell::Cell<bool>,
+    revision: std::cell::Cell<u64>,
+    next: std::cell::Cell<u64>,
+    listeners: PresentationListeners,
+}
+fn presentation(scope: guinea_core::scope::Scope) -> Presentation {
+    let root = super::roots::own(scope).expect("window presentation requires a window root");
+    if let Some(state) = root.try_kept::<Presentation, _>(|state| state.clone()) {
+        return state;
+    }
+    let state = Presentation(std::rc::Rc::new(PresentationState {
+        current: std::cell::Cell::new(true),
+        revision: std::cell::Cell::new(0),
+        next: std::cell::Cell::new(0),
+        listeners: Default::default(),
+    }));
+    root.keep(state.clone());
+    state
+}
+/// Reports a shell's window state. Presented means visible and not minimized.
+/// Call on the window's UI thread; repeated values are ignored. Roots default
+/// to presented until the shell reports their native state.
+/// This does not sleep scopes or change routing.
+pub fn set_presentation(scope: guinea_core::scope::Scope, visible: bool, minimized: bool) {
+    if !scope.is_alive() {
+        return;
+    }
+    let state = presentation(scope).0;
+    let current = visible && !minimized;
+    if state.current.replace(current) == current {
+        return;
+    }
+    let revision = state.revision.get().wrapping_add(1);
+    state.revision.set(revision);
+    let listeners: Vec<_> = state
+        .listeners
+        .borrow()
+        .iter()
+        .map(|(id, callback)| (*id, callback.clone()))
+        .collect();
+    for (id, callback) in listeners {
+        if state.revision.get() != revision || !scope.is_alive() {
+            break;
+        }
+        let active = state.listeners.borrow().contains_key(&id);
+        if active {
+            callback(current);
+        }
+    }
+}
+pub(crate) fn on_presented(scope: guinea_core::scope::Scope, callback: impl Fn(bool) + 'static) {
+    let state = presentation(scope).0;
+    let id = state.next.get();
+    state.next.set(
+        id.checked_add(1)
+            .expect("too many window presentation listeners"),
+    );
+    let last = std::cell::Cell::new(None);
+    let callback: std::rc::Rc<dyn Fn(bool)> = std::rc::Rc::new(move |value| {
+        if last.replace(Some(value)) != Some(value) {
+            callback(value);
+        }
+    });
+    state.listeners.borrow_mut().insert(id, callback.clone());
+    let weak = std::rc::Rc::downgrade(&state);
+    scope.on_teardown(move || {
+        if let Some(state) = weak.upgrade() {
+            state.listeners.borrow_mut().remove(&id);
+        }
+    });
+    callback(state.current.get());
 }

@@ -279,11 +279,12 @@ impl PartialEq for Rooted {
 pub(crate) struct Chrome {
     root: roots::Root,
     asking: Option<(Rc<dyn Asking>, Watching)>,
+    native_ready: bool,
     _panel: guinea_core::observability::panels::PanelGuard,
 }
 
 /// A guard's question came or went, or the navigator moved.
-pub(crate) struct Heard;
+pub(crate) enum Heard { Navigation, WindowReady }
 
 impl Component for Chrome {
     type Input = Rooted;
@@ -300,11 +301,20 @@ impl Component for Chrome {
             roots::set_label(window, MAIN);
         }
 
+        let queued = cx.run_window(move |native| {
+            if !window.is_alive() { return Heard::WindowReady; }
+            match crate::presentation::Observation::install(native.as_raw(), window) {
+                Ok(observation) => window.keep(observation),
+                Err(error) => tracing::warn!(%error, "observing window presentation"),
+            }
+            Heard::WindowReady
+        });
+
         let asking = input.window.start.as_ref().map(|start| {
             let navigator = start(window);
             let sender = cx.sender();
             let watching = navigator.watch(Box::new(move || {
-                let _gone = !sender.send(Heard);
+                let _gone = !sender.send(Heard::Navigation);
             }));
             (navigator, watching)
         });
@@ -312,11 +322,14 @@ impl Component for Chrome {
         Self {
             _panel: crate::devtools::offer(root.id().get(), window),
             root,
+            native_ready: !queued,
             asking,
         }
     }
 
-    fn update(&mut self, _heard: Heard, _cx: &ComponentContext<Self>) {}
+    fn update(&mut self, heard: Heard, _cx: &ComponentContext<Self>) {
+        if matches!(heard, Heard::WindowReady) { self.native_ready = true; }
+    }
 
     fn view(&self, input: &Rooted, cx: &mut ViewContext<Self>) -> View {
         let _caused = crate::winui::caused(cx);
@@ -326,6 +339,8 @@ impl Component for Chrome {
         if let Some((width, height)) = window.size {
             cx.window_visuals(WindowVisuals::new().client_size(width, height));
         }
+
+        if !self.native_ready { return Grid::new().into(); }
 
         let scope = self.root.scope();
         let pass = Pass::begin(scope);

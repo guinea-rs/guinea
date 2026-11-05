@@ -27,6 +27,7 @@ windows-reactor.workspace = true
 # For the generated dispatcher bindings in `src/dispatching`. The one the
 # reactor is built on, so the COM types are the ones it is already using.
 windows-core.workspace = true
+windows-sys = { workspace = true, features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [lints]
 workspace = true

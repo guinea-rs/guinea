@@ -218,6 +218,9 @@ fn feed_catchup_runs_between_the_hooks_registered_around_follow(h: &mut Harness)
 
 ## Показ окна
 
+Регистрируй callback один раз при установке страницы, лейаута или фичи через
+`Install` или `FeatureInitContext`, а не при каждом построении представления.
+
 `cx.on_window_presented(callback)` сразу сообщает, показано ли окно и не свёрнуто
 ли оно, затем вызывает callback только при изменении значения. WinUI сообщает
 нативные изменения показа, скрытия, сворачивания и восстановления. Фокус и

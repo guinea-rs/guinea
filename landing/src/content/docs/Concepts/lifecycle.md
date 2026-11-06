@@ -212,6 +212,9 @@ in [background tasks](../tasks/#finishing-asynchronous-cleanup).
 
 ## Window presentation
 
+Register the callback once in a page, layout or feature installer through
+`Install` or `FeatureInitContext`, rather than on each view rebuild.
+
 `cx.on_window_presented(callback)` immediately reports whether the containing
 window is visible and not minimized, then only changes. WinUI reports native
 show/hide and minimize/restore transitions. Focus and occlusion do not affect it.

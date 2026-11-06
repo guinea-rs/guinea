@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "guinea-app",
  "guinea-core",
@@ -1183,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "anyhow",
  "eframe",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1244,15 +1244,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.35.1"
+version = "0.35.2"
 
 [[package]]
 name = "guinea-meta"
-version = "0.35.1"
+version = "0.35.2"
 
 [[package]]
 name = "guinea-router"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "libc",
  "pin-project-lite",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.35.1"
+version = "0.35.2"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3728,7 +3728,7 @@ checksum = "9b39de7c7fe78858b0144c50c3fc000bab3be17d5e9b85b1053871693c7f7415"
 
 [[package]]
 name = "windows-reactor-pre"
-version = "0.107.0"
+version = "0.107.1"
 dependencies = [
  "windows-collections",
  "windows-core",
@@ -3831,6 +3831,8 @@ dependencies = [
 [[package]]
 name = "windows-window-pre"
 version = "0.104.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ae79634c071f2bb8dbc23dd5223e784fff6131ffc0b0863e196332ba8ccb665"
 dependencies = [
  "windows-core",
 ]

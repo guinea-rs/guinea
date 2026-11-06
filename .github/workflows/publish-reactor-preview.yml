@@ -1,0 +1,86 @@
+name: Publish Reactor preview
+
+on:
+  push:
+    tags: ['windows-reactor-pre-v*']
+
+concurrency:
+  group: reactor-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      REACTOR_MANIFEST: crates/vendor/windows-reactor-pre/Cargo.toml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.99.1'
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.95.0'
+
+      - name: Check the preview tag
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REACTOR_MANIFEST" | head -n1)
+          test "$GITHUB_REF_NAME" = "windows-reactor-pre-v$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Resolve preview dependencies
+        run: cargo +1.99.1 generate-lockfile --manifest-path "$REACTOR_MANIFEST"
+
+      - name: Test Reactor
+        run: cargo +1.99.1 test --locked --manifest-path "$REACTOR_MANIFEST" --lib
+
+      - name: Test the existing Guinea harness
+        run: cargo +1.99.1 test --locked -p guinea --test harness_winui
+
+      - name: Check MSRV
+        run: cargo +1.95.0 check --locked --manifest-path "$REACTOR_MANIFEST" --lib
+
+      - name: Verify the package
+        run: cargo +1.99.1 package --locked --manifest-path "$REACTOR_MANIFEST"
+
+      - name: Publish the preview
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: cargo +1.99.1 publish --locked --manifest-path "$REACTOR_MANIFEST"
+
+      - name: Verify registry publication
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 \
+            "https://crates.io/api/v1/crates/windows-reactor-pre/$VERSION" \
+            | jq --exit-status --arg version "$VERSION" '.version.num == $version'
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BODY: |
+            Fixes `missing realized container` crashes when repeatedly expanding and collapsing virtualized rows while their data updates.
+
+            Backports [windows-rs #5298](https://github.com/microsoft/windows-rs/pull/5298), preserving the existing 0.107 application API and the `item_count` field used by Guinea 0.35.1's harness.
+
+            Existing Guinea 0.35.1, windows-canvas-pre 0.107 and guicons 0.16 consumers can update the Reactor dependency in their lockfile.
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_BODY" > "$RUNNER_TEMP/reactor-preview-release.md"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "windows-reactor-pre $VERSION" \
+            --notes-file "$RUNNER_TEMP/reactor-preview-release.md"

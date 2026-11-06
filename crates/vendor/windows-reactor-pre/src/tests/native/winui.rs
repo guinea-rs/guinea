@@ -471,7 +471,7 @@ fn recycled_physical_shell_keeps_old_token_until_acknowledged() {
 
 #[test]
 fn virtual_source_generates_indices_on_demand() {
-    let source = ComObject::new(NativeVirtualSource::new(3).unwrap());
+    let source = ComObject::new(NativeVirtualSource::new(Arc::new(vec![0, 1, 2])).unwrap());
     let vector: IObservableVector<IInspectable> = source.to_interface();
 
     assert_eq!(vector.Size().unwrap(), 3);
@@ -519,21 +519,49 @@ fn virtual_source_generates_indices_on_demand() {
 }
 
 #[test]
+fn native_recycling_cancels_pending_keyed_realization() {
+    let queue = Rc::new(NativeEventQueue::default());
+    let collection = ObjectId::test(1);
+    let container = RealizedContainer(2);
+    queue.queue_realization(RealizationRequest::RealizeKey {
+        collection,
+        container,
+        index: 4,
+        token: 9,
+    });
+    queue.queue_realization(RealizationRequest::Recycle {
+        collection,
+        container,
+        source_revision: 3,
+    });
+    let events = queue.events.borrow();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events.front().and_then(|event| event.realization),
+        Some(RealizationRequest::Cancel {
+            collection: owner,
+            container: recycled,
+            source_revision: 3,
+        }) if owner == collection && recycled == container
+    ));
+}
+
+#[test]
 fn virtual_source_is_read_only_and_validates_index_limits() {
     let max_count = i32::MAX as usize + 1;
-    let source = ComObject::new(NativeVirtualSource::new(max_count).unwrap());
+    let source = ComObject::new(NativeVirtualSource::new(Arc::new(vec![0])).unwrap());
     let vector: IObservableVector<IInspectable> = source.to_interface();
 
-    assert_eq!(vector.Size().unwrap(), max_count as u32);
+    assert_eq!(virtual_item_count(max_count).unwrap(), max_count as u32);
     assert_eq!(
-        virtual_index(vector.GetAt(i32::MAX as u32).unwrap()),
+        virtual_index(virtual_item_value(i32::MAX as u32).unwrap()),
         i32::MAX
     );
     assert_eq!(
-        vector.GetAt(i32::MAX as u32 + 1).unwrap_err().code(),
+        virtual_item_value(i32::MAX as u32 + 1).unwrap_err().code(),
         E_BOUNDS
     );
-    assert!(NativeVirtualSource::new(max_count + 1).is_err());
+    assert!(virtual_item_count(max_count + 1).is_err());
 
     let value = virtual_item_value(0).unwrap();
     assert_eq!(
@@ -553,7 +581,7 @@ fn virtual_source_is_read_only_and_validates_index_limits() {
 
 #[test]
 fn virtual_source_reset_notifies_once_and_honors_event_removal() {
-    let source = ComObject::new(NativeVirtualSource::new(0).unwrap());
+    let source = ComObject::new(NativeVirtualSource::new(Arc::default()).unwrap());
     let vector: IObservableVector<IInspectable> = source.to_interface();
     let first = Arc::new(AtomicUsize::new(0));
     let second = Arc::new(AtomicUsize::new(0));
@@ -573,21 +601,51 @@ fn virtual_source_reset_notifies_once_and_honors_event_removal() {
         })
         .unwrap();
 
-    source.reset(10_000);
+    let keys = Arc::new((0..10_000).collect::<Vec<_>>());
+    source.reset(keys.clone()).unwrap();
     assert_eq!(vector.Size().unwrap(), 10_000);
     assert_eq!(first.load(Ordering::Relaxed), 1);
     assert_eq!(second.load(Ordering::Relaxed), 1);
 
     drop(first_revoker);
-    source.reset(10_000);
+    source.reset(keys).unwrap();
     assert_eq!(first.load(Ordering::Relaxed), 1);
     assert_eq!(second.load(Ordering::Relaxed), 2);
 
     drop(second_revoker);
-    source.reset(0);
+    source.reset(Arc::default()).unwrap();
     assert_eq!(vector.Size().unwrap(), 0);
     assert_eq!(first.load(Ordering::Relaxed), 1);
     assert_eq!(second.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn virtual_source_maps_native_tokens_across_reset() {
+    use native::IKeyIndexMapping_Impl;
+
+    let source = ComObject::new(NativeVirtualSource::new(Arc::new(vec![0, 1, 2])).unwrap());
+    let mapping = &*source;
+    let tokens = [0, 1, 2].map(|index| mapping.KeyFromIndex(index).unwrap());
+    assert_ne!(tokens[0], tokens[1]);
+    assert_ne!(tokens[1], tokens[2]);
+    assert_eq!(mapping.KeyFromIndex(-1).unwrap_err().code(), E_BOUNDS);
+    assert_eq!(mapping.KeyFromIndex(3).unwrap_err().code(), E_BOUNDS);
+    for missing in ["", "unknown", "+0", "00"] {
+        assert_eq!(mapping.IndexFromKey(&HSTRING::from(missing)).unwrap(), -1);
+    }
+
+    source.reset(Arc::new(vec![2, 0])).unwrap();
+    assert_eq!(mapping.KeyFromIndex(0).unwrap(), tokens[2]);
+    assert_eq!(mapping.KeyFromIndex(1).unwrap(), tokens[0]);
+    assert_eq!(mapping.IndexFromKey(&tokens[2]).unwrap(), 0);
+    assert_eq!(mapping.IndexFromKey(&tokens[0]).unwrap(), 1);
+    assert_eq!(mapping.IndexFromKey(&tokens[1]).unwrap(), -1);
+
+    source.reset(Arc::new(vec![0, 3, 2])).unwrap();
+    assert_eq!(mapping.KeyFromIndex(0).unwrap(), tokens[0]);
+    assert_eq!(mapping.KeyFromIndex(2).unwrap(), tokens[2]);
+    assert_ne!(mapping.KeyFromIndex(1).unwrap(), tokens[1]);
+    assert_eq!(mapping.IndexFromKey(&tokens[1]).unwrap(), -1);
 }
 
 #[test]
@@ -825,5 +883,73 @@ fn generated_feedback_pairs_written_properties_with_their_reporting_event() {
     ];
     for (kind, property, event) in cases {
         assert_eq!(reporting_event(kind, property), event);
+    }
+}
+
+#[derive(Default)]
+struct RevisionRecycleAdapter {
+    inner: crate::adapter::RecordingAdapter,
+    shells: ShellPool<usize>,
+}
+
+impl Adapter for RevisionRecycleAdapter {
+    fn peek_native_event(&self) -> Option<NativeEvent> { self.inner.peek_native_event() }
+    fn pop_native_event(&mut self) -> Option<NativeEvent> { self.inner.pop_native_event() }
+    fn apply(&mut self, mutations: &[Mutation]) {
+        for mutation in mutations {
+            match mutation {
+                Mutation::Realize { container, .. } => {
+                    assert!(self.shells.shells.contains_key(container), "missing realized container");
+                }
+                Mutation::Recycle { container, .. } => {
+                    assert!(self.shells.shells.contains_key(container) || self.shells.retired.contains(container));
+                    self.shells.acknowledge_recycle(*container);
+                }
+                _ => {}
+            }
+            self.inner.apply(std::slice::from_ref(mutation));
+        }
+    }
+}
+
+#[test]
+fn source_revision_change_cannot_discard_native_recycle() {
+    let view = |count| ItemsRepeater::new().virtual_source(VirtualSource::new(
+        count as u64, count, |i| i, |i| TextBlock::new().text(i.to_string())));
+    let mut runtime = Runtime::new(RevisionRecycleAdapter::default());
+    runtime.update(view(1));
+    let collection = runtime.graph().root().unwrap();
+    let (container, _) = runtime.adapter_mut().shells.take(|| Ok(42)).unwrap();
+    runtime.adapter_mut().inner.queue_realization(RealizationRequest::Realize {
+        collection, container, index: 0, source_revision: 0,
+    });
+    runtime.dispatch_native_events();
+    // Native retirement is immediate; its notification can outlive the source revision.
+    runtime.update(view(2));
+    assert!(runtime.adapter_mut().shells.retire(container));
+    runtime.adapter_mut().inner.queue_realization(RealizationRequest::Recycle {
+        collection, container, source_revision: 0,
+    });
+    runtime.dispatch_native_events();
+    // A later report must not refresh the retired token retained by a discarded notification.
+    runtime.update(view(3));
+    runtime.dispatch_native_events();
+    assert_eq!(runtime.adapter().inner.realized_count(collection), 0);
+    assert!(runtime.adapter().shells.retired.is_empty());
+}
+
+#[test]
+fn legacy_virtual_source_count_matches_keys_on_mount_and_reset() {
+    let mut runtime = Runtime::new(crate::adapter::RecordingAdapter::default());
+    for count in [0, 3, 7, 0] {
+        let update = runtime.update(ItemsRepeater::new().virtual_source(VirtualSource::new(
+            count as u64, count, |index| index,
+            |index| TextBlock::new().text(index.to_string()),
+        )));
+        let (legacy, keys) = update.iter().find_map(|mutation| match mutation {
+            Mutation::SetVirtualSource { item_count, keys, .. } => Some((*item_count, keys.len())),
+            _ => None,
+        }).expect("mount or reset must publish the virtual source");
+        assert_eq!((legacy, keys), (count, count));
     }
 }

@@ -1,10 +1,10 @@
 [package]
 name = "windows-reactor-pre"
-version = "0.107.0"
+version = "0.107.1"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
-description = "windows-reactor from microsoft/windows-rs at b4b4a5e, published for guinea until windows-rs releases it"
+description = "windows-reactor from microsoft/windows-rs at b4b4a5e with the keyed ItemsRepeater fix from #5298"
 repository = "https://github.com/guinea-rs/guinea"
 categories = ["os::windows-apis"]
 readme = "readme.md"
@@ -27,7 +27,7 @@ windows-future = { version = "0.100.0", default-features = false }
 windows-reference = { version = "0.100.0", default-features = false, features = ["std"] }
 windows-threading = { version = "0.100.0", default-features = false }
 windows-time = { version = "0.100.0", default-features = false }
-windows-window = { package = "windows-window-pre", version = "0.104.0", path = "../windows-window-pre" }
+windows-window = { package = "windows-window-pre", version = "=0.104.0" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(windows_slim_errors, windows_cast_diagnostics)'] }

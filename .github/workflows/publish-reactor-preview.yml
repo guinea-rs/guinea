@@ -66,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 \
+            --user-agent "guinea-release-check (https://github.com/$GITHUB_REPOSITORY)" \
             "https://crates.io/api/v1/crates/windows-reactor-pre/$VERSION" \
             | jq --exit-status --arg version "$VERSION" '.version.num == $version'
 

@@ -120,6 +120,7 @@ impl NativeEvent {
                 .or_else(|| {
                     self.realization.map(|request| match request {
                         RealizationRequest::Realize { collection, .. }
+                        | RealizationRequest::RealizeKey { collection, .. }
                         | RealizationRequest::Recycle { collection, .. }
                         | RealizationRequest::Cancel { collection, .. } => collection,
                     })

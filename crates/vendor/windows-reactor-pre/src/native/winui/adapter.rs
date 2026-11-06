@@ -181,11 +181,12 @@ impl WinUiAdapter {
                 }
                 Mutation::SetVirtualSource {
                     object,
-                    item_count,
+                    keys,
                     source_revision,
+                    ..
                 } => {
                     if let Some(items) = self.virtual_items.get(object) {
-                        items.reset(*item_count, *source_revision)?;
+                        items.reset(keys, *source_revision)?;
                     } else {
                         let repeater = match self.handles.get(object) {
                             Some(Handle::Generated(GeneratedHandle::ItemsRepeater(repeater))) => {
@@ -197,7 +198,7 @@ impl WinUiAdapter {
                         let items = NativeVirtualItems::new(
                             &repeater,
                             *object,
-                            *item_count,
+                            keys,
                             *source_revision,
                             Rc::clone(&self.event_queue),
                         )?;

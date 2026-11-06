@@ -53,6 +53,12 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Native window presentation lifecycle
+        run: cargo test --locked -p guinea-winui --lib presentation::tests::native_show_hide_minimize_and_restore_report_distinct_values -- --ignored --exact
+
+      - name: Native window presentation lifecycle
+        run: cargo test --locked -p guinea-winui --lib presentation::tests::native_show_hide_minimize_and_restore_report_distinct_values -- --ignored --exact
+
       - name: Allocation statistics retention regression
         run: cargo test --locked -p guinea-trace --all-features
 

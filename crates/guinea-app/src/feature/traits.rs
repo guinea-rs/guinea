@@ -40,6 +40,18 @@ pub struct ScopeContext {
 }
 
 impl ScopeContext {
+    /// Reports whether this scope's window is visible and not minimized.
+    /// Calls immediately with the current value, then only on changes, even
+    /// while the subscribing scope sleeps. Removal cancels the subscription.
+    /// The producer chooses how to respond; no work is automatically paused.
+    ///
+    /// # Panics
+    /// When installed outside a window root (for example in an app plugin).
+    pub fn on_window_presented(&self, callback: impl Fn(bool) + 'static) {
+        crate::app::windows::on_presented(self.scope, callback);
+    }
+
+
     pub(crate) fn prepare(&self, declaration: Option<super::declarations::Declaration>) {
         let Some(declaration) = declaration else { return; };
         super::declarations::note(self.scope, &declaration);

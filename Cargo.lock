@@ -2827,7 +2827,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2853,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2869,14 +2869,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "guinea-core"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2914,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-iced"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "elsa",
@@ -2928,7 +2928,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "guinea-core",
  "guinea-macros",
@@ -2952,11 +2952,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta"
-version = "0.35.2"
+version = "0.35.3"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "guinea-codegen",
  "serde",
@@ -2966,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-profile"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "axum",
  "clap",
@@ -2983,7 +2983,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -2997,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3009,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-codegen",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-fixture"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea",
@@ -3047,7 +3047,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "dhat",
  "flate2",
@@ -3067,7 +3067,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.35.2"
+version = "0.35.3"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3078,6 +3078,7 @@ dependencies = [
  "tracing",
  "windows-core 0.100.0",
  "windows-reactor-pre",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5972,7 +5973,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -9562,6 +9563,8 @@ dependencies = [
 [[package]]
 name = "windows-window-pre"
 version = "0.104.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ae79634c071f2bb8dbc23dd5223e784fff6131ffc0b0863e196332ba8ccb665"
 dependencies = [
  "windows-core 0.100.0",
 ]
@@ -10100,7 +10103,3 @@ dependencies = [
  "syn 3.0.3",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "windows-canvas-pre"
-version = "0.107.0"

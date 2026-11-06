@@ -227,7 +227,7 @@ pub fn opened() -> Vec<(RootId, Scope)> {
 
 /// The root's own scope `scope` is in: `scope` or the nearest above it that
 /// opened one. `None` for a scope under no root - the application's own.
-fn own(scope: Scope) -> Option<Scope> {
+pub(crate) fn own(scope: Scope) -> Option<Scope> {
     std::iter::successors(Some(scope), Scope::parent).find(Scope::keeps::<Opened>)
 }
 

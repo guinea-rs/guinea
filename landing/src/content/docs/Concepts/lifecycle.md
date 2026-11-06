@@ -209,3 +209,19 @@ are missed, and external source buffers can fill or overflow.
 Removal cancels ordinary work whether the page was awake or asleep.
 Cooperative cleanup is different: see the channel-based example and tests
 in [background tasks](../tasks/#finishing-asynchronous-cleanup).
+
+## Window presentation
+
+Register the callback once in a page, layout or feature installer through
+`Install` or `FeatureInitContext`, rather than on each view rebuild.
+
+`cx.on_window_presented(callback)` immediately reports whether the containing
+window is visible and not minimized, then only changes. WinUI reports native
+show/hide and minimize/restore transitions. Focus and occlusion do not affect it.
+The callback is window-local, remains active during scope sleep, and is removed
+with the subscribing scope. It does not pause work or alter routing: producers
+choose how to respond. Installing outside a window root panics.
+
+Backend authors report state with `windows::set_presentation(scope, visible,
+minimized)`. Until a backend reports its native state, a root defaults to
+presented; this is not automatic native observation on other backends.

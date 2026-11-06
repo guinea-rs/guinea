@@ -53,6 +53,9 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Allocation statistics retention regression
+        run: cargo test --locked -p guinea-trace --all-features
+
   package:
     needs: version
     runs-on: windows-latest

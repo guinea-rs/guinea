@@ -3056,6 +3056,7 @@ dependencies = [
  "flate2",
  "insta",
  "libc",
+ "lru 0.16.4",
  "perfetto_protos",
  "pin-project-lite",
  "protobuf",

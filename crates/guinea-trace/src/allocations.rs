@@ -32,6 +32,9 @@
 //! Cause totals are direct (not inclusive of children). Observer allocations
 //! are separated from application work. Recursive profiler/backend bookkeeping
 //! is present in `heap`, but excluded from attribution to avoid recursion.
+//! Causes with outstanding allocations remain queryable; completed causes use
+//! a bounded recent cache even when no trace sink is recording. Scope and heap
+//! counters are not truncated when a completed cause expires.
 //! Destruction is charged to the original allocation group, even outside a
 //! context; new allocations made by a future's destructor need an explicit
 //! execution context as well.
@@ -47,6 +50,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
@@ -56,6 +60,11 @@ use tracking_allocator::{
 };
 
 use crate::{Cause, Point, Sink};
+
+/// Maximum number of causes retained after their last allocation is freed.
+/// Causes with outstanding allocations are retained separately until freed.
+/// This limit is independent of [`Config::history_capacity`].
+pub const COMPLETED_CAUSE_LIMIT: usize = 4096;
 
 pub use tracking_allocator::SetTrackerError;
 
@@ -312,7 +321,7 @@ struct Data {
     dropped: u64,
     sequence: u64,
     origins: HashMap<usize, Origin>,
-    causes: HashMap<Cause, Totals>,
+    causes: Causes,
     tracing: Totals,
 }
 
@@ -323,6 +332,54 @@ struct Origin {
     tracing: bool,
     execution: usize,
     wrapped: usize,
+}
+
+// Historical totals must not grow with the total number of messages processed.
+// Live origins still need their cause until the last block is freed, including
+// on other threads. Only then may that cause enter the bounded recent cache.
+struct Causes {
+    live: HashMap<Cause, Totals>,
+    completed: lru::LruCache<Cause, Totals>,
+}
+
+impl Causes {
+    fn new() -> Self {
+        Self {
+            live: HashMap::new(),
+            completed: lru::LruCache::new(NonZeroUsize::new(COMPLETED_CAUSE_LIMIT).unwrap()),
+        }
+    }
+
+    fn allocate(&mut self, cause: Cause, bytes: usize) {
+        self.live
+            .entry(cause)
+            .or_insert_with(|| self.completed.pop(&cause).unwrap_or_default())
+            .allocate(bytes);
+    }
+
+    fn free(&mut self, cause: Cause, bytes: usize) {
+        if let Some(stats) = self.live.get_mut(&cause) {
+            stats.free(bytes);
+            // Count blocks, not bytes: zero-sized allocations may still exist.
+            if stats.allocations == stats.deallocations {
+                let stats = self.live.remove(&cause).unwrap();
+                self.completed.put(cause, stats);
+            }
+        }
+    }
+
+    fn get(&self, cause: &Cause) -> Option<&Totals> {
+        self.live.get(cause).or_else(|| self.completed.peek(cause))
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&Cause, &Totals)> {
+        self.live.iter().chain(self.completed.iter())
+    }
+
+    fn clear(&mut self) {
+        self.live.clear();
+        self.completed.clear();
+    }
 }
 
 impl Data {
@@ -392,7 +449,7 @@ impl Profiler {
                     dropped: 0,
                     sequence: 0,
                     origins: HashMap::new(),
-                    causes: HashMap::new(),
+                    causes: Causes::new(),
                     tracing: Totals::default(),
                 }),
             })
@@ -417,8 +474,10 @@ impl Profiler {
         })
     }
 
-    /// Direct totals by allocation cause, retained independently of the bounded
-    /// history. Freeing in another event changes the original cause's live bytes.
+    /// Direct totals for causes with outstanding allocations and at most
+    /// [`COMPLETED_CAUSE_LIMIT`] recently completed causes, independent of the
+    /// allocation history. Freeing elsewhere updates the original cause.
+    /// Evicted causes are absent; reusing one starts new totals.
     pub fn causes(&self) -> Vec<(Cause, Totals)> {
         internal(|| {
             let mut values: Vec<_> = self
@@ -548,6 +607,8 @@ pub fn is_enabled() -> bool {
 }
 
 /// A direct cause summary, without allocating a snapshot of all causes.
+/// Returns `None` if the cause has no attributed allocations or its completed
+/// statistics have expired from the bounded cache; see [`COMPLETED_CAUSE_LIMIT`].
 pub fn of_cause(cause: Cause) -> Option<Totals> {
     let state = STATE.get().filter(|_| is_enabled())?;
     internal(|| state.data().causes.get(&cause).cloned())
@@ -735,7 +796,7 @@ impl AllocationTracker for Tracker {
                 data.tracing.allocate(bytes);
             }
             if let Some(cause) = cause {
-                data.causes.entry(cause).or_default().allocate(bytes);
+                data.causes.allocate(cause, bytes);
             }
             if let Some(group) = group {
                 if let Some(entry) = data.scopes.get_mut(&group) {
@@ -786,9 +847,7 @@ fn release(address: usize, bytes: usize) {
             data.tracing.free(bytes);
         }
         if let Some(cause) = origin.cause {
-            if let Some(stats) = data.causes.get_mut(&cause) {
-                stats.free(bytes);
-            }
+            data.causes.free(cause, bytes);
         }
         let Some(group) = origin.group else {
             return;
@@ -816,4 +875,61 @@ fn release(address: usize, bytes: usize) {
             origin.cause,
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_retention_never_evicts_outstanding_or_zero_sized_allocations() {
+        let mut causes = Causes::new();
+        let owners: Vec<_> = (0..COMPLETED_CAUSE_LIMIT + 1)
+            .map(|_| {
+                let cause = Cause::next();
+                causes.allocate(cause, 0);
+                causes.allocate(cause, 64);
+                causes.free(cause, 64);
+                cause
+            })
+            .collect();
+        for _ in 0..COMPLETED_CAUSE_LIMIT * 2 {
+            let cause = Cause::next();
+            causes.allocate(cause, 1);
+            causes.free(cause, 1);
+        }
+        assert_eq!(causes.live.len(), owners.len());
+        assert_eq!(causes.completed.len(), COMPLETED_CAUSE_LIMIT);
+        for owner in owners {
+            let stats = causes.get(&owner).unwrap();
+            assert_eq!(stats.live_bytes, 0);
+            assert_eq!(stats.allocations, 2);
+            assert_eq!(stats.deallocations, 1);
+            causes.free(owner, 0);
+        }
+        assert!(causes.live.is_empty());
+        assert_eq!(causes.completed.len(), COMPLETED_CAUSE_LIMIT);
+    }
+
+    #[test]
+    fn recently_completed_causes_resume_totals_but_evicted_ones_start_fresh() {
+        let mut causes = Causes::new();
+        let cause = Cause::next();
+        causes.allocate(cause, 64);
+        causes.free(cause, 64);
+        causes.allocate(cause, 32);
+        assert_eq!(causes.get(&cause).unwrap().allocated_bytes, 96);
+        assert_eq!(causes.get(&cause).unwrap().live_bytes, 32);
+        assert!(causes.completed.peek(&cause).is_none());
+        causes.free(cause, 32);
+        for _ in 0..COMPLETED_CAUSE_LIMIT {
+            let next = Cause::next();
+            causes.allocate(next, 1);
+            causes.free(next, 1);
+        }
+        assert!(causes.get(&cause).is_none());
+        causes.allocate(cause, 8);
+        assert_eq!(causes.get(&cause).unwrap().allocated_bytes, 8);
+        assert_eq!(causes.get(&cause).unwrap().freed_bytes, 0);
+    }
 }

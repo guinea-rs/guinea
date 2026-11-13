@@ -17,6 +17,9 @@ mod sealed {
     pub trait UnitCallback {}
 }
 mod window;
+#[cfg(any(test, feature = "test"))]
+#[path = "test_support/work.rs"]
+mod work;
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
@@ -63,7 +66,7 @@ pub use declaration::{
 };
 use generated::*;
 use ir::*;
-pub use native::{App, AppCallback, AppContext, AppProxy, ScreenPoint, WindowTitleBarHeight};
+pub use native::{App, ScreenPoint, WindowTitleBarHeight};
 use reconcile::*;
 use reference::*;
 pub use reference::{
@@ -79,12 +82,12 @@ pub use windows_time::{DateTime, TimeSpan};
 #[cfg(any(test, feature = "test"))]
 #[doc(hidden)]
 pub mod test {
-    // Compatibility for Guinea's recording harness; not a native API change.
+    // Compatibility exports for Guinea's recording adapter.
     pub use crate::declaration::{Property, SelectionChange};
     pub use crate::reconcile::{Observation, RetainedGraph};
     pub use crate::adapter::RecordingAdapter;
     pub use crate::component::{ComponentDrain, ComponentHost};
-    pub use crate::declaration::{EventPayload, EventValue, PropertyValue};
+    pub use crate::declaration::{EventCall, EventValue, PropertyValue};
     pub use crate::generated::{EventId, ObjectType, PropertyId, RelationId};
     #[cfg(feature = "test")]
     pub use crate::native::{
@@ -96,6 +99,7 @@ pub mod test {
         RetainedMemory, Runtime,
     };
     pub use crate::reference::ImperativeRequest;
+    pub use crate::work::{UpdateWork, measure_work};
 }
 
 #[cfg(test)]

@@ -46,8 +46,9 @@ pub(super) struct TypedScope<C: Component> {
 }
 
 impl<C: Component> TypedScope<C> {
-    fn context(&self, reference: ElementRef) -> ComponentContext<C> {
+    fn context<'a>(&self, input: &'a C::Input, reference: ElementRef) -> ComponentContext<'a, C> {
         ComponentContext {
+            input,
             reference,
             local_sender: self.local_sender.clone(),
             sender: self.sender.clone(),
@@ -62,8 +63,10 @@ impl<C: Component> TypedScope<C> {
         reference: ElementRef,
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> ComponentRender {
+        #[cfg(any(test, feature = "test"))]
+        work::record(|work| work.views += 1);
         let mut context: ViewContext<'_, C> = ViewContext {
-            context: self.context(reference),
+            context: self.context(&self.input, reference),
             contexts,
             dependencies: HashSet::new(),
             effects: EffectDraft::default(),
@@ -93,7 +96,7 @@ impl<C: Component> ErasedComponent for TypedScope<C> {
             return None;
         }
         self.input = input.clone();
-        let context = self.context(reference.clone());
+        let context = self.context(&self.input, reference.clone());
         self.component.input_changed(&self.input, &context);
         Some(self.render_view(reference, contexts))
     }
@@ -120,7 +123,7 @@ impl<C: Component> ErasedComponent for TypedScope<C> {
         reference: ElementRef,
         contexts: &HashMap<ContextId, ContextValue>,
     ) -> ComponentRender {
-        let context = self.context(reference.clone());
+        let context = self.context(&self.input, reference.clone());
         self.component
             .update(*message.downcast::<C::Message>().unwrap(), &context);
         self.render_view(reference, contexts)
@@ -165,6 +168,8 @@ pub(super) struct Scope {
     pub(super) provided_contexts: HashSet<ContextId>,
     pub(super) reference: ElementRef,
     pub(super) root: Option<ObjectId>,
+    // The child component whose root is also this component's root.
+    pub(super) root_child: Option<ComponentId>,
     pub(super) window: Option<Box<WindowPublication>>,
 }
 
@@ -255,6 +260,7 @@ impl<A: Adapter> ComponentHost<A> {
             provided_contexts,
             reference,
             root: None,
+            root_child: None,
             window: None,
         };
         if id.index as usize == self.scopes.len() {

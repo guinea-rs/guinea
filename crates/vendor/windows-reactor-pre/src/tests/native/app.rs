@@ -1,6 +1,35 @@
 use super::*;
 use crate::{StackPanel, TextBlock};
 
+#[test]
+fn callback_cancellation_can_cancel_owned_registrations() {
+    struct Cancel(u64);
+    impl Drop for Cancel {
+        fn drop(&mut self) {
+            remove_ui_callback(self.0);
+        }
+    }
+
+    let nested = NEXT_UI_CALLBACK.fetch_add(1, Ordering::Relaxed);
+    let parent = NEXT_UI_CALLBACK.fetch_add(1, Ordering::Relaxed);
+    let capture = Cancel(nested);
+    UI_CALLBACKS.with(|callbacks| {
+        let mut callbacks = callbacks.borrow_mut();
+        callbacks.insert(nested, Rc::new(|| panic!("canceled callback")));
+        callbacks.insert(
+            parent,
+            Rc::new(move || {
+                let _ = &capture;
+            }),
+        );
+    });
+    remove_ui_callback(parent);
+    UI_CALLBACKS.with(|callbacks| {
+        assert!(!callbacks.borrow().contains_key(&parent));
+        assert!(!callbacks.borrow().contains_key(&nested));
+    });
+}
+
 struct ObserverUiServices(Rc<LiveWindowServices>);
 
 impl ComponentUiServices for ObserverUiServices {
@@ -379,22 +408,18 @@ fn placement_observations_coalesce_by_window_and_subscription() {
 }
 
 #[test]
-fn canceled_queued_app_callback_is_ignored() {
-    let id = NEXT_APP_CALLBACK.fetch_add(1, Ordering::Relaxed);
+fn canceled_queued_ui_callback_is_ignored() {
+    let id = NEXT_UI_CALLBACK.fetch_add(1, Ordering::Relaxed);
     let invoked = Rc::new(Cell::new(false));
     let callback_invoked = Rc::clone(&invoked);
-    APP_CALLBACKS.with(|callbacks| {
-        callbacks.borrow_mut().insert(
-            id,
-            Rc::new(move || {
-                callback_invoked.set(true);
-                Ok(())
-            }),
-        );
+    UI_CALLBACKS.with(|callbacks| {
+        callbacks
+            .borrow_mut()
+            .insert(id, Rc::new(move || callback_invoked.set(true)));
         callbacks.borrow_mut().remove(&id);
     });
 
-    invoke_registered_app_callback(id).unwrap();
+    invoke_ui_callback(id);
 
     assert!(!invoked.get());
 }

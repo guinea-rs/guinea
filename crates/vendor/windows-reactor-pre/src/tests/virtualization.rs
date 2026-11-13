@@ -1,6 +1,72 @@
 use super::*;
 
 #[test]
+fn virtual_row_kind_changes_detach_once_before_destruction() {
+    for container in [RealizedContainer(1), RealizedContainer(2)] {
+        let mut adapter = RecordingAdapter::new();
+        adapter.record_batches(true);
+        let mut runtime = Runtime::new(adapter);
+        runtime.update(
+            ItemsRepeater::new().item("row", Border::new().content(TextBlock::new().text("row"))),
+        );
+        let collection = runtime.graph().root().unwrap();
+        runtime
+            .adapter_mut()
+            .queue_realization(RealizationRequest::Realize {
+                collection,
+                container: RealizedContainer(1),
+                index: 0,
+                source_revision: 0,
+            });
+        runtime.dispatch_native_events();
+        let previous = runtime
+            .graph()
+            .virtual_realization(collection, RealizedContainer(1))
+            .unwrap();
+        let start = runtime.adapter().batches().len();
+        runtime
+            .adapter_mut()
+            .queue_realization(RealizationRequest::Realize {
+                collection,
+                container,
+                index: 0,
+                source_revision: 0,
+            });
+        let Some(NativeWork::Virtual(VirtualWork::Realize { lease, index, .. })) =
+            runtime.next_native_work()
+        else {
+            panic!("expected realization");
+        };
+        runtime.realize_virtual(&lease, index, TextBox::new());
+        let mutations = runtime.adapter().batches()[start..]
+            .iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let detached = mutations.iter().enumerate().filter_map(|(index, mutation)| {
+            matches!(mutation, Mutation::Recycle { child: Some(child), .. } if *child == previous)
+                .then_some(index)
+        }).collect::<Vec<_>>();
+        assert_eq!(detached.len(), 1);
+        let destroyed = mutations
+            .iter()
+            .position(|mutation| {
+                matches!(
+                    mutation, Mutation::Destroy { object } if *object == previous
+                )
+            })
+            .unwrap();
+        assert!(detached[0] < destroyed);
+        let replacement = runtime
+            .graph()
+            .virtual_realization(collection, container)
+            .unwrap();
+        assert_eq!(runtime.graph().kind(previous), None);
+        assert_eq!(runtime.graph().kind(replacement), Some(ObjectType::TextBox));
+        assert_eq!(runtime.adapter().object_count(), 2);
+    }
+}
+
+#[test]
 fn virtual_row_content_updates_do_not_reset_the_native_source() {
     for lazy in [false, true] {
         let view = |text: &'static str| {
@@ -419,6 +485,67 @@ fn virtual_items_reject_duplicate_keys() {
             .item("duplicate", TextBlock::new().text("first"))
             .item("duplicate", TextBlock::new().text("second")),
     );
+}
+
+fn virtual_key_view(revision: u64, keys: &[Key]) -> ItemsRepeater {
+    let keys = keys.to_vec();
+    ItemsRepeater::new().virtual_source(VirtualSource::new(
+        revision,
+        keys.len(),
+        move |index| keys[index].clone(),
+        |_| TextBlock::new().text("row"),
+    ))
+}
+
+#[test]
+#[should_panic(expected = "duplicate key")]
+fn virtual_source_rejects_duplicate_keys_on_mount() {
+    Runtime::new(RecordingAdapter::new()).update(virtual_key_view(
+        0,
+        &[Key::from("duplicate"), Key::from("duplicate")],
+    ));
+}
+
+#[test]
+#[should_panic(expected = "duplicate key")]
+fn virtual_source_rejects_duplicate_keys_after_revision_change() {
+    let mut runtime = Runtime::new(RecordingAdapter::new());
+    runtime.update(virtual_key_view(
+        0,
+        &[Key::from("first"), Key::from("second")],
+    ));
+    runtime.update(virtual_key_view(
+        1,
+        &[Key::from("first"), Key::from("first")],
+    ));
+}
+
+#[test]
+fn virtual_key_revisions_preserve_only_surviving_tokens() {
+    let tokens = |update: UpdateStats| {
+        update
+            .into_iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetVirtualSource { keys, .. } => Some(keys),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let mut runtime = Runtime::new(RecordingAdapter::new());
+    let keys = [Key::from(1u64), Key::from("1"), Key::from("")];
+    let original = tokens(runtime.update(virtual_key_view(0, &keys)));
+    let unchanged = runtime.update(virtual_key_view(1, &keys));
+    assert!(
+        !unchanged
+            .iter()
+            .any(|mutation| matches!(mutation, Mutation::SetVirtualSource { .. }))
+    );
+    let reordered =
+        tokens(runtime.update(virtual_key_view(2, &[keys[2].clone(), keys[0].clone()])));
+    assert_eq!(reordered.as_slice(), &[original[2], original[0]]);
+    assert!(tokens(runtime.update(virtual_key_view(3, &[]))).is_empty());
+    let restored = tokens(runtime.update(virtual_key_view(4, &keys)));
+    assert!(restored.iter().all(|token| !original.contains(token)));
 }
 
 #[test]

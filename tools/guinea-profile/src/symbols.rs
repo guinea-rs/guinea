@@ -42,9 +42,10 @@ fn addresses(profile: &Value) -> Vec<BTreeSet<u32>> {
                             .as_u64()
                             .and_then(|v| u32::try_from(v).ok()),
                     )
-                        && let Some(addresses) = result.get_mut(lib as usize) {
-                            addresses.insert(address);
-                        }
+                    && let Some(addresses) = result.get_mut(lib as usize)
+                {
+                    addresses.insert(address);
+                }
                 let Some(parent) = thread["stackTable"]["prefix"][stack as usize].as_u64() else {
                     break;
                 };
@@ -63,6 +64,13 @@ fn is_primary(lib: &Value, options: &Options) -> bool {
                 .is_some_and(|recorded| name.to_string_lossy().eq_ignore_ascii_case(recorded))
         })
     })
+}
+
+fn has_local_symbols(lib: &Value, options: &Options) -> bool {
+    let Some(name) = lib["debugName"].as_str() else { return false };
+    options.directories.iter().any(|dir| dir.join(name).is_file())
+        || options.executable.as_ref().and_then(|path| path.parent())
+            .is_some_and(|dir| dir.join(name).is_file())
 }
 
 pub fn resolve(
@@ -94,6 +102,15 @@ async fn resolve_async(
     if let Some(parent) = options.executable.as_ref().and_then(|p| p.parent()) {
         config = config.extra_symbols_directory(parent);
     }
+    // Explicit local directories must be tried before any network candidate.
+    let mut local_config = SymbolManagerConfig::default().respect_nt_symbol_path(false);
+    for directory in &options.directories {
+        local_config = local_config.extra_symbols_directory(directory);
+    }
+    if let Some(parent) = options.executable.as_ref().and_then(|p| p.parent()) {
+        local_config = local_config.extra_symbols_directory(parent);
+    }
+    let local_manager = SymbolManager::with_config(local_config);
     let manager = SymbolManager::with_config(config);
     let mut symbols = seed.unwrap_or_else(|| json!({"string_table":[],"data":[]}));
     if !symbols["string_table"].is_array() || !symbols["data"].is_array() {
@@ -107,7 +124,12 @@ async fn resolve_async(
         .map(Vec::as_slice)
         .unwrap_or_default();
     let mut order: Vec<_> = (0..modules.len()).collect();
-    order.sort_by_key(|index| !is_primary(&modules[*index], options));
+    // Do not spend the shared budget on remote system symbols before trying
+    // explicitly supplied PDBs, which can be hundreds of megabytes.
+    order.sort_by_key(|index| (
+        !is_primary(&modules[*index], options),
+        !has_local_symbols(&modules[*index], options),
+    ));
     let started = std::time::Instant::now();
     for index in order {
         let lib = &modules[index];
@@ -149,20 +171,30 @@ async fn resolve_async(
                     lib["path"].as_str().map(PathBuf::from)
                 };
                 let load = async {
+                    if let Ok(map) = local_manager.load_symbol_map(debug_name, expected).await
+                        && map.debug_id() == expected
+                    {
+                        return Ok(map);
+                    }
                     if let Some(binary) = binary.as_ref().filter(|path| path.is_file())
                         && let Ok(map) = manager
                             .load_symbol_map_for_binary_at_path(binary, None)
                             .await
-                            && map.debug_id() == expected {
-                                return Ok(map);
-                            }
+                        && map.debug_id() == expected
+                    {
+                        return Ok(map);
+                    }
                     manager.load_symbol_map(debug_name, expected).await
                 };
                 match tokio::time::timeout(
                     options
                         .timeout
                         .saturating_sub(started.elapsed())
-                        .min(Duration::from_secs(if primary { 60 } else { 10 })),
+                        .min(if has_local_symbols(lib, options) {
+                            options.timeout
+                        } else {
+                            Duration::from_secs(if primary { 60 } else { 10 })
+                        }),
                     load,
                 )
                 .await
@@ -298,6 +330,40 @@ mod tests {
         assert_eq!(report["modules"][0]["resolved"], 1);
         assert_eq!(report["modules"][0]["unresolved"], 0);
         assert_eq!(report["modules"][0]["error"], Value::Null);
+        // A detached flat PDB directory must resolve without a binary path or
+        // waiting for the default remote symbol server to reject this fixture.
+        let detached = temp.path().join("detached");
+        fs::create_dir(&detached).unwrap();
+        let mut profile = profile;
+        profile["libs"][0]["path"] = Value::Null;
+        // A remote-only module appears first in the trace. The local fixture
+        // must still resolve before remote lookup can exhaust the tiny budget.
+        profile["libs"].as_array_mut().unwrap().insert(0, json!({
+            "name":"guinea_missing_remote.dll", "debugName":"guinea_missing_remote.pdb",
+            "breakpadId":"0123456789ABCDEF0123456789ABCDEF1", "codeId":"missing"
+        }));
+        profile["threads"][0]["resourceTable"]["lib"] = json!([1, 0]);
+        profile["threads"][0]["funcTable"]["resource"] = json!([0, 1]);
+        profile["threads"][0]["frameTable"]["func"] = json!([0, 1]);
+        profile["threads"][0]["frameTable"]["address"] = json!([address, 1]);
+        profile["threads"][0]["stackTable"] = json!({"frame":[0, 1], "prefix":[null, null]});
+        profile["threads"][0]["samples"]["stack"] = json!([0, 1]);
+        let options = Options {
+            executable: None,
+            directories: vec![temp.path().to_path_buf()],
+            allow_unresolved: false,
+            timeout: Duration::from_secs(2),
+        };
+        let resolved = resolve(&profile, None, &detached, &detached, &options).unwrap();
+        assert_eq!(
+            resolved["string_table"][0],
+            "fixture::guinea_profile_fixture_symbol()"
+        );
+        let report: Value = serde_json::from_reader(
+            fs::File::open(detached.join("symbolication.json")).unwrap(),
+        ).unwrap();
+        assert_eq!(report["modules"][0]["debug_name"], "fixture.pdb");
+        assert_eq!(report["modules"][0]["resolved"], 1);
     }
 
     #[test]

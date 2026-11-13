@@ -157,8 +157,7 @@ impl RecordingAdapter {
         self.queue_event(EventDispatch::new(
             target,
             EventId::MenuItemInvoked,
-            EventValue::Key(callback),
-            EventPayload::Key(key.into()),
+            EventCall::Key(callback, key.into()),
         ));
     }
 
@@ -179,8 +178,7 @@ impl RecordingAdapter {
         self.queue_event(EventDispatch::new(
             target,
             EventId::CommandInvoked,
-            EventValue::Key(callback),
-            EventPayload::Key(key.into()),
+            EventCall::Key(callback, key.into()),
         ));
     }
 
@@ -230,8 +228,7 @@ impl RecordingAdapter {
             self.queue_event(EventDispatch::new(
                 dialog,
                 EventId::Closed,
-                EventValue::ContentDialogResult(callback),
-                EventPayload::ContentDialogResult(result),
+                EventCall::ContentDialogResult(callback, result),
             ));
         }
         if !self.objects.contains_key(&dialog) && !pending {
@@ -254,16 +251,19 @@ impl RecordingAdapter {
 
     pub fn queue_retirement_completion(&mut self, root: ObjectId) {
         self.native_events
-            .push_back(NativeEvent::retirement(RetirementCompletion { root }));
+            .push_back(NativeEvent::Retirement(RetirementCompletion { root }));
     }
 
     pub fn observe(&mut self, observation: Observation) {
         self.native_events
-            .push_back(NativeEvent::observation(observation));
+            .push_back(NativeEvent::Observation(observation));
     }
 
     pub fn queue_event(&mut self, event: EventDispatch) {
-        self.native_events.push_back(NativeEvent::event(event));
+        self.native_events.push_back(NativeEvent::Event {
+            observation: None,
+            event,
+        });
     }
 
     /// Moves recorded children the way a user drag moves native items, without a mutation.
@@ -285,19 +285,19 @@ impl RecordingAdapter {
         event: Option<EventDispatch>,
     ) {
         self.native_events
-            .push_back(NativeEvent::new(observation, event));
+            .push_back(NativeEvent::report(observation, event).unwrap());
     }
 
     /// Queues the native state Reactor's own write produced, as the WinUI adapter reads it back.
     pub fn queue_record(&mut self, observation: Observation) {
         self.native_events
-            .push_back(NativeEvent::record(observation));
+            .push_back(NativeEvent::Record(observation));
     }
 
     pub fn queue_realization(&mut self, request: RealizationRequest) {
         let request = Self::coalesce_realization(&mut self.native_events, request);
         self.native_events
-            .push_back(NativeEvent::realization(request));
+            .push_back(NativeEvent::Realization(request));
     }
 
     pub fn realized_count(&self, object: ObjectId) -> usize {
@@ -329,8 +329,8 @@ impl RecordingAdapter {
         };
         let pending = events.iter().rposition(|event| {
             matches!(
-                event.realization_request(),
-                Some(RealizationRequest::Realize {
+                event,
+                NativeEvent::Realization(RealizationRequest::Realize {
                     collection: pending_collection,
                     container: pending_container,
                     ..
@@ -338,7 +338,7 @@ impl RecordingAdapter {
                     collection: pending_collection,
                     container: pending_container,
                     ..
-                }) if pending_collection == collection && pending_container == container
+                }) if *pending_collection == collection && *pending_container == container
             )
         });
         if let Some(pending) = pending {
@@ -404,8 +404,7 @@ impl RecordingAdapter {
                         return Err(AdapterError::InvalidReplacement(*object));
                     }
                     self.objects.insert(*object, Self::recorded_object(*kind));
-                    self.native_events
-                        .retain(|event| event.object() != Some(*object));
+                    self.native_events.retain(|event| event.object() != *object);
                 }
                 Mutation::SetProperties { object, set, clear } => {
                     let object = self.object_mut(*object)?;
@@ -531,10 +530,7 @@ impl RecordingAdapter {
                 } => {
                     self.require_object(*target)?;
                     let kind = self.objects.get(target).unwrap().kind;
-                    if !matches!(
-                        kind,
-                        ObjectType::Button | ObjectType::DropDownButton | ObjectType::MenuBarItem
-                    ) {
+                    if object_category(kind) != ObjectCategory::Visual {
                         return Err(AdapterError::InvalidReplacement(*target));
                     }
                     if menu.is_some()
@@ -742,10 +738,9 @@ impl RecordingAdapter {
                     {
                         return Err(AdapterError::InvalidTooltip(*child));
                     }
-                    let index = self.active_index(*parent, *relation, *index)?;
                     match self.relation_mut(*parent, *relation)? {
-                        RecordedRelation::Many(children) if index <= children.len() => {
-                            children.insert(index, *child);
+                        RecordedRelation::Many(children) if *index <= children.len() => {
+                            children.insert(*index, *child);
                         }
                         _ => return Err(AdapterError::InvalidMutation(*relation)),
                     }
@@ -756,26 +751,23 @@ impl RecordingAdapter {
                     relation,
                     child,
                     index,
-                } => {
-                    let index = self.active_index(*parent, *relation, *index)?;
-                    match self.relation_mut(*parent, *relation)? {
-                        RecordedRelation::Many(children) => {
-                            if children.get(index) != Some(child) {
-                                return Err(AdapterError::ChildNotFound(*child));
-                            }
-                            children.remove(index);
-                            Rc::make_mut(&mut self.owners).remove(child);
+                } => match self.relation_mut(*parent, *relation)? {
+                    RecordedRelation::Many(children) => {
+                        if children.get(*index) != Some(child) {
+                            return Err(AdapterError::ChildNotFound(*child));
                         }
-                        _ => return Err(AdapterError::InvalidMutation(*relation)),
+                        children.remove(*index);
+                        Rc::make_mut(&mut self.owners).remove(child);
                     }
-                }
+                    _ => return Err(AdapterError::InvalidMutation(*relation)),
+                },
                 Mutation::Reorder {
                     parent,
                     relation,
-                    moves: _,
+                    moves,
                     children,
                 } => {
-                    let retired = self
+                    let retiring = self
                         .retirements
                         .iter()
                         .filter_map(|(root, retirement)| {
@@ -783,35 +775,31 @@ impl RecordingAdapter {
                                 .then_some(*root)
                         })
                         .collect::<Vec<_>>();
-                    match self.relation_mut(*parent, *relation)? {
-                        RecordedRelation::Many(current) => {
-                            let mut expected = current
-                                .iter()
-                                .copied()
-                                .filter(|child| !retired.contains(child))
-                                .collect::<Vec<_>>();
-                            let mut requested = children.clone();
-                            expected.sort_unstable_by_key(|object| {
-                                (object.index(), object.generation())
-                            });
-                            requested.sort_unstable_by_key(|object| {
-                                (object.index(), object.generation())
-                            });
-                            if expected != requested {
-                                return Err(AdapterError::InvalidMutation(*relation));
-                            }
-                            let mut requested = children.iter().copied();
-                            for child in current.iter_mut() {
-                                if !retired.contains(child) {
-                                    let Some(next) = requested.next() else {
-                                        return Err(AdapterError::InvalidMutation(*relation));
-                                    };
-                                    *child = next;
-                                }
-                            }
-                            current.extend(requested);
+                    let RecordedRelation::Many(current) = self.relation_mut(*parent, *relation)?
+                    else {
+                        return Err(AdapterError::InvalidMutation(*relation));
+                    };
+                    // Retiring children keep their native slots, so a move must not name one.
+                    for movement in moves {
+                        if retiring.contains(&movement.child) {
+                            return Err(AdapterError::InvalidMutation(*relation));
                         }
-                        _ => return Err(AdapterError::InvalidMutation(*relation)),
+                        let previous = current
+                            .iter()
+                            .position(|child| *child == movement.child)
+                            .ok_or(AdapterError::ChildNotFound(movement.child))?;
+                        current.remove(previous);
+                        let index = match movement.before {
+                            Some(before) => current
+                                .iter()
+                                .position(|child| *child == before)
+                                .ok_or(AdapterError::ChildNotFound(before))?,
+                            None => current.len(),
+                        };
+                        current.insert(index, movement.child);
+                    }
+                    if current != children {
+                        return Err(AdapterError::InvalidMutation(*relation));
                     }
                 }
                 Mutation::Retire {
@@ -873,8 +861,7 @@ impl RecordingAdapter {
                         {
                             self.content_dialog_states.remove(object);
                         }
-                        self.native_events
-                            .retain(|event| event.object() != Some(*object));
+                        self.native_events.retain(|event| event.object() != *object);
                     }
                 }
                 Mutation::Destroy { object } => {
@@ -934,42 +921,6 @@ impl RecordingAdapter {
             .contains_key(&object)
             .then_some(())
             .ok_or(AdapterError::MissingObject(object))
-    }
-
-    fn active_index(
-        &self,
-        parent: ObjectId,
-        relation: RelationId,
-        active_index: usize,
-    ) -> Result<usize, AdapterError> {
-        let RecordedRelation::Many(children) = self
-            .objects
-            .get(&parent)
-            .and_then(|object| object.relations.get(&relation))
-            .ok_or(AdapterError::InvalidRelation(parent, relation))?
-        else {
-            return Err(AdapterError::InvalidMutation(relation));
-        };
-        let retired = self
-            .retirements
-            .iter()
-            .filter_map(|(root, retirement)| {
-                (retirement.parent == parent && retirement.relation == relation).then_some(*root)
-            })
-            .collect::<Vec<_>>();
-        let mut active = 0;
-        for (index, child) in children.iter().enumerate() {
-            if retired.contains(child) {
-                continue;
-            }
-            if active == active_index {
-                return Ok(index);
-            }
-            active += 1;
-        }
-        (active == active_index)
-            .then_some(children.len())
-            .ok_or(AdapterError::InvalidMutation(relation))
     }
 
     fn object_mut(&mut self, object: ObjectId) -> Result<&mut RecordedObject, AdapterError> {

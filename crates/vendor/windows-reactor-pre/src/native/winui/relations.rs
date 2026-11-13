@@ -73,50 +73,6 @@ impl WinUiAdapter {
         Ok(())
     }
 
-    fn has_retirements(&self, parent: ObjectId, relation: RelationId) -> bool {
-        self.retirements
-            .values()
-            .any(|retirement| retirement.parent == parent && retirement.relation == relation)
-    }
-
-    fn active_native_index(
-        &self,
-        parent: ObjectId,
-        relation: RelationId,
-        active_index: usize,
-    ) -> Result<usize, WinUiError> {
-        let retired = self
-            .retirements
-            .iter()
-            .filter_map(|(root, retirement)| {
-                (retirement.parent == parent && retirement.relation == relation).then_some(*root)
-            })
-            .collect::<Vec<_>>();
-        if retired.is_empty() {
-            return Ok(active_index);
-        }
-        let values = self.owned_collection(parent, relation)?;
-        let retired = retired
-            .into_iter()
-            .map(|root| self.ui_element(root))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut active = 0;
-        for index in 0..values.size()? {
-            if retired.contains(&values.get_at(index)?) {
-                continue;
-            }
-            if active == active_index {
-                return Ok(index as usize);
-            }
-            active += 1;
-        }
-        if active == active_index {
-            Ok(values.size()? as usize)
-        } else {
-            Err(WinUiError::InvalidMutation(relation))
-        }
-    }
-
     pub(super) fn insert(
         &mut self,
         parent: ObjectId,
@@ -133,7 +89,6 @@ impl WinUiAdapter {
         ) {
             return Err(WinUiError::InvalidObject(child));
         }
-        let index = self.active_native_index(parent, relation, index)?;
         let selection = selection_for_relation(self.kind(parent)?, relation);
         let selected = selection
             .map(|selection| self.read_selected_item(parent, selection))
@@ -205,7 +160,6 @@ impl WinUiAdapter {
         if self.owners.get(&child) != Some(&(parent, relation)) {
             return Err(WinUiError::ChildNotFound(child));
         }
-        let index = self.active_native_index(parent, relation, index)?;
         let selection = selection_for_relation(self.kind(parent)?, relation);
         let selected = selection
             .map(|selection| self.read_selected_item(parent, selection))
@@ -273,9 +227,7 @@ impl WinUiAdapter {
         let feedback = self.suppress_selection(parent, relation, selection)?;
         let result = (|| {
             match relation_contract(self.kind(parent)?, relation)?.realization {
-                Realization::Owned if !self.has_retirements(parent, relation) => {
-                    // Without retiring children, native order matches active order, so the
-                    // reconciler's moves apply directly and unmoved children stay in place.
+                Realization::Owned => {
                     let values = self.owned_collection(parent, relation)?;
                     for movement in moves {
                         let child = self.ui_element(movement.child)?;
@@ -291,31 +243,6 @@ impl WinUiAdapter {
                             values.size()?
                         };
                         values.insert_at(index, &child)?;
-                    }
-                }
-                Realization::Owned => {
-                    let values = self.owned_collection(parent, relation)?;
-                    let mut current = (0..values.size()?)
-                        .map(|index| {
-                            let value = values.get_at(index)?;
-                            Ok((com_identity(&value)?, value))
-                        })
-                        .collect::<Result<Vec<_>, WinUiError>>()?;
-                    let desired = children
-                        .iter()
-                        .map(|child| {
-                            self.ui_element(*child)
-                                .and_then(|value| com_identity(&value))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let active = desired.iter().copied().collect::<HashSet<_>>();
-                    let swaps = simulate_active_slot_reorder(&mut current, &active, &desired)
-                        .ok_or(WinUiError::InvalidMutation(relation))?;
-                    for (left, right, left_value, right_value) in swaps {
-                        values.remove_at(index32(right)?)?;
-                        values.remove_at(index32(left)?)?;
-                        values.insert_at(index32(left)?, &left_value)?;
-                        values.insert_at(index32(right)?, &right_value)?;
                     }
                 }
                 Realization::Structural => {
@@ -382,13 +309,16 @@ impl WinUiAdapter {
         })();
         self.release_selection(parent, feedback);
         result?;
-        let active = children.iter().copied().collect::<HashSet<_>>();
-        debug_assert_eq!(
-            children.len(),
-            self.owners
+        debug_assert!(
+            children
                 .iter()
-                .filter(|(object, owner)| **owner == (parent, relation) && active.contains(object))
-                .count()
+                .all(|child| self.owners.get(child) == Some(&(parent, relation)))
+                && children.len()
+                    == self
+                        .owners
+                        .values()
+                        .filter(|owner| **owner == (parent, relation))
+                        .count()
         );
         Ok(())
     }
@@ -685,19 +615,9 @@ impl WinUiAdapter {
         timer.SetInterval(duration)?;
         timer.SetIsRepeating(false)?;
         let event_queue = Rc::clone(&self.event_queue);
-        let tick = timer.Tick(move |_, _| {
-            event_queue
-                .events
-                .borrow_mut()
-                .push_back(QueuedNativeEvent {
-                    observation: None,
-                    event: None,
-                    record: false,
-                    retirement: Some(RetirementCompletion { root }),
-                    realization: None,
-                });
-            Self::schedule_event_wake(&event_queue);
-        })?;
+        let tick = timer.Tick(local::handler(move |_, _| {
+            event_queue.push(NativeEvent::Retirement(RetirementCompletion { root }));
+        }))?;
         self.retirements.insert(
             root,
             NativeRetirement {
@@ -757,16 +677,21 @@ impl WinUiAdapter {
     }
 
     pub(super) fn native_event(&self, queued: &QueuedNativeEvent) -> Option<NativeEvent> {
-        if let Some(completion) = queued.retirement {
-            return Some(NativeEvent::retirement(completion));
-        }
-        if let Some(request) = queued.realization {
-            return Some(NativeEvent::realization(request));
-        }
+        let (observation, event) = match queued {
+            NativeEvent::Observation(observation) => (Some(observation), None),
+            NativeEvent::Record(observation) => {
+                return Some(NativeEvent::Record(observation.clone()));
+            }
+            NativeEvent::Event { observation, event } => (observation.as_ref(), Some(event)),
+            NativeEvent::Retirement(completion) => {
+                return Some(NativeEvent::Retirement(*completion));
+            }
+            NativeEvent::Realization(request) => return Some(NativeEvent::Realization(*request)),
+        };
         // Native handlers queue reorders without an order; reading it here keeps queued
         // notifications from replaying an order that a later render has already replaced.
-        let mut observation = queued.observation.clone();
-        let mut order = None;
+        let mut observation = observation.cloned();
+        let mut native_order = None;
         if let Some(Observation::Reorder {
             object,
             relation,
@@ -778,38 +703,32 @@ impl WinUiAdapter {
             }
             let native = self.native_children(*object, *relation).unwrap();
             children.clone_from(&native);
-            order = Some(EventPayload::Items(native));
+            native_order = Some(native);
         }
-        let event = queued.event.as_ref().and_then(|queued| {
-            let callback = match (&queued.handler, queued.event) {
-                (QueuedHandler::Presentation(revision), EventId::MenuItemInvoked) => {
+        let event = event.and_then(|queued| {
+            let call = match (&queued.handler, queued.event) {
+                (QueuedHandler::Presentation { revision, key }, EventId::MenuItemInvoked) => {
                     let menu = self.menus.get(&queued.object)?;
                     (menu.revision == *revision)
-                        .then(|| EventValue::Key(menu.menu.on_click.clone()))
+                        .then(|| EventCall::Key(menu.menu.on_click.clone(), key.clone()))
                 }
-                (QueuedHandler::Presentation(revision), EventId::CommandInvoked) => {
+                (QueuedHandler::Presentation { revision, key }, EventId::CommandInvoked) => {
                     let flyout = self.command_bar_flyouts.get(&queued.object)?;
                     (flyout.revision == *revision)
-                        .then(|| EventValue::Key(flyout.flyout.on_click.clone()))
+                        .then(|| EventCall::Key(flyout.flyout.on_click.clone(), key.clone()))
                 }
-                (QueuedHandler::Callback { callback, live }, _) => {
-                    live.get().then(|| callback.clone())
-                }
-                (QueuedHandler::Presentation(_), event) => {
+                (QueuedHandler::Callback { call, live }, _) => live.get().then(|| call.clone()),
+                (QueuedHandler::Presentation { .. }, event) => {
                     unreachable!("{event:?} has no presentation")
                 }
             }?;
-            Some(EventDispatch::new(
-                queued.object,
-                queued.event,
-                callback,
-                order.unwrap_or_else(|| queued.payload.clone()),
-            ))
+            let call = match (call, native_order) {
+                (EventCall::Items(callback, _), Some(native)) => EventCall::Items(callback, native),
+                (call, _) => call,
+            };
+            Some(EventDispatch::new(queued.object, queued.event, call))
         });
-        Some(match observation {
-            Some(observation) if queued.record => NativeEvent::record(observation),
-            observation => NativeEvent::new(observation, event),
-        })
+        NativeEvent::report(observation, event)
     }
 
     /// Returns the registered children of a reorderable relation in native order.

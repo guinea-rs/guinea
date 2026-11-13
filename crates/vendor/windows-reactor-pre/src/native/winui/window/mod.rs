@@ -30,9 +30,43 @@ pub(super) struct NativeWindowState {
     maximize_on_first_show: Cell<bool>,
     placement_callback: RefCell<Option<Rc<dyn Fn(WindowPlacement)>>>,
     last_placement: Cell<Option<WindowPlacement>>,
+    initial_focus: RefCell<Option<windows_core::EventRevoker>>,
 }
 
 impl NativeWindowState {
+    fn initialize_focus(&self) -> windows_core::Result<()> {
+        if !self.shown.get()
+            || self.closed.get()
+            || self.initial_focus.borrow_mut().take().is_none()
+        {
+            return Ok(());
+        }
+        let surface = self.surface.cast::<native::UIElement>()?;
+        let root = surface.XamlRoot()?;
+        let focused = match native::FocusManager::GetFocusedElementWithRoot(&root) {
+            Ok(focused) => focused,
+            Err(error) if error.code().is_ok() => {
+                match native::FocusManager::FindFirstFocusableElement(&surface) {
+                    Ok(focused) => focused.into(),
+                    Err(error) if error.code().is_ok() => return Ok(()),
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(error) => return Err(error),
+        };
+        let element = match focused.cast::<native::UIElement>() {
+            Ok(element) => element,
+            // Inline hyperlinks are focusable TextElements, not UIElements.
+            Err(error) if error.code() == native::E_NOINTERFACE => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        // Initial activation is not keyboard navigation. Keep WinUI's target, not its keyboard cues.
+        if element.FocusState()? != native::FocusState::Pointer {
+            _ = element.Focus(native::FocusState::Pointer)?;
+        }
+        Ok(())
+    }
+
     fn observe_placement(&self) -> windows_core::Result<()> {
         if !self.shown.get() || self.closed.get() {
             return Ok(());
@@ -145,7 +179,11 @@ impl NativeWindow {
                     .AppWindow()?
                     .cast::<native::IAppWindow2>()?;
                 let hwnd = self.raw_handle()?;
-                self.state.root_element.SizeChanged(move |_, args| {
+                self.state.root_element.SizeChanged(local::handler::<
+                    _,
+                    native::SizeChangedEventArgs,
+                    _,
+                >(move |_, args| {
                     if args.as_ref().is_none() {
                         return;
                     }
@@ -157,7 +195,7 @@ impl NativeWindow {
                         width: f64::from(size.width) * dips,
                         height: f64::from(size.height) * dips,
                     });
-                })
+                }))
             })
             .transpose()?;
         Ok(())
@@ -176,20 +214,22 @@ impl NativeWindow {
                 };
                 let last = Cell::new(initial);
                 observer(initial);
-                self.state
-                    .root_element
-                    .ActualThemeChanged(move |sender, _| {
-                        let Some(sender) = sender.as_ref() else {
-                            return;
-                        };
-                        let scheme = match sender.ActualTheme().unwrap() {
-                            native::ElementTheme::Dark => ColorScheme::Dark,
-                            _ => ColorScheme::Light,
-                        };
-                        if last.replace(scheme) != scheme {
-                            observer(scheme);
-                        }
-                    })
+                self.state.root_element.ActualThemeChanged(local::handler::<
+                    native::FrameworkElement,
+                    _,
+                    _,
+                >(move |sender, _| {
+                    let Some(sender) = sender.as_ref() else {
+                        return;
+                    };
+                    let scheme = match sender.ActualTheme().unwrap() {
+                        native::ElementTheme::Dark => ColorScheme::Dark,
+                        _ => ColorScheme::Light,
+                    };
+                    if last.replace(scheme) != scheme {
+                        observer(scheme);
+                    }
+                }))
             })
             .transpose()?;
 
@@ -270,6 +310,18 @@ impl NativeWindow {
             }
         }
 
+        if changes.always_on_top || changes.minimizable {
+            let presenter = app_window
+                .Presenter()?
+                .cast::<native::IOverlappedPresenter>()?;
+            if changes.always_on_top {
+                presenter.SetIsAlwaysOnTop(visuals.always_on_top)?;
+            }
+            if changes.minimizable {
+                presenter.SetIsMinimizable(visuals.minimizable.unwrap_or(true))?;
+            }
+        }
+
         if changes.constraints || initial {
             let presenter = app_window
                 .Presenter()?
@@ -331,6 +383,14 @@ impl NativeWindow {
         }
         self.state.window.Activate()?;
         self.state.shown.set(true);
+        if self
+            .state
+            .surface
+            .cast::<native::IFrameworkElement>()?
+            .IsLoaded()?
+        {
+            self.state.initialize_focus()?;
+        }
         self.state.observe_placement()?;
         Ok(())
     }
@@ -359,11 +419,11 @@ impl NativeWindow {
                     .window
                     .cast::<native::IWindow2>()?
                     .AppWindow()?
-                    .Changed(move |_, _| {
+                    .Changed(local::handler(move |_, _| {
                         if let Some(state) = state.upgrade() {
                             state.observe_placement().unwrap();
                         }
-                    })?,
+                    }))?,
             );
             self.state.observe_placement()?;
         }
@@ -376,12 +436,12 @@ impl NativeWindow {
 
     pub fn set_closed(&mut self, callback: impl Fn() + 'static) -> Result<(), WinUiError> {
         let state = Rc::downgrade(&self.state);
-        self.closed = Some(self.state.window.Closed(move |_, _| {
+        self.closed = Some(self.state.window.Closed(local::handler(move |_, _| {
             if let Some(state) = state.upgrade() {
                 state.closed.set(true);
             }
             callback();
-        })?);
+        }))?);
         Ok(())
     }
 }
@@ -410,11 +470,19 @@ pub(super) struct WindowVisualChanges {
     pub(super) constraints: bool,
     pub(super) icon: bool,
     pub(super) theme: bool,
+    pub(super) always_on_top: bool,
+    pub(super) minimizable: bool,
 }
 
 impl WindowVisualChanges {
     pub(super) fn any(self) -> bool {
-        self.backdrop || self.client_size || self.constraints || self.icon || self.theme
+        self.backdrop
+            || self.client_size
+            || self.constraints
+            || self.icon
+            || self.theme
+            || self.always_on_top
+            || self.minimizable
     }
 }
 
@@ -428,6 +496,8 @@ pub(super) fn window_visual_changes(
         constraints: previous.constraints != next.constraints,
         icon: previous.icon != next.icon,
         theme: previous.theme != next.theme,
+        always_on_top: previous.always_on_top != next.always_on_top,
+        minimizable: previous.minimizable.unwrap_or(true) != next.minimizable.unwrap_or(true),
     }
 }
 
@@ -488,7 +558,19 @@ impl WinUiAdapter {
             maximize_on_first_show: Cell::new(false),
             placement_callback: RefCell::new(None),
             last_placement: Cell::new(None),
+            initial_focus: RefCell::new(None),
         });
+        let weak = Rc::downgrade(&state);
+        *state.initial_focus.borrow_mut() = Some(
+            state
+                .surface
+                .cast::<native::IFrameworkElement>()?
+                .Loading(local::handler(move |_, _| {
+                    if let Some(state) = weak.upgrade() {
+                        state.initialize_focus().unwrap();
+                    }
+                }))?,
+        );
         if let Some((object, height)) = self.window_title_bar
             && self.owns(state.root, object)
         {
@@ -549,6 +631,9 @@ impl WinUiAdapter {
         }
         let element = self.ui_element(object)?;
         element.SetIsTabStop(false)?;
+        element
+            .cast::<native::ITitleBar2>()?
+            .SetAutoRefreshDragRegions(true)?;
         state.window.SetExtendsContentIntoTitleBar(true)?;
         state.window.SetTitleBar(&element)?;
         state

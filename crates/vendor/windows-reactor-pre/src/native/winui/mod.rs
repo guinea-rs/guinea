@@ -21,7 +21,6 @@ use automation::*;
 use content_dialog::*;
 use dependency::*;
 use event_queue::*;
-use events::*;
 use images::*;
 use objects::set_properties;
 use relations::*;
@@ -59,6 +58,25 @@ struct NativeSubscription<T> {
     live: Rc<Cell<bool>>,
 }
 
+impl<T> Clone for NativeSubscription<T> {
+    fn clone(&self) -> Self {
+        Self {
+            callback: self.callback.clone(),
+            live: Rc::clone(&self.live),
+        }
+    }
+}
+
+impl<T: EventArg> NativeSubscription<T> {
+    /// The handler for an occurrence under this subscription.
+    fn handler(self, value: T::Native) -> QueuedHandler {
+        QueuedHandler::Callback {
+            call: T::bind(self.callback, value),
+            live: self.live,
+        }
+    }
+}
+
 impl<T> Default for NativeValueEvent<T> {
     fn default() -> Self {
         Self { subscription: None }
@@ -82,16 +100,13 @@ impl<T> NativeValueEvent<T> {
     }
 
     /// The handler for an occurrence firing now under the current subscription.
-    fn handler(&self) -> Option<QueuedHandler>
+    fn handler(&self, value: T::Native) -> Option<QueuedHandler>
     where
-        Callback<T>: IntoEventValue,
+        T: EventArg,
     {
         self.subscription
-            .as_ref()
-            .map(|subscription| QueuedHandler::Callback {
-                callback: subscription.callback.clone().into_event_value(),
-                live: Rc::clone(&subscription.live),
-            })
+            .clone()
+            .map(|subscription| subscription.handler(value))
     }
 }
 
@@ -234,7 +249,7 @@ include!("../generated.rs");
 
 enum ObservationSubscription {
     SwapChainPanel {
-        _rendering: windows_core::EventRevoker,
+        _rendering: Option<windows_core::EventRevoker>,
         _scale: windows_core::EventRevoker,
         _size: windows_core::EventRevoker,
     },
@@ -485,9 +500,13 @@ fn observe_xaml_scale(
         Err(error) => return Err(error),
     };
     callback.call(root.RasterizationScale()?);
-    changed.replace(Some(root.Changed(move |sender, _| {
+    changed.replace(Some(root.Changed(local::handler::<
+        native::XamlRoot,
+        _,
+        _,
+    >(move |sender, _| {
         callback.call(sender.as_ref().unwrap().RasterizationScale().unwrap());
-    })?));
+    }))?));
     Ok(())
 }
 
@@ -631,40 +650,6 @@ fn relation_contract(
 
 fn com_identity(value: &impl Interface) -> Result<usize, WinUiError> {
     Ok(value.cast::<windows_core::IUnknown>()?.as_raw() as usize)
-}
-
-fn simulate_active_slot_reorder<T: Clone>(
-    current: &mut [(usize, T)],
-    active: &HashSet<usize>,
-    desired: &[usize],
-) -> Option<Vec<(usize, usize, T, T)>> {
-    let slots = current
-        .iter()
-        .enumerate()
-        .filter_map(|(index, (identity, _))| active.contains(identity).then_some(index))
-        .collect::<Vec<_>>();
-    if slots.len() != desired.len() || active.len() != desired.len() {
-        return None;
-    }
-    let mut swaps = Vec::new();
-    for (desired_index, left) in slots.iter().copied().enumerate() {
-        if current[left].0 == desired[desired_index] {
-            continue;
-        }
-        let right = slots[desired_index + 1..]
-            .iter()
-            .copied()
-            .find(|right| current[*right].0 == desired[desired_index])?;
-        let left_value = current[right].1.clone();
-        let right_value = current[left].1.clone();
-        current.swap(left, right);
-        swaps.push((left, right, left_value, right_value));
-    }
-    current
-        .iter()
-        .filter_map(|(identity, _)| active.contains(identity).then_some(*identity))
-        .eq(desired.iter().copied())
-        .then_some(swaps)
 }
 
 fn index32(index: usize) -> Result<u32, WinUiError> {

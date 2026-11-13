@@ -30,7 +30,7 @@ use windows_reactor::{
 };
 use windows_reactor::test::{
     ComponentHost,
-    EventDispatch, EventId, EventPayload, EventValue, ImperativeRequest, Mutation, ObjectType,
+    EventCall, EventDispatch, EventId, EventValue, ImperativeRequest, Mutation, ObjectType,
     Observation, Property, RealizationRequest,
     RealizedContainer, RecordingAdapter, RelationId, RetainedGraph, SelectionChange,
 };
@@ -42,6 +42,23 @@ use crate::winui::{Mountable, Shown, Signal};
 
 /// How many messages one pass may run before it looks again.
 const TURNS: usize = 64;
+
+enum EventPayload {
+    Unit,
+    PointerEventInfo(PointerEventInfo),
+    Selection(SelectionChange),
+}
+
+fn event_call(listener: EventValue, payload: EventPayload) -> EventCall {
+    match (listener, payload) {
+        (EventValue::Unit(callback), EventPayload::Unit) => EventCall::Unit(callback),
+        (EventValue::PointerEventInfo(callback), EventPayload::PointerEventInfo(value)) =>
+            EventCall::PointerEventInfo(callback, value),
+        (EventValue::Selection(callback), EventPayload::Selection(value)) =>
+            EventCall::Selection(callback, value),
+        _ => panic!("event payload does not match its listener"),
+    }
+}
 
 /// What the host calls the one component it mounts.
 const ROOT: &str = "mounted";
@@ -617,7 +634,7 @@ impl<'h, S: 'static> Mounted<'h, S> {
     fn raise(&mut self, node: NodeId, event: EventId, payload: EventPayload) {
         if let Some(listener) = self.listener(node, event) {
             self.host
-                .queue_event(EventDispatch::new(node, event, listener, payload));
+                .queue_event(EventDispatch::new(node, event, event_call(listener, payload)));
         }
     }
 
@@ -649,8 +666,8 @@ impl<'h, S: 'static> Mounted<'h, S> {
             .flatten()
             .filter_map(|mutation| match mutation {
                 Mutation::SetVirtualSource {
-                    object, item_count, ..
-                } => Some((*object, *item_count)),
+                    object, keys, ..
+                } => Some((*object, keys.len())),
                 _ => None,
             })
             .collect();
@@ -996,11 +1013,12 @@ impl<'h, S: 'static> Mounted<'h, S> {
         };
 
         let dispatch = self.listener(control, event).map(|listener| {
-            let payload = match listener {
-                EventValue::OptionalBool(_) => EventPayload::OptionalBool(Some(to)),
-                _ => EventPayload::Bool(to),
+            let call = match listener {
+                EventValue::OptionalBool(callback) => EventCall::OptionalBool(callback, Some(to)),
+                EventValue::Bool(callback) => EventCall::Bool(callback, to),
+                _ => panic!("toggle listener has an incompatible type"),
             };
-            EventDispatch::new(control, event, listener, payload)
+            EventDispatch::new(control, event, call)
         });
 
         self.host

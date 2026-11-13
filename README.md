@@ -25,20 +25,18 @@ but every application past a demo meets the same problems:
 
 ### What guinea is
 
-MVI for a whole application:
+guinea organizes application logic into **features**: state, actors, background
+work and subscriptions that can be installed together. Features declare their
+inputs and exports; guinea checks those declarations before installation.
 
-- **Intent** - a page emits what the user asked for, and changes only its own view state;
-- **Model** - a reducer, the one place a state changes, driven by an actor that decides;
-- **View** - the page, written the way its toolkit works: WinUI, iced, egui, ratatui or Slint.
+Each feature belongs to a **scope** in the application, window, layout or page.
+Install a feature on a page for local state, in a shared layout for several pages,
+or at the application level for several windows. Removing a scope cancels its
+registered tasks and releases its resources.
 
-And the application is built out of pages. Everything lives in a scope - the
-application's, a window's, a layout's, a page's - and goes with it: what a page set up
-ends when the user leaves it, with nothing to tear down by hand. Nothing pushes you
-towards global state: state lives with the screen that needs it, and is shared by
-installing it higher up - in a layout, or in the application. A page reads what it
-installed itself, what a layout above it exports, and what the application provides;
-anything else is not in reach, and a test sets up exactly that and no more.
-Settings go to [amethystate](https://github.com/guinea-rs/amethystate).
+Pages send typed actions to actors, read state updated by reducers, and build UI
+with their toolkit. Actors handle messages and coordinate work. The same
+application logic can be exercised in a harness without opening a window.
 
 ### Architecture
 
@@ -56,13 +54,25 @@ guinea takes its ideas from Kotlin, Swift, gpui and Next.js. Its ownership is th
 Leptos and Dioxus arrived at - a tree of scopes owning `Copy` handles - put under
 toolkits that do not have one.
 
-### Profiling
+### Observability with Perfetto
 
-Install the standalone profiler with `cargo install --locked guinea-profile`.
-Run `guinea-profile record -- path/to/app` to record an instrumented executable
-with symbols, or `guinea-profile view path/to/recording` to reopen a session.
-It combines CPU samples, causal events and memory metrics in Perfetto, with
-opt-in reducer state diffs. See [setup and usage](tools/guinea-profile/README.md).
+When a screen stalls, memory grows or state changes unexpectedly, guinea helps
+you follow the work back to the action that started it.
+
+- **Follow the chain.** See which action sent a message, which actor handled it,
+  and what work and state updates followed, with links to available source locations.
+- **Find expensive work.** Explore native CPU stacks alongside application events,
+  with Guinea's causal context connecting sampled execution to the actions behind it.
+- **Explain memory growth.** See which scopes and events allocate, how the Rust
+  heap compares with process memory, and what remains allocated after a scope closes.
+- **Understand state changes.** Optional reducer snapshots show what a message
+  changed, with before/after values and a structural diff.
+
+These views share one timeline in Perfetto, so you can investigate a slow action,
+its allocations and its effect on state in the same recording. Save the session
+to revisit it or share it with someone investigating the problem.
+
+[Explore profiling with guinea-profile](tools/guinea-profile/README.md).
 
 > [!WARNING]
 > **guinea is young, and its API still moves between minor versions.**

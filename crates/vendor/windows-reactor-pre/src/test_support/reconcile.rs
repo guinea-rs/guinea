@@ -92,40 +92,42 @@ impl NativeEvent {
         mut self,
         read: impl FnOnce(ObjectId, RelationId) -> Option<Vec<ObjectId>>,
     ) -> Self {
+        let (observation, event) = match &mut self {
+            Self::Observation(observation) | Self::Record(observation) => (Some(observation), None),
+            Self::Event { observation, event } => (observation.as_mut(), Some(event)),
+            Self::Retirement(_) | Self::Realization(_) => (None, None),
+        };
         if let Some(Observation::Reorder {
             object,
             relation,
             children,
-        }) = &mut self.observation
+        }) = observation
             && let Some(native) = read(*object, *relation)
         {
-            if let Some(event) = &mut self.event {
-                event.payload = EventPayload::Items(native.clone());
+            if let Some(EventDispatch {
+                call: EventCall::Items(_, items),
+                ..
+            }) = event
+            {
+                items.clone_from(&native);
             }
             *children = native;
         }
         self
     }
 
-    pub(crate) fn realization_request(&self) -> Option<RealizationRequest> {
-        self.realization
-    }
-
-    pub(crate) fn object(&self) -> Option<ObjectId> {
-        self.event.as_ref().map(EventDispatch::object).or_else(|| {
-            self.observation
-                .as_ref()
-                .map(Observation::object)
-                .or_else(|| self.retirement.map(|completion| completion.root))
-                .or_else(|| {
-                    self.realization.map(|request| match request {
-                        RealizationRequest::Realize { collection, .. }
-                        | RealizationRequest::RealizeKey { collection, .. }
-                        | RealizationRequest::Recycle { collection, .. }
-                        | RealizationRequest::Cancel { collection, .. } => collection,
-                    })
-                })
-        })
+    pub(crate) fn object(&self) -> ObjectId {
+        match self {
+            Self::Event { event, .. } => event.object(),
+            Self::Observation(observation) | Self::Record(observation) => observation.object(),
+            Self::Retirement(completion) => completion.root,
+            Self::Realization(
+                RealizationRequest::Realize { collection, .. }
+                | RealizationRequest::RealizeKey { collection, .. }
+                | RealizationRequest::Recycle { collection, .. }
+                | RealizationRequest::Cancel { collection, .. },
+            ) => *collection,
+        }
     }
 }
 
@@ -257,16 +259,6 @@ impl UpdateStats {
     }
 }
 
-impl NativeEvent {
-    pub fn observation(observation: Observation) -> Self {
-        Self::new(Some(observation), None)
-    }
-
-    pub fn event(event: EventDispatch) -> Self {
-        Self::new(None, Some(event))
-    }
-}
-
 impl RetainedGraph {
     pub fn window_title_bar(&self) -> Option<(ObjectId, WindowTitleBarHeight)> {
         self.window_title_bar
@@ -310,7 +302,10 @@ impl<A: Adapter> Runtime<A> {
             "native event dispatch is in progress"
         );
         while let Some(next) = self.adapter.peek_native_event() {
-            assert!(next.realization.is_none(), "virtual realization is pending");
+            assert!(
+                !matches!(next, NativeEvent::Realization(_)),
+                "virtual realization is pending"
+            );
             if let Some(NativeWork::Event(event)) = self.pop_native_work() {
                 return Some(event);
             }
@@ -401,15 +396,11 @@ impl<A: Adapter> Runtime<A> {
             references: &mut references,
             virtual_refreshes: None,
         };
-        if !planner.retire_with_transition(parent, relation, child) {
-            planner.mutations.push(Mutation::Remove {
-                parent,
-                relation,
-                child,
-                index,
-            });
-            planner.retire(child);
-        }
+        let mut native = planner.retained.native_children(parent, relation);
+        planner.remove_child(parent, relation, &mut native, index, child);
+        planner
+            .retained
+            .set_native_children(parent, relation, native);
         let RetainedRelationValue::Many(children) =
             &mut self.graph.relation_mut(parent, relation).value
         else {

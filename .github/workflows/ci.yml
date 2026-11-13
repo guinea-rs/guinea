@@ -48,6 +48,9 @@ jobs:
       - name: Native window presentation lifecycle
         run: cargo test --locked -p guinea-winui --lib presentation::tests::native_show_hide_minimize_and_restore_report_distinct_values -- --ignored --exact
 
+      - name: Native application startup without a window
+        run: cargo test --locked -p guinea-winui --lib run::tests::startup_failure_is_returned_without_opening_a_window -- --ignored --exact
+
       - name: Validate Perfetto export with the official Trace Processor
         shell: pwsh
         run: |

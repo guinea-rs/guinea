@@ -1,7 +1,7 @@
 use super::*;
 use app_shim::{create_application, install_xaml_controls_resources};
 use bindings::IElementFactory;
-use transient_menu::{MenuTheme, TransientMenuHost};
+use transient_menu::TransientMenuHost;
 use windows_collections::*;
 use windows_core::{
     ComObject, Event as WinEvent, HRESULT, HSTRING, IInspectable, IUnknownImpl, Interface, Ref,
@@ -9,7 +9,6 @@ use windows_core::{
 };
 
 #[allow(
-    clippy::missing_transmute_annotations,
     clippy::upper_case_acronyms,
     non_camel_case_types,
     non_snake_case,
@@ -20,6 +19,7 @@ mod bindings;
 mod app;
 mod app_shim;
 mod bootstrap;
+mod local;
 mod notifyicon;
 mod transient_menu;
 mod winui;

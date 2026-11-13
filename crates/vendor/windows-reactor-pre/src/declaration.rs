@@ -1468,35 +1468,87 @@ pub enum EventValue {
     Unit(Callback<()>),
 }
 
+/// A callback paired with the value it receives. `Item` and `Items` carry native children, which
+/// resolve to their keys before dispatch.
 #[derive(Clone, Debug, PartialEq)]
-pub enum EventPayload {
-    Bool(bool),
-    Color(Color),
-    ContentDialogResult(ContentDialogResult),
+pub enum EventCall {
+    Bool(Callback<bool>, bool),
+    Color(Callback<Color>, Color),
+    ContentDialogResult(Callback<ContentDialogResult>, ContentDialogResult),
     #[cfg(any(test, feature = "test"))]
-    CharacterEventInfo(CharacterEventInfo),
-    String(Rc<str>),
-    F64(f64),
-    FocusEventInfo(FocusEventInfo),
-    DragKind(DragKind),
-    DroppedData(DroppedData),
-    OptionalBool(Option<bool>),
-    OptionalDateTime(Option<DateTime>),
-    OptionalF64(Option<f64>),
-    OptionalTimeSpan(Option<TimeSpan>),
-    NavigationViewDisplayMode(NavigationViewDisplayMode),
-    PointerEventInfo(PointerEventInfo),
+    CharacterEventInfo(RoutedCallback<CharacterEventInfo>, CharacterEventInfo),
+    String(Callback<Rc<str>>, Rc<str>),
+    F64(Callback<f64>, f64),
+    FocusEventInfo(Callback<FocusEventInfo>, FocusEventInfo),
+    DragKind(Callback<DragKind>, DragKind),
+    DroppedData(Callback<DroppedData>, DroppedData),
+    OptionalBool(Callback<Option<bool>>, Option<bool>),
+    OptionalDateTime(Callback<Option<DateTime>>, Option<DateTime>),
+    OptionalF64(Callback<Option<f64>>, Option<f64>),
+    OptionalTimeSpan(Callback<Option<TimeSpan>>, Option<TimeSpan>),
+    NavigationViewDisplayMode(
+        Callback<NavigationViewDisplayMode>,
+        NavigationViewDisplayMode,
+    ),
+    PointerEventInfo(Callback<PointerEventInfo>, PointerEventInfo),
     #[cfg(any(test, feature = "test"))]
-    KeyEventInfo(KeyEventInfo),
-    Key(Key),
-    Keys(Vec<Key>),
-    /// A native child, resolved to its key before dispatch.
-    Item(ObjectId),
-    /// Native children in native order, resolved to their keys before dispatch.
-    Items(Vec<ObjectId>),
-    Selection(SelectionChange),
-    SelectionIndex(Option<usize>),
-    Unit,
+    KeyEventInfo(RoutedCallback<KeyEventInfo>, KeyEventInfo),
+    /// A menu or command bar item's key, or the key resolved from `Item`.
+    Key(Callback<Key>, Key),
+    /// A native child.
+    Item(Callback<Key>, ObjectId),
+    /// Native children in native order.
+    Items(Callback<Vec<Key>>, Vec<ObjectId>),
+    /// The keys of reordered children, resolved from `Items`.
+    Keys(Callback<Vec<Key>>, Vec<Key>),
+    Selection(Callback<Option<Rc<str>>>, SelectionChange),
+    SelectionIndex(Callback<Option<usize>>, Option<usize>),
+    Unit(Callback<()>),
+}
+
+/// A callback value type and the native value an adapter reports for it.
+pub(crate) trait EventArg: Sized {
+    type Native;
+    fn bind(callback: Callback<Self>, value: Self::Native) -> EventCall;
+}
+
+impl EventArg for () {
+    type Native = ();
+    fn bind(callback: Callback<()>, (): ()) -> EventCall {
+        EventCall::Unit(callback)
+    }
+}
+
+macro_rules! event_args {
+    ($($type:ty => $variant:ident($native:ty),)*) => {
+        $(impl EventArg for $type {
+            type Native = $native;
+            fn bind(callback: Callback<Self>, value: $native) -> EventCall {
+                EventCall::$variant(callback, value)
+            }
+        })*
+    };
+}
+
+event_args! {
+    bool => Bool(bool),
+    Color => Color(Color),
+    ContentDialogResult => ContentDialogResult(ContentDialogResult),
+    DragKind => DragKind(DragKind),
+    DroppedData => DroppedData(DroppedData),
+    f64 => F64(f64),
+    FocusEventInfo => FocusEventInfo(FocusEventInfo),
+    Key => Item(ObjectId),
+    NavigationViewDisplayMode => NavigationViewDisplayMode(NavigationViewDisplayMode),
+    Option<bool> => OptionalBool(Option<bool>),
+    Option<DateTime> => OptionalDateTime(Option<DateTime>),
+    Option<f64> => OptionalF64(Option<f64>),
+    Option<Rc<str>> => Selection(SelectionChange),
+    Option<TimeSpan> => OptionalTimeSpan(Option<TimeSpan>),
+    Option<usize> => SelectionIndex(Option<usize>),
+    PointerEventInfo => PointerEventInfo(PointerEventInfo),
+    Rc<str> => String(Rc<str>),
+    Vec<Key> => Items(Vec<ObjectId>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1693,7 +1745,17 @@ pub(crate) struct DeclaredAttachments {
     pub content_dialog: Option<DeclaredContentDialog>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl DeclaredAttachments {
+    pub(crate) const EMPTY: Self = Self {
+        tooltip: None,
+        flyout: None,
+        menu: None,
+        command_bar_flyout: None,
+        content_dialog: None,
+    };
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) struct Declaration {
     pub kind: ObjectType,
     pub key: Option<Key>,
@@ -1706,6 +1768,12 @@ pub(crate) struct Declaration {
     pub events: SharedList<Event>,
     pub relations: SharedList<DeclaredRelation>,
     pub virtual_items: Option<Box<DeclaredVirtualItems>>,
+}
+
+impl Clone for Declaration {
+    fn clone(&self) -> Self {
+        self.clone_with_attachments(self.attachments.clone())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1980,6 +2048,26 @@ impl DeclaredNode {
 }
 
 impl Declaration {
+    // Expansion replaces attachments without copying the ones it would immediately discard.
+    pub(crate) fn clone_with_attachments(
+        &self,
+        attachments: Option<Box<DeclaredAttachments>>,
+    ) -> Self {
+        Self {
+            kind: self.kind,
+            key: self.key.clone(),
+            component: self.component,
+            reference: self.reference.clone(),
+            exit_transition: self.exit_transition,
+            window_title_bar: self.window_title_bar,
+            attachments,
+            properties: self.properties.clone(),
+            events: self.events.clone(),
+            relations: self.relations.clone(),
+            virtual_items: self.virtual_items.clone(),
+        }
+    }
+
     pub(crate) fn new(kind: ObjectType) -> Self {
         Self {
             kind,
@@ -2140,6 +2228,18 @@ impl Declaration {
     }
 }
 
+/// A declaration of a control or component and its children.
+///
+/// # Property ownership
+///
+/// Supplied properties are reconciled on renders. Omitting a previously supplied property resets
+/// it, then leaves it native-owned. Selectors requiring a selection relinquish ownership without
+/// clearing it. Explicit `None` remains a declared value; it does not relinquish ownership.
+///
+/// Controlled change callbacks report departures from declared state, not every native event.
+/// Reactor's own writes and a return to the declared or coerced value are silent. A callback does
+/// not necessarily mean user input. Send a component message to accept, transform, or restore an
+/// edited value through the next render.
 #[derive(Clone, Debug, PartialEq)]
 pub struct View(pub(crate) DeclaredNode);
 
@@ -2188,6 +2288,10 @@ pub trait FlyoutExt: Into<View> + Sized {
 impl<T> FlyoutExt for T where T: Into<View> {}
 
 pub trait MenuExt: Into<View> + Sized {
+    /// Attaches a menu to a [`Button`], [`DropDownButton`], or [`MenuBarItem`], or a context menu
+    /// to another visual.
+    ///
+    /// Context menus use the native right-click, touch, and keyboard invocation behavior.
     fn menu(self, menu: Menu) -> View {
         let mut visual = self.into();
         let menu = DeclaredMenu { menu };

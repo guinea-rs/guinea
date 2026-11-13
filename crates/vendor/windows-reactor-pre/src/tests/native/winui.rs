@@ -55,7 +55,7 @@ fn image_cache_keeps_decoded_bytes_while_the_app_holds_them() {
 }
 
 #[test]
-fn image_cache_gives_each_control_its_own_svg_source() {
+fn image_cache_gives_deferred_sources_one_consumer_at_a_time() {
     let created = Cell::new(0);
     let get = |cache: &mut ImageCache<u32>, source: &ImageSourceValue| {
         cache
@@ -67,19 +67,19 @@ fn image_cache_gives_each_control_its_own_svg_source() {
     };
     let mut cache = ImageCache::default();
 
-    // WinUI rasterizes an SVG source at one size, so controls showing it at once need their own.
-    for svg in [
+    for source in [
         ImageSourceValue::Svg(EncodedImage::new(b"<svg/>".to_vec())),
         ImageSourceValue::Uri(Rc::from("ms-appx:///icon.SVG?v=1")),
+        ImageSourceValue::Encoded(EncodedImage::new(b"png".to_vec())),
     ] {
-        let first = get(&mut cache, &svg);
-        let second = get(&mut cache, &svg);
+        let first = get(&mut cache, &source);
+        let second = get(&mut cache, &source);
         assert_ne!(**first, **second);
 
         // A released source goes to the next control while the other stays in use.
         let value = **first;
         let kept = first.release();
-        let third = get(&mut cache, &svg);
+        let third = get(&mut cache, &source);
         assert_eq!(**third, value);
         drop((kept, second, third));
     }
@@ -87,20 +87,24 @@ fn image_cache_gives_each_control_its_own_svg_source() {
 
 #[test]
 fn image_cache_drops_unused_sources_that_have_not_started_loading() {
-    let mut cache = ImageCache::<u32>::default();
-    let svg = ImageSourceValue::Svg(EncodedImage::new(b"<svg/>".to_vec()));
-    let get = |cache: &mut ImageCache<u32>, value| {
-        cache.get_or_insert(&svg, || Ok::<_, ()>(value)).unwrap()
-    };
+    for source in [
+        ImageSourceValue::Svg(EncodedImage::new(b"<svg/>".to_vec())),
+        ImageSourceValue::Encoded(EncodedImage::new(b"png".to_vec())),
+    ] {
+        let mut cache = ImageCache::<u32>::default();
+        let get = |cache: &mut ImageCache<u32>, value| {
+            cache.get_or_insert(&source, || Ok::<_, ()>(value)).unwrap()
+        };
 
-    // A pending source in use stays, while an unused one goes even though the app holds its bytes.
-    let shown = get(&mut cache, 1);
-    drop(get(&mut cache, 2));
-    cache.prune(|_| true);
-    assert_eq!(**get(&mut cache, 3), 3);
-    drop(shown);
-    cache.prune(|_| true);
-    assert!(cache.bytes.is_empty());
+        // A pending source in use stays; an unused one goes even while the app holds its bytes.
+        let shown = get(&mut cache, 1);
+        drop(get(&mut cache, 2));
+        cache.prune(|_| true);
+        assert_eq!(**get(&mut cache, 3), 3);
+        drop(shown);
+        cache.prune(|_| true);
+        assert!(cache.bytes.is_empty());
+    }
 }
 
 #[test]
@@ -148,8 +152,10 @@ fn native_queue_preview_uses_current_callback_and_preserves_order() {
         Some(QueuedEvent {
             object,
             event: EventId::MenuItemInvoked,
-            handler: QueuedHandler::Presentation(0),
-            payload: EventPayload::Key("stale".into()),
+            handler: QueuedHandler::Presentation {
+                revision: 0,
+                key: "stale".into(),
+            },
         }),
     );
     adapter.event_queue.queue(Some(observation.clone()), None);
@@ -158,37 +164,36 @@ fn native_queue_preview_uses_current_callback_and_preserves_order() {
         Some(QueuedEvent {
             object,
             event: EventId::MenuItemInvoked,
-            handler: QueuedHandler::Presentation(1),
-            payload: EventPayload::Key("current".into()),
+            handler: QueuedHandler::Presentation {
+                revision: 1,
+                key: "current".into(),
+            },
         }),
     );
     adapter.event_queue.queue(Some(observation.clone()), None);
 
-    let stale = adapter.peek_native_event();
-    assert_eq!(stale, Some(NativeEvent::new(None, None)));
+    // A stale click resolves to nothing, so peek and pop both skip it.
+    let next = Some(NativeEvent::Observation(observation.clone()));
+    assert_eq!(adapter.peek_native_event(), next);
     assert_eq!(adapter.event_queue.events.borrow().len(), 4);
-    assert_eq!(adapter.pop_native_event(), stale);
-    assert_eq!(
-        adapter.pop_native_event(),
-        Some(NativeEvent::new(Some(observation.clone()), None))
-    );
+    assert_eq!(adapter.pop_native_event(), next);
+    assert_eq!(adapter.event_queue.events.borrow().len(), 2);
 
     // Callback replacement preserves the menu presentation revision.
     adapter.menus.get_mut(&object).unwrap().menu.on_click = second.clone();
-    let current = Some(NativeEvent::new(
-        None,
-        Some(EventDispatch::new(
+    let current = Some(NativeEvent::Event {
+        observation: None,
+        event: EventDispatch::new(
             object,
             EventId::MenuItemInvoked,
-            EventValue::Key(second),
-            EventPayload::Key("current".into()),
-        )),
-    ));
+            EventCall::Key(second, "current".into()),
+        ),
+    });
     assert_eq!(adapter.peek_native_event(), current);
     assert_eq!(adapter.pop_native_event(), current);
     assert_eq!(
         adapter.pop_native_event(),
-        Some(NativeEvent::new(Some(observation), None))
+        Some(NativeEvent::Observation(observation))
     );
     assert_eq!(adapter.pop_native_event(), None);
 }
@@ -197,32 +202,26 @@ fn native_queue_preview_uses_current_callback_and_preserves_order() {
 fn native_queue_expired_report_keeps_only_its_observation() {
     let object = ObjectId::test(1);
     let values = Rc::new(RefCell::new(Vec::new()));
-    let callback = {
-        let values = Rc::clone(&values);
-        EventValue::String(Callback::new(move |value: Rc<str>| {
-            values.borrow_mut().push(value);
-        }))
+    let callback = Callback::new(move |value: Rc<str>| {
+        values.borrow_mut().push(value);
+    });
+    let observation = |value: &str| Observation::SetProperty {
+        object,
+        property: Property {
+            id: PropertyId::Text,
+            value: PropertyValue::String(Rc::from(value)),
+        },
     };
-    let report = |value: &str, live: bool| QueuedNativeEvent {
-        observation: Some(Observation::SetProperty {
-            object,
-            property: Property {
-                id: PropertyId::Text,
-                value: PropertyValue::String(Rc::from(value)),
-            },
-        }),
-        event: Some(QueuedEvent {
+    let report = |value: &str, live: bool| QueuedNativeEvent::Event {
+        observation: Some(observation(value)),
+        event: QueuedEvent {
             object,
             event: EventId::TextChanged,
             handler: QueuedHandler::Callback {
-                callback: callback.clone(),
+                call: EventCall::String(callback.clone(), Rc::from(value)),
                 live: Rc::new(Cell::new(live)),
             },
-            payload: EventPayload::String(Rc::from(value)),
-        }),
-        record: false,
-        retirement: None,
-        realization: None,
+        },
     };
     let mut adapter = WinUiAdapter::default();
     // `on_text_changed` was removed and added again between the two reports.
@@ -231,16 +230,15 @@ fn native_queue_expired_report_keeps_only_its_observation() {
         .events
         .borrow_mut()
         .extend([report("Expired", false), report("Live", true)]);
-    let expected = Some(NativeEvent::new(
-        report("Live", true).observation,
-        Some(EventDispatch::new(
+    let expected = Some(NativeEvent::Event {
+        observation: Some(observation("Live")),
+        event: EventDispatch::new(
             object,
             EventId::TextChanged,
-            callback.clone(),
-            EventPayload::String(Rc::from("Live")),
-        )),
-    ));
-    let expired = Some(NativeEvent::new(report("Expired", false).observation, None));
+            EventCall::String(callback.clone(), Rc::from("Live")),
+        ),
+    });
+    let expired = Some(NativeEvent::Observation(observation("Expired")));
     assert_eq!(adapter.peek_native_event(), expired);
     assert_eq!(adapter.pop_native_event(), expired);
     assert_eq!(adapter.peek_native_event(), expected);
@@ -252,15 +250,14 @@ fn native_queue_expired_report_keeps_only_its_observation() {
 fn image_source_change_discards_only_queued_load_results() {
     let image = ObjectId::test(1);
     let other = ObjectId::test(2);
-    let queue = NativeEventQueue::default();
+    let queue = Rc::new(NativeEventQueue::default());
     let event = |object, event| QueuedEvent {
         object,
         event,
         handler: QueuedHandler::Callback {
-            callback: EventValue::Unit(Callback::new(|()| {})),
+            call: EventCall::Unit(Callback::new(|()| {})),
             live: Rc::new(Cell::new(true)),
         },
-        payload: EventPayload::Unit,
     };
     queue.queue(None, Some(event(image, EventId::ImageOpened)));
     queue.queue(None, Some(event(image, EventId::ImageFailed)));
@@ -273,7 +270,7 @@ fn image_source_change_discards_only_queued_load_results() {
     let remaining: Vec<_> = events
         .iter()
         .map(|queued| {
-            let event = queued.event.as_ref().unwrap();
+            let event = queued.event().unwrap();
             (event.object, event.event)
         })
         .collect();
@@ -290,7 +287,7 @@ fn image_source_change_discards_only_queued_load_results() {
 fn replacement_discards_queued_reorders_without_callbacks() {
     let replaced = ObjectId::test(1);
     let other = ObjectId::test(2);
-    let queue = NativeEventQueue::default();
+    let queue = Rc::new(NativeEventQueue::default());
     let reorder = |object| Observation::Reorder {
         object,
         relation: RelationId::Items,
@@ -303,7 +300,7 @@ fn replacement_discards_queued_reorders_without_callbacks() {
 
     let events = queue.events.borrow();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].observation, Some(reorder(other)));
+    assert_eq!(events[0].observation(), Some(&reorder(other)));
 }
 
 #[test]
@@ -419,27 +416,6 @@ fn content_dialog_schedule_ignores_stale_completion_generation() {
     assert_eq!(schedule.active, None);
 }
 
-#[test]
-fn active_slot_reorder_preserves_interleaved_retiring_indices() {
-    let mut current = vec![(1, 1), (99, 99), (2, 2), (3, 3), (4, 4)];
-    let active = HashSet::from([1, 2, 3, 4]);
-
-    let swaps = simulate_active_slot_reorder(&mut current, &active, &[4, 3, 2, 1]).unwrap();
-
-    assert_eq!(current, [(4, 4), (99, 99), (3, 3), (2, 2), (1, 1)]);
-    assert_eq!(swaps.len(), 2);
-    assert!(swaps.iter().all(|(left, right, _, _)| left < right));
-}
-
-#[test]
-fn active_slot_reorder_rejects_missing_or_duplicate_active_identity() {
-    let mut current = vec![(1, ()), (99, ()), (2, ())];
-    let active = HashSet::from([1, 2]);
-
-    assert!(simulate_active_slot_reorder(&mut current, &active, &[2, 3]).is_none());
-    assert!(simulate_active_slot_reorder(&mut current, &active, &[2, 2]).is_none());
-}
-
 fn virtual_index(value: IInspectable) -> i32 {
     value
         .cast::<windows_reference::IReference<i32>>()
@@ -537,12 +513,12 @@ fn native_recycling_cancels_pending_keyed_realization() {
     let events = queue.events.borrow();
     assert_eq!(events.len(), 1);
     assert!(matches!(
-        events.front().and_then(|event| event.realization),
-        Some(RealizationRequest::Cancel {
+        events.front(),
+        Some(NativeEvent::Realization(RealizationRequest::Cancel {
             collection: owner,
             container: recycled,
             source_revision: 3,
-        }) if owner == collection && recycled == container
+        })) if *owner == collection && *recycled == container
     ));
 }
 
@@ -702,6 +678,28 @@ fn window_visual_changes_only_apply_changed_contracts() {
 }
 
 #[test]
+fn window_presentation_changes_reset_to_defaults() {
+    let restricted = WindowVisuals::new().always_on_top(true).minimizable(false);
+    for (previous, next) in [
+        (WindowVisuals::new(), restricted.clone()),
+        (restricted, WindowVisuals::new()),
+    ] {
+        let changes = window_visual_changes(&previous, &next);
+        assert!(changes.always_on_top);
+        assert!(changes.minimizable);
+        assert!(changes.any());
+        assert!(!changes.client_size);
+    }
+    assert!(
+        !window_visual_changes(
+            &WindowVisuals::new(),
+            &WindowVisuals::new().minimizable(true)
+        )
+        .any()
+    );
+}
+
+#[test]
 fn window_visual_changes_detect_icon_removal() {
     let previous = WindowVisuals::new().icon("test.ico");
     let changes = window_visual_changes(&previous, &WindowVisuals::new());
@@ -725,28 +723,32 @@ fn pointer_event_queue_preserves_payload_and_callback() {
         ..Default::default()
     };
 
-    assert!(WinUiAdapter::queue_event(
+    WinUiAdapter::dispatch(
         &event,
         &event_queue,
         object,
         EventId::PointerReleased,
         None,
         payload,
-    ));
+    );
     let queued = event_queue.events.borrow();
     assert_eq!(queued.len(), 1);
-    assert!(queued[0].observation.is_none());
-    let event = queued[0].event.as_ref().unwrap();
+    let NativeEvent::Event {
+        observation: None,
+        event,
+    } = &queued[0]
+    else {
+        panic!("expected an event without an observation");
+    };
     assert_eq!(event.object, object);
     assert_eq!(event.event, EventId::PointerReleased);
     assert!(matches!(
         &event.handler,
         QueuedHandler::Callback {
-            callback: EventValue::PointerEventInfo(queued),
+            call: EventCall::PointerEventInfo(queued, value),
             ..
-        } if *queued == callback
+        } if *queued == callback && *value == payload
     ));
-    assert_eq!(event.payload, EventPayload::PointerEventInfo(payload));
 }
 
 #[test]
@@ -758,25 +760,20 @@ fn queued_occurrences_follow_their_subscription() {
     let event = Rc::new(RefCell::new(NativeUnitEvent::default()));
     let mut adapter = WinUiAdapter::default();
     let queue = |adapter: &WinUiAdapter| {
-        assert!(WinUiAdapter::queue_event(
+        WinUiAdapter::dispatch(
             &event,
             &adapter.event_queue,
             object,
             EventId::Click,
             None,
             (),
-        ));
+        );
     };
     let delivered = |callback: &Callback<()>| {
-        Some(NativeEvent::new(
-            None,
-            Some(EventDispatch::new(
-                object,
-                EventId::Click,
-                EventValue::Unit(callback.clone()),
-                EventPayload::Unit,
-            )),
-        ))
+        Some(NativeEvent::Event {
+            observation: None,
+            event: EventDispatch::new(object, EventId::Click, EventCall::Unit(callback.clone())),
+        })
     };
 
     // Replacing the callback keeps the subscription, so the occurrence reaches the callback
@@ -790,16 +787,13 @@ fn queued_occurrences_follow_their_subscription() {
     queue(&adapter);
     event.borrow_mut().set(None);
     event.borrow_mut().set(Some(third.clone()));
-    assert_eq!(
-        adapter.pop_native_event(),
-        Some(NativeEvent::new(None, None))
-    );
+    assert_eq!(adapter.pop_native_event(), None);
 
     queue(&adapter);
     assert_eq!(adapter.pop_native_event(), delivered(&third));
 
     // An occurrence completing asynchronously captures its handler when the event fires.
-    let pending = event.borrow().handler().unwrap();
+    let pending = event.borrow().handler(()).unwrap();
     event.borrow_mut().set(None);
     assert!(matches!(pending, QueuedHandler::Callback { live, .. } if !live.get()));
 }
@@ -883,73 +877,5 @@ fn generated_feedback_pairs_written_properties_with_their_reporting_event() {
     ];
     for (kind, property, event) in cases {
         assert_eq!(reporting_event(kind, property), event);
-    }
-}
-
-#[derive(Default)]
-struct RevisionRecycleAdapter {
-    inner: crate::adapter::RecordingAdapter,
-    shells: ShellPool<usize>,
-}
-
-impl Adapter for RevisionRecycleAdapter {
-    fn peek_native_event(&self) -> Option<NativeEvent> { self.inner.peek_native_event() }
-    fn pop_native_event(&mut self) -> Option<NativeEvent> { self.inner.pop_native_event() }
-    fn apply(&mut self, mutations: &[Mutation]) {
-        for mutation in mutations {
-            match mutation {
-                Mutation::Realize { container, .. } => {
-                    assert!(self.shells.shells.contains_key(container), "missing realized container");
-                }
-                Mutation::Recycle { container, .. } => {
-                    assert!(self.shells.shells.contains_key(container) || self.shells.retired.contains(container));
-                    self.shells.acknowledge_recycle(*container);
-                }
-                _ => {}
-            }
-            self.inner.apply(std::slice::from_ref(mutation));
-        }
-    }
-}
-
-#[test]
-fn source_revision_change_cannot_discard_native_recycle() {
-    let view = |count| ItemsRepeater::new().virtual_source(VirtualSource::new(
-        count as u64, count, |i| i, |i| TextBlock::new().text(i.to_string())));
-    let mut runtime = Runtime::new(RevisionRecycleAdapter::default());
-    runtime.update(view(1));
-    let collection = runtime.graph().root().unwrap();
-    let (container, _) = runtime.adapter_mut().shells.take(|| Ok(42)).unwrap();
-    runtime.adapter_mut().inner.queue_realization(RealizationRequest::Realize {
-        collection, container, index: 0, source_revision: 0,
-    });
-    runtime.dispatch_native_events();
-    // Native retirement is immediate; its notification can outlive the source revision.
-    runtime.update(view(2));
-    assert!(runtime.adapter_mut().shells.retire(container));
-    runtime.adapter_mut().inner.queue_realization(RealizationRequest::Recycle {
-        collection, container, source_revision: 0,
-    });
-    runtime.dispatch_native_events();
-    // A later report must not refresh the retired token retained by a discarded notification.
-    runtime.update(view(3));
-    runtime.dispatch_native_events();
-    assert_eq!(runtime.adapter().inner.realized_count(collection), 0);
-    assert!(runtime.adapter().shells.retired.is_empty());
-}
-
-#[test]
-fn legacy_virtual_source_count_matches_keys_on_mount_and_reset() {
-    let mut runtime = Runtime::new(crate::adapter::RecordingAdapter::default());
-    for count in [0, 3, 7, 0] {
-        let update = runtime.update(ItemsRepeater::new().virtual_source(VirtualSource::new(
-            count as u64, count, |index| index,
-            |index| TextBlock::new().text(index.to_string()),
-        )));
-        let (legacy, keys) = update.iter().find_map(|mutation| match mutation {
-            Mutation::SetVirtualSource { item_count, keys, .. } => Some((*item_count, keys.len())),
-            _ => None,
-        }).expect("mount or reset must publish the virtual source");
-        assert_eq!((legacy, keys), (count, count));
     }
 }

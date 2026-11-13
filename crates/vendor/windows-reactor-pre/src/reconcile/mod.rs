@@ -10,6 +10,7 @@ mod runtime;
 mod virtualization;
 
 pub use feedback::*;
+use retirement::NativeChildren;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ObjectId {
@@ -102,8 +103,6 @@ pub enum Mutation {
     },
     SetVirtualSource {
         object: ObjectId,
-        // Compatibility with the 0.107 recording API; equal to keys.len().
-        item_count: usize,
         keys: Arc<Vec<u64>>,
         source_revision: u64,
     },
@@ -262,61 +261,61 @@ pub(crate) enum NativeWork {
     Maintenance,
 }
 
+/// Work reported by the native backend, in the order it occurred. `E` is the event occurrence:
+/// an `EventDispatch` for the reconciler, or the backend's queued form of it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NativeEvent {
-    observation: Option<Observation>,
-    event: Option<EventDispatch>,
-    record: bool,
-    retirement: Option<RetirementCompletion>,
-    realization: Option<RealizationRequest>,
+pub enum NativeEvent<E = EventDispatch> {
+    /// Native state the user changed.
+    Observation(Observation),
+    /// Native state that Reactor's own write produced. For a property the declaration omits, the
+    /// recorded value becomes the baseline that later notifications compare against.
+    Record(Observation),
+    /// An event occurrence and the native state it reports, if any.
+    Event {
+        observation: Option<Observation>,
+        event: E,
+    },
+    Retirement(RetirementCompletion),
+    Realization(RealizationRequest),
 }
 
-impl NativeEvent {
-    pub fn new(observation: Option<Observation>, event: Option<EventDispatch>) -> Self {
-        Self {
-            observation,
-            event,
-            record: false,
-            retirement: None,
-            realization: None,
-        }
-    }
-
-    /// Records native state that Reactor's own write produced. For a property the declaration
-    /// omits, the recorded value becomes the baseline that later notifications compare against.
-    pub fn record(observation: Observation) -> Self {
-        Self {
-            record: true,
-            ..Self::new(Some(observation), None)
-        }
-    }
-
-    pub fn retirement(completion: RetirementCompletion) -> Self {
-        Self {
-            retirement: Some(completion),
-            ..Self::new(None, None)
-        }
-    }
-
-    pub fn realization(request: RealizationRequest) -> Self {
-        Self {
-            realization: Some(request),
-            ..Self::new(None, None)
+impl<E> NativeEvent<E> {
+    /// An event occurrence with the state it reports, or the state alone.
+    pub fn report(observation: Option<Observation>, event: Option<E>) -> Option<Self> {
+        match (observation, event) {
+            (observation, Some(event)) => Some(Self::Event { observation, event }),
+            (Some(observation), None) => Some(Self::Observation(observation)),
+            (None, None) => None,
         }
     }
 
     pub(crate) fn dispatches(&self) -> bool {
-        self.event.is_some()
+        matches!(self, Self::Event { .. })
+    }
+
+    pub(crate) fn observation(&self) -> Option<&Observation> {
+        match self {
+            Self::Observation(observation) | Self::Record(observation) => Some(observation),
+            Self::Event { observation, .. } => observation.as_ref(),
+            Self::Retirement(_) | Self::Realization(_) => None,
+        }
+    }
+
+    pub(crate) fn event(&self) -> Option<&E> {
+        match self {
+            Self::Event { event, .. } => Some(event),
+            _ => None,
+        }
     }
 }
 
 pub struct NativeEventDispatch {
-    event: Option<EventDispatch>,
+    event: Option<EventCall>,
     active: Rc<Cell<bool>>,
 }
 
 impl NativeEventDispatch {
-    fn new(event: EventDispatch, active: Rc<Cell<bool>>) -> Self {
+    fn new(event: EventCall, active: Rc<Cell<bool>>) -> Self {
         Self {
             event: Some(event),
             active,
@@ -325,7 +324,7 @@ impl NativeEventDispatch {
 
     pub fn invoke(&mut self) {
         if let Some(event) = self.event.take() {
-            event.invoke();
+            event.call();
         }
     }
 }
@@ -360,10 +359,18 @@ struct RetainedObject {
     /// The values observations are compared against where `properties` does not hold them: the
     /// declared value of a property whose native state has departed from it, and the native value
     /// recorded for a property the declaration omits.
-    baselines: Vec<Property>,
+    baselines: Vec<PropertyBaseline>,
     events: Option<Rc<Vec<Event>>>,
     relations: Vec<RetainedRelation>,
     virtual_items: Option<Box<RetainedVirtualItems>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PropertyBaseline {
+    property: Property,
+    /// The effective value read back from Reactor's write when native constraints prevent the
+    /// declaration from applying exactly. A later report of this value is also settled.
+    applied: Option<PropertyValue>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -373,6 +380,16 @@ struct RetainedAttachments {
     menu: Option<RetainedMenu>,
     command_bar_flyout: Option<RetainedCommandBarFlyout>,
     content_dialog: Option<RetainedContentDialog>,
+}
+
+impl RetainedAttachments {
+    const EMPTY: Self = Self {
+        tooltip: None,
+        flyout: None,
+        menu: None,
+        command_bar_flyout: None,
+        content_dialog: None,
+    };
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -419,6 +436,7 @@ struct RetainedRealization {
 struct RetainedRetirement {
     nodes: Vec<ObjectId>,
     parent: ObjectId,
+    relation: RelationId,
 }
 
 fn retained_events(events: &Option<Rc<Vec<Event>>>) -> &[Event] {
@@ -445,6 +463,9 @@ pub struct RetainedGraph {
     objects: Vec<RetainedSlot>,
     free: Vec<u32>,
     retirements: HashMap<ObjectId, RetainedRetirement>,
+    /// The native order of each relation with retiring children, which keep their native slots
+    /// until their retirement completes. Other relations' native order is their active order.
+    native_orders: HashMap<(ObjectId, RelationId), Vec<ObjectId>>,
     window_title_bar: Option<(ObjectId, WindowTitleBarHeight)>,
     #[cfg(test)]
     full_reference_scans: ReferenceScanCounter,

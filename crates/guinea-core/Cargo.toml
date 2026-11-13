@@ -22,7 +22,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-json-patch = "4.2"
+json-patch = "5.0"
 slotmap.workspace = true
 
 [dev-dependencies]

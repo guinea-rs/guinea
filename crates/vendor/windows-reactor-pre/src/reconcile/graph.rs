@@ -126,6 +126,8 @@ impl RetainedGraph {
         remaining: &mut usize,
         compare_key: bool,
     ) -> bool {
+        #[cfg(any(test, feature = "test"))]
+        work::record(|work| work.compared += 1);
         let Some(next) = remaining.checked_sub(1) else {
             panic!("declaration exceeds the maximum of {MAX_OBJECTS} objects");
         };
@@ -146,20 +148,20 @@ impl RetainedGraph {
                 declaration
                     .properties
                     .iter()
-                    .any(|property| property.id == baseline.id)
+                    .any(|property| property.id == baseline.property.id)
             })
         {
             return false;
         }
-        let current_tooltip = current
+        let current_attachments = current
             .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.tooltip.as_ref());
-        let declared_tooltip = declaration
+            .as_deref()
+            .unwrap_or(&RetainedAttachments::EMPTY);
+        let declared_attachments = declaration
             .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.tooltip.as_ref());
-        match (current_tooltip, declared_tooltip) {
+            .as_deref()
+            .unwrap_or(&DeclaredAttachments::EMPTY);
+        match (&current_attachments.tooltip, &declared_attachments.tooltip) {
             (None, None) => {}
             (Some(current), Some(declared))
                 if current.placement == declared.placement
@@ -171,41 +173,20 @@ impl RetainedGraph {
                     ) => {}
             _ => return false,
         }
-        let current_menu = current
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.menu.as_ref());
-        let declared_menu = declaration
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.menu.as_ref());
-        match (current_menu, declared_menu) {
+        match (&current_attachments.menu, &declared_attachments.menu) {
             (None, None) => {}
             (Some(current), Some(declared)) if current.menu == declared.menu => {}
             _ => return false,
         }
-        let current_command_bar_flyout = current
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.command_bar_flyout.as_ref());
-        let declared_command_bar_flyout = declaration
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.command_bar_flyout.as_ref());
-        match (current_command_bar_flyout, declared_command_bar_flyout) {
+        match (
+            &current_attachments.command_bar_flyout,
+            &declared_attachments.command_bar_flyout,
+        ) {
             (None, None) => {}
             (Some(current), Some(declared)) if current.flyout == declared.flyout => {}
             _ => return false,
         }
-        let current_flyout = current
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.flyout.as_ref());
-        let declared_flyout = declaration
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.flyout.as_ref());
-        match (current_flyout, declared_flyout) {
+        match (&current_attachments.flyout, &declared_attachments.flyout) {
             (None, None) => {}
             (Some(current), Some(declared))
                 if current.placement == declared.placement
@@ -217,15 +198,10 @@ impl RetainedGraph {
                     ) => {}
             _ => return false,
         }
-        let current_dialog = current
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.content_dialog.as_ref());
-        let declared_dialog = declaration
-            .attachments
-            .as_ref()
-            .and_then(|attachments| attachments.content_dialog.as_ref());
-        match (current_dialog, declared_dialog) {
+        match (
+            &current_attachments.content_dialog,
+            &declared_attachments.content_dialog,
+        ) {
             (None, None) => {}
             (Some(current), Some(declared))
                 if current.open == declared.open

@@ -218,7 +218,11 @@ impl WinUiAdapter {
                         items.RemoveAtEnd()?;
                     }
                 }
-                _ => return Err(WinUiError::InvalidObject(target)),
+                // Clearing restores style-provided flyouts, such as TextBox editing commands.
+                _ => self
+                    .ui_element(target)?
+                    .cast::<native::IDependencyObject>()?
+                    .ClearValue(&native::UIElement::ContextFlyoutProperty()?)?,
             }
             drop(previous);
         }
@@ -226,39 +230,38 @@ impl WinUiAdapter {
             return Ok(());
         };
         let mut revokers = Vec::new();
-        let flyout = match kind {
-            ObjectType::Button | ObjectType::DropDownButton => {
-                let flyout = native::MenuFlyout::new()?;
-                build_menu_items(
-                    &menu.items,
-                    &flyout.Items()?,
-                    &mut revokers,
-                    &self.event_queue,
-                    target,
-                    revision,
-                )?;
-                self.ui_element(target)?
-                    .cast::<native::IButton>()?
-                    .SetFlyout(&flyout)?;
-                Some(flyout)
+        let flyout = if kind == ObjectType::MenuBarItem {
+            let Some(Handle::Generated(GeneratedHandle::MenuBarItem(item))) =
+                self.handles.get(&target)
+            else {
+                return Err(WinUiError::InvalidObject(target));
+            };
+            build_menu_items(
+                &menu.items,
+                &item.Items()?,
+                &mut revokers,
+                &self.event_queue,
+                target,
+                revision,
+            )?;
+            None
+        } else {
+            let flyout = native::MenuFlyout::new()?;
+            build_menu_items(
+                &menu.items,
+                &flyout.Items()?,
+                &mut revokers,
+                &self.event_queue,
+                target,
+                revision,
+            )?;
+            let element = self.ui_element(target)?;
+            if matches!(kind, ObjectType::Button | ObjectType::DropDownButton) {
+                element.cast::<native::IButton>()?.SetFlyout(&flyout)?;
+            } else {
+                element.SetContextFlyout(&flyout)?;
             }
-            ObjectType::MenuBarItem => {
-                let Some(Handle::Generated(GeneratedHandle::MenuBarItem(item))) =
-                    self.handles.get(&target)
-                else {
-                    return Err(WinUiError::InvalidObject(target));
-                };
-                build_menu_items(
-                    &menu.items,
-                    &item.Items()?,
-                    &mut revokers,
-                    &self.event_queue,
-                    target,
-                    revision,
-                )?;
-                None
-            }
-            _ => return Err(WinUiError::InvalidObject(target)),
+            Some(flyout)
         };
         self.menus.insert(
             target,
@@ -363,18 +366,21 @@ impl WinUiAdapter {
                 }
                 let clicked_key = key.clone();
                 let clicked_queue = Rc::clone(&self.event_queue);
-                revokers.push(button.cast::<native::IButtonBase>()?.Click(move |_, _| {
-                    clicked_queue.queue(
-                        None,
-                        Some(QueuedEvent {
-                            object: target,
-                            event: EventId::CommandInvoked,
-                            handler: QueuedHandler::Presentation(revision),
-                            payload: EventPayload::Key(clicked_key.clone()),
-                        }),
-                    );
-                    Self::schedule_event_wake(&clicked_queue);
-                })?);
+                revokers.push(button.cast::<native::IButtonBase>()?.Click(local::handler(
+                    move |_, _| {
+                        clicked_queue.queue(
+                            None,
+                            Some(QueuedEvent {
+                                object: target,
+                                event: EventId::CommandInvoked,
+                                handler: QueuedHandler::Presentation {
+                                    revision,
+                                    key: clicked_key.clone(),
+                                },
+                            }),
+                        );
+                    },
+                ))?);
                 Ok(button.cast()?)
             }
             CommandBarCommand::Separator { .. } => Ok(native::AppBarSeparator::new()?.cast()?),
@@ -402,18 +408,19 @@ fn build_menu_items(
                 item.cast::<native::IControl>()?.SetIsEnabled(*enabled)?;
                 let clicked_key = key.clone();
                 let clicked_queue = Rc::clone(event_queue);
-                revokers.push(item.Click(move |_, _| {
+                revokers.push(item.Click(local::handler(move |_, _| {
                     clicked_queue.queue(
                         None,
                         Some(QueuedEvent {
                             object: target,
                             event: EventId::MenuItemInvoked,
-                            handler: QueuedHandler::Presentation(revision),
-                            payload: EventPayload::Key(clicked_key.clone()),
+                            handler: QueuedHandler::Presentation {
+                                revision,
+                                key: clicked_key.clone(),
+                            },
                         }),
                     );
-                    WinUiAdapter::schedule_event_wake(&clicked_queue);
-                })?);
+                }))?);
                 item.cast()?
             }
             MenuItem::Separator { .. } => native::MenuFlyoutSeparator::new()?.cast()?,

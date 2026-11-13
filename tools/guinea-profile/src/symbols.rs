@@ -66,6 +66,13 @@ fn is_primary(lib: &Value, options: &Options) -> bool {
     })
 }
 
+fn has_local_symbols(lib: &Value, options: &Options) -> bool {
+    let Some(name) = lib["debugName"].as_str() else { return false };
+    options.directories.iter().any(|dir| dir.join(name).is_file())
+        || options.executable.as_ref().and_then(|path| path.parent())
+            .is_some_and(|dir| dir.join(name).is_file())
+}
+
 pub fn resolve(
     profile: &Value,
     seed: Option<Value>,
@@ -117,7 +124,12 @@ async fn resolve_async(
         .map(Vec::as_slice)
         .unwrap_or_default();
     let mut order: Vec<_> = (0..modules.len()).collect();
-    order.sort_by_key(|index| !is_primary(&modules[*index], options));
+    // Do not spend the shared budget on remote system symbols before trying
+    // explicitly supplied PDBs, which can be hundreds of megabytes.
+    order.sort_by_key(|index| (
+        !is_primary(&modules[*index], options),
+        !has_local_symbols(&modules[*index], options),
+    ));
     let started = std::time::Instant::now();
     for index in order {
         let lib = &modules[index];
@@ -178,7 +190,11 @@ async fn resolve_async(
                     options
                         .timeout
                         .saturating_sub(started.elapsed())
-                        .min(Duration::from_secs(if primary { 60 } else { 10 })),
+                        .min(if has_local_symbols(lib, options) {
+                            options.timeout
+                        } else {
+                            Duration::from_secs(if primary { 60 } else { 10 })
+                        }),
                     load,
                 )
                 .await
@@ -320,6 +336,18 @@ mod tests {
         fs::create_dir(&detached).unwrap();
         let mut profile = profile;
         profile["libs"][0]["path"] = Value::Null;
+        // A remote-only module appears first in the trace. The local fixture
+        // must still resolve before remote lookup can exhaust the tiny budget.
+        profile["libs"].as_array_mut().unwrap().insert(0, json!({
+            "name":"guinea_missing_remote.dll", "debugName":"guinea_missing_remote.pdb",
+            "breakpadId":"0123456789ABCDEF0123456789ABCDEF1", "codeId":"missing"
+        }));
+        profile["threads"][0]["resourceTable"]["lib"] = json!([1, 0]);
+        profile["threads"][0]["funcTable"]["resource"] = json!([0, 1]);
+        profile["threads"][0]["frameTable"]["func"] = json!([0, 1]);
+        profile["threads"][0]["frameTable"]["address"] = json!([address, 1]);
+        profile["threads"][0]["stackTable"] = json!({"frame":[0, 1], "prefix":[null, null]});
+        profile["threads"][0]["samples"]["stack"] = json!([0, 1]);
         let options = Options {
             executable: None,
             directories: vec![temp.path().to_path_buf()],
@@ -331,6 +359,11 @@ mod tests {
             resolved["string_table"][0],
             "fixture::guinea_profile_fixture_symbol()"
         );
+        let report: Value = serde_json::from_reader(
+            fs::File::open(detached.join("symbolication.json")).unwrap(),
+        ).unwrap();
+        assert_eq!(report["modules"][0]["debug_name"], "fixture.pdb");
+        assert_eq!(report["modules"][0]["resolved"], 1);
     }
 
     #[test]

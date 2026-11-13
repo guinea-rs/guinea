@@ -143,7 +143,7 @@ pub struct NotifyIcon {
 }
 
 impl NotifyIcon {
-    /// Uses an `.ico` file. Loading failures are returned by [`App::run_application`].
+    /// Uses an `.ico` file. A file that fails to load panics, like other contract violations.
     pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
         Self {
             path: path.into(),
@@ -355,11 +355,13 @@ mod tests {
         );
         let object = host.reference(&Key::from("main")).unwrap().get().unwrap();
         let event = host.runtime().graph().events(object).unwrap()[0].clone();
+        let EventValue::Unit(activated) = event.value else {
+            panic!("expected a unit event");
+        };
         host.queue_event(EventDispatch::new(
             object,
             event.id,
-            event.value,
-            EventPayload::Unit,
+            EventCall::Unit(activated),
         ));
         host.update_root(component::<ObservedWindow>("main", (2, callback.clone())));
         host.update_root(component::<ObservedWindow>("main", (3, callback)));

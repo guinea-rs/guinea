@@ -4,6 +4,7 @@ use bindings::*;
 use windows_core::*;
 
 implement_decl! {
+    // windows-core 0.100 composes implement_decl objects implicitly.
     impl ReactorApplicationOverrides as pub ReactorApplicationOverrides_Impl:
         [IApplicationOverrides, IXamlMetadataProvider]
 }

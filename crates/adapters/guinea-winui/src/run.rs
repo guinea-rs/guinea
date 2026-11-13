@@ -10,7 +10,7 @@ use guinea_core::scope::Scope;
 use guinea_router::mount::Pass;
 use guinea_router::navigator::{Asking, Navigator, Routable, Watching};
 use windows_reactor::{
-    AppProxy, Component, ComponentContext, ContentDialog, ContentDialogExt,
+    LocalSender, Component, ComponentContext, ContentDialog, ContentDialogExt,
     ContentDialogResult, Grid, TextBlock, View, ViewContext, WindowVisuals,
 };
 
@@ -19,10 +19,8 @@ use crate::winui::{Mountable, NewWindow, Shown};
 /// The label this backend gives its first window, matching the other four.
 pub const MAIN: &str = "main";
 
-const E_FAIL: windows_core::HRESULT = windows_core::HRESULT(0x8000_4005_u32 as _);
-
 thread_local! {
-    static PROXY: RefCell<Option<AppProxy>> = const { RefCell::new(None) };
+    static PROXY: RefCell<Option<LocalSender<RuntimeMessage>>> = const { RefCell::new(None) };
     static STANDING: Cell<usize> = const { Cell::new(0) };
     static FAILED: RefCell<Option<anyhow::Error>> = const { RefCell::new(None) };
     static WINDOWS: RefCell<Vec<Scope>> = const { RefCell::new(Vec::new()) };
@@ -45,10 +43,8 @@ fn standing(window: Scope) -> bool {
 fn failed(error: anyhow::Error) {
     FAILED.with(|failed| *failed.borrow_mut() = Some(error));
 
-    if let Some(proxy) = PROXY.with(|slot| slot.borrow().clone())
-        && let Err(error) = proxy.exit()
-    {
-        tracing::warn!(%error, "asking the application to exit");
+    if let Some(proxy) = PROXY.with(|slot| slot.borrow().clone()) {
+        let _ = proxy.send(RuntimeMessage::Exit);
     }
 }
 
@@ -115,26 +111,8 @@ fn opening(app: &AppContext, window: Window) -> View {
 /// ```
 pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'static) -> anyhow::Result<()> {
     let failure = Rc::new(RefCell::new(None));
-    let startup_failure = failure.clone();
-
-    let result = windows_reactor::App::run_with(move |cx| {
-        let proxy = cx.proxy();
-        crate::dispatching::install(proxy.clone());
-        PROXY.with(|slot| *slot.borrow_mut() = Some(proxy));
-
-        let (host, window) = match start("winui", app) {
-            Ok(started) => started,
-            Err(error) => {
-                *startup_failure.borrow_mut() = Some(error);
-                return Err(windows_core::Error::new(E_FAIL, "installing the application"));
-            }
-        };
-        let context = host.context();
-        let installed = Installed { _host: host };
-
-        cx.open_component_window::<Shown>(opening(&context, window))?;
-        Ok(installed)
-    });
+    let input = RuntimeInput { app: RefCell::new(Some(Box::new(app))), failure: failure.clone() };
+    let result = windows_reactor::App::run_application::<Runtime>(input);
 
     PROXY.with(|slot| slot.borrow_mut().take());
 
@@ -148,6 +126,70 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window> + 'st
         return Err(error.context("guinea: mounting the main window"));
     }
     result.map_err(|error| anyhow::anyhow!("windows-reactor: {error}"))
+}
+
+type Startup = Box<dyn FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>>;
+
+struct RuntimeInput {
+    app: RefCell<Option<Startup>>,
+    failure: Rc<RefCell<Option<anyhow::Error>>>,
+}
+
+struct Runtime {
+    window: Option<View>,
+    _installed: Option<Installed>,
+}
+
+enum RuntimeMessage { Exit }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore = "requires WinUI initialization; exits before creating a window"]
+    fn startup_failure_is_returned_without_opening_a_window() {
+        let error = super::run(|_| Err(anyhow::anyhow!("startup fixture failure")))
+            .expect_err("startup must fail");
+        assert_eq!(error.root_cause().to_string(), "startup fixture failure");
+    }
+}
+
+impl windows_reactor::Application for Runtime {
+    type Input = RuntimeInput;
+    type Message = RuntimeMessage;
+
+    fn create(input: &RuntimeInput, cx: &windows_reactor::ApplicationContext<Self>) -> Self {
+        PROXY.with(|slot| *slot.borrow_mut() = Some(cx.sender()));
+        let result = (|| {
+            crate::dispatching::install()?;
+            let app = input.app.borrow_mut().take().expect("application starts once");
+            let (host, window) = start("winui", app)?;
+            let view = opening(&host.context(), window);
+            Ok::<_, anyhow::Error>((view, Installed { _host: host }))
+        })();
+        match result {
+            Ok((window, installed)) => {
+                cx.show_window(MAIN);
+                Self { window: Some(window), _installed: Some(installed) }
+            }
+            Err(error) => {
+                *input.failure.borrow_mut() = Some(error);
+                cx.exit();
+                Self { window: None, _installed: None }
+            }
+        }
+    }
+
+    fn update(&mut self, _: RuntimeMessage, cx: &windows_reactor::ApplicationContext<Self>) {
+        cx.exit();
+    }
+
+    fn view(&self, _: &RuntimeInput, _: &windows_reactor::ApplicationViewContext<Self>) -> windows_reactor::ApplicationView {
+        let declaration = windows_reactor::ApplicationView::new();
+        match &self.window {
+            Some(view) => declaration.window::<Shown>(MAIN, view.clone()),
+            None => declaration,
+        }
+    }
 }
 
 /// The application, torn down when the reactor lets go of it - what the
@@ -376,9 +418,7 @@ impl Drop for Chrome {
         });
 
         if last && let Some(proxy) = PROXY.with(|slot| slot.borrow().clone()) {
-            if let Err(error) = proxy.exit() {
-                tracing::warn!(%error, "asking the application to exit");
-            }
+            let _ = proxy.send(RuntimeMessage::Exit);
         }
     }
 }

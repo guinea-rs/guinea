@@ -1,119 +1,20 @@
 use super::*;
 
-pub(super) trait IntoEventPayload {
-    fn into_payload(self) -> EventPayload;
-}
-
-impl IntoEventPayload for () {
-    fn into_payload(self) -> EventPayload {
-        EventPayload::Unit
-    }
-}
-
-macro_rules! into_event_payload {
-    ($($type:ty => $variant:ident,)*) => {
-        $(impl IntoEventPayload for $type {
-            fn into_payload(self) -> EventPayload {
-                EventPayload::$variant(self)
-            }
-        })*
-    };
-}
-
-into_event_payload! {
-    bool => Bool,
-    Color => Color,
-    ContentDialogResult => ContentDialogResult,
-    DragKind => DragKind,
-    DroppedData => DroppedData,
-    f64 => F64,
-    FocusEventInfo => FocusEventInfo,
-    NavigationViewDisplayMode => NavigationViewDisplayMode,
-    Option<bool> => OptionalBool,
-    Option<DateTime> => OptionalDateTime,
-    Option<f64> => OptionalF64,
-    Option<TimeSpan> => OptionalTimeSpan,
-    Option<usize> => SelectionIndex,
-    PointerEventInfo => PointerEventInfo,
-    Rc<str> => String,
-    ObjectId => Item,
-    Vec<ObjectId> => Items,
-}
-
-pub(super) trait IntoEventValue {
-    fn into_event_value(self) -> EventValue;
-}
-
-macro_rules! into_event_value {
-    ($($type:ty => $variant:ident,)*) => {
-        $(impl IntoEventValue for Callback<$type> {
-            fn into_event_value(self) -> EventValue {
-                EventValue::$variant(self)
-            }
-        })*
-    };
-}
-
-into_event_value! {
-    () => Unit,
-    bool => Bool,
-    Color => Color,
-    ContentDialogResult => ContentDialogResult,
-    DragKind => DragKind,
-    DroppedData => DroppedData,
-    f64 => F64,
-    FocusEventInfo => FocusEventInfo,
-    Key => Key,
-    NavigationViewDisplayMode => NavigationViewDisplayMode,
-    Option<bool> => OptionalBool,
-    Option<DateTime> => OptionalDateTime,
-    Option<f64> => OptionalF64,
-    Option<Rc<str>> => Selection,
-    Option<TimeSpan> => OptionalTimeSpan,
-    Option<usize> => SelectionIndex,
-    PointerEventInfo => PointerEventInfo,
-    Rc<str> => String,
-    Vec<Key> => Keys,
-}
-
 impl WinUiAdapter {
-    pub(super) fn dispatch<T, P: IntoEventPayload>(
+    pub(super) fn dispatch<T: EventArg>(
         event: &Rc<RefCell<NativeValueEvent<T>>>,
         event_queue: &Rc<NativeEventQueue>,
         object: ObjectId,
         event_id: EventId,
         observation: Option<Observation>,
-        value: P,
-    ) where
-        Callback<T>: IntoEventValue,
-    {
-        if Self::queue_event(event, event_queue, object, event_id, observation, value) {
-            Self::schedule_event_wake(event_queue);
-        }
-    }
-
-    pub(super) fn queue_event<T, P: IntoEventPayload>(
-        event: &Rc<RefCell<NativeValueEvent<T>>>,
-        event_queue: &Rc<NativeEventQueue>,
-        object: ObjectId,
-        event_id: EventId,
-        observation: Option<Observation>,
-        value: P,
-    ) -> bool
-    where
-        Callback<T>: IntoEventValue,
-    {
-        let queued = event.borrow().handler().map(|handler| QueuedEvent {
+        value: T::Native,
+    ) {
+        let queued = event.borrow().handler(value).map(|handler| QueuedEvent {
             object,
             event: event_id,
             handler,
-            payload: value.into_payload(),
         });
-        let queue = observation.is_some() || queued.is_some();
-        if queue {
-            event_queue.queue(observation, queued);
-        }
-        queue
+        event_queue.queue(observation, queued);
     }
 
     pub(super) fn drag_kind(
@@ -182,12 +83,12 @@ impl WinUiAdapter {
             return Ok(());
         };
         args.SetAcceptedOperation(Self::native_drag_operation(action.operation))?;
-        let handler = event.borrow().handler();
+        let subscription = event.borrow().subscription.clone();
         let result = Arc::new(Mutex::new(None::<windows_core::Result<DroppedData>>));
         let result_for_handler = Arc::clone(&result);
         let event_queue = Rc::clone(event_queue);
         let deferral_for_handler = deferral.clone();
-        let callback = AppContext::ui_callback_once(move || {
+        let callback = UiCallback::once(move || {
             // The drag source owns the data and can fail or disconnect before it is read.
             let value = result_for_handler
                 .lock()
@@ -195,17 +96,15 @@ impl WinUiAdapter {
                 .take()
                 .unwrap()
                 .unwrap_or(DroppedData::Unsupported);
-            if let Some(handler) = handler {
+            if let Some(subscription) = subscription {
                 event_queue.queue(
                     observation,
                     Some(QueuedEvent {
                         object,
                         event: event_id,
-                        handler,
-                        payload: EventPayload::DroppedData(value),
+                        handler: subscription.handler(value),
                     }),
                 );
-                Self::schedule_event_wake(&event_queue);
             }
             _ = deferral_for_handler.Complete();
         })?;
@@ -227,7 +126,7 @@ impl WinUiAdapter {
                         Ok(DroppedData::StorageItems(dropped))
                     });
                     *result.lock().unwrap() = Some(value);
-                    if completion.invoke().is_err() {
+                    if !matches!(completion.try_wake(), Ok(true)) {
                         _ = completion_deferral.Complete();
                     }
                 }) {
@@ -243,7 +142,7 @@ impl WinUiAdapter {
                 if let Err(error) = operation.when(move |value| {
                     *result.lock().unwrap() =
                         Some(value.map(|value| DroppedData::Text(value.to_string_lossy())));
-                    if completion.invoke().is_err() {
+                    if !matches!(completion.try_wake(), Ok(true)) {
                         _ = completion_deferral.Complete();
                     }
                 }) {
@@ -295,20 +194,18 @@ impl WinUiAdapter {
         let value = selected.as_ref().and_then(|selected| {
             GeneratedHandle::selection_payload(payload_property, selected).unwrap()
         });
-        let handler = event.borrow().handler();
+        let handler = event.borrow().handler(SelectionChange {
+            item: selected_object,
+            value,
+        });
         event_queue.queue(
             Some(observation),
             handler.map(|handler| QueuedEvent {
                 object,
                 event: event_id,
                 handler,
-                payload: EventPayload::Selection(SelectionChange {
-                    item: selected_object,
-                    value,
-                }),
             }),
         );
-        Self::schedule_event_wake(event_queue);
     }
 
     pub(super) fn pointer_event_info(
@@ -345,7 +242,7 @@ impl WinUiAdapter {
         if focus_on_release {
             let element = element.clone();
             let pending_focus_states = Rc::clone(pending_focus_states);
-            let handler = native::DispatcherQueueHandler::new(move || {
+            let handler = native::DispatcherQueueHandler::new(local::task(move || {
                 pending_focus_states
                     .borrow_mut()
                     .insert(object, ElementFocusState::Pointer);
@@ -354,9 +251,9 @@ impl WinUiAdapter {
                     return;
                 }
                 let cleanup_states = Rc::clone(&pending_focus_states);
-                let cleanup = native::DispatcherQueueHandler::new(move || {
+                let cleanup = native::DispatcherQueueHandler::new(local::task(move || {
                     cleanup_states.borrow_mut().remove(&object);
-                });
+                }));
                 // The dispatcher rejects work only once it is shutting down.
                 if !native::DispatcherQueue::GetForCurrentThread()
                     .unwrap()
@@ -365,7 +262,7 @@ impl WinUiAdapter {
                 {
                     pending_focus_states.borrow_mut().remove(&object);
                 }
-            });
+            }));
             // The focus request is dropped if the dispatcher is shutting down.
             native::DispatcherQueue::GetForCurrentThread()?
                 .TryEnqueueWithPriority(native::DispatcherQueuePriority::Normal, &handler)?;
@@ -486,43 +383,7 @@ impl WinUiAdapter {
 
     /// Records a native change Reactor caused through its own write, without a callback.
     pub(super) fn record(event_queue: &Rc<NativeEventQueue>, observation: Observation) {
-        event_queue
-            .events
-            .borrow_mut()
-            .push_back(QueuedNativeEvent {
-                observation: Some(observation),
-                event: None,
-                record: true,
-                retirement: None,
-                realization: None,
-            });
-        Self::schedule_event_wake(event_queue);
-    }
-
-    pub(super) fn schedule_event_wake(event_queue: &Rc<NativeEventQueue>) {
-        if event_queue.waker.borrow().is_none() {
-            return;
-        }
-        if event_queue.wake_pending.replace(true) {
-            return;
-        }
-        let event_queue = Rc::clone(event_queue);
-        let queue = native::DispatcherQueue::GetForCurrentThread().unwrap();
-        let event_queue_for_handler = Rc::clone(&event_queue);
-        let handler = native::DispatcherQueueHandler::new(move || {
-            event_queue_for_handler.wake_pending.set(false);
-            let waker = event_queue_for_handler.waker.borrow().clone();
-            if let Some(waker) = waker {
-                waker();
-            }
-        });
-        // The dispatcher rejects work only once it is shutting down.
-        if !queue
-            .TryEnqueueWithPriority(native::DispatcherQueuePriority::Normal, &handler)
-            .unwrap()
-        {
-            event_queue.wake_pending.set(false);
-        }
+        event_queue.push(NativeEvent::Record(observation));
     }
 
     pub(super) fn set_events(

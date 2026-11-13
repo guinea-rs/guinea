@@ -51,6 +51,9 @@ jobs:
       - name: Test the existing Guinea harness
         run: cargo +1.99.1 test --locked -p guinea --test harness_winui
 
+      - name: Native application startup without a window
+        run: cargo +1.99.1 test --locked -p guinea-winui --lib run::tests::startup_failure_is_returned_without_opening_a_window -- --ignored --exact
+
       - name: Check MSRV
         run: cargo +1.95.0 check --locked --manifest-path "$REACTOR_MANIFEST" --lib
 
@@ -74,11 +77,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_BODY: |
-            Fixes `missing realized container` crashes when repeatedly expanding and collapsing virtualized rows while their data updates.
+            Updates windows-reactor to microsoft/windows-rs cd03f9369a896b62151242c1c3321e695df63cfc, including copy-on-write declaration expansion, virtual-row improvements and reduced redundant update work.
 
-            Backports [windows-rs #5298](https://github.com/microsoft/windows-rs/pull/5298), preserving the existing 0.107 application API and the `item_count` field used by Guinea 0.35.1's harness.
+            This is a breaking preview update: `AppProxy`, `AppContext` and `App::run_with` are replaced by the upstream application declaration API. Recording integrations use `EventCall`; virtual-source mutations carry keys instead of `item_count`.
 
-            Existing Guinea 0.35.1, windows-canvas-pre 0.107 and guicons 0.16 consumers can update the Reactor dependency in their lockfile.
+            Published windows-rs 0.100 dependencies remain supported through generated COM binding compatibility. The native application startup path and Rust 1.95 compatibility are checked locally alongside Reactor and Guinea harness tests.
+
+            Use with Guinea 0.36 and windows-canvas-pre 0.108. Existing 0.107 consumers must migrate together; changing only the lockfile is insufficient.
         run: |
           set -euo pipefail
           printf '%s\n' "$RELEASE_BODY" > "$RUNNER_TEMP/reactor-preview-release.md"

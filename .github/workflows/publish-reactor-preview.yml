@@ -51,7 +51,12 @@ jobs:
       - name: Test the existing Guinea harness
         run: cargo +1.99.1 test --locked -p guinea --test harness_winui
 
+      - name: Set up WinUI runtime
+        uses: ./.github/actions/setup-winui-runtime
+        timeout-minutes: 5
+
       - name: Native application startup without a window
+        timeout-minutes: 3
         run: cargo +1.99.1 test --locked -p guinea-winui --lib run::tests::startup_failure_is_returned_without_opening_a_window -- --ignored --exact
 
       - name: Check MSRV

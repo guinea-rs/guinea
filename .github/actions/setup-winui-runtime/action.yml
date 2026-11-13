@@ -1,0 +1,33 @@
+name: Set up WinUI runtime
+description: Install the signed Windows App Runtime framework required by Reactor's native tests
+runs:
+  using: composite
+  steps:
+    - name: Install Windows App Runtime
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $bootstrap = Get-Content 'crates/vendor/windows-reactor-pre/src/native/bootstrap.rs' -Raw
+        $runtimeVersion = [regex]::Match($bootstrap, 'const RUNTIME_VERSION: &str = "([0-9.]+)"').Groups[1].Value
+        if (-not $runtimeVersion) { throw 'Cannot determine the pinned Reactor runtime version' }
+        $framework = Get-AppxPackage -Name Microsoft.WindowsAppRuntime.2 |
+          Where-Object { $_.Architecture -eq 'X64' -and $_.Version -ge [version]$runtimeVersion }
+        if ($framework) { Write-Host 'Required WinUI framework is already installed'; exit 0 }
+        $runtimeDirectory = Join-Path $env:RUNNER_TEMP 'guinea-winui-runtime'
+        New-Item -ItemType Directory -Force $runtimeDirectory | Out-Null
+        $runtimePackage = Join-Path $runtimeDirectory 'runtime.nupkg'
+        $runtimeMsix = Join-Path $runtimeDirectory 'runtime.msix'
+        $packageUri = "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk.runtime/$runtimeVersion/microsoft.windowsappsdk.runtime.$runtimeVersion.nupkg"
+        Invoke-WebRequest $packageUri -OutFile $runtimePackage -TimeoutSec 180
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($runtimePackage)
+        try {
+          $entry = $archive.GetEntry('MSIX/win10-x64/Microsoft.WindowsAppRuntime.2.msix')
+          if (-not $entry) { throw 'The pinned package has no x64 WinUI framework' }
+          [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $runtimeMsix, $true)
+        } finally { $archive.Dispose() }
+        # Windows validates the Microsoft-signed framework during registration.
+        Add-AppxPackage -Path $runtimeMsix -ErrorAction Stop
+        $framework = Get-AppxPackage -Name Microsoft.WindowsAppRuntime.2 |
+          Where-Object { $_.Architecture -eq 'X64' -and $_.Version -ge [version]$runtimeVersion }
+        if (-not $framework) { throw 'WinUI framework registration was not verified' }
+        $framework | Select-Object Name, Version, Architecture | Format-Table

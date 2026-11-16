@@ -40,6 +40,33 @@ pub struct ScopeContext {
 }
 
 impl ScopeContext {
+    /// Registers a system-wide shortcut for this scope. Its message is answered
+    /// by this feature; dropping the scope unregisters it. Sleeping scopes keep
+    /// their reservation and discard events, without replaying them on wake.
+    ///
+    /// See [`crate::hotkeys`] for reactive rebinding and registration status.
+    #[cfg(feature = "global-hotkeys")]
+    #[track_caller]
+    pub fn global_hotkey<M: 'static>(
+        &self,
+        binding: impl Into<crate::hotkeys::HotkeyBinding>,
+        message: impl Fn(crate::hotkeys::HotkeyEvent) -> M + 'static,
+    ) -> Result<crate::hotkeys::HotkeyRegistration, crate::hotkeys::HotkeyError> {
+        let section = self.section;
+        crate::hotkeys::install(section, binding.into(), move |event| {
+            let sink = guinea_core::trace::sink_of(section.scope());
+            let _recorded = sink.as_ref().map(guinea_core::trace::record_into);
+            let _action = guinea_core::trace::enter(|| guinea_core::trace::Point::Action {
+                message: guinea_core::__private::short_type_name::<M>(),
+            });
+            let answer = section.answerer::<M>().unwrap_or_else(|| panic!(
+                "global shortcut message `{}` has no handler in this feature",
+                std::any::type_name::<M>()
+            ));
+            answer(message(event));
+        })
+    }
+
     /// Reports whether this scope's window is visible and not minimized.
     /// Calls immediately with the current value, then only on changes, even
     /// while the subscribing scope sleeps. Removal cancels the subscription.

@@ -428,6 +428,18 @@ impl<'h, S: Mountable> Mounted<'h, S> {
 }
 
 impl<'h, S: 'static> Mounted<'h, S> {
+    /// Changes whether this window is presented and settles its views.
+    /// The scope and producers remain alive; views using `when_presented`
+    /// remove their native content while false and rebuild when true.
+    pub fn set_presented(&mut self, presented: bool) {
+        guinea_app::app::windows::set_presentation(
+            self.window.unwrap_or_else(|| self.segment.scope()),
+            presented,
+            false,
+        );
+        self.settle();
+    }
+
     /// The segment it is mounted into: to install more there, or to read
     /// what a page there reads.
     pub fn segment(&self) -> &Segment<'h> {
@@ -1661,6 +1673,12 @@ fn bool_of(value: Option<&PropertyValue>) -> Option<bool> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod callback_tests;
+
+#[cfg(test)]
+mod presentation_tests;
 
 fn ambiguous_mark(name: &str, paths: &[String]) -> ! {
     panic!("ambiguous mark {name:?}: {} matches in the search subtree\n{}\nNarrow the search with within()/at() or use distinct marks.",

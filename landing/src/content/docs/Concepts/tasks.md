@@ -41,6 +41,7 @@ fn results(this: &mut Results, found: Found) {
 
 pub struct Query(pub String);
 pub struct CancelSearch;
+pub struct MaybeQuery(pub Option<String>);
 ```
 <!-- /shown -->
 
@@ -77,7 +78,7 @@ struct Searching {
 
 actor! {
     Searching {
-        handlers { Query, CancelSearch }
+        handlers { Query, CancelSearch, MaybeQuery }
     }
 }
 
@@ -117,6 +118,24 @@ fn searching(cx: &Install) -> anyhow::Result<Search> {
 
 The page reads `Results` and emits `Query` through its dispatcher. It does
 not need to own a task handle or forward completed results itself.
+
+## Optional work
+
+When preparation returns `Option<Future>`, pass it to `spawn_optional`:
+
+<!-- shown: tasks: optional work -->
+```rust
+#[handler]
+fn maybe_query(In(this, MaybeQuery(text), cx): In<Searching, MaybeQuery>) {
+    let work = text.map(search);
+    cx.task().latest().pushing(this.push).spawn_optional(work);
+}
+```
+<!-- /shown -->
+
+`Some` follows the same policy and reply destination as `spawn`. `None` starts
+nothing, declares no lane, and leaves existing work alone, including under
+`latest()`. This also works with actor replies and `detached()`.
 
 ## Choosing what overlaps
 

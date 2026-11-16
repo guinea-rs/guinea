@@ -64,3 +64,28 @@ fn app_scope_is_not_an_arbitrary_window() {
     let host = GuineaHost::new();
     ScopeContext::new(host.context().__scope()).on_window_presented(|_| {});
 }
+
+#[test]
+fn disposable_watch_reads_current_state_and_stops_on_drop_or_scope_removal() {
+    use guinea_app::app::windows::{is_presented, watch_presentation};
+    let host = GuineaHost::new();
+    let root = Root::under(&host.context());
+    let child = root.scope().child();
+    set_presentation(root.scope(), false, false);
+    assert!(!is_presented(child));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let copy = seen.clone();
+    let watch = watch_presentation(child, move |v| copy.borrow_mut().push(v));
+    assert_eq!(&*seen.borrow(), &[false]);
+    set_presentation(root.scope(), true, false);
+    assert!(is_presented(child));
+    assert_eq!(&*seen.borrow(), &[false, true]);
+    drop(watch);
+    set_presentation(root.scope(), false, false);
+    assert_eq!(&*seen.borrow(), &[false, true]);
+    let copy = seen.clone();
+    let _watch = watch_presentation(child, move |v| copy.borrow_mut().push(v));
+    child.remove();
+    set_presentation(root.scope(), true, false);
+    assert_eq!(&*seen.borrow(), &[false, true, false]);
+}

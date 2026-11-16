@@ -24,6 +24,7 @@ fn results(this: &mut Results, found: Found) {
 
 pub struct Query(pub String);
 pub struct CancelSearch;
+pub struct MaybeQuery(pub Option<String>);
 //@show-end
 
 //@show tasks: simulated search
@@ -46,7 +47,7 @@ struct Searching {
 
 actor! {
     Searching {
-        handlers { Query, CancelSearch }
+        handlers { Query, CancelSearch, MaybeQuery }
     }
 }
 
@@ -55,6 +56,38 @@ fn query(In(this, Query(text), cx): In<Searching, Query>) {
     cx.task().latest().pushing(this.push).spawn(search(text));
 }
 //@show-end
+
+//@show tasks: optional work
+#[handler]
+fn maybe_query(In(this, MaybeQuery(text), cx): In<Searching, MaybeQuery>) {
+    let work = text.map(search);
+    cx.task().latest().pushing(this.push).spawn_optional(work);
+}
+//@show-end
+
+#[guinea::test]
+fn absent_optional_work_does_not_cancel_a_search_in_flight(h: &mut Harness) {
+    h.install::<Search>(&()).unwrap();
+    let dispatch = h.dispatch::<Results>();
+    dispatch.emit(Query("guinea".into()));
+    h.settled();
+    dispatch.emit(MaybeQuery(None));
+    h.advance(Duration::from_secs(1));
+    assert_eq!(h.state::<Results>().query, "guinea");
+}
+
+#[guinea::test]
+fn optional_work_replaces_the_previous_search_under_latest(h: &mut Harness) {
+    h.install::<Search>(&()).unwrap();
+    let dispatch = h.dispatch::<Results>();
+    dispatch.emit(Query("guinea".into()));
+    h.advance(Duration::from_millis(500));
+    dispatch.emit(MaybeQuery(Some("shown".into())));
+    h.advance(Duration::from_millis(500));
+    assert_eq!(*h.state::<Results>(), Results::default());
+    h.advance(Duration::from_millis(500));
+    assert_eq!(h.state::<Results>().query, "shown");
+}
 
 //@show tasks: cancelling a lane
 #[handler]

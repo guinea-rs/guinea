@@ -45,6 +45,12 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Scoped global shortcuts
+        run: cargo test --locked -p guinea-app --features global-hotkeys
+
+      - name: Native global shortcut registration and cleanup
+        run: cargo test --locked -p guinea-app --features global-hotkeys --test global_hotkeys_native -- --ignored
+
       - name: Native window presentation lifecycle
         run: cargo test --locked -p guinea-winui --lib presentation::tests::native_show_hide_minimize_and_restore_report_distinct_values -- --ignored --exact
 
@@ -189,6 +195,9 @@ jobs:
           -p guinea-macros
           -p guinea-trace
           -p guinea-codegen
+
+      - name: Global shortcut lifecycle without a display server
+        run: cargo test --locked -p guinea-app --features global-hotkeys
 
       # The facade itself, with the backend feature off - what a port to
       # another toolkit starts from.

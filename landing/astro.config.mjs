@@ -73,6 +73,7 @@ export default defineConfig({
             { slug: 'concepts/lifecycle' },
             { slug: 'concepts/advanced-tasks' },
             { slug: 'concepts/periods' },
+              { slug: 'concepts/hotkeys' },
           ],
         },
         {

@@ -16,6 +16,7 @@ miette.workspace = true
 petgraph.workspace = true
 tokio.workspace = true
 serde = { workspace = true, optional = true }
+global-hotkey = { version = "0.10", features = ["serde"], optional = true }
 
 [features]
 default = ["own-runtime"]
@@ -25,6 +26,7 @@ default = ["own-runtime"]
 # anything pays for a runtime it never uses, which is cheaper than every
 # application repeating the same two lines - and one that has its own keeps it.
 own-runtime = []
+global-hotkeys = ["dep:global-hotkey"]
 # `TestApp` - an application without a window, for crates that write plugins or
 # features out of tree and need to install them in a test - and `Harness`,
 # which runs what they spawn on the test's thread in an order a seed decides.

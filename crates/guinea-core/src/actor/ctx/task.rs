@@ -500,6 +500,20 @@ impl<'cx, A: 'static, M, P> Task<'cx, A, M, P, Reply> {
 }
 
 impl<'cx, A: 'static, M, P: Policy, S: Reducer, F> Task<'cx, A, M, P, Pushing<S, F>> {
+    /// Starts optional work, pushing its answer as [`Self::spawn`] would.
+    /// `None` does not open a lane or affect any work already running in it.
+    #[track_caller]
+    pub fn spawn_optional<Out, Fut>(self, fut: Option<Fut>)
+    where
+        Out: Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        F: FnOnce(Out) -> S::Update + Send + 'static,
+    {
+        if let Some(fut) = fut {
+            self.spawn(fut);
+        }
+    }
+
     /// [`Task::spawn`], pushing what `fut` returns.
     ///
     /// # Panics
@@ -591,6 +605,21 @@ fn dropped<S: 'static>() {
 }
 
 impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Reply> {
+    /// Starts optional work, replying as [`Self::spawn`] would.
+    /// `None` does not open a lane or affect any work already running in it.
+    #[track_caller]
+    pub fn spawn_optional<Out, Fut>(self, fut: Option<Fut>)
+    where
+        Out: Send + 'static,
+        A: Handler<Out> + ManagedActor,
+        A::Flow: Allows<M, Out>,
+        Fut: Future<Output = Out> + Send + 'static,
+    {
+        if let Some(fut) = fut {
+            self.spawn(fut);
+        }
+    }
+
     /// Starts `fut`. Cut off where it last awaited when it has to stop.
     ///
     /// # Panics
@@ -886,6 +915,18 @@ impl<'cx, A: 'static, M, P: Policy, R> Task<'cx, A, M, P, R> {
 }
 
 impl<'cx, A: 'static, M, P: Policy> Task<'cx, A, M, P, Detached> {
+    /// Starts optional work without an answer, as [`Self::spawn`] would.
+    /// `None` does not require a lane or affect any work already running in it.
+    #[track_caller]
+    pub fn spawn_optional<Fut>(self, fut: Option<Fut>)
+    where
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        if let Some(fut) = fut {
+            self.spawn(fut);
+        }
+    }
+
     /// [`Task::spawn`], answering no one.
     ///
     /// # Panics

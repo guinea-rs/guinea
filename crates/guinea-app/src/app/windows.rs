@@ -448,6 +448,22 @@ struct PresentationState {
     next: std::cell::Cell<u64>,
     listeners: PresentationListeners,
 }
+
+/// A component-owned subscription to its window's presentation state.
+/// Dropping it removes the listener. It does not keep the window alive.
+#[must_use = "dropping the watch stops presentation notifications"]
+pub struct PresentationWatch {
+    state: std::rc::Weak<PresentationState>,
+    id: u64,
+}
+
+impl Drop for PresentationWatch {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.upgrade() {
+            state.listeners.borrow_mut().remove(&self.id);
+        }
+    }
+}
 fn presentation(scope: guinea_core::scope::Scope) -> Presentation {
     let root = super::roots::own(scope).expect("window presentation requires a window root");
     if let Some(state) = root.try_kept::<Presentation, _>(|state| state.clone()) {
@@ -461,6 +477,13 @@ fn presentation(scope: guinea_core::scope::Scope) -> Presentation {
     }));
     root.keep(state.clone());
     state
+}
+
+/// Whether the window owning `scope` is visible and not minimized.
+/// Defaults to true until its backend reports native state.
+/// Panics when `scope` does not belong to a window root.
+pub fn is_presented(scope: guinea_core::scope::Scope) -> bool {
+    presentation(scope).0.current.get()
 }
 /// Reports a shell's window state. Presented means visible and not minimized.
 /// Call on the window's UI thread; repeated values are ignored. Roots default
@@ -493,7 +516,14 @@ pub fn set_presentation(scope: guinea_core::scope::Scope, visible: bool, minimiz
         }
     }
 }
-pub(crate) fn on_presented(scope: guinea_core::scope::Scope, callback: impl Fn(bool) + 'static) {
+/// Watches the owning window on its UI thread, initially reporting its current
+/// state and then distinct changes. Removed scopes receive no further calls.
+/// Keep the returned guard for as long as notifications are needed.
+/// Panics when `scope` does not belong to a window root.
+pub fn watch_presentation(
+    scope: guinea_core::scope::Scope,
+    callback: impl Fn(bool) + 'static,
+) -> PresentationWatch {
     let state = presentation(scope).0;
     let id = state.next.get();
     state.next.set(
@@ -502,16 +532,47 @@ pub(crate) fn on_presented(scope: guinea_core::scope::Scope, callback: impl Fn(b
     );
     let last = std::cell::Cell::new(None);
     let callback: std::rc::Rc<dyn Fn(bool)> = std::rc::Rc::new(move |value| {
-        if last.replace(Some(value)) != Some(value) {
+        if scope.is_alive() && last.replace(Some(value)) != Some(value) {
             callback(value);
         }
     });
     state.listeners.borrow_mut().insert(id, callback.clone());
-    let weak = std::rc::Rc::downgrade(&state);
-    scope.on_teardown(move || {
-        if let Some(state) = weak.upgrade() {
-            state.listeners.borrow_mut().remove(&id);
-        }
-    });
+    let watch = PresentationWatch { state: std::rc::Rc::downgrade(&state), id };
     callback(state.current.get());
+    watch
+}
+
+pub(crate) fn on_presented(scope: guinea_core::scope::Scope, callback: impl Fn(bool) + 'static) {
+    let watch = watch_presentation(scope, callback);
+    scope.on_teardown(move || drop(watch));
+}
+
+#[cfg(test)]
+mod presentation_watch_tests {
+    use super::*;
+
+    #[test]
+    fn dropping_component_watches_removes_their_callbacks_immediately() {
+        let host = crate::app::GuineaHost::new();
+        let root = crate::app::roots::Root::under(&host.context());
+        let state = presentation(root.scope()).0;
+        for _ in 0..100 {
+            let watch = watch_presentation(root.scope(), |_| {});
+            assert_eq!(state.listeners.borrow().len(), 1);
+            drop(watch);
+            assert!(state.listeners.borrow().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_panicking_initial_observer_does_not_leave_a_registered_callback() {
+        let host = crate::app::GuineaHost::new();
+        let root = crate::app::roots::Root::under(&host.context());
+        let state = presentation(root.scope()).0;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _watch = watch_presentation(root.scope(), |_| panic!("initial callback"));
+        }));
+        assert!(result.is_err());
+        assert!(state.listeners.borrow().is_empty());
+    }
 }

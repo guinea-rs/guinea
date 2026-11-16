@@ -257,6 +257,8 @@ impl Page for ConfiguredPage {
 :::winui
 <!-- shown: winui: a layout -->
 ```rust
+use guinea::winui::NavigatorExt;
+
 #[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Place {
     Counter,
@@ -270,15 +272,12 @@ pub struct Shell;
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<Place>();
-        let to_about = nav;
 
         StackPanel::new()
             .children((
                 Button::new()
                     .content(TextBlock::new().text("About"))
-                    .on_click(move || {
-                        let _ = to_about.to(Place::About);
-                    }),
+                    .on_click(nav.to_callback(Place::About)),
                 cx.outlet::<Place>(|place| match place {
                     Place::Counter => guinea::winui::mount::<CounterPage>(()),
                     Place::About => guinea::winui::mount::<About>(()),
@@ -376,6 +375,50 @@ fn app(_app: &mut FeatureBuilder) -> anyhow::Result<Window> {
 Точка входа исполняемого файла вызывает `run(app)` выбранного бэкенда: он
 открывает окно и запускает цикл событий. Тесты ниже тоже вызывают `app`,
 но монтируют возвращённое окно без системного цикла событий.
+
+## Нативное содержимое скрытого окна (WinUI)
+
+`cx.when_presented` вызывает замыкание, только когда окно видно и не свёрнуто.
+При скрытии возвращается пустой View, удаляющий нативные контролы; при восстановлении
+содержимое строится по актуальному состоянию. Страница и её скоуп Guinea продолжают
+жить. Производители отдельно решают, как реагировать, через `cx.on_window_presented`.
+
+Подписки и mount-вызовы, которые должны продолжать работать, оставляй перед этим
+вызовом. Пропускается только замыкание; ему передаётся тот же контекст, без
+дополнительного компонента или скоупа. Метод доступен и у `LayoutCx`.
+
+<!-- shown: winui: presented content -->
+```rust
+use guinea::winui::{Page, PageCx, UpdateCx, page};
+use windows_reactor::{Button, StackPanel, TextBlock, View};
+
+#[derive(Default)]
+struct VisibleCounter(u32);
+
+#[page]
+impl Page for VisibleCounter {
+    type Message = u32;
+
+    fn update(&mut self, by: u32, _: &mut UpdateCx<'_, Self>) {
+        self.0 += by;
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        let increment = cx.forward();
+        // Keep persistent subscriptions and mounts before this boundary.
+        cx.when_presented(|_cx| {
+            StackPanel::new().children((
+                TextBlock::new().text(format!("count {}", self.0)),
+                Button::new().content("Increment").on_click(move || increment.call(1)),
+            )).into()
+        })
+    }
+}
+```
+<!-- /shown -->
+
+В WinUI-харнесе `mounted.set_presented(false)` скрывает это содержимое, а
+`mounted.set_presented(true)` восстанавливает его без создания нативного окна.
 
 ## Тесты
 

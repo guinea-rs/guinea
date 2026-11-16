@@ -56,6 +56,8 @@ pub use guinea_eframe as eframe;
 pub use guinea_iced as iced;
 
 pub use guinea_app::{app, app_meta, feature};
+#[cfg(feature = "global-hotkeys")]
+pub use guinea_app::hotkeys;
 pub use guinea_core::{actor, executor, guard, sources, ui_thread};
 
 pub use guinea_meta as meta;
@@ -90,6 +92,8 @@ pub use guinea_core::__private::anyhow;
 /// A backend's own types - `Page`, `PageCx`, `Layout` - are not here; they
 /// come from the backend's module: `guinea::winui`, `guinea::eframe`.
 pub mod prelude {
+    #[cfg(feature = "global-hotkeys")]
+    pub use guinea_app::hotkeys::{HotkeyBinding, HotkeyEvent, HotkeyRegistration, HotkeyStatus};
     pub use guinea_app::app::{AppFeature, FeatureBuilder, Plugin, PluginBuilder};
     pub use guinea_app::feature::{Feature, FeatureInitContext, Install, ScopeContext};
     pub use guinea_core::sources::{Period, Source, Ticks};

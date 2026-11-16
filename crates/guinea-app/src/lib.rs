@@ -10,3 +10,6 @@ mod diagnostic;
 
 pub mod app;
 pub mod feature;
+
+#[cfg(feature = "global-hotkeys")]
+pub mod hotkeys;

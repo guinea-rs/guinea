@@ -1527,6 +1527,29 @@ fn watching<R: Routable, C: Refreshable>(
     });
 }
 
+struct PresentationSubscription;
+
+fn presented<C: Refreshable>(
+    scope: Scope,
+    cx: &mut ViewContext<C>,
+    subscribed: &mut Vec<TypeId>,
+) -> bool {
+    let current = guinea_app::app::windows::is_presented(scope);
+    if !subscribed.contains(&TypeId::of::<PresentationSubscription>()) {
+        subscribed.push(TypeId::of::<PresentationSubscription>());
+        let refresher = Refresher::of(cx);
+        cx.use_effect_guard("guinea::window_presentation", scope, move || {
+            let last = std::cell::Cell::new(current);
+            guinea_app::app::windows::watch_presentation(scope, move |value| {
+                if last.replace(value) != value {
+                    refresher.refresh();
+                }
+            })
+        });
+    }
+    current
+}
+
 /// What a page's view is handed.
 ///
 /// Carries the page type, not because rendering needs it, but because reading
@@ -1540,6 +1563,23 @@ pub struct PageCx<'a, 'v, P: Page> {
 }
 
 impl<P: Page> PageCx<'_, '_, P> {
+    /// Builds native content only while this window is visible and not minimized.
+    /// Hidden windows receive an empty view; presentation changes redraw the page.
+    /// The closure uses this same context. Setup before this call still runs, and
+    /// neither the page's scope nor its producers are put to sleep.
+    pub fn when_presented(&mut self, view: impl FnOnce(&mut Self) -> View) -> View {
+        if presented(self.scope, self.cx, self.subscribed) {
+            view(self)
+        } else {
+            Grid::new().into()
+        }
+    }
+
+    /// Forwards a widget's messages unchanged to this page's `update`.
+    pub fn forward(&self) -> Callback<P::Message> {
+        self.on(std::convert::identity)
+    }
+
     /// Seals a widget's event as one of this page's own messages.
     ///
     /// The seam, and the whole reason a parent never names a child's message
@@ -1651,6 +1691,21 @@ pub struct LayoutCx<'a, 'v, L: Layout> {
 }
 
 impl<L: Layout> LayoutCx<'_, '_, L> {
+    /// See [`PageCx::when_presented`]. Keep persistent setup and mounts outside
+    /// the closure when they must continue while native content is absent.
+    pub fn when_presented(&mut self, view: impl FnOnce(&mut Self) -> View) -> View {
+        if presented(self.scope, self.cx, self.subscribed) {
+            view(self)
+        } else {
+            Grid::new().into()
+        }
+    }
+
+    /// Forwards a widget's messages unchanged to this layout's `update`.
+    pub fn forward(&self) -> Callback<L::Message> {
+        self.on(std::convert::identity)
+    }
+
     /// See [`PageCx::on`].
     pub fn on<T>(&self, message: impl Fn(T) -> L::Message + 'static) -> Callback<T>
     where

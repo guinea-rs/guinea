@@ -133,6 +133,8 @@ mod shell {
     }
 
     //@show winui: a layout
+    use guinea::winui::NavigatorExt;
+
     #[derive(Clone, PartialEq, Debug, Routable)]
     pub enum Place {
         Counter,
@@ -146,15 +148,12 @@ mod shell {
     impl Layout for Shell {
         fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
             let nav = cx.navigate::<Place>();
-            let to_about = nav;
 
             StackPanel::new()
                 .children((
                     Button::new()
                         .content(TextBlock::new().text("About"))
-                        .on_click(move || {
-                            let _ = to_about.to(Place::About);
-                        }),
+                        .on_click(nav.to_callback(Place::About)),
                     cx.outlet::<Place>(|place| match place {
                         Place::Counter => guinea::winui::mount::<CounterPage>(()),
                         Place::About => guinea::winui::mount::<About>(()),
@@ -202,6 +201,51 @@ mod shell {
         assert!(shell.find_text("guinea").is_some());
     }
     //@show-end
+}
+
+mod presented_content {
+    use super::*;
+
+    //@show winui: presented content
+    use guinea::winui::{Page, PageCx, UpdateCx, page};
+    use windows_reactor::{Button, StackPanel, TextBlock, View};
+
+    #[derive(Default)]
+    struct VisibleCounter(u32);
+
+    #[page]
+    impl Page for VisibleCounter {
+        type Message = u32;
+
+        fn update(&mut self, by: u32, _: &mut UpdateCx<'_, Self>) {
+            self.0 += by;
+        }
+
+        fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+            let increment = cx.forward();
+            // Keep persistent subscriptions and mounts before this boundary.
+            cx.when_presented(|_cx| {
+                StackPanel::new().children((
+                    TextBlock::new().text(format!("count {}", self.0)),
+                    Button::new().content("Increment").on_click(move || increment.call(1)),
+                )).into()
+            })
+        }
+    }
+    //@show-end
+
+    #[guinea::test]
+    fn hidden_native_content_rebuilds_from_the_latest_page_state(h: &mut Harness) {
+        let mut page = Mounted::<VisibleCounter>::mount(h.child(), ()).unwrap();
+        page.click_text("Increment").settle();
+        assert!(page.find_text("count 1").is_some());
+        page.set_presented(false);
+        page.send(2);
+        page.settle();
+        assert!(page.find_text("count 3").is_none());
+        page.set_presented(true);
+        assert!(page.find_text("count 3").is_some());
+    }
 }
 
 mod dependencies {

@@ -256,6 +256,8 @@ layout's `match` chooses what to mount.
 :::winui
 <!-- shown: winui: a layout -->
 ```rust
+use guinea::winui::NavigatorExt;
+
 #[derive(Clone, PartialEq, Debug, Routable)]
 pub enum Place {
     Counter,
@@ -269,15 +271,12 @@ pub struct Shell;
 impl Layout for Shell {
     fn view(&self, cx: &mut LayoutCx<'_, '_, Self>) -> View {
         let nav = cx.navigate::<Place>();
-        let to_about = nav;
 
         StackPanel::new()
             .children((
                 Button::new()
                     .content(TextBlock::new().text("About"))
-                    .on_click(move || {
-                        let _ = to_about.to(Place::About);
-                    }),
+                    .on_click(nav.to_callback(Place::About)),
                 cx.outlet::<Place>(|place| match place {
                     Place::Counter => guinea::winui::mount::<CounterPage>(()),
                     Place::About => guinea::winui::mount::<About>(()),
@@ -374,6 +373,50 @@ window to open a navigator at the initial route. Features installed with
 The executable's entry point calls the backend's `run(app)` to open the
 window and enter its event loop. The tests below call `app` too, but mount
 the returned window without starting an operating-system event loop.
+
+## Native content in hidden windows (WinUI)
+
+`cx.when_presented` calls the closure only while the window is visible and not
+minimized. When hidden it returns an empty view, removing the native controls;
+on restore it rebuilds from the current state. The page and its Guinea scope stay
+alive. Producers decide separately how to respond through `cx.on_window_presented`.
+
+Keep subscriptions and mounts that must remain active before this call. Only the
+closure is skipped, and it receives the same context without an extra component
+or scope. The same helper is available on `LayoutCx`.
+
+<!-- shown: winui: presented content -->
+```rust
+use guinea::winui::{Page, PageCx, UpdateCx, page};
+use windows_reactor::{Button, StackPanel, TextBlock, View};
+
+#[derive(Default)]
+struct VisibleCounter(u32);
+
+#[page]
+impl Page for VisibleCounter {
+    type Message = u32;
+
+    fn update(&mut self, by: u32, _: &mut UpdateCx<'_, Self>) {
+        self.0 += by;
+    }
+
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
+        let increment = cx.forward();
+        // Keep persistent subscriptions and mounts before this boundary.
+        cx.when_presented(|_cx| {
+            StackPanel::new().children((
+                TextBlock::new().text(format!("count {}", self.0)),
+                Button::new().content("Increment").on_click(move || increment.call(1)),
+            )).into()
+        })
+    }
+}
+```
+<!-- /shown -->
+
+In a WinUI harness, `mounted.set_presented(false)` hides this content and
+`mounted.set_presented(true)` restores it without creating a native window.
 
 ## Testing
 

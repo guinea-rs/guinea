@@ -2723,6 +2723,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "global-hotkey"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96daa86bdc1413406daee362a835e52c430c2193e5a5c328d1e522be140d1764"
+dependencies = [
+ "crossbeam-channel",
+ "keyboard-types 0.8.3",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "once_cell",
+ "serde",
+ "thiserror 2.0.20",
+ "windows-sys 0.59.0",
+ "x11rb",
+ "xkeysym",
+]
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2827,7 +2845,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2853,9 +2871,10 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
+ "global-hotkey",
  "guinea-core",
  "guinea-macros",
  "insta",
@@ -2869,14 +2888,14 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "guinea-core"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2900,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2914,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-iced"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "elsa",
@@ -2928,7 +2947,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2944,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "guinea-core",
  "guinea-macros",
@@ -2952,11 +2971,11 @@ dependencies = [
 
 [[package]]
 name = "guinea-meta"
-version = "0.36.0"
+version = "0.36.1"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "guinea-codegen",
  "serde",
@@ -2966,7 +2985,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-profile"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "axum",
  "clap",
@@ -2986,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-ratatui"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -3000,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3012,7 +3031,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -3027,7 +3046,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-build"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea-codegen",
@@ -3039,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-slint-fixture"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea",
@@ -3050,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "dhat",
  "flate2",
@@ -3070,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -4266,6 +4285,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyboard-types"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
+dependencies = [
+ "bitflags 2.13.1",
+ "serde",
+]
+
+[[package]]
 name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4741,7 +4770,7 @@ checksum = "1dd04e60bc0b07438a6771710ee1698f98f6ebbc7f89b61264af1563b8aeb878"
 dependencies = [
  "crossbeam-channel",
  "dpi",
- "keyboard-types",
+ "keyboard-types 0.7.0",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",

@@ -43,6 +43,7 @@ slint-winit = ["slint", "guinea-slint/winit"]
 # Let guinea start the async runtime, so an application does not open with
 # `Runtime::new()` and an `enter()` guard it has to keep alive by hand.
 own-runtime = ["guinea-app/own-runtime"]
+global-hotkeys = ["guinea-app/global-hotkeys"]
 
 # `app::TestApp` - an application without a window, for crates that write
 # plugins or features out of tree and need to install them in a test - and

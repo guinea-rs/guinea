@@ -17,6 +17,7 @@ mod dispatching;
 #[cfg(feature = "harness")]
 pub mod harness;
 mod mark;
+mod navigation;
 mod run;
 mod presentation;
 mod question_watch;
@@ -28,6 +29,7 @@ pub use guinea_core::guard::{Ask, Verdict};
 pub use guinea_macros::{Routable, winui_layout as layout, winui_page as page};
 pub use guinea_router::navigator::{Moved, Navigator, Routable};
 pub use mark::MarkExt;
+pub use navigation::NavigatorExt;
 pub use run::{MAIN, Window, run, window};
 pub use winui::*;
 

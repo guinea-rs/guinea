@@ -41,6 +41,7 @@ fn results(this: &mut Results, found: Found) {
 
 pub struct Query(pub String);
 pub struct CancelSearch;
+pub struct MaybeQuery(pub Option<String>);
 ```
 <!-- /shown -->
 
@@ -78,7 +79,7 @@ struct Searching {
 
 actor! {
     Searching {
-        handlers { Query, CancelSearch }
+        handlers { Query, CancelSearch, MaybeQuery }
     }
 }
 
@@ -119,6 +120,24 @@ fn searching(cx: &Install) -> anyhow::Result<Search> {
 
 Страница читает `Results` и отправляет `Query` через диспетчер. Ей не нужно
 хранить хендл задачи или самостоятельно пересылать готовые результаты.
+
+## Необязательная работа
+
+Если подготовка возвращает `Option<Future>`, передай его в `spawn_optional`:
+
+<!-- shown: tasks: optional work -->
+```rust
+#[handler]
+fn maybe_query(In(this, MaybeQuery(text), cx): In<Searching, MaybeQuery>) {
+    let work = text.map(search);
+    cx.task().latest().pushing(this.push).spawn_optional(work);
+}
+```
+<!-- /shown -->
+
+Для `Some` действуют те же политика и получатель ответа, что у `spawn`. `None`
+ничего не запускает, не объявляет линию и не затрагивает уже запущенную работу,
+в том числе с `latest()`. Метод работает и с ответом актору, и с `detached()`.
 
 ## Если запросы пересекаются
 

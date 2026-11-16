@@ -49,6 +49,67 @@ fn search(n: u32) -> (oneshot::Sender<()>, impl Future<Output = Found> + Send + 
 
 const ENDS: [&str; 4] = ["settled", "cancelled", "superseded", "skipped"];
 
+#[test]
+fn optional_reply_runs_some_and_none_does_not_supersede_latest() {
+    let bench = Bench::new();
+    let (open, work) = search(7);
+    bench.cx().task().latest().spawn_optional(Some(work));
+    bench.executor.run_until_parked();
+    bench.cx().task().latest().spawn_optional(None::<std::future::Ready<Found>>);
+    assert!(open.send(()).is_ok(), "None must not cancel the running future");
+    bench.executor.run_until_parked();
+    assert_eq!(bench.found(), [7]);
+    assert_eq!(bench.ends(), ["settled"]);
+}
+
+#[test]
+fn absent_optional_work_does_not_declare_a_lane_policy() {
+    let bench = Bench::new();
+    bench.cx().task().latest().spawn_optional(None::<std::future::Ready<Found>>);
+    bench.cx().task().conflate().spawn_optional(Some(std::future::ready(Found(9))));
+    bench.executor.run_until_parked();
+    assert_eq!(bench.found(), [9]);
+    assert_eq!(bench.ends(), ["settled"]);
+}
+
+#[test]
+fn optional_push_preserves_mapping_and_none_does_not_cancel_latest() {
+    let bench = Bench::new();
+    let scope = bench.home.tree.scope();
+    let push = Push::<Tally>::new(scope);
+    let (open, work) = held(4);
+    bench.cx().task().latest().pushing_with(push, |n: u32| n * 3).spawn_optional(Some(work));
+    bench.executor.run_until_parked();
+    bench.cx().task().latest().pushing_with(push, |n: u32| n * 3)
+        .spawn_optional(None::<std::future::Ready<u32>>);
+    assert!(open.send(()).is_ok());
+    bench.executor.run_until_parked();
+    assert_eq!(tallied(scope), 12);
+    assert!(bench.found().is_empty());
+    assert_eq!(bench.ends(), ["settled"]);
+}
+
+#[test]
+fn optional_detached_none_needs_no_lane_and_does_not_cancel_running_work() {
+    use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+    struct Lane;
+    let bench = Bench::new();
+    let completed = Arc::new(AtomicU32::new(0));
+    let count = completed.clone();
+    let (open, ready) = oneshot::channel::<()>();
+    bench.cx().task().lane::<Lane>().latest().detached().spawn_optional(Some(async move {
+        let _ = ready.await;
+        count.fetch_add(1, Ordering::SeqCst);
+    }));
+    bench.executor.run_until_parked();
+    bench.cx().task().latest().detached().spawn_optional(None::<std::future::Ready<()>>);
+    bench.cx().task().lane::<Lane>().latest().detached().spawn_optional(None::<std::future::Ready<()>>);
+    assert!(open.send(()).is_ok());
+    bench.executor.run_until_parked();
+    assert_eq!(completed.load(Ordering::SeqCst), 1);
+    assert_eq!(bench.ends(), ["settled"]);
+}
+
 /// What `crates/guinea/tests/lanes.rs` cannot reach through the harness: one
 /// step of the executor, and an actor gone while its `Cx` is still in hand.
 struct Bench {

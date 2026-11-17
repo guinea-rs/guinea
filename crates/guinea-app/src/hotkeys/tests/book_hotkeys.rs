@@ -105,5 +105,25 @@ fn reactive_shortcut_uses_the_public_api_and_routes_typed_messages() -> Result<(
     ui.drain(); // An already queued change cannot resurrect the registration.
     assert!(fake.keys.borrow().is_empty());
     assert!(setting.0.lock().unwrap().watchers.is_empty());
+
+    let recovery_tree = ScopeTree::new();
+    let recovery_cx = ScopeContext::new(recovery_tree.scope());
+    recovery_cx.answers(|_: ()| {});
+    let recovery_setting = Setting::default();
+    recovery_setting.set(Some(key(Code::KeyP)));
+    fake.keys.borrow_mut().insert(key(Code::KeyP));
+    let recovery = recovery_cx.global_hotkey(
+        HotkeyBinding::follows(recovery_setting.clone()).recovering(), |_| (),
+    )?;
+    assert!(recovery.status.get().unwrap().error.is_some());
+    assert_eq!(recovery.status.get().unwrap().effective, None);
+    recovery_setting.set(Some(key(Code::KeyQ)));
+    ui.drain();
+    assert_eq!(recovery.status.get().unwrap().effective, Some(key(Code::KeyQ)));
+    assert!(recovery.status.get().unwrap().error.is_none());
+    recovery_tree.scope().remove();
+    assert!(!fake.keys.borrow().contains(&key(Code::KeyQ)));
+    assert!(recovery_setting.0.lock().unwrap().watchers.is_empty());
+    fake.keys.borrow_mut().remove(&key(Code::KeyP));
     Ok(())
 }

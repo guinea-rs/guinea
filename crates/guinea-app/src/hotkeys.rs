@@ -11,6 +11,8 @@
 //! `status` feed reports requested/effective bindings and rebinding errors.
 //! A conflict preserves the last working binding. Subscribe to status when
 //! showing an editor for shortcuts: later errors cannot return through `?`.
+//! Use [`HotkeyBinding::recovering`] to keep an initially conflicting binding
+//! inactive and let subsequent settings changes retry registration.
 //!
 //! Requires the toolkit's native event loop: Windows, macOS (main thread),
 //! or Linux/X11. This does not implement Wayland portals or local UI shortcuts.
@@ -95,10 +97,21 @@ impl BindingSource for Fixed {
 }
 
 /// A fixed shortcut or a reactive setting. Persistence stays in the app's store.
-pub struct HotkeyBinding(Arc<dyn BindingSource>);
+pub struct HotkeyBinding {
+    source: Arc<dyn BindingSource>,
+    recovering: bool,
+}
 impl HotkeyBinding {
     pub fn follows(source: impl Changing<Value = Option<HotKey>>) -> Self {
-        Self(Arc::new(Following(source)))
+        Self { source: Arc::new(Following(source)), recovering: false }
+    }
+
+    /// Keeps an initially unavailable shortcut installed as an inactive binding.
+    /// Its status reports the error; changing the source retries registration.
+    /// Native manager initialization errors still fail installation.
+    pub fn recovering(mut self) -> Self {
+        self.recovering = true;
+        self
     }
 }
 impl From<HotKey> for HotkeyBinding {
@@ -108,7 +121,7 @@ impl From<HotKey> for HotkeyBinding {
 }
 impl From<Option<HotKey>> for HotkeyBinding {
     fn from(key: Option<HotKey>) -> Self {
-        Self(Arc::new(Fixed(key)))
+        Self { source: Arc::new(Fixed(key)), recovering: false }
     }
 }
 
@@ -245,7 +258,7 @@ impl Entry {
         if self.state.borrow().closed || !self.scope.is_alive() {
             return Ok(());
         }
-        let requested = self.source.0.now();
+        let requested = self.source.source.now();
         let effective = self.state.borrow().status.effective;
         let result = (|| {
             if requested == effective {
@@ -409,7 +422,7 @@ fn install_with(
     });
     let queued = entry.queued.clone();
     // Subscribe before reading, so a setting changed during install is not lost.
-    *entry.watching.borrow_mut() = Some(entry.source.0.watch(Box::new(move || {
+    *entry.watching.borrow_mut() = Some(entry.source.source.watch(Box::new(move || {
         if !queued.swap(true, Ordering::AcqRel) {
             guinea_core::ui_thread::invoke_on_ui(move || {
                 if let Some(entry) = find(token) {
@@ -419,8 +432,10 @@ fn install_with(
         }
     })));
     if let Err(error) = entry.refresh() {
-        entry.close();
-        return Err(error);
+        if !entry.source.recovering {
+            entry.close();
+            return Err(error);
+        }
     }
     let status = section.feed();
     status.set(entry.state.borrow().status.clone());

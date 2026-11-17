@@ -56,6 +56,12 @@ from the effective one after a conflict. Follow the feed to display that
 error in a shortcut editor. An initial failure returns through `?`; a
 later failure is published in the feed.
 
+For a shortcut editor, use `HotkeyBinding::follows(setting).recovering()`.
+An initial registration conflict then leaves an inactive binding with
+`status.error`, allowing the application to start. Changing the setting retries
+registration without replacing the stored value with `None`. Errors initializing
+the native hotkey manager still return through `?`.
+
 Events already captured for an earlier registration are discarded after a
 successful change, including when a shortcut changes away and back again.
 

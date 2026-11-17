@@ -342,3 +342,36 @@ fn failed_initial_registration_drops_subscription_and_handler() {
             .any(|entry| entry.scope == tree.scope())
     }));
 }
+
+#[test]
+fn recovering_binding_keeps_initial_conflict_and_activates_after_setting_changes() {
+    let tree = ScopeTree::new();
+    let (hub, fake) = fake_hub();
+    let source = Setting::default();
+    source.set(Some(key(Code::KeyP)));
+    fake.keys.borrow_mut().insert(key(Code::KeyP));
+    let handle = install_with(
+        tree.scope().section(),
+        HotkeyBinding::follows(source.clone()).recovering(),
+        |_| {},
+        hub.clone(),
+    ).unwrap();
+    let status = handle.status.get().unwrap();
+    assert_eq!(status.requested, Some(key(Code::KeyP)));
+    assert_eq!(status.effective, None);
+    assert!(status.error.is_some());
+    assert_eq!(source.0.lock().unwrap().value, Some(key(Code::KeyP)));
+    assert_eq!(source.0.lock().unwrap().watchers.len(), 1);
+    source.0.lock().unwrap().value = Some(key(Code::KeyQ));
+    let entry = ENTRIES.with_borrow(|entries| entries.values().filter_map(Weak::upgrade)
+        .find(|entry| entry.scope == tree.scope()).unwrap());
+    entry.refresh().unwrap();
+    let status = handle.status.get().unwrap();
+    assert_eq!(status.effective, Some(key(Code::KeyQ)));
+    assert!(status.error.is_none());
+    assert!(fake.keys.borrow().contains(&key(Code::KeyQ)));
+    tree.scope().remove();
+    assert!(!fake.keys.borrow().contains(&key(Code::KeyQ)));
+    assert!(source.0.lock().unwrap().watchers.is_empty());
+    assert!(hub.owned.borrow().is_empty());
+}

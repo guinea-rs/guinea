@@ -81,7 +81,8 @@ impl Window {
         }
     }
 
-    /// Enables terminal mouse reporting to [`Layout::on_mouse`](crate::Layout::on_mouse).
+    /// Enables mouse reporting to [`Page::on_mouse`](crate::Page::on_mouse)
+    /// and [`Layout::on_mouse`](crate::Layout::on_mouse).
     /// The terminal may reserve the wheel and other mouse gestures for the app
     /// while capture is enabled. Capture is off by default.
     pub fn mouse_capture(mut self, enabled: bool) -> Self {

@@ -8,7 +8,7 @@ use guinea_app::feature::Install;
 use guinea_core::guard::{Ask, Verdict};
 use guinea_core::scope::Scope;
 use guinea_macros::{feature, installs, reducer};
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton};
 use ratatui::layout::{Constraint, Direction, Layout as Rows};
 use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, backend::TestBackend};
@@ -114,6 +114,7 @@ impl Layout for Shell {
 struct Processes {
     frames: u32,
     filter: String,
+    click: Option<MouseEvent>,
 }
 
 #[page]
@@ -122,7 +123,10 @@ impl Page for Processes {
         self.frames += 1;
 
         let area = cx.area();
-        let shown = format!("processes {} {}", self.frames, self.filter);
+        let shown = match self.click {
+            Some(click) => format!("{:?} {},{}", click.kind, click.column, click.row),
+            None => format!("processes {} {}", self.frames, self.filter),
+        };
         cx.frame().render_widget(Paragraph::new(shown.trim_end().to_string()), area);
     }
 
@@ -139,6 +143,16 @@ impl Page for Processes {
     fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, text: &str) -> Handled {
         self.filter.push_str(text);
         Handled::Yes
+    }
+
+    fn on_mouse(&mut self, _cx: &mut InputCx<'_, Self>, event: &MouseEvent) -> Handled {
+        let handled = match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => Handled::Yes,
+            MouseEventKind::Down(MouseButton::Right) => Handled::No,
+            _ => return Handled::No,
+        };
+        self.click = Some(*event);
+        handled
     }
 }
 
@@ -407,6 +421,20 @@ fn a_layout_receives_wheel_events_with_terminal_coordinates() {
     assert_eq!(window.offer(mouse(MouseEventKind::ScrollDown, 13, 1)), Handled::Yes);
     assert_eq!(window.draw(), "ScrollDown 13,1\nprocesses 3");
     assert_eq!(window.offer(mouse(MouseEventKind::ScrollUp, 0, 0)), Handled::No);
+}
+
+#[test]
+fn a_click_reaches_the_page_before_the_layout() {
+    let window = Window::at(Place::Processes);
+
+    window.hear(mouse(MouseEventKind::Down(MouseButton::Left), 7, 1));
+    assert_eq!(window.draw(), "tabs\nDown(Left) 7,1");
+
+    assert_eq!(
+        window.offer(mouse(MouseEventKind::Down(MouseButton::Right), 13, 1)),
+        Handled::Yes,
+    );
+    assert_eq!(window.draw(), "Down(Right) 13,1\nDown(Right) 13,1");
 }
 
 #[test]

@@ -7,7 +7,7 @@
 //! [`Node`], a piece of drawing deferred until the layout supplies a frame and
 //! the rectangle it wants the child to occupy.
 //!
-//! Input follows the drawing. A key goes to what the last frame drew, the
+//! Input follows the drawing. It goes to what the last frame drew, the
 //! segment drawn last first and every layout after what it drew, until one
 //! takes it.
 
@@ -71,8 +71,8 @@ pub enum Handled {
 /// backend: what is typed in a filter, which row is picked. It is made by
 /// [`Page::install`] when the page mounts and dropped when it goes.
 ///
-/// Input comes to what was drawn: [`Page::on_key`] and [`Page::on_paste`]
-/// see it first, the layouts above see what it did not take.
+/// Input comes to what was drawn. [`Page::on_key`], [`Page::on_paste`] and
+/// [`Page::on_mouse`] see it before the layouts above them.
 ///
 /// `#[page]` writes what is left out: `Params` as `()`, and the `install`
 /// that starts from `Default`.
@@ -113,6 +113,13 @@ pub trait Page: Sized + 'static {
     fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, _text: &str) -> Handled {
         Handled::No
     }
+
+    /// Mouse input from a window with [`Window::mouse_capture`] enabled.
+    /// `Handled::No` lets the event reach the next segment in reverse draw
+    /// order. Coordinates are zero-based terminal columns and rows.
+    fn on_mouse(&mut self, _cx: &mut InputCx<'_, Self>, _event: &MouseEvent) -> Handled {
+        Handled::No
+    }
 }
 
 /// A branch: draws its own chrome and mounts what goes under it. Its own
@@ -148,8 +155,8 @@ pub trait Layout: Sized + 'static {
     }
 
     /// Mouse input from a window with [`Window::mouse_capture`] enabled.
-    /// Layouts receive it in reverse draw order until one handles it. Use the
-    /// event's zero-based terminal column and row to decide whether to take it.
+    /// Pages and layouts receive it in reverse draw order until one handles it.
+    /// Use the event's zero-based terminal column and row to decide whether to take it.
     fn on_mouse(&mut self, _cx: &mut InputCx<'_, Self>, _event: &MouseEvent) -> Handled {
         Handled::No
     }
@@ -246,7 +253,7 @@ fn page_offer<P: Page>(window: Scope, scope: Scope, input: &Input) -> Handled {
         .kept::<P, _>(|page| match input {
             Input::Key(key) => page.on_key(&mut cx, key),
             Input::Paste(text) => page.on_paste(&mut cx, text),
-            Input::Mouse(_) => Handled::No,
+            Input::Mouse(event) => page.on_mouse(&mut cx, event),
         })
         .unwrap_or(Handled::No)
 }

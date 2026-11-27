@@ -18,7 +18,9 @@ use guinea_router::mount::Pass;
 use guinea_router::navigator::{Asking, Navigator, Routable};
 use ratatui::Terminal;
 use ratatui::crossterm::cursor::Show;
-use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
+use ratatui::crossterm::event::{
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -53,6 +55,7 @@ const TICK: Duration = Duration::from_millis(50);
 pub struct Window {
     root: Root,
     start: Option<Box<dyn FnOnce(Scope) -> Rc<dyn Asking>>>,
+    mouse_capture: bool,
 }
 
 /// The layout a window roots at.
@@ -74,7 +77,16 @@ impl Window {
         Self {
             root: Root::of::<L>(),
             start: None,
+            mouse_capture: false,
         }
+    }
+
+    /// Enables terminal mouse reporting to [`Layout::on_mouse`](crate::Layout::on_mouse).
+    /// The terminal may reserve the wheel and other mouse gestures for the app
+    /// while capture is enabled. Capture is off by default.
+    pub fn mouse_capture(mut self, enabled: bool) -> Self {
+        self.mouse_capture = enabled;
+        self
     }
 
     /// Starts the window at `route`, with a navigator of its own over `R`:
@@ -167,7 +179,7 @@ pub fn run(app: impl FnOnce(&mut FeatureBuilder) -> anyhow::Result<Window>) -> a
         return Err(error.context("guinea: mounting the main window"));
     }
 
-    let outcome = Screen::enter().and_then(|mut screen| {
+    let outcome = Screen::enter(window.mouse_capture).and_then(|mut screen| {
         let outcome = pump(&mut screen, &ui, scope, &window.root, asking.as_deref());
         let left = screen.leave();
         outcome.and(left)
@@ -203,7 +215,9 @@ fn pump(
         if event::poll(TICK)? {
             let event = event::read()?;
 
-            hear(window, asking, &event);
+            if screen.mouse_capture || !matches!(event, Event::Mouse(_)) {
+                hear(window, asking, &event);
+            }
             if closed(window) {
                 return Ok(());
             }
@@ -238,13 +252,14 @@ type PanicHook = dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync + 'static;
 /// alternate screen it would vanish with it.
 struct Screen {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture: bool,
     /// The hook that stood before this one, to stand again once it is gone.
     previous: Option<Arc<PanicHook>>,
     left: bool,
 }
 
 impl Screen {
-    fn enter() -> anyhow::Result<Self> {
+    fn enter(mouse_capture: bool) -> anyhow::Result<Self> {
         enable_raw_mode()?;
 
         let entered = execute!(io::stdout(), EnterAlternateScreen)
@@ -252,21 +267,26 @@ impl Screen {
         let terminal = match entered {
             Ok(terminal) => terminal,
             Err(error) => {
-                restore();
+                restore(false);
                 return Err(error.into());
             }
         };
         let _ = execute!(io::stdout(), EnableBracketedPaste);
+        if mouse_capture && let Err(error) = execute!(io::stdout(), EnableMouseCapture) {
+            restore(true);
+            return Err(error.into());
+        }
 
         let previous: Arc<PanicHook> = Arc::from(std::panic::take_hook());
         let chained = previous.clone();
         std::panic::set_hook(Box::new(move |info| {
-            restore();
+            restore(mouse_capture);
             chained(info);
         }));
 
         Ok(Self {
             terminal,
+            mouse_capture,
             previous: Some(previous),
             left: false,
         })
@@ -276,10 +296,9 @@ impl Screen {
         self.left = true;
         self.stand_down();
 
-        let _ = execute!(self.terminal.backend_mut(), DisableBracketedPaste);
-        disable_raw_mode()?;
-        execute!(self.terminal.backend_mut(), LeaveAlternateScreen)?;
-        self.terminal.show_cursor()?;
+        let modes = restore_modes(self.terminal.backend_mut(), self.mouse_capture);
+        let cursor = self.terminal.show_cursor();
+        modes.and(cursor)?;
         Ok(())
     }
 
@@ -299,15 +318,27 @@ impl Drop for Screen {
     fn drop(&mut self) {
         if !self.left {
             self.stand_down();
-            restore();
+            restore(self.mouse_capture);
         }
     }
 }
 
 /// The terminal as it was before [`Screen::enter`], as far as it can be put
 /// back: whatever fails here has no one left to report to.
-fn restore() {
-    let _ = execute!(io::stdout(), DisableBracketedPaste);
-    let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+fn restore(mouse_capture: bool) {
+    let mut out = io::stdout();
+    let _ = restore_modes(&mut out, mouse_capture);
+    let _ = execute!(out, Show);
+}
+
+fn restore_modes(out: &mut impl io::Write, mouse_capture: bool) -> io::Result<()> {
+    let mouse = if mouse_capture {
+        execute!(out, DisableMouseCapture)
+    } else {
+        Ok(())
+    };
+    let _ = execute!(out, DisableBracketedPaste);
+    let raw = disable_raw_mode();
+    let alternate = execute!(out, LeaveAlternateScreen);
+    mouse.and(raw).and(alternate)
 }

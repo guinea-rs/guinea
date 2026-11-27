@@ -14,7 +14,10 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, backend::TestBackend};
 
 use crate::run::{Root, frame, hear, open};
-use crate::{Handled, InputCx, Layout, LayoutCx, Navigator, Page, PageCx, Routable, closed, layout, offer, page};
+use crate::{
+    Handled, InputCx, Layout, LayoutCx, MouseEvent, MouseEventKind, Navigator, Page, PageCx,
+    Routable, closed, layout, offer, page,
+};
 
 #[derive(Clone, PartialEq, Debug, Routable)]
 enum Place {
@@ -50,6 +53,7 @@ fn sharing(cx: &Install) -> anyhow::Result<Sharing> {
 #[derive(Default)]
 struct Shell {
     took: bool,
+    mouse: Option<MouseEvent>,
 }
 
 #[layout]
@@ -65,7 +69,11 @@ impl Layout for Shell {
             .constraints([Constraint::Length(1), Constraint::Min(0)])
             .split(cx.area());
 
-        let chrome = if self.took { "shell took x" } else { "tabs" };
+        let chrome = match self.mouse {
+            Some(mouse) => format!("{:?} {},{}", mouse.kind, mouse.column, mouse.row),
+            None if self.took => "shell took x".into(),
+            None => "tabs".into(),
+        };
         cx.frame().render_widget(Paragraph::new(chrome), rows[0]);
 
         let nav = cx.navigate::<Place>();
@@ -89,6 +97,14 @@ impl Layout for Shell {
             KeyCode::Char('q') => cx.close(),
             _ => return Handled::No,
         }
+        Handled::Yes
+    }
+
+    fn on_mouse(&mut self, _cx: &mut InputCx<'_, Self>, event: &MouseEvent) -> Handled {
+        if event.row != 1 {
+            return Handled::No;
+        }
+        self.mouse = Some(*event);
         Handled::Yes
     }
 }
@@ -296,6 +312,15 @@ fn release(typed: char) -> Event {
     ))
 }
 
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
+    Event::Mouse(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    })
+}
+
 #[test]
 fn what_is_mounted_says_where_it_was_written() {
     use guinea_core::__private::observer;
@@ -374,6 +399,17 @@ fn a_paste_is_offered_as_one_text() {
 }
 
 #[test]
+fn a_layout_receives_wheel_events_with_terminal_coordinates() {
+    let window = Window::at(Place::Processes);
+
+    window.hear(mouse(MouseEventKind::ScrollUp, 7, 1));
+    assert_eq!(window.draw(), "ScrollUp 7,1\nprocesses 2");
+    assert_eq!(window.offer(mouse(MouseEventKind::ScrollDown, 13, 1)), Handled::Yes);
+    assert_eq!(window.draw(), "ScrollDown 13,1\nprocesses 3");
+    assert_eq!(window.offer(mouse(MouseEventKind::ScrollUp, 0, 0)), Handled::No);
+}
+
+#[test]
 fn a_move_made_by_a_key_is_drawn_in_the_next_frame() {
     let window = Window::at(Place::Processes);
 
@@ -448,7 +484,8 @@ fn while_a_question_is_up_keys_answer_it_and_reach_nothing_else() {
     assert!(window.nav.pending().is_some(), "the draft minds being left");
 
     window.hear(press('x'));
-    assert_eq!(window.draw(), "tabs\ndraft 0", "the key went to the question");
+    window.hear(mouse(MouseEventKind::ScrollUp, 7, 1));
+    assert_eq!(window.draw(), "tabs\ndraft 0", "the question took input");
 
     window.hear(press('y'));
     assert_eq!(window.draw(), "tabs\nother 0");

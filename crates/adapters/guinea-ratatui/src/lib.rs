@@ -27,6 +27,7 @@ pub use guinea_app::feature::{FeatureInitContext, Install};
 pub use guinea_macros::{Routable, ratatui_layout as layout, ratatui_page as page};
 /// Where a window is, and how to move it.
 pub use guinea_router::navigator::{Moved, Navigator, Routable};
+pub use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -145,6 +146,13 @@ pub trait Layout: Sized + 'static {
     fn on_paste(&mut self, _cx: &mut InputCx<'_, Self>, _text: &str) -> Handled {
         Handled::No
     }
+
+    /// Mouse input from a window with [`Window::mouse_capture`] enabled.
+    /// Layouts receive it in reverse draw order until one handles it. Use the
+    /// event's zero-based terminal column and row to decide whether to take it.
+    fn on_mouse(&mut self, _cx: &mut InputCx<'_, Self>, _event: &MouseEvent) -> Handled {
+        Handled::No
+    }
 }
 
 /// A page or a layout: what [`LayoutCx::mount`] mounts. `#[page]` and
@@ -238,6 +246,7 @@ fn page_offer<P: Page>(window: Scope, scope: Scope, input: &Input) -> Handled {
         .kept::<P, _>(|page| match input {
             Input::Key(key) => page.on_key(&mut cx, key),
             Input::Paste(text) => page.on_paste(&mut cx, text),
+            Input::Mouse(_) => Handled::No,
         })
         .unwrap_or(Handled::No)
 }
@@ -252,6 +261,7 @@ fn layout_offer<L: Layout>(window: Scope, scope: Scope, input: &Input) -> Handle
         .kept::<L, _>(|layout| match input {
             Input::Key(key) => layout.on_key(&mut cx, key),
             Input::Paste(text) => layout.on_paste(&mut cx, text),
+            Input::Mouse(event) => layout.on_mouse(&mut cx, event),
         })
         .unwrap_or(Handled::No)
 }
@@ -278,12 +288,14 @@ pub(crate) fn failed(error: &anyhow::Error) -> Node {
 pub(crate) enum Input {
     Key(KeyEvent),
     Paste(String),
+    Mouse(MouseEvent),
 }
 
 fn input(event: &Event) -> Option<Input> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => Some(Input::Key(*key)),
         Event::Paste(text) => Some(Input::Paste(text.clone())),
+        Event::Mouse(event) => Some(Input::Mouse(*event)),
         _ => None,
     }
 }
